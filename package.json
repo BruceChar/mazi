@@ -13,7 +13,8 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "check": "pnpm lint && pnpm test",
-    "prepare": "husky"
+    "prepare": "husky",
+    "mazi": "node apps/cli/dist/cli.js"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",

@@ -23,9 +23,15 @@ pnpm build         # turbo tsc -b 全量构建，产出各包 dist/
 
 ### 3. 命令与选项
 
+仓库根已注册脚本 `mazi`（`node apps/cli/dist/cli.js`），构建后可直接：
+
 ```bash
-node apps/cli/dist/cli.js run "<任务描述>" [选项]
+pnpm mazi run "<任务描述>" [选项]
+# 等价于：node apps/cli/dist/cli.js run "<任务描述>" [选项]
 ```
+
+> 提示：`pnpm mazi ...` 依赖已构建的 `apps/cli/dist/cli.js`（先执行 `pnpm build`）；
+> 也可用 `pnpm run mazi -- run "<任务描述>" [选项]` 显式传参。
 
 | 选项 | 说明 | 默认 |
 | ---- | ---- | ---- |
@@ -52,8 +58,9 @@ node apps/cli/dist/cli.js run "<任务描述>" [选项]
 **方式 A：内置 ScriptedDriver 演示（推荐先跑通）**
 
 ```bash
-node apps/cli/dist/cli.js run "读取 README.md 并汇报" \
+pnpm mazi run "读取 README.md 并汇报" \
   --config-dir apps/cli/config --event-dir ./events-demo
+# 等价于：node apps/cli/dist/cli.js run "读取 README.md 并汇报" --config-dir apps/cli/config --event-dir ./events-demo
 ```
 
 输出示例末尾 `outcome: success | turns: 1 | tokens: … | costUsd: …`；事件 JSONL 完整落在 `./events-demo/<sessionId>.jsonl`。
@@ -92,7 +99,7 @@ node apps/cli/dist/cli.js run "读取 README.md 并汇报" \
 
 ```bash
 export OPENAI_API_KEY=sk-...            # 或设 apiKeyEnv 指定的其它变量
-node apps/cli/dist/cli.js run "读取 README.md 并汇报" \
+pnpm mazi run "读取 README.md 并汇报" \
   --config-dir config-real --event-dir ./events-real
 ```
 
