@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { ulid } from './index';
+import { ulid } from './index.js';
 
 /**
  * core 契约与总体设计 v1.2 的回归哨兵（MVP 文档 F2.1）：
@@ -114,24 +114,24 @@ describe('ulid 生成器（F2.1 新增运行时工具）', () => {
     });
 });
 
-import type { PermissionLevel, ToolSpec } from './capacity';
+import type { PermissionLevel, ToolSpec } from './capacity.js';
 // 供 expectTypeOf 引用的类型导入（类型级引用，不产生运行时副作用）
-import type { FlagSnapshot } from './flags';
-import type { GlobalBudget, GoalContract, RollbackPolicy, TerminationSpec } from './goal';
-import type { Session, SessionState, Step, StepKind, Turn } from './session';
-import type { ToolExecutionResult, ToolResolution } from './tool';
+import type { FlagSnapshot } from './flags.js';
+import type { GlobalBudget, GoalContract, RollbackPolicy, TerminationSpec } from './goal.js';
+import type { Session, SessionState, Step, StepKind, Turn } from './session.js';
+import type { ToolExecutionResult, ToolResolution } from './tool.js';
 import type {
     BudgetSlice,
     FailureSignal,
     TaskTag,
     ToolRequirement,
     TurnContract,
-} from './turn-contract';
+} from './turn-contract.js';
 import type {
     CostBreakdown,
     RuntimeContextBreakdown,
     Usage,
     UsageTiming,
     VendorUsage,
-} from './usage';
-import type { UserFeedback, UserInteractionRecord } from './user-interaction';
+} from './usage.js';
+import type { UserFeedback, UserInteractionRecord } from './user-interaction.js';

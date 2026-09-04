@@ -1,6 +1,6 @@
 import type { PricingSchedule, VendorUsage } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { CostCalculator } from './cost-calculator';
+import { CostCalculator } from './cost-calculator.js';
 
 /** 测试夹具：完整基础费率（可按需整体覆盖 base/tiers/version） */
 function makePricing(overrides: Partial<PricingSchedule> = {}): PricingSchedule {

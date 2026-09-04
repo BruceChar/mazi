@@ -1,6 +1,6 @@
 import type { LLMRequest, LLMStreamEvent, VendorUsage } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { ScriptedDriver } from './driver';
+import { ScriptedDriver } from './driver.js';
 
 const req: LLMRequest = {
     model: { providerId: 'scripted', vendor: 'scripted', modelId: 'm' },

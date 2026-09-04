@@ -1,7 +1,7 @@
-import type { Capacity } from './capacity';
-import type { GoalContract } from './goal';
-import type { Turn } from './session';
-import type { TurnContract } from './turn-contract';
+import type { Capacity } from './capacity.js';
+import type { GoalContract } from './goal.js';
+import type { Turn } from './session.js';
+import type { TurnContract } from './turn-contract.js';
 
 /** Plan 层接口（MVP：可只产出单个 Turn，结构上支持多个） */
 export interface Planner {

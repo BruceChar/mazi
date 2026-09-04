@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { HarnessEvent } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ConsoleSink, DefaultEventBus } from './event-bus';
+import { ConsoleSink, DefaultEventBus } from './event-bus.js';
 
 const dirs: string[] = [];
 

@@ -15,13 +15,13 @@ import type {
 import { ulid } from '@mazi/core';
 import { newHarnessEvent } from '@mazi/observability';
 import type { SimpleRouter } from '@mazi/provider-llm';
-import { equalBudgetSlices, validateBudgetConservation } from './budget';
+import { equalBudgetSlices, validateBudgetConservation } from './budget.js';
 import {
     convergePermission,
     deriveSandboxNetworkAllowInternet,
     permissionRank,
     resolveAllowedTools,
-} from './tool-resolver';
+} from './tool-resolver.js';
 
 /** planner 装配依赖 */
 export interface PlannerDeps {

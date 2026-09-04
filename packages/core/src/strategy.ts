@@ -1,10 +1,10 @@
-import type { FlagSnapshot } from './flags';
-import type { GoalContract } from './goal';
-import type { MemoryStore } from './memory';
-import type { HarnessEvent } from './observability';
-import type { Planner } from './planner';
-import type { LLMDriver } from './provider';
-import type { Session } from './session';
+import type { FlagSnapshot } from './flags.js';
+import type { GoalContract } from './goal.js';
+import type { MemoryStore } from './memory.js';
+import type { HarnessEvent } from './observability.js';
+import type { Planner } from './planner.js';
+import type { LLMDriver } from './provider.js';
+import type { Session } from './session.js';
 
 /** 策略注入点：L2 执行/观察/反思模块句柄，方法级契约由对应包里程碑定义 */
 export type Executor = object;

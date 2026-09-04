@@ -6,7 +6,7 @@ import type {
     SideEffectScope,
     ToolSpec,
 } from '@mazi/core';
-import { validateSchema } from './schema-validator';
+import { validateSchema } from './schema-validator.js';
 
 /** 策略拒绝原因编码（reason 格式：'<code>: <detail>'） */
 export type PolicyDenyCode =

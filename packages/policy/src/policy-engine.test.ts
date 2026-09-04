@@ -1,7 +1,7 @@
 import type { Capacity, FlagSnapshot, PolicyVerdict, ToolSpec } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { PolicyEngineImpl } from './policy-engine';
-import { validateSchema } from './schema-validator';
+import { PolicyEngineImpl } from './policy-engine.js';
+import { validateSchema } from './schema-validator.js';
 
 /** 最小 FlagSnapshot stub：policy 校验不消费 Flag，仅满足 Capacity 类型 */
 function stubFlags(): FlagSnapshot {

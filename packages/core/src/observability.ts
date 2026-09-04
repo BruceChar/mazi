@@ -1,6 +1,6 @@
-import type { PermissionLevel } from './capacity';
-import type { StepKind } from './session';
-import type { TaskTag } from './turn-contract';
+import type { PermissionLevel } from './capacity.js';
+import type { StepKind } from './session.js';
+import type { TaskTag } from './turn-contract.js';
 
 /** 三层 ID 是所有事件的必备字段 */
 export interface TraceIdentifiers {

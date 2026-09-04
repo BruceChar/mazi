@@ -2,9 +2,9 @@ import { relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LLMRequest, LLMStreamEvent } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { ScriptedDriver } from './driver';
-import type { ProviderJson } from './registry';
-import { normalizeProvider, ScriptedDriverRegistry } from './registry';
+import { ScriptedDriver } from './driver.js';
+import type { ProviderJson } from './registry.js';
+import { normalizeProvider, ScriptedDriverRegistry } from './registry.js';
 
 const req: LLMRequest = {
     model: { providerId: 'scripted', vendor: 'scripted', modelId: 'm' },

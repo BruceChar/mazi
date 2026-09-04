@@ -2,8 +2,8 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { RuntimeConfig } from './config';
-import { HarnessRuntime } from './runtime';
+import type { RuntimeConfig } from './config.js';
+import { HarnessRuntime } from './runtime.js';
 
 const dirs: string[] = [];
 
@@ -155,7 +155,7 @@ describe('HarnessRuntime（MVP v1.0 §8 F14 / 验收 A12 A13）', () => {
         const { config, eventDir } = runtimeConfig();
         const evil = JSON.parse(JSON.stringify(config)) as RuntimeConfig;
         const provider = evil.providers[0];
-        if (!provider || !provider.driver) {
+        if (!provider?.driver) {
             throw new Error('no provider');
         }
         provider.driver.rounds = [

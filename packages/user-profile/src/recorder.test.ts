@@ -2,12 +2,10 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { MemoryStore, Session, Turn, TurnCheckpoint, UserInteractionRecord } from '@mazi/core';
-import { ulid } from '@mazi/core';
-import { SqliteMemoryStore } from '@mazi/memory';
 import { DefaultEventBus, newHarnessEvent } from '@mazi/observability';
 import { describe, expect, it } from 'vitest';
-import { anonymizeText } from './anonymizer';
-import { UserProfileRecorder } from './recorder';
+import { anonymizeText } from './anonymizer.js';
+import { UserProfileRecorder } from './recorder.js';
 
 class MemoryStub implements MemoryStore {
     records = new Map<string, UserInteractionRecord>();

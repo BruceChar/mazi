@@ -1,9 +1,9 @@
-import type { Capacity } from './capacity';
-import type { FlagSnapshot } from './flags';
-import type { GoalContract } from './goal';
-import type { ModelRef } from './provider';
-import type { TurnContract } from './turn-contract';
-import type { Usage } from './usage';
+import type { Capacity } from './capacity.js';
+import type { FlagSnapshot } from './flags.js';
+import type { GoalContract } from './goal.js';
+import type { ModelRef } from './provider.js';
+import type { TurnContract } from './turn-contract.js';
+import type { Usage } from './usage.js';
 
 /** Session 生命周期状态 */
 export type SessionState =

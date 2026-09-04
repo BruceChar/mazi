@@ -1,5 +1,5 @@
-import type { ToolSpec } from './capacity';
-import type { ToolRequirement } from './turn-contract';
+import type { ToolSpec } from './capacity.js';
+import type { ToolRequirement } from './turn-contract.js';
 
 /** 工具注册表：将 TurnContract 的工具需求解析为 Capacity 白名单内的 ToolSpec */
 export interface ToolRegistry {

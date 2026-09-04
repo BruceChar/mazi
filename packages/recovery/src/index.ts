@@ -1,2 +1,2 @@
-export type { ResumedSession } from './recovery';
-export { CheckpointManager, SessionResumer } from './recovery';
+export type { ResumedSession } from './recovery.js';
+export { CheckpointManager, SessionResumer } from './recovery.js';

@@ -1,0 +1,10 @@
+{
+  "flags": [
+    {
+      "key": "console.sink",
+      "description": "控制台事件打印",
+      "type": "boolean",
+      "defaultValue": true
+    }
+  ]
+}

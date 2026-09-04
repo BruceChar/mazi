@@ -8,7 +8,7 @@ import type {
     TurnCheckpoint,
     UserInteractionRecord,
 } from '@mazi/core';
-import { createSchema } from './schema';
+import { createSchema } from './schema.js';
 
 /** SQL 绑定值窄子集（node:sqlite 支持 null/number/bigint/string/ArrayBufferView） */
 type SqlParam = string | number | null;

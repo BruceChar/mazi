@@ -12,7 +12,7 @@ import type {
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { newHarnessEvent } from '@mazi/observability';
-import { anonymizeText } from './anonymizer';
+import { anonymizeText } from './anonymizer.js';
 
 /** 摘要上限（MVP 文档 §5.5：thinking 概括 ≤200 字符，含省略号） */
 const SUMMARY_MAX = 200;

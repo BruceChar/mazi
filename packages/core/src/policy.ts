@@ -1,4 +1,4 @@
-import type { Capacity } from './capacity';
+import type { Capacity } from './capacity.js';
 
 /** 工具调用策略判定结果 */
 export interface PolicyVerdict {

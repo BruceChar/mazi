@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TokenEstimator, TokenizerRegistry } from './tokenizer-registry';
+import { TokenEstimator, TokenizerRegistry } from './tokenizer-registry.js';
 
 describe('usage tokenizer 估算与厂商注册（MVP v1.0 §8 F6）', () => {
     it('TokenEstimator 默认 charsPerToken=4 向上取整；空串为 0', () => {

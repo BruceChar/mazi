@@ -1,5 +1,5 @@
-import type { Session, Step, Turn, TurnCheckpoint } from './session';
-import type { UserInteractionRecord } from './user-interaction';
+import type { Session, Step, Turn, TurnCheckpoint } from './session.js';
+import type { UserInteractionRecord } from './user-interaction.js';
 
 /** 持久化存储接口（由 memory 包实现） */
 export interface MemoryStore {

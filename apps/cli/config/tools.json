@@ -1,0 +1,16 @@
+{
+  "tools": [
+    {
+      "name": "fs.read",
+      "description": "读取文件内容（只读）",
+      "parameters": {
+        "type": "object",
+        "properties": { "path": { "type": "string" } },
+        "required": ["path"]
+      },
+      "minPermission": "read-only",
+      "irreversible": false,
+      "sideEffects": ["fs"]
+    }
+  ]
+}

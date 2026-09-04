@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ContextSections } from './context-meter';
-import { ContextMeter } from './context-meter';
-import { TokenEstimator, TokenizerRegistry } from './tokenizer-registry';
+import type { ContextSections } from './context-meter.js';
+import { ContextMeter } from './context-meter.js';
+import { TokenEstimator, TokenizerRegistry } from './tokenizer-registry.js';
 
 /** 测试夹具：只覆盖给定分段，其余分段为空串 */
 function sections(partial: Partial<ContextSections> = {}): ContextSections {

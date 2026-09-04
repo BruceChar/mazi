@@ -20,7 +20,7 @@ import { ulid } from '@mazi/core';
 import { PolicyEngineImpl } from '@mazi/policy';
 import { ContextMeter, CostCalculator } from '@mazi/usage';
 import { describe, expect, it } from 'vitest';
-import { Executor } from './executor';
+import { Executor } from './executor.js';
 
 function stubFlag(): FlagSnapshot {
     return {

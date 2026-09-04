@@ -4,5 +4,5 @@
  */
 
 export type { DatabaseSync } from 'node:sqlite';
-export { createSchema } from './schema';
-export { SqliteMemoryStore } from './sqlite-store';
+export { createSchema } from './schema.js';
+export { SqliteMemoryStore } from './sqlite-store.js';

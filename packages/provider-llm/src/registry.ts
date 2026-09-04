@@ -9,8 +9,8 @@ import type {
     Provider,
     VendorUsage,
 } from '@mazi/core';
-import type { ScriptedDriverOptions } from './driver';
-import { ScriptedDriver } from './driver';
+import type { ScriptedDriverOptions } from './driver.js';
+import { ScriptedDriver } from './driver.js';
 
 /** 脚本化工具调用声明（ScriptedRound.toolCalls 的元素） */
 export interface ScriptedToolCall {

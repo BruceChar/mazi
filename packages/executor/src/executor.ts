@@ -18,7 +18,7 @@ import { ulid } from '@mazi/core';
 import { newHarnessEvent } from '@mazi/observability';
 import type { ContextMeter, CostCalculator } from '@mazi/usage';
 import { backfillDrift, emptyTokenTotals, isDriftExcessive } from '@mazi/usage';
-import { buildContext } from './context-builder';
+import { buildContext } from './context-builder.js';
 
 export type TurnStopReason =
     | 'final-answer'

@@ -7,7 +7,7 @@ import {
     isDriftExcessive,
     mergeTokenTotals,
     stepUsageToTokenTotals,
-} from './aggregate';
+} from './aggregate.js';
 
 /* ---------- 测试夹具（仅构造被测函数读取的最小字段） ---------- */
 

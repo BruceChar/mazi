@@ -15,7 +15,7 @@ import { SqliteMemoryStore } from '@mazi/memory';
 import { PolicyEngineImpl } from '@mazi/policy';
 import { ContextMeter, CostCalculator } from '@mazi/usage';
 import { describe, expect, it } from 'vitest';
-import { SessionResumer } from './recovery';
+import { SessionResumer } from './recovery.js';
 
 function stubFlag(): FlagSnapshot {
     return {

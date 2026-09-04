@@ -1,2 +1,2 @@
-export { parseCli } from './args';
-export { main } from './main';
+export { parseCli } from './args.js';
+export { main } from './main.js';

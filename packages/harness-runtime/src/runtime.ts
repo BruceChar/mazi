@@ -27,8 +27,8 @@ import { normalizeProvider, ScriptedDriverRegistry, SimpleRouter } from '@mazi/p
 import { FullLoopStrategy } from '@mazi/strategy-full-loop';
 import { ContextMeter, CostCalculator } from '@mazi/usage';
 import { getRecordBySession, UserProfileRecorder } from '@mazi/user-profile';
-import type { RuntimeConfig } from './config';
-import { buildGoal } from './goal-factory';
+import type { RuntimeConfig } from './config.js';
+import { buildGoal } from './goal-factory.js';
 
 export interface RunResult {
     sessionId: string;

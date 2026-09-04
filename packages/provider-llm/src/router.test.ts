@@ -1,8 +1,8 @@
 import type { ModelDescriptor, Provider } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import type { ProviderJson } from './registry';
-import { normalizeProvider } from './registry';
-import { SimpleRouter } from './router';
+import type { ProviderJson } from './registry.js';
+import { normalizeProvider } from './registry.js';
+import { SimpleRouter } from './router.js';
 
 /** 能力模型工厂：缺省不支持任何能力 */
 function model(over: Partial<ModelDescriptor> & { id: string }): ModelDescriptor {

@@ -1,4 +1,4 @@
-export { anonymizeText } from './anonymizer';
-export { getRecordBySession, listRecords } from './query';
-export type { RecorderRuntime } from './recorder';
-export { UserProfileRecorder } from './recorder';
+export { anonymizeText } from './anonymizer.js';
+export { getRecordBySession, listRecords } from './query.js';
+export type { RecorderRuntime } from './recorder.js';
+export { UserProfileRecorder } from './recorder.js';

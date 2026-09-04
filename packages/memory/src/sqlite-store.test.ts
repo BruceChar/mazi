@@ -11,8 +11,8 @@ import type {
     UserInteractionRecord,
 } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createSchema } from './schema';
-import { SqliteMemoryStore } from './sqlite-store';
+import { createSchema } from './schema.js';
+import { SqliteMemoryStore } from './sqlite-store.js';
 
 /* ------------------------------------------------------------------ *
  * fixtures：构造最小 Session / Turn / Step / Record（JSON 可序列化）

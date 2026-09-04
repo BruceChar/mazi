@@ -1,5 +1,5 @@
-import type { ToolSpec } from './capacity';
-import type { VendorUsage } from './usage';
+import type { ToolSpec } from './capacity.js';
+import type { VendorUsage } from './usage.js';
 
 /** 硬能力标签 */
 export type CapabilityTag = 'tools' | 'vision' | 'thinking' | 'long-context';

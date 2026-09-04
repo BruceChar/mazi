@@ -1,6 +1,6 @@
 import type { GoalContract } from '@mazi/core';
 import { ulid } from '@mazi/core';
-import type { RuntimeConfig } from './config';
+import type { RuntimeConfig } from './config.js';
 
 /**
  * GoalFactory（应用层，不调用模型，MVP 文档 §5.1）：

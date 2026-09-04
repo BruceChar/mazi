@@ -1,13 +1,13 @@
 import { createInterface } from 'node:readline';
 import type { RuntimeConfig } from '@mazi/harness-runtime';
 import { HarnessRuntime } from '@mazi/harness-runtime';
-import { parseCli } from './args';
-import { loadConfig } from './config';
+import { parseCli } from './args.js';
+import { loadConfig } from './config.js';
 
 async function askRating(runtime: HarnessRuntime, sessionId: string): Promise<void> {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     const answer = await new Promise<string>((resolve) => {
-        rl.question('请评价本次结果 (1-5，可输入 1-5 或直接回车跳过): ', resolve);
+        rl.question('请评价本次结果 (1-5，输入数字评分或回车跳过): ', resolve);
     });
     rl.close();
     const rating = Number.parseInt(answer.trim(), 10);

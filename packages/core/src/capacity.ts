@@ -1,5 +1,5 @@
-import type { FlagSnapshot } from './flags';
-import type { ModelRef } from './provider';
+import type { FlagSnapshot } from './flags.js';
+import type { ModelRef } from './provider.js';
 
 /** 权限级别 */
 export type PermissionLevel = 'text' | 'read-only' | 'draft' | 'approved' | 'autonomous';

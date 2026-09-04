@@ -1,8 +1,8 @@
 import type { FeatureFlagDefinition } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_FLAGS } from './default-flags';
-import type { FlagContext } from './evaluator';
-import { createFlagSnapshot, evaluateFlag, hashToBucket } from './evaluator';
+import { DEFAULT_FLAGS } from './default-flags.js';
+import type { FlagContext } from './evaluator.js';
+import { createFlagSnapshot, evaluateFlag, hashToBucket } from './evaluator.js';
 
 const ctx: FlagContext = { sessionId: 'sess-abc' };
 

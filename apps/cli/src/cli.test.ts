@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseCli } from './args';
-import { loadConfig } from './config';
+import { parseCli } from './args.js';
+import { loadConfig } from './config.js';
 
 describe('parseCli（MVP v1.0 §8 F15）', () => {
     it('解析 run 子命令与选项', () => {

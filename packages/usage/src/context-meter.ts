@@ -1,5 +1,5 @@
 import type { RuntimeContextBreakdown } from '@mazi/core';
-import { TokenizerRegistry } from './tokenizer-registry';
+import { TokenizerRegistry } from './tokenizer-registry.js';
 
 /** ContextMeter 输入：一次 LLM 请求的各上下文分段原始文本 */
 export interface ContextSections {

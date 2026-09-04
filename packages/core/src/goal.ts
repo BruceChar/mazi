@@ -1,4 +1,4 @@
-import type { PermissionLevel } from './capacity';
+import type { PermissionLevel } from './capacity.js';
 
 /** 整体/子任务验收规格 */
 export interface AcceptanceSpec {

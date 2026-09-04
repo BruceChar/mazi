@@ -15,8 +15,8 @@ import { ulid } from '@mazi/core';
 import type { ProviderJson } from '@mazi/provider-llm';
 import { normalizeProvider, SimpleRouter } from '@mazi/provider-llm';
 import { describe, expect, it } from 'vitest';
-import { equalBudgetSlices, MIN_TURN_BUDGET_USD, validateBudgetConservation } from './budget';
-import { MvpPlanner, PlannerCapacityError, validateTurnContract } from './planner';
+import { equalBudgetSlices, MIN_TURN_BUDGET_USD, validateBudgetConservation } from './budget.js';
+import { MvpPlanner, PlannerCapacityError, validateTurnContract } from './planner.js';
 
 function stubFlag(): FlagSnapshot {
     return {

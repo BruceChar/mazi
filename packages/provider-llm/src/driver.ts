@@ -1,5 +1,5 @@
 import type { LLMDriver, LLMRequest, LLMResponse, LLMStreamEvent, VendorUsage } from '@mazi/core';
-import type { ScriptedRound } from './registry';
+import type { ScriptedRound } from './registry.js';
 
 /** ScriptedDriver 构造选项 */
 export interface ScriptedDriverOptions {
