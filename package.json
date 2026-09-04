@@ -16,15 +16,15 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@types/node": "^24.0.0",
-    "husky": "^9.1.7",
-    "turbo": "^2.3.3",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "@biomejs/biome": "^2.5.0",
+    "@types/node": "^26.0.0",
+    "husky": "9.1.7",
+    "turbo": "^2",
+    "typescript": "^7",
+    "vitest": "^5"
   },
   "engines": {
-    "node": ">=24.0.0",
+    "node": ">=26.0.0",
     "pnpm": ">=10.0.0"
   }
 }
