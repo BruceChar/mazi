@@ -10,12 +10,14 @@ import type {
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
 
-/** Turn 级事件：必须携带 turnId */
+/**
+ * Turn 级事件：必须携带 turnId。
+ * 说明：plan.created / plan.invalid 发生在 Turn 创建之前（属 Session 级），
+ * 因此不在本集合内（缺 turnId 合法）。
+ */
 const TURN_SCOPED: ReadonlySet<HarnessEventType> = new Set<HarnessEventType>([
     'turn.started',
     'turn.ended',
-    'plan.created',
-    'plan.invalid',
     'capacity.assembled',
     'capacity.degraded',
     'provider.selected',
@@ -38,7 +40,7 @@ const STEP_SCOPED: ReadonlySet<HarnessEventType> = new Set<HarnessEventType>([
     'context.strategy.applied',
 ]);
 
-/** 事件类型名（事件本身不带 level 字段时，minLevel 过滤不适用） */
+/** 事件类型名（事件不带 level 属性时，minLevel 过滤不适用） */
 const LEVEL_ORDER: Record<string, number> = {
     debug: 0,
     info: 1,
@@ -61,13 +63,13 @@ function defaultEventDir(): string {
 /**
  * 过滤语义（MVP）：仅支持按事件类型过滤。
  * minLevel / requireFlag 需要事件携带额外上下文（level 属性 / 会话 Flag），
- * MVP 中无消费方使用，为避免“静默忽略”的误导行为：设置即抛错（fail-fast）。
+ * MVP 中无消费方使用；为避免“静默忽略”，设置即抛错（fail-fast）。
  */
 function assertSupportedFilter(filter: EventFilter): void {
     if (filter.minLevel !== undefined || filter.requireFlag !== undefined) {
         throw new Error(
-            'EventFilter.minLevel / requireFlag 在 MVP 版 EventBus 不支持（仅支持 types 过滤）；' +
-                '若要使用请先扩展 observability 契约',
+            'EventFilter.minLevel / requireFlag 在 MVP 版 EventBus 不支持（仅支持 types 过滤）' +
+                '；若要使用请先扩展 observability 契约',
         );
     }
 }
@@ -113,13 +115,13 @@ function validateTraceIds(event: HarnessEvent): void {
 export interface EventBusOptions {
     /** JSONL 落盘目录；默认取 EVENT_LOG_DIR 环境变量，否则 ./events */
     eventDir?: string;
-    /** 事件写入失败时的错误回调（默认 console.error） */
+    /** 事件写入失败时的错误回调（默认写 stderr） */
     onWriteError?: (error: unknown, event: HarnessEvent) => void;
 }
 
 /**
  * 默认事件总线（MVP）：
- * - emit 永不被 Flag 阻断（业务 Flag 只控制上层是否订阅额外 sink，见 harness-runtime）；
+ * - emit 永不被 Flag 阻断（Flag 只控制上层是否订阅额外 sink）；
  * - 每条事件同步派发给匹配订阅者，并异步串行落盘 JSONL（按 sessionId 分文件）；
  * - replay(sessionId) 从磁盘只读回放该会话全部事件。
  */
