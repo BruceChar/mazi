@@ -18,6 +18,7 @@
     "build": "tsc -b tsconfig.json"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "0.85.0",
     "@mazi/core": "workspace:*"
   }
 }

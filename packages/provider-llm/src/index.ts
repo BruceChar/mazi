@@ -1,5 +1,17 @@
+export { DefaultDriverRegistry } from './default-registry.js';
 export type { ScriptedDriverOptions } from './driver.js';
 export { ScriptedDriver } from './driver.js';
+export type { PiAiDriverConfig, PiAiDriverDeps } from './pi-ai-driver.js';
+export { PiAiDriver } from './pi-ai-driver.js';
+export type { PiModelMeta } from './pi-ai-mapper.js';
+export {
+    buildPiContext,
+    mapFinishReason,
+    messagesToPi,
+    toolsToPi,
+    toVendorUsage,
+    translatePiEvent,
+} from './pi-ai-mapper.js';
 export type {
     DriverRegistry,
     ProviderJson,
