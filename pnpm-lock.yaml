@@ -51,17 +51,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/observability
 
-  apps/web:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@mazi/harness-runtime':
-        specifier: workspace:*
-        version: link:../../packages/harness-runtime
-      '@mazi/observability':
-        specifier: workspace:*
-        version: link:../../packages/observability
+  apps/web: {}
 
   packages/core: {}
 

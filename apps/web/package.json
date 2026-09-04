@@ -3,10 +3,19 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "./dist/web.js",
+  "exports": {
+    ".": {
+      "types": "./dist/web.d.ts",
+      "default": "./dist/web.js"
+    }
+  },
   "files": [
+    "dist",
     "public"
   ],
   "scripts": {
-    "build": "echo '纯静态前端：构建由 apps/server 启动时直接使用 public/';"
+    "build": "tsc -b tsconfig.json",
+    "start": "node dist/web.js"
   }
 }

@@ -15,7 +15,7 @@
     "check": "pnpm lint && pnpm test",
     "prepare": "husky",
     "mazi": "node apps/cli/dist/cli.js",
-    "web": "node apps/server/dist/server.js",
+    "web": "node apps/web/dist/web.js",
     "server": "node apps/server/dist/server.js"
   },
   "devDependencies": {

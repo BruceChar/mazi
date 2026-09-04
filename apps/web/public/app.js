@@ -1,4 +1,9 @@
 /* mazi WebUI MVP（webui.md 三栏）：会话列表 / 轨迹对话 / 审计+事件 / 底部指标 */
+const API_BASE = (() => {
+  const q = new URLSearchParams(location.search).get('api');
+  if (q) return q.replace(/\/$/, '');
+  return location.port === '5174' || location.port === '4173' ? 'http://127.0.0.1:4317' : '';
+})();
 const $ = (id) => document.getElementById(id);
 const state = { sessions: [], current: null, detail: null };
 
@@ -10,7 +15,7 @@ const fmtTime = (t) => new Date(t).toLocaleString();
 const fmtUsd = (v) => '$' + Number(v ?? 0).toFixed(6);
 
 async function api(path, init) {
-    const res = await fetch(path, init);
+    const res = await fetch(API_BASE + path, init);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || res.statusText);
     return data;
@@ -70,10 +75,12 @@ async function loadTimeline(id) {
         const detail = await api('/api/sessions/' + id + '/timeline');
         state.detail = detail;
         const goal = detail.goal || {};
+        const canRun = detail.outcome === undefined && detail.state === 'running';
         $('session-head').innerHTML =
             '<div class="sh-title">' + esc(detail.rawIntent || goal.statement || '') + '</div>' +
             '<div class="sh-meta"><span class="badge ' + (detail.outcome === 'success' ? 'success' : detail.outcome ? 'failed' : 'other') + '">' + esc(detail.outcome || detail.state) + '</span>' +
-            '<span>strategy ' + esc(detail.strategyId) + '</span><span>model ' + esc(detail.turns.map((t) => t.capacity && t.capacity.model && t.capacity.model.modelId).filter(Boolean)[0] || '-') + '</span></div>';
+            '<span>strategy ' + esc(detail.strategyId) + '</span><span>model ' + esc(detail.turns.map((t) => t.capacity && t.capacity.model && t.capacity.model.modelId).filter(Boolean)[0] || '-') + '</span>' +
+            (canRun ? ' <button data-run="' + id + '" class="ghost">▶ 执行此会话</button>' : '') + '</div>';
         renderTimeline(detail.turns);
         updateMetrics(detail);
     } catch (e) {
@@ -158,27 +165,44 @@ function updateMetrics(detail) {
     $('m-driver').textContent = 'model ' + (model || '-');
 }
 
-async function run() {
+async function postSession(exec) {
     const input = $('input').value.trim();
     if (!input) return;
-    const btn = $('run');
+    const btn = exec ? $('run') : $('create');
     btn.disabled = true;
-    btn.textContent = '运行中…';
+    btn.textContent = exec ? '运行中…' : '创建中…';
     try {
-        await api('/api/run', {
+        // 先真实创建会话（写库 + recording 记录）
+        const created = await api('/api/sessions', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ input, userId: $('user').value || undefined }),
         });
         await loadSessions();
-        if (state.sessions[0]) await selectSession(state.sessions[0].sessionId);
+        await selectSession(created.sessionId);
+        if (exec) {
+            const result = await api('/api/sessions/' + created.sessionId + '/run', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: '{}',
+            });
+            await loadSessions();
+            await selectSession(result.sessionId);
+        }
     } catch (e) {
         const box = $('timeline');
-        box.innerHTML = '<div class="result-card"><div class="sh-title">运行失败</div><div class="sh-meta">' + esc(String(e)) + '</div></div>';
+        box.innerHTML = '<div class="result-card"><div class="sh-title">失败</div><div class="sh-meta">' + esc(String(e)) + '</div></div>';
     } finally {
         btn.disabled = false;
-        btn.textContent = '运行';
+        btn.textContent = exec ? '创建并运行' : '仅创建会话';
     }
+}
+
+async function run() {
+    return postSession(true);
+}
+async function createOnly() {
+    return postSession(false);
 }
 
 // tabs
@@ -190,8 +214,23 @@ document.querySelectorAll('.tab').forEach((t) =>
     }),
 );
 
+document.addEventListener('click', async (e) => {
+    const btn = e.target.closest ? e.target.closest('[data-run]') : null;
+    if (!btn) return;
+    const sid = btn.getAttribute('data-run');
+    btn.disabled = true;
+    try {
+        const result = await api('/api/sessions/' + sid + '/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+        await loadSessions();
+        await selectSession(result.sessionId);
+    } catch (err) {
+        $('timeline').innerHTML = '<div class="result-card"><div class="sh-title">执行失败</div><div class="sh-meta">' + esc(String(err)) + '</div></div>';
+    }
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
     $('run').addEventListener('click', run);
+    $('create').addEventListener('click', createOnly);
     $('input').addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') run(); });
     $('new-session').addEventListener('click', () => { $('input').focus(); });
     $('sess-search').addEventListener('input', renderSessions);
