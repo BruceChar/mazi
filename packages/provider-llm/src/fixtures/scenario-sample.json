@@ -1,0 +1,16 @@
+{
+  "rounds": [
+    {
+      "text": "scenario-first-round"
+    },
+    {
+      "text": "scenario-second-round",
+      "usage": {
+        "inputTokens": 10,
+        "outputTokens": 5,
+        "reportedByVendor": true
+      }
+    }
+  ],
+  "failCalls": 1
+}
