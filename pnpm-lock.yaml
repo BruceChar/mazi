@@ -33,7 +33,11 @@ importers:
 
   packages/executor: {}
 
-  packages/flags: {}
+  packages/flags:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/harness-runtime: {}
 
