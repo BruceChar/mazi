@@ -40,17 +40,17 @@
 | `text_delta` | `{type:'text-delta', delta}` |
 | `thinking_delta` | `{type:'reasoning-delta', delta}` |
 | `toolcall_end` | `{type:'tool-call', callId, toolName, arguments}` |
-| `done` | 先 `{type:'usage', usage: VendorUsage}`（input/output/cacheRead/cacheWrite/reasoning(无则0)），再 `{type:'end', finishReason}`（stop→stop / length→length / toolUse→tool_calls） |
+| `done` | 先 `{type:'usage', usage: VendorUsage}`（input/output/cacheRead/cacheWrite/reasoning，reasoning 透传 pi-ai 值，厂商未细分时为 undefined），再 `{type:'end', finishReason}`（stop→stop / length→length / toolUse→tool_calls） |
 | `error` | 抛 `Error`（含 `errorMessage`）——harness 按 driver-error 故障转移/重试 |
 
-`Usage` 映射：`input→inputTokens`、`output→outputTokens`、`cacheRead→cacheReadInputTokens`、`cacheWrite→cacheCreationInputTokens`、`reasoning=0`（pi-ai 未细分）＋ `reportedByVendor=true`。
+`Usage` 映射：`input→inputTokens`、`output→outputTokens`、`cacheRead→cacheReadInputTokens`、`cacheWrite→cacheCreationInputTokens`、`reasoning→reasoningOutputTokens`（`@earendil-works/pi-ai` 的 `Usage.reasoning` 为可选字段、是 `output` 的子集；厂商未提供时为 undefined，直接省略）＋ `reportedByVendor=true`。
 `complete(req)`：按 `stream` 消费并聚合文本 + 首个 usage（无工具轮次）。
 
 ### 2.3 已知取舍与风险
 
 1. **schema 兼容**：ToolSpec.parameters 为 JSON-schema 子集对象；pi-ai 期望 TypeBox `TSchema`。结构与 JSON Schema 对齐、多数厂商可用；个别关键字（如 `enum`/嵌套 `additionalProperties`）按厂商转译差异需真实凭据联调校准（离线不可验证，同 MVP 风险 E1）。
 2. **多轮工具历史**：我们契约的 assistant 工具意图消息无 arguments 字段，adapter 选择跳过并依赖后续 toolResult；若真实厂商严格要求“工具调用与其结果成对出现”，需在 executor context-builder 补充 arguments 透传（独立后续改动）。
-3. **reasoning token 细分**：pi-ai Usage 无 reasoning 分项，VendorUsage.reasoning 置 0（标注不精确）。
+3. **reasoning token 细分**：`@earendil-works/pi-ai` 的 `Usage.reasoning`（可选，`output` 子集，Anthropic 等提供）直接透传到 `VendorUsage.reasoningOutputTokens`；厂商未细分时为 undefined（不置 0，避免误记为“有 reasoning”）。
 4. **离线可测性**：驱动对网络调用不做 mock（防伪），改为将“请求/响应映射”抽为纯函数并用 pi-ai 事件 fixture 单测；网络路径为 manual（配置真实凭据后验证）。
 
 ---
