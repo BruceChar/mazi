@@ -1,0 +1,16 @@
+{
+  "extends": "./../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../observability" },
+    { "path": "../core" },
+    { "path": "../provider-llm" }
+  ]
+}
