@@ -11,8 +11,14 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "echo 'Placeholder build until src/ and tsconfig are added.'"
+    "build": "tsc -b tsconfig.json"
+  },
+  "dependencies": {
+    "@mazi/core": "workspace:*",
+    "@mazi/executor": "workspace:*"
   }
 }
