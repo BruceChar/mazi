@@ -12,7 +12,8 @@
     }
   },
   "files": ["dist"],
+  "dependencies": {},
   "scripts": {
-    "build": "echo 'Placeholder build until src/ and tsconfig are added in F2.'"
+    "build": "tsc -p tsconfig.json"
   }
 }
