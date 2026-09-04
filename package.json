@@ -14,7 +14,8 @@
     "format:check": "biome format .",
     "check": "pnpm lint && pnpm test",
     "prepare": "husky",
-    "mazi": "node apps/cli/dist/cli.js"
+    "mazi": "node apps/cli/dist/cli.js",
+    "web": "node apps/web/dist/server.js"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",

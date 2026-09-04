@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mazi · harness</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <span class="brand">mazi<em>·</em>harness</span>
+  <span class="statusline"><i id="dot" class="dot"></i><span id="cfgline">loading…</span></span>
+</header>
+<main class="grid">
+  <section class="col">
+    <label class="lbl" for="input">任务</label>
+    <textarea id="input" rows="3" placeholder="例如：读取 README.md 并汇报"></textarea>
+    <div class="row">
+      <input id="user" placeholder="userId（可选）" />
+      <button id="run">运行</button>
+    </div>
+    <div id="result" class="panel hidden"></div>
+    <h3 class="lbl">近期运行</h3>
+    <ul id="history" class="list"></ul>
+  </section>
+  <section class="col">
+    <div class="col-head"><span class="lbl">事件流</span><span id="evcount" class="dim"></span></div>
+    <pre id="events" class="log">等待运行…</pre>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
