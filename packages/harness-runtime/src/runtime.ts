@@ -23,7 +23,7 @@ import { SqliteMemoryStore } from '@mazi/memory';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '@mazi/observability';
 import { MvpPlanner } from '@mazi/planner';
 import { PolicyEngineImpl } from '@mazi/policy';
-import { normalizeProvider, ScriptedDriverRegistry, SimpleRouter } from '@mazi/provider-llm';
+import { DefaultDriverRegistry, normalizeProvider, SimpleRouter } from '@mazi/provider-llm';
 import { FullLoopStrategy } from '@mazi/strategy-full-loop';
 import { ContextMeter, CostCalculator } from '@mazi/usage';
 import { getRecordBySession, UserProfileRecorder } from '@mazi/user-profile';
@@ -164,7 +164,7 @@ export class HarnessRuntime {
         this.tools = buildTools(config);
         this.providers = config.providers.map((p) => normalizeProvider(p));
         this.router = new SimpleRouter(this.providers);
-        const driverRegistry = new ScriptedDriverRegistry();
+        const driverRegistry = new DefaultDriverRegistry();
         this.drivers = new Map();
         for (const [i, p] of config.providers.entries()) {
             this.drivers.set(p.id, driverRegistry.build(this.providers[i], p));
