@@ -7,27 +7,56 @@
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-<header class="topbar">
-  <span class="brand">mazi<em>·</em>harness</span>
-  <span class="statusline"><i id="dot" class="dot"></i><span id="cfgline">loading…</span></span>
-</header>
-<main class="grid">
-  <section class="col">
-    <label class="lbl" for="input">任务</label>
-    <textarea id="input" rows="3" placeholder="例如：读取 README.md 并汇报"></textarea>
-    <div class="row">
-      <input id="user" placeholder="userId（可选）" />
-      <button id="run">运行</button>
-    </div>
-    <div id="result" class="panel hidden"></div>
-    <h3 class="lbl">近期运行</h3>
-    <ul id="history" class="list"></ul>
-  </section>
-  <section class="col">
-    <div class="col-head"><span class="lbl">事件流</span><span id="evcount" class="dim"></span></div>
-    <pre id="events" class="log">等待运行…</pre>
-  </section>
-</main>
+<div class="app">
+  <header class="topbar">
+    <span class="brand">mazi<em>·</em>harness</span>
+    <span class="top-mid dim" id="cfgline">…</span>
+    <span class="top-status"><i id="dot" class="dot"></i><span id="busy">idle</span></span>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="side-head">
+        <input id="sess-search" placeholder="搜索会话…" />
+        <button id="new-session" class="ghost" title="Ctrl+Enter 发送">＋ 新建</button>
+      </div>
+      <ul id="session-list" class="list"></ul>
+    </aside>
+
+    <section class="main">
+      <div class="composer">
+        <textarea id="input" rows="3" placeholder="任务描述，例如：读取 README.md 并汇报"></textarea>
+        <div class="composer-row">
+          <input id="user" placeholder="userId（可选）" />
+          <button id="run" class="primary">运行</button>
+        </div>
+      </div>
+      <div class="session-head" id="session-head"></div>
+      <div class="timeline" id="timeline"></div>
+    </section>
+
+    <aside class="right">
+      <div class="tabs">
+        <button data-tab="audit" class="tab active">审计</button>
+        <button data-tab="events" class="tab">事件</button>
+      </div>
+      <div id="tab-audit" class="tab-body">
+        <h4 class="lbl">选择 timeline 节点查看三方记录 / Usage</h4>
+        <pre id="audit" class="audit">—</pre>
+      </div>
+      <div id="tab-events" class="tab-body hidden">
+        <div class="col-head"><span class="lbl">事件流</span><span id="evcount" class="dim"></span></div>
+        <pre id="events" class="log">—</pre>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="bottom-bar" id="bottom-bar">
+    <span>turns <b id="m-turns">0</b></span><span>steps <b id="m-steps">0</b></span>
+    <span>tokens <b id="m-tokens">0</b></span><span>cost <b id="m-cost">$0</b></span>
+    <span id="m-driver" class="dim">driver: -</span>
+  </footer>
+</div>
 <script src="/app.js"></script>
 </body>
 </html>
