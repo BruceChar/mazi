@@ -3,19 +3,17 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "./dist/web.js",
-  "exports": {
-    ".": {
-      "types": "./dist/web.d.ts",
-      "default": "./dist/web.js"
-    }
-  },
-  "files": [
-    "dist",
-    "public"
-  ],
   "scripts": {
-    "build": "tsc -b tsconfig.json",
-    "start": "node dist/web.js"
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "node serve.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "vite": "^6.0.0"
   }
 }
