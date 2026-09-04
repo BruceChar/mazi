@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { FeatureFlagDefinition } from '@mazi/core';
 import type { ProviderConfig, RuntimeConfig, ToolConfig } from './config.js';
 import { ensureMaziDirs, maziPaths } from './paths.js';
