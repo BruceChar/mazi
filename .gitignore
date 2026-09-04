@@ -6,3 +6,11 @@ coverage/
 *.log
 *.tsbuildinfo
 .DS_Store
+.pnpm-store/
+# tsc 误发的源旁产物（正常应仅输出 dist/）
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+apps/*/src/**/*.js
+apps/*/src/**/*.d.ts
