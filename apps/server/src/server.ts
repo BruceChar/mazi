@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import type { UserInteractionRecord } from '@mazi/core';
-import type { RunOptions, RuntimeConfig } from '@mazi/harness-runtime';
+import type { CreateSessionOptions, RunOptions, RuntimeConfig } from '@mazi/harness-runtime';
 import {
     configOverview,
     ensureMaziDirs,
@@ -128,7 +128,14 @@ async function handle(
         const body = await readBody(req);
         const input = typeof body.input === 'string' ? body.input.trim() : '';
         if (!input) return json(res, 400, { error: '缺少 input' });
-        const created = await rt().createSession(input, runOptions(body));
+        const opts: CreateSessionOptions = {
+            ...runOptions(body),
+            goal:
+                typeof body.goal === 'object' && body.goal
+                    ? (body.goal as CreateSessionOptions['goal'])
+                    : undefined,
+        };
+        const created = await rt().createSession(input, opts);
         return json(res, 200, { sessionId: created.sessionId, state: 'running' });
     }
     if (isPost && /^\/api\/sessions\/[^/]+\/run$/.test(path)) {
@@ -169,6 +176,41 @@ async function handle(
         const d = await detail(sessionId);
         if (!d) return json(res, 404, { error: 'session not found' });
         return json(res, 200, d);
+    }
+    if (isGet && path.startsWith('/api/users/') && path.endsWith('/profile')) {
+        const userId = path.split('/')[3];
+        const records = (await rt().store.listUserInteractionRecords({
+            userId,
+        })) as UserInteractionRecord[];
+        const cost = records.reduce((acc, r) => acc + (r.metrics.totalCostUsd ?? 0), 0);
+        const tokens = records.reduce((acc, r) => acc + (r.metrics.totalTokens ?? 0), 0);
+        const ratings = records.flatMap((r) =>
+            r.feedback
+                .filter((f) => f.type === 'output_rating' && typeof f.rating === 'number')
+                .map((f) => f.rating as number),
+        );
+        const byOutcome: Record<string, number> = {};
+        for (const r of records) {
+            const key = r.outcome?.status ?? 'recording';
+            byOutcome[key] = (byOutcome[key] ?? 0) + 1;
+        }
+        return json(res, 200, {
+            userId,
+            sessions: records.length,
+            totalCostUsd: cost,
+            totalTokens: tokens,
+            avgRating: ratings.length
+                ? ratings.reduce((a, b) => a + b, 0) / ratings.length
+                : undefined,
+            outcomes: byOutcome,
+            recent: records.slice(0, 20).map((r) => ({
+                sessionId: r.sessionId,
+                input: r.rawInput.slice(0, 80),
+                outcome: r.outcome?.status,
+                updatedAt: r.updatedAt,
+                costUsd: r.metrics.totalCostUsd,
+            })),
+        });
     }
     if (isGet && path.startsWith('/api/events/')) {
         const sessionId = path.slice('/api/events/'.length);

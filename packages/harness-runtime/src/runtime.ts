@@ -44,6 +44,14 @@ export interface RunOptions {
     userId?: string;
 }
 
+/** createSession 可覆盖的 Goal 项（webui 新建会话配置） */
+export type SessionGoalOverrides = NonNullable<RuntimeConfig['goal']>;
+
+export interface CreateSessionOptions extends RunOptions {
+    /** GoalContract 生成时覆盖默认配置（permissionCeiling/budget/超时/约束等） */
+    goal?: SessionGoalOverrides;
+}
+
 function fsReadToolImpl(args: Record<string, unknown>): Promise<ToolExecutionResult> {
     const path = typeof args.path === 'string' ? args.path : undefined;
     if (!path) {

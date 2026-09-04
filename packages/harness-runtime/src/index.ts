@@ -11,5 +11,10 @@ export {
     maziHome,
     maziPaths,
 } from './paths.js';
-export type { RunOptions, RunResult } from './runtime.js';
+export type {
+    CreateSessionOptions,
+    RunOptions,
+    RunResult,
+    SessionGoalOverrides,
+} from './runtime.js';
 export { HarnessRuntime } from './runtime.js';
