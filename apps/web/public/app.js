@@ -31,9 +31,17 @@ async function loadConfig() {
         const ok = cfg.providers.length > 0;
         setDot(ok, false);
         $('cfgline').textContent = (ok ? cfg.home + ' · ' + cfg.providers.join(', ') : cfg.home + ' · 未配置 provider') + ' · ' + cfg.storage.driver;
+        if (!ok) {
+            $('timeline').innerHTML = '<div class="result-card"><div class="sh-title">尚未配置 provider</div><div class="sh-meta">请先运行 pnpm mazi config（写入 ~/.mazi），再刷新。</div></div>';
+        }
         return cfg;
     } catch (e) {
-        $('cfgline').textContent = String(e);
+        setDot(false, false);
+        $('cfgline').textContent = '后端未连接 ' + (API_BASE || 'http://127.0.0.1:4317');
+        $('timeline').innerHTML =
+            '<div class="result-card"><div class="sh-title">无法连接后端 API</div>' +
+            '<div class="sh-meta">请先启动后端：pnpm run server（或 pnpm api）——注意不要用裸 pnpm server（那是 pnpm 内建 store 命令）。<br>' +
+            '后端地址：' + esc(API_BASE || 'http://127.0.0.1:4317') + '　<button data-retry>重试</button></div></div>';
     }
 }
 
@@ -214,6 +222,14 @@ document.querySelectorAll('.tab').forEach((t) =>
     }),
 );
 
+document.addEventListener('click', (e) => {
+    if (e.target && e.target.closest && e.target.closest('[data-retry]')) {
+        setDot(false, true);
+        $('cfgline').textContent = '重试中…';
+        loadConfig();
+        return;
+    }
+});
 document.addEventListener('click', async (e) => {
     const btn = e.target.closest ? e.target.closest('[data-run]') : null;
     if (!btn) return;

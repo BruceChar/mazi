@@ -231,8 +231,14 @@ const server = createServer(async (req, res) => {
     }
 });
 
-server.listen(PORT, () => {
-    process.stdout.write(
-        `mazi server(API) 已启动： http://127.0.0.1:${PORT} （数据: ${paths().home}）\n`,
-    );
-});
+server
+    .listen(PORT, () => {
+        process.stdout.write(
+            `mazi server(API) 已启动： http://127.0.0.1:${PORT} （数据: ${paths().home}）\n`,
+        );
+    })
+    .addListener('error', (err: Error & { code?: string }) => {
+        if (err.code === 'EADDRINUSE') {
+            process.stderr.write(`端口 ${PORT} 已被占用，请检查是否已有 mazi server 在运行\n`);
+        }
+    });

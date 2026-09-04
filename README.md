@@ -158,8 +158,10 @@ pnpm build
 pnpm mazi config            # 首次先配置（写入 ~/.mazi）
 
 # 两个独立进程（前后端分离）
-pnpm server                 # 后端 API：http://127.0.0.1:4317（MAZI_SERVER_PORT / MAZI_CORS_ORIGIN）
+pnpm run server             # 后端 API：http://127.0.0.1:4317（或 pnpm api）
 pnpm web                    # 前端 UI：http://127.0.0.1:5174（MAZI_WEB_PORT）
+# 注意：不要用裸 “pnpm server”——它是 pnpm 内建的 store server 命令，会静默退出；
+# 本仓库的后端脚本须用 “pnpm run server” 或别名 “pnpm api”。
 ```
 
 **apps/web（纯前端静态服务，5174）** 与 **apps/server（纯 API 后端，4317）** 分离；
