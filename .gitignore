@@ -17,3 +17,6 @@ apps/*/src/**/*.d.ts
 events/
 events-demo/
 *.mazi.db
+.npm-tmp/
+.pnpm-store/
+*.tgz
