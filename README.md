@@ -156,17 +156,20 @@ pnpm exec vitest run packages/<pkg>/src   # 单包测试
 ```bash
 pnpm build
 pnpm mazi config            # 首次先配置（写入 ~/.mazi）
-pnpm server                 # 默认 http://127.0.0.1:4317（MAZI_WEB_PORT 可改）
-# pnpm web 为同一后端的别名
+
+# 两个独立进程（前后端分离）
+pnpm server                 # 后端 API：http://127.0.0.1:4317（MAZI_SERVER_PORT / MAZI_CORS_ORIGIN）
+pnpm web                    # 前端 UI：http://127.0.0.1:5174（MAZI_WEB_PORT）
 ```
 
-打开浏览器即可使用 **三栏 WebUI**（对应 docs/webui.md MVP 子集）：左侧会话列表 →
-中央运行输入与轨迹/对话（thinking/tool_call/observation 卡片）→ 右侧审计与事件面板（点击
-节点可看 三方记录 + Usage）→ 底部实时指标；结果与事件流落 `~/.mazi`（`MAZI_HOME` 覆盖）。
+**apps/web（纯前端静态服务，5174）** 与 **apps/server（纯 API 后端，4317）** 分离；
+页面自动指向后端（默认 http://127.0.0.1:4317，可用 `?api=http://host:port` 覆盖）。
 
-- `apps/server`：零依赖后端（node:http），REST + SSE（follow 增量）＋ 串行运行（busy 时 409）＋ 静态托管 `apps/web/public`。
-- `apps/web`：纯静态前端包。
-- API：`POST /api/run`、`GET /api/config|health`、`GET /api/sessions`、`GET /api/sessions/:id[/timeline]`、
-  `GET /api/events/<sessionId>[?follow=1]`、`POST /api/sessions/:id/feedback`。
-- 存储默认 SQLite（`~/.mazi/mazi.db`）；PostgreSQL/向量为存储 SPI 后续（docs/后端与存储设计.md）。
-- 设计见 `docs/UserConfigWebUI设计.md`、`docs/后端与存储设计.md`。
+**真实会话流**：输入任务 → [仅创建会话]（`POST /api/sessions`：立即写库 + recording 记录，进入左侧列表）
+→ 点击“执行此会话”（`POST /api/sessions/:id/run`）或直接 [创建并运行]；完成后轨迹/事件/指标可见。
+
+三栏 UI（docs/webui.md MVP 子集）：会话列表 / 轨迹对话（thinking/tool_call/observation）/ 审计与事件（三方记录+Usage）/ 底部指标。
+
+- 后端 API：`POST /api/sessions`、`POST /api/sessions/:id/run`、`GET /api/sessions`、`GET /api/sessions/:id`、
+  `GET /api/events/<sessionId>[?follow=1]`（SSE）、`POST /api/sessions/:id/feedback`、`GET /api/config|health`、`POST /api/run`（一次性兼容）。
+- 存储默认 SQLite（`~/.mazi/mazi.db`）+ JSONL 事件；PostgreSQL/向量为存储 SPI 后续（docs/后端与存储设计.md）。
