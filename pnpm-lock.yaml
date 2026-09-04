@@ -39,7 +39,11 @@ importers:
 
   packages/memory: {}
 
-  packages/observability: {}
+  packages/observability:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/planner: {}
 
