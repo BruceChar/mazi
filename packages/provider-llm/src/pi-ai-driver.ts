@@ -9,6 +9,18 @@ import {
     translatePiEvent,
 } from './pi-ai-mapper.js';
 
+/** pi-ai provider → 默认 API key 环境变量（交互式配置向导与缺省运行均按此读取） */
+export const DEFAULT_API_KEY_ENV: Record<string, string> = {
+    openai: 'OPENAI_API_KEY',
+    deepseek: 'DEEPSEEK_API_KEY',
+    anthropic: 'ANTHROPIC_API_KEY',
+    google: 'GEMINI_API_KEY',
+    openrouter: 'OPENROUTER_API_KEY',
+    mistral: 'MISTRAL_API_KEY',
+    groq: 'GROQ_API_KEY',
+    xai: 'XAI_API_KEY',
+};
+
 /** pi-ai 真实厂商 Driver 配置（对应 ProviderJson.driver） */
 export interface PiAiDriverConfig {
     type: 'pi-ai';
@@ -116,7 +128,13 @@ export class PiAiDriver implements LLMDriver {
         return this.modelHandle;
     }
 
-    /** 凭据解析：apiKeyEnv 显式配置但缺失 → 抛错（PA-A3）；未配置时用 pi-ai 默认 env 探测 */
+    /**
+     * 凭据解析：
+     * - 显式配置 apiKeyEnv → 缺失即抛错（PA-A3）；
+     * - 未显式配置 → 按 provider 默认 env 名读取（openai→OPENAI_API_KEY、deepseek→DEEPSEEK_API_KEY 等），
+     *   命中映射但缺失 → 抛清晰错误；
+     * - 未命中映射的 provider（如 faux / 无鉴权自定义端点）→ 不校验，交由 pi-ai/端点决定。
+     */
     private resolveApiKey(): string | undefined {
         if (this.apiKeyEnv !== undefined) {
             const value = process.env[this.apiKeyEnv];
@@ -125,8 +143,16 @@ export class PiAiDriver implements LLMDriver {
             }
             return value;
         }
-        // 未显式配置：交由 pi-ai 自身 auth 解析（如 OPENAI_API_KEY 等默认环境变量）；
-        // keyless 本地端点（如 faux）不受影响。
+        const defaultEnv = DEFAULT_API_KEY_ENV[this.provider];
+        if (defaultEnv !== undefined) {
+            const value = process.env[defaultEnv];
+            if (!value) {
+                throw new Error(
+                    `pi-ai 驱动缺少 API key：provider=${this.provider} 未配置环境变量 ${defaultEnv}（可用 driver.apiKeyEnv 指定其它变量名）`,
+                );
+            }
+            return value;
+        }
         return undefined;
     }
 }

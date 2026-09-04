@@ -132,6 +132,82 @@ describe('PiAiDriver（@earendil-works/pi-ai，faux provider 离线验证）', (
     });
 });
 
+describe('PiAiDriver 默认 env 读取（openai→OPENAI_API_KEY / deepseek→DEEPSEEK_API_KEY）', () => {
+    function envStubModels(captured: { options?: unknown }[]) {
+        const fakeModel = { id: 'm', provider: 'x' } as unknown as Model<never>;
+        return {
+            getModel: () => fakeModel,
+            stream: (_model: unknown, _ctx: unknown, options?: unknown) => {
+                captured.push({ options });
+                return (async function* () {})();
+            },
+            complete: async () => {
+                captured.push({ options: undefined });
+                return undefined;
+            },
+        } as unknown as Models;
+    }
+    async function invokeStream(driver: PiAiDriver): Promise<void> {
+        for await (const _e of driver.stream({
+            model: { providerId: 'x', vendor: 'x', modelId: 'm' },
+            context: { messages: [{ role: 'user', content: 'hi' }], tools: [] },
+        })) {
+            // 消费空流
+        }
+    }
+
+    it('provider=openai 未显式 apiKeyEnv 时读取 OPENAI_API_KEY 并透传 apiKey', async () => {
+        process.env.OPENAI_API_KEY = 'sk-openai-test';
+        try {
+            const captured: { options?: unknown }[] = [];
+            const driver = new PiAiDriver(
+                { type: 'pi-ai', provider: 'openai', model: 'gpt-4o-mini' },
+                { models: envStubModels(captured) },
+            );
+            await invokeStream(driver);
+            expect(captured[0]).toEqual({ options: { apiKey: 'sk-openai-test' } });
+        } finally {
+            delete process.env.OPENAI_API_KEY;
+        }
+    });
+
+    it('provider=deepseek 未显式 apiKeyEnv 时读取 DEEPSEEK_API_KEY', async () => {
+        process.env.DEEPSEEK_API_KEY = 'sk-deepseek-test';
+        try {
+            const captured: { options?: unknown }[] = [];
+            const driver = new PiAiDriver(
+                { type: 'pi-ai', provider: 'deepseek', model: 'deepseek-chat' },
+                { models: envStubModels(captured) },
+            );
+            await invokeStream(driver);
+            expect(captured[0]).toEqual({ options: { apiKey: 'sk-deepseek-test' } });
+        } finally {
+            delete process.env.DEEPSEEK_API_KEY;
+        }
+    });
+
+    it('默认 env 缺失（openai 无 OPENAI_API_KEY）→ 抛清晰错误且不触碰模型流', async () => {
+        delete process.env.OPENAI_API_KEY;
+        const captured: { options?: unknown }[] = [];
+        const driver = new PiAiDriver(
+            { type: 'pi-ai', provider: 'openai', model: 'gpt-4o-mini' },
+            { models: envStubModels(captured) },
+        );
+        await expect(invokeStream(driver)).rejects.toThrow(/OPENAI_API_KEY/);
+        expect(captured).toHaveLength(0);
+    });
+
+    it('未命中默认映射（faux/无鉴权）→ 不校验 env 直接透传', async () => {
+        const captured: { options?: unknown }[] = [];
+        const driver = new PiAiDriver(
+            { type: 'pi-ai', provider: 'faux', model: 'faux-model' },
+            { models: envStubModels(captured) },
+        );
+        await invokeStream(driver);
+        expect(captured[0]).toEqual({ options: undefined });
+    });
+});
+
 describe('DefaultDriverRegistry（PA-A4）', () => {
     it('type=scripted → ScriptedDriver；type=pi-ai → PiAiDriver；未知 type 抛错', () => {
         const reg = new DefaultDriverRegistry();
