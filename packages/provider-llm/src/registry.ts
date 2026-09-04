@@ -34,6 +34,25 @@ export interface ScenarioFile {
     failCalls?: number;
 }
 
+/** scripted 驱动配置段 */
+export interface ScriptedDriverJson {
+    type?: 'scripted';
+    rounds?: ScriptedRound[];
+    scenarioFile?: string;
+    failCalls?: number;
+}
+
+/** pi-ai 真实厂商驱动配置段 */
+export interface PiAiDriverJson {
+    type: 'pi-ai';
+    /** pi-ai provider id（openai/deepseek/...），缺省 openai */
+    provider?: string;
+    /** 厂商模型名（须在 pi-ai 目录内） */
+    model?: string;
+    /** API key 环境变量名；缺省按 provider 默认 env（OPENAI_API_KEY/DEEPSEEK_API_KEY…） */
+    apiKeyEnv?: string;
+}
+
 /** providers 配置 JSON 的单条 Provider（driver 段为 provider-llm 私有扩展） */
 export interface ProviderJson {
     id: string;
@@ -43,13 +62,12 @@ export interface ProviderJson {
     /** 业务专长标签（SpecialtyTag），缺省 [] */
     specialties?: string[];
     models: ModelDescriptor[];
-    /** 驱动配置：MVP 仅 scripted；rounds 与 scenarioFile 二选一（scenarioFile 优先） */
-    driver?: {
-        type?: 'scripted';
-        rounds?: ScriptedRound[];
-        scenarioFile?: string;
-        failCalls?: number;
-    };
+    /**
+     * 驱动配置（driver.type 分派，见 DefaultDriverRegistry）：
+     * - scripted：确定性模拟，rounds 与 scenarioFile 二选一（scenarioFile 优先）
+     * - pi-ai：真实厂商（@earendil-works/pi-ai），provider/model/apiKeyEnv（apiKeyEnv 缺省按 provider 默认 env 读取）
+     */
+    driver?: ScriptedDriverJson | PiAiDriverJson | ({ type?: string } & Record<string, unknown>);
     /** 分时定价（缺省字段由 normalizeProvider 补默认值） */
     pricing?: Partial<PricingSchedule>;
     health?: {
@@ -185,13 +203,16 @@ export class ScriptedDriverRegistry implements DriverRegistry {
         const type = driver?.type ?? 'scripted';
         if (type !== 'scripted') {
             throw new Error(
-                `ScriptedDriverRegistry: 不支持的 driver.type "${type}"（MVP 仅 scripted）`,
+                `ScriptedDriverRegistry: 不支持的 driver.type "${type}"（仅 scripted，pi-ai 请用 DefaultDriverRegistry）`,
             );
         }
-        const scenario = driver?.scenarioFile ? loadScenarioFile(driver.scenarioFile) : undefined;
+        const scripted = driver as ScriptedDriverJson | undefined;
+        const scenario = scripted?.scenarioFile
+            ? loadScenarioFile(scripted.scenarioFile)
+            : undefined;
         const options: ScriptedDriverOptions = {
-            rounds: scenario ? scenario.rounds : (driver?.rounds ?? []),
-            failCalls: driver?.failCalls ?? scenario?.failCalls ?? 0,
+            rounds: scenario ? scenario.rounds : (scripted?.rounds ?? []),
+            failCalls: scripted?.failCalls ?? scenario?.failCalls ?? 0,
         };
         return new ScriptedDriver(options);
     }
