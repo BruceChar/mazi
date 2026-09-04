@@ -12,6 +12,7 @@
 | 版本 | 变更内容 |
 | ---- | -------- |
 | v0.1（被替代） | 旧草稿：粗粒度里程碑 M1.1–M1.4；存在若干与仓库现状/可验证性不符的假设（见 §附录A 勘误） |
+| **v1.1** | 实施记录：F2.1–F16 全部实现并单 feature 独立提交（Conventional Commits）；118 个测试用例覆盖验收 A1–A15；CLI 演示使用确定性 ScriptedDriver（真实厂商接入留接口） |
 | **v1.0** | 重写为可执行契约：固定技术选型（ADR）；如实标注 F1/F2 已完成；F3–F16 按包拆分为独立 Feature，每个 Feature 有明确测试要点、验收标准、依赖与提交建议 |
 
 ---
@@ -248,7 +249,7 @@ Flag：`user-profile.enabled`（默认 true）、`user-profile.anonymize`（默�
 | -- | ---------------- | ---- | ---- | -------- |
 | F1 | monorepo 初始化（root） | ✅ 已完成 | — | pnpm workspace / tsconfig / turbo / biome / vitest / husky |
 | F2 | core 契约（core） | ✅ 已完成 | F1 | 14 契约文件 + index（提交 9caf2c9） |
-| F2.1 | core 校正与类型测试（core） | ⏳ 待实施 | F2 | §4.2 五项：userId 可空、MemoryStore 增 user_interactions 接口、ToolRegistry/ToolInvoker 接口、contracts.test.ts 哨兵 |
+| F2.1 | core 校正与类型测试（core） | ✅ 已完成 | F2 | §4.2 五项：userId 可空、MemoryStore 增 user_interactions 接口、ToolRegistry/ToolInvoker 接口、contracts.test.ts 哨兵 |
 | F3 | observability：EventBus + JSONL 落盘 | ⏳ | F2.1 | event-bus/FileSink/异步队列/replay；测试：emit 落盘、filter、重载回放、console.sink 不影响落盘（A1/A8） |
 | F4 | flags：求值 + 快照 + 默认集 | ⏳ | F2.1 | evaluator/snapshot/bucket/默认 Flag 集；测试：规则优先级、session 冻结、默认回退 |
 | F5 | provider-llm：Driver + ProviderPool + SimpleRouter | ⏳ | F2.1, F4 | ScriptedDriver、registry、router、fallback；测试：能力过滤/价格排序/故障转移/事件回调（A4/A11） |
