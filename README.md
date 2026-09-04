@@ -149,3 +149,19 @@ pnpm exec vitest run packages/<pkg>/src   # 单包测试
 
 - MVP 验收 A1–A15：见 `docs/MVP设计文档v1.0.md` §6，端到端测试在 `packages/harness-runtime/src/harness-runtime.test.ts`。
 - Provider Adapter 验收 PA-A1~A5：见 `docs/ProviderAdapter设计.md` §4。
+---
+
+## WebUI（科技简洁风，参照 DeepSeek Harness Web 观感）
+
+```bash
+pnpm build
+pnpm mazi config            # 首次先配置（写入 ~/.mazi）
+pnpm web                    # 默认 http://127.0.0.1:4317（MAZI_WEB_PORT 可改）
+```
+
+打开浏览器即可：输入任务并运行 → 结果卡（outcome/summary/tokens/成本）+ 事件时间线 +
+近期运行列表（点击可回看事件流）。
+
+- 数据目录同样默认 `~/.mazi`（`MAZI_HOME` 覆盖）；实现为零依赖 `node:http` + 单页静态前端（`apps/web`）。
+- REST：`POST /api/run`、`GET /api/config`、`GET /api/runs`、`GET /api/events/<sessionId>`。
+- 设计见 `docs/UserConfigWebUI设计.md`。
