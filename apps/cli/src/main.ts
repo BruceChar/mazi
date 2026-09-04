@@ -3,6 +3,7 @@ import type { RuntimeConfig } from '@mazi/harness-runtime';
 import { HarnessRuntime } from '@mazi/harness-runtime';
 import { parseCli } from './args.js';
 import { loadConfig } from './config.js';
+import { runConfigure } from './configure.js';
 
 async function askRating(runtime: HarnessRuntime, sessionId: string): Promise<void> {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -24,6 +25,10 @@ async function askRating(runtime: HarnessRuntime, sessionId: string): Promise<vo
 
 export async function main(argv: string[]): Promise<number> {
     const opts = parseCli(argv);
+    if (opts.command === 'config') {
+        await runConfigure(opts.configDir);
+        return 0;
+    }
     const fileConfig = loadConfig(opts.configDir);
     const config: RuntimeConfig = {
         ...fileConfig,
