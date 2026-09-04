@@ -10,7 +10,7 @@
 
 | # | 决策 | 说明 |
 | - | ---- | ---- |
-| PA-1 | 目标包：**`@mariozechner/pi-ai`（0.73.x）** | 唯一活跃的“pi-ai”实现（Unified LLM API：自动模型发现/多厂商/工具调用/成本统计）；npm 无 scope 的 `pi-ai` 为占位包（0.0.1，无代码），`@pioneer-platform/pi-ai` 等为个人分叉。 |
+| PA-1 | 目标包：**`@earendil-works/pi-ai`（0.85.x）** | 用户指定的真实目标包（Unified LLM API：provider collections/自动 auth 解析/token 成本统计/多厂商）。注：初稿曾误选同源旧包 `@mariozechner/pi-ai`，已纠正并移除依赖；npm 无 scope 的 `pi-ai` 为占位包。 |
 | PA-2 | 凭据注入：**`driver.apiKeyEnv`（读环境变量）**；pi-ai 自身按厂商读标准 env | 不把密钥写入配置/仓库。`apiKeyEnv` 显式配置但缺失 → 首次调用抛出清晰错误；未显式配置时按厂商默认 env 名（OPENAI_API_KEY/ANTHROPIC_API_KEY/…）读取，缺失不阻塞（兼容本地无鉴权端点）。 |
 | PA-3 | 注册形态：**`DefaultDriverRegistry`** 按 `driver.type` 分派（`scripted` 保持默认演示；`pi-ai` 走真实厂商） | harness-runtime 装配点改用它；原 `ScriptedDriverRegistry` 保留导出兼容。 |
 | PA-4 | 驱动配置字段：`{ type: 'pi-ai', api?: string, model: string, apiKeyEnv?: string }` | `api` 默认 `'openai'`（pi-ai 支持的厂商标识，如 openai/anthropic/google/deepseek/openrouter…）；`model` 为厂商模型名。 |
@@ -58,8 +58,10 @@
 ## 3. 实现位置
 
 - `packages/provider-llm/src/pi-ai-mapper.ts`：纯映射函数（toContext/toVendorUsage/translateEvent…）
-- `packages/provider-llm/src/pi-ai-driver.ts`：`PiAiDriver implements LLMDriver`（惰性 getModel、env 校验、stream/complete）
-- `packages/provider-llm/src/registry.ts`：新增 `DefaultDriverRegistry`（type=scripted|pi-ai）
+- `packages/provider-llm/src/pi-ai-driver.ts`：`PiAiDriver implements LLMDriver`（`Models.getModel` 惰性解析、env 校验、`models.stream/complete`）
+- `packages/provider-llm/src/pi-ai-mapper.ts`：纯映射（LLMRequest/Context ⇄ pi-ai Context/Tool/Message；事件翻译）
+- `packages/provider-llm/src/default-registry.ts`：`DefaultDriverRegistry`（type=scripted|pi-ai）
+- 测试：pi-ai **faux provider**（`fauxProvider()` + `createModels()`）离线端到端验证 stream/complete 映射，无需真实凭据
 - `packages/harness-runtime/src/runtime.ts`：装配点改用 `DefaultDriverRegistry`
 
 ## 4. 验收（对应 MVP 文档 §6 扩展）
