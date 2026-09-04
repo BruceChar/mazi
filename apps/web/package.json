@@ -3,24 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "./dist/server.js",
-  "types": "./dist/server.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/server.d.ts",
-      "default": "./dist/server.js"
-    }
-  },
   "files": [
-    "dist"
+    "public"
   ],
-  "dependencies": {
-    "@mazi/harness-runtime": "workspace:*",
-    "@mazi/observability": "workspace:*",
-    "@mazi/core": "workspace:*"
-  },
   "scripts": {
-    "build": "tsc -b tsconfig.json",
-    "start": "node dist/server.js"
+    "build": "echo '纯静态前端：构建由 apps/server 启动时直接使用 public/';"
   }
 }
