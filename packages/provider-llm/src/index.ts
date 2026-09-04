@@ -1,6 +1,8 @@
 export { DefaultDriverRegistry } from './default-registry.js';
 export type { ScriptedDriverOptions } from './driver.js';
 export { ScriptedDriver } from './driver.js';
+export type { ModelDiscoveryDeps, ModelDiscoveryResult } from './model-discovery.js';
+export { discoverModels } from './model-discovery.js';
 export type { PiAiDriverConfig, PiAiDriverDeps } from './pi-ai-driver.js';
 export { PiAiDriver } from './pi-ai-driver.js';
 export type { PiModelMeta } from './pi-ai-mapper.js';
