@@ -26,7 +26,11 @@ const server = createServer((req, res) => {
         return;
     }
     const ext = safe.slice(safe.lastIndexOf('.'));
-    res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream' });
+    // 开发期 UI：禁止缓存，避免旧 app.js 残留导致“点了没反应”
+    res.writeHead(200, {
+        'content-type': MIME[ext] ?? 'application/octet-stream',
+        'cache-control': 'no-store',
+    });
     res.end(readFileSync(file));
 });
 

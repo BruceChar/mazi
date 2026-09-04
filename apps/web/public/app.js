@@ -15,10 +15,31 @@ const fmtTime = (t) => new Date(t).toLocaleString();
 const fmtUsd = (v) => '$' + Number(v ?? 0).toFixed(6);
 
 async function api(path, init) {
-    const res = await fetch(API_BASE + path, init);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || res.statusText);
-    return data;
+    const started = Date.now();
+    const full = API_BASE + path;
+    const label = (init && init.method ? init.method : 'GET') + ' ' + full;
+    try {
+        const res = await fetch(full, init);
+        const data = await res.json().catch(() => ({}));
+        const ms = Date.now() - started;
+        setApiLog(label + ' -> ' + res.status + ' (' + ms + 'ms)');
+        if (!res.ok) {
+            console.warn('[api]', label, res.status, data);
+            throw new Error(data.error || res.statusText);
+        }
+        console.info('[api]', label, res.status, ms + 'ms');
+        return data;
+    } catch (e) {
+        const ms = Date.now() - started;
+        setApiLog(label + ' -> ERR (' + ms + 'ms) ' + String(e));
+        console.warn('[api]', label, 'ERR', e);
+        throw e;
+    }
+}
+
+function setApiLog(text) {
+    const el = document.getElementById('apilog');
+    if (el) el.textContent = 'api: ' + text;
 }
 
 function setDot(ok, busy) {
@@ -149,8 +170,7 @@ async function loadEvents(id) {
     try {
         const events = await api('/api/events/' + id + '?limit=5000');
         $('evcount').textContent = events.length + ' events';
-        $('events').textContent = events.map((e) => e.type + '  ' + [e.sessionId, e.turnId, e.stepId].filter(Boolean).join('/')).join('
-');
+        $('events').textContent = events.map((e) => e.type + '  ' + [e.sessionId, e.turnId, e.stepId].filter(Boolean).join('/')).join(String.fromCharCode(10));
     } catch (e) {
         $('events').textContent = String(e);
     }
