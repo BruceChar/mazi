@@ -1,2 +1,2 @@
-export type { EventBusOptions } from './event-bus';
-export { ConsoleSink, DefaultEventBus } from './event-bus';
+export type { EventBusOptions, NewEventInput } from './event-bus';
+export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './event-bus';

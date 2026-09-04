@@ -12,12 +12,15 @@ import { ulid } from '@mazi/core';
 
 /**
  * Turn 级事件：必须携带 turnId。
- * 说明：plan.created / plan.invalid 发生在 Turn 创建之前（属 Session 级），
- * 因此不在本集合内（缺 turnId 合法）。
+ * 说明：plan.created / plan.invalid 发生在 Turn 创建之前（属 Session 级），不在本集合内。
+ * llm.* 事件在模型调用（Step 创建前）发出，归为 Turn 级。
  */
 const TURN_SCOPED: ReadonlySet<HarnessEventType> = new Set<HarnessEventType>([
     'turn.started',
     'turn.ended',
+    'llm.request',
+    'llm.stream_event',
+    'llm.response',
     'capacity.assembled',
     'capacity.degraded',
     'provider.selected',
@@ -32,15 +35,12 @@ const TURN_SCOPED: ReadonlySet<HarnessEventType> = new Set<HarnessEventType>([
 const STEP_SCOPED: ReadonlySet<HarnessEventType> = new Set<HarnessEventType>([
     'step.started',
     'step.ended',
-    'llm.request',
-    'llm.response',
     'tool.invoke',
     'tool.result',
     'tool.blocked',
     'context.strategy.applied',
 ]);
 
-/** 事件类型名（事件不带 level 属性时，minLevel 过滤不适用） */
 const LEVEL_ORDER: Record<string, number> = {
     debug: 0,
     info: 1,
@@ -48,7 +48,6 @@ const LEVEL_ORDER: Record<string, number> = {
     error: 3,
 };
 
-/** JSONL 落盘目录环境变量 */
 const EVENT_LOG_DIR_ENV = 'EVENT_LOG_DIR';
 const DEFAULT_EVENT_DIR = './events';
 
@@ -60,11 +59,7 @@ function defaultEventDir(): string {
     return process.env[EVENT_LOG_DIR_ENV] ?? DEFAULT_EVENT_DIR;
 }
 
-/**
- * 过滤语义（MVP）：仅支持按事件类型过滤。
- * minLevel / requireFlag 需要事件携带额外上下文（level 属性 / 会话 Flag），
- * MVP 中无消费方使用；为避免“静默忽略”，设置即抛错（fail-fast）。
- */
+/** 过滤语义（MVP）：仅支持按事件类型过滤；minLevel/requireFlag 设置即抛错（fail-fast） */
 function assertSupportedFilter(filter: EventFilter): void {
     if (filter.minLevel !== undefined || filter.requireFlag !== undefined) {
         throw new Error(
@@ -110,6 +105,29 @@ function validateTraceIds(event: HarnessEvent): void {
     if (STEP_SCOPED.has(event.type) && typeof event.stepId !== 'string') {
         throw new Error(`事件 ${event.type} 缺少必填 stepId`);
     }
+}
+
+/** 事件构造助手：补齐 eventId(ULID) 与 timestamp */
+export interface NewEventInput {
+    type: HarnessEvent['type'];
+    sessionId: string;
+    turnId?: string;
+    stepId?: string;
+    attributes?: HarnessEvent['attributes'];
+    payload?: unknown;
+}
+
+export function newHarnessEvent(input: NewEventInput): HarnessEvent {
+    return {
+        type: input.type,
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        stepId: input.stepId,
+        attributes: input.attributes ?? {},
+        payload: input.payload,
+        eventId: ulid(),
+        timestamp: Date.now(),
+    };
 }
 
 export interface EventBusOptions {
@@ -184,7 +202,7 @@ export class DefaultEventBus implements EventBus {
                     events.push(parsed);
                 }
             } catch {
-                // 跳过损坏行（审计完整性由 FileSink 保证，重放尽力而为）
+                // 跳过损坏行（审计完整性由持久化保证，重放尽力而为）
             }
         }
         return events;
