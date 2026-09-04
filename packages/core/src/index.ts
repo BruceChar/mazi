@@ -1,6 +1,7 @@
 export type * from './capacity';
 export type * from './flags';
 export type * from './goal';
+export { ulid } from './id';
 export type * from './memory';
 export type * from './observability';
 export type * from './planner';
@@ -8,6 +9,7 @@ export type * from './policy';
 export type * from './provider';
 export type * from './session';
 export type * from './strategy';
+export type { ToolExecutionResult, ToolInvoker, ToolRegistry, ToolResolution } from './tool';
 export type * from './turn-contract';
 export type * from './usage';
 export type * from './user-interaction';

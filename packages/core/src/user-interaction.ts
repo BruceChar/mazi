@@ -2,7 +2,8 @@
 export interface UserInteractionRecord {
     recordId: string;
     sessionId: string;
-    userId: string;
+    /** 用户标识（如有）；匿名化场景可省略 */
+    userId?: string;
     /** 用户原始输入（完整保留） */
     rawInput: string;
     inputTimestamp: number;

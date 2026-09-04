@@ -113,11 +113,12 @@ pnpm workspace + TypeScript + turbo + biome + vitest 已就绪（提交 `3e04087
 
 1. `user-interaction.ts`：v1.2 中 `userId?: string`（可选），core 实现为必填 —— 校正为可选，匿名化时可省略。
 2. `memory.ts`：`MemoryStore` 缺少 `user_interactions` 相关接口（v1.2 §7.2 需要）—— 增加 `saveUserInteractionRecord / loadUserInteractionRecord / listUserInteractionRecords` 方法。
-3. 缺工具注册与执行接口（planner 与 executor 共用，避免跨包重复）—— 新增 `tool.ts`：`ToolRegistry`（按 nameOrCapability 解析为 ToolSpec[]）与 `ToolInvoker`（name→执行函数）。
+3. 缺工具注册与执行接口（planner 与 executor 共用，避免跨包重复）—— 新增 `tool.ts`：`ToolRegistry`（按 nameOrCapability 解析为 ToolSpec[]，返回 `ToolResolution`{tools, missingRequired, missingOptional}）与 `ToolInvoker`（name→执行函数，返回可判别联合 `ToolExecutionResult`，无 null 返回值）。
 4. 补 **core 类型级测试**（AGENT.md 测试先行）：新增 `packages/core/src/contracts.test.ts`，用结构断言核对关键字段，保证契约与 v1.2 同步（回归哨兵）。
 5. `session.ts` 中 `Step.payload` 已含 Thinking/ToolCall/Observation 载荷 —— 已满足 v1.2 §3.1，无需改。
+6. 全仓需要 ULID 生成（sessionId/turnId/stepId/eventId/recordId）—— core 新增唯一运行时工具 `id.ts`：`ulid()`（48 位单调时间戳 + 80 位随机，Crockford Base32），零外部依赖；`index.ts` 相应导出。
 
-> 判定：其余契约与 v1.2 一致，仅以上 5 项。若实施中发现新偏差，须先更新本档再改码（AGENT.md）。
+> 判定：其余契约与 v1.2 一致，仅以上 6 项。若实施中发现新偏差，须先更新本档再改码（AGENT.md）。
 
 ### 4.3 存储表结构（D1 落点，memory 包 schema.ts 定义）
 
