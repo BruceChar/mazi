@@ -209,7 +209,14 @@ export class HarnessRuntime {
         return getRecordBySession(this.memory, sessionId);
     }
 
+    /** 创建并执行（向后兼容：等效 createSession + executeSession） */
     async run(input: string, opts: RunOptions = {}): Promise<RunResult> {
+        const created = await this.createSession(input, opts);
+        return this.executeSession(created.sessionId);
+    }
+
+    /** 创建会话：构建 Goal/Flag 快照并持久化（不执行），记录即时为 recording（webui 会话列表可先出现空会话） */
+    async createSession(input: string, opts: RunOptions = {}): Promise<{ sessionId: string }> {
         const sessionId = ulid();
         const goal = buildGoal(sessionId, input, this.config);
         const ctxFlags = { sessionId, userId: opts.userId, goalTags: goal.strategyHints };
@@ -240,8 +247,24 @@ export class HarnessRuntime {
                 },
             }),
         );
+        await this.bus.flush();
+        await this.waitRecordStarted(sessionId);
+        return { sessionId };
+    }
 
-        // planner（goal 已绑定）+ executor（本会话策略约束与 provider 定价绑定）
+    /** 执行已创建会话：加载现场（Session+flagSnapshot），复用既有编排管线直至 session.ended */
+    async executeSession(sessionId: string): Promise<RunResult> {
+        const session = await this.memory.loadSession(sessionId);
+        if (!session) {
+            throw new Error(`会话不存在：${sessionId}`);
+        }
+        if (session.endedAt !== undefined) {
+            throw new Error(`会话已结束：${sessionId} (outcome=${String(session.outcome)})`);
+        }
+        const goal = session.goal;
+        const snapshot = session.flagSnapshot;
+        this.activeSnapshot = snapshot;
+
         const plannerImpl = new MvpPlanner({
             toolRegistry: this.tools.registry,
             router: this.router,
@@ -313,7 +336,6 @@ export class HarnessRuntime {
         } catch (error) {
             strategyError = error as Error;
         }
-        // Session 结束：聚合 + 状态 + session.ended + 记录完成
         const turnSteps: { turn: Turn; steps: import('@mazi/core').Step[] }[] = [];
         for (const turn of session.turns) {
             turnSteps.push({ turn, steps: await this.memory.listSteps(turn.turnId) });
@@ -356,6 +378,18 @@ export class HarnessRuntime {
             turnCount: metrics.turnCount,
             record: await this.getRecord(sessionId),
         };
+    }
+
+    /** recorder 异步创建记录：轮询至记录已生成（recording/completed，上限 500ms） */
+    private async waitRecordStarted(sessionId: string): Promise<void> {
+        const deadline = Date.now() + 500;
+        while (Date.now() < deadline) {
+            const record = await this.getRecord(sessionId);
+            if (record) {
+                return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
     }
 
     /** recorder 异步完成记录：轮询至 completed（上限 500ms，避免竞态） */
