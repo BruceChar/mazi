@@ -11,7 +11,7 @@
 | # | 决策 | 说明 |
 | - | ---- | ---- |
 | PA-1 | 目标包：**`@earendil-works/pi-ai`（0.85.x）** | 用户指定的真实目标包（Unified LLM API：provider collections/自动 auth 解析/token 成本统计/多厂商）。注：初稿曾误选同源旧包 `@mariozechner/pi-ai`，已纠正并移除依赖；npm 无 scope 的 `pi-ai` 为占位包。 |
-| PA-2 | 凭据注入：**`driver.apiKeyEnv`（读环境变量）**；pi-ai 自身按厂商读标准 env | 不把密钥写入配置/仓库。`apiKeyEnv` 显式配置但缺失 → 首次调用抛出清晰错误；未显式配置时按厂商默认 env 名（OPENAI_API_KEY/ANTHROPIC_API_KEY/…）读取，缺失不阻塞（兼容本地无鉴权端点）。 |
+| PA-2 | 凭据注入：**优先按 provider 默认 env 读取**（openai→OPENAI_API_KEY、deepseek→DEEPSEEK_API_KEY、anthropic→ANTHROPIC_API_KEY、google→GEMINI_API_KEY、openrouter→OPENROUTER_API_KEY 等）；可用 `driver.apiKeyEnv` 覆盖 | 不把密钥写入配置/仓库。显式配置 `apiKeyEnv` 或命中默认映射但缺失 → 首次调用抛出清晰错误；未命中映射的 provider（faux/无鉴权自定义端点）不校验。CLI 提供 `pnpm mazi config` 交互向导，生成的 `providers.json` 通常省略 `apiKeyEnv`（默认映射生效）。 |
 | PA-3 | 注册形态：**`DefaultDriverRegistry`** 按 `driver.type` 分派（`scripted` 保持默认演示；`pi-ai` 走真实厂商） | harness-runtime 装配点改用它；原 `ScriptedDriverRegistry` 保留导出兼容。 |
 | PA-4 | 驱动配置字段：`{ type: 'pi-ai', api?: string, model: string, apiKeyEnv?: string }` | `api` 默认 `'openai'`（pi-ai 支持的厂商标识，如 openai/anthropic/google/deepseek/openrouter…）；`model` 为厂商模型名。 |
 | PA-5 | baseUrl/自定义端点等 pi-ai 高级配置（OpenAI 兼容网关、代理）本期不重复建模，由 pi-ai 自身的模型注册/env 机制提供 | 文档标注，后续按需透传。 |

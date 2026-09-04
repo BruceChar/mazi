@@ -26,21 +26,22 @@ pnpm build         # turbo tsc -b 全量构建，产出各包 dist/
 仓库根已注册脚本 `mazi`（`node apps/cli/dist/cli.js`），构建后可直接：
 
 ```bash
-pnpm mazi run "<任务描述>" [选项]
-# 等价于：node apps/cli/dist/cli.js run "<任务描述>" [选项]
+pnpm mazi run "<任务描述>" [选项]     # 执行任务
+pnpm mazi config [选项]              # 交互式配置 provider
+# 等价于：node apps/cli/dist/cli.js run|config ...
 ```
 
 > 提示：`pnpm mazi ...` 依赖已构建的 `apps/cli/dist/cli.js`（先执行 `pnpm build`）；
 > 也可用 `pnpm run mazi -- run "<任务描述>" [选项]` 显式传参。
 
-| 选项 | 说明 | 默认 |
-| ---- | ---- | ---- |
-| `--user <id>` | 用户标识（写入用户交互记录） | 无 |
-| `--config-dir <dir>` | 配置目录，须含 `providers.json` / `tools.json` / `flags.json` | `./config` |
-| `--event-dir <dir>` | 事件 JSONL 落盘目录 | `./events`（或 `EVENT_LOG_DIR`） |
-| `--db <path>` | SQLite 文件路径（session/turn/step/用户记录） | 内存库 |
-| `--interactive` | 执行后提示输入 1–5 评分（写入记录） | 关 |
-| `--help` | 帮助 | — |
+| 选项                   | 说明                                                               | 默认                                 |
+| ---------------------- | ------------------------------------------------------------------ | ------------------------------------ |
+| `--user <id>`        | 用户标识（写入用户交互记录）                                       | 无                                   |
+| `--config-dir <dir>` | 配置目录，须含`providers.json` / `tools.json` / `flags.json` | `./config`                         |
+| `--event-dir <dir>`  | 事件 JSONL 落盘目录                                                | `./events`（或 `EVENT_LOG_DIR`） |
+| `--db <path>`        | SQLite 文件路径（session/turn/step/用户记录）                      | 内存库                               |
+| `--interactive`      | 执行后提示输入 1–5 评分（写入记录）                               | 关                                   |
+| `--help`             | 帮助                                                               | —                                   |
 
 退出码：`0` = 成功；`1` = 执行失败（outcome=failed）；`2` = 用法/配置错误。
 
@@ -52,6 +53,17 @@ pnpm mazi run "<任务描述>" [选项]
 - **`pi-ai`**（真实厂商，见下方 §5）：经 `@earendil-works/pi-ai` 调用 OpenAI / Anthropic / DeepSeek / OpenRouter 等。
 
 `tools.json` 声明工具白名单（含 schema、minPermission、副作用域）；`flags.json` 可选覆盖默认 Flag。
+
+**交互式配置（推荐）**：
+
+```bash
+pnpm mazi config --config-dir <你的配置目录>   # 默认 ./config
+```
+
+向导会列出可选 provider（OpenAI / DeepSeek / 脚本演示），询问要启用的项与模型，
+并**检测 `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` 是否已设置**，最后生成
+`providers.json` / `tools.json` / `flags.json`。生成的真实厂商 driver 通常省略
+`apiKeyEnv`——运行时按 provider 默认映射读取环境变量（见下方 §5 说明）。
 
 ### 5. 两种运行方式
 
@@ -103,8 +115,12 @@ pnpm mazi run "读取 README.md 并汇报" \
   --config-dir config-real --event-dir ./events-real
 ```
 
-> 说明：pi-ai 只包含支持工具调用的模型；模型名须在 pi-ai 目录内（不匹配会给出明确报错）。
-> 无鉴权本地端点（Ollama 等 OpenAI 兼容服务）可省略 `apiKeyEnv`，由 pi-ai 自身配置扩展。
+> 说明：
+> - pi-ai 只包含支持工具调用的模型；模型名须在 pi-ai 目录内（不匹配会给出明确报错）。
+> - **默认读取环境变量**：provider=openai → `OPENAI_API_KEY`；provider=deepseek → `DEEPSEEK_API_KEY`；
+>   anthropic → `ANTHROPIC_API_KEY` 等。`driver.apiKeyEnv` 可覆盖为其它变量名。
+> - 命中默认映射但对应环境变量缺失 → 首次调用即报“缺少 API key：… ${变量名}”的清晰错误。
+> - 无鉴权本地端点（Ollama 等 OpenAI 兼容服务）走 pi-ai 自身的自定义 provider 配置扩展。
 
 ### 6. 反馈与数据落盘
 
