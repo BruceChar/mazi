@@ -11,8 +11,24 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "echo 'Placeholder build until src/ and tsconfig are added.'"
+    "build": "tsc -b tsconfig.json"
+  },
+  "dependencies": {
+    "@mazi/core": "workspace:*",
+    "@mazi/observability": "workspace:*",
+    "@mazi/flags": "workspace:*",
+    "@mazi/usage": "workspace:*",
+    "@mazi/policy": "workspace:*",
+    "@mazi/memory": "workspace:*",
+    "@mazi/provider-llm": "workspace:*",
+    "@mazi/planner": "workspace:*",
+    "@mazi/executor": "workspace:*",
+    "@mazi/recovery": "workspace:*",
+    "@mazi/user-profile": "workspace:*",
+    "@mazi/strategy-full-loop": "workspace:*"
   }
 }
