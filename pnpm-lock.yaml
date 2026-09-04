@@ -27,11 +27,28 @@ importers:
         specifier: ^5
         version: 5.0.0(@types/node@26.4.1)(vite@8.2.2(@types/node@26.4.1))
 
-  apps/cli: {}
+  apps/cli:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@mazi/harness-runtime':
+        specifier: workspace:*
+        version: link:../../packages/harness-runtime
 
   packages/core: {}
 
-  packages/executor: {}
+  packages/executor:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mazi/observability':
+        specifier: workspace:*
+        version: link:../observability
+      '@mazi/usage':
+        specifier: workspace:*
+        version: link:../usage
 
   packages/flags:
     dependencies:
@@ -39,9 +56,50 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/harness-runtime: {}
+  packages/harness-runtime:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mazi/executor':
+        specifier: workspace:*
+        version: link:../executor
+      '@mazi/flags':
+        specifier: workspace:*
+        version: link:../flags
+      '@mazi/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@mazi/observability':
+        specifier: workspace:*
+        version: link:../observability
+      '@mazi/planner':
+        specifier: workspace:*
+        version: link:../planner
+      '@mazi/policy':
+        specifier: workspace:*
+        version: link:../policy
+      '@mazi/provider-llm':
+        specifier: workspace:*
+        version: link:../provider-llm
+      '@mazi/recovery':
+        specifier: workspace:*
+        version: link:../recovery
+      '@mazi/strategy-full-loop':
+        specifier: workspace:*
+        version: link:../strategy-full-loop
+      '@mazi/usage':
+        specifier: workspace:*
+        version: link:../usage
+      '@mazi/user-profile':
+        specifier: workspace:*
+        version: link:../user-profile
 
-  packages/memory: {}
+  packages/memory:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/observability:
     dependencies:
@@ -49,19 +107,65 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/planner: {}
+  packages/planner:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mazi/observability':
+        specifier: workspace:*
+        version: link:../observability
+      '@mazi/provider-llm':
+        specifier: workspace:*
+        version: link:../provider-llm
 
-  packages/policy: {}
+  packages/policy:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
 
-  packages/provider-llm: {}
+  packages/provider-llm:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
 
-  packages/recovery: {}
+  packages/recovery:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mazi/executor':
+        specifier: workspace:*
+        version: link:../executor
 
-  packages/strategy-full-loop: {}
+  packages/strategy-full-loop:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mazi/executor':
+        specifier: workspace:*
+        version: link:../executor
+      '@mazi/observability':
+        specifier: workspace:*
+        version: link:../observability
 
-  packages/usage: {}
+  packages/usage:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
 
-  packages/user-profile: {}
+  packages/user-profile:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
+      '@mazi/observability':
+        specifier: workspace:*
+        version: link:../observability
 
 packages:
 
