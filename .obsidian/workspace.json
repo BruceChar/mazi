@@ -189,5 +189,9 @@
     }
   },
   "active": "c090e8da69682329",
-  "lastOpenFiles": []
+  "lastOpenFiles": [
+    "docs/MVP设计文档.md",
+    "docs/总体设计文档.md",
+    "docs/Agent Harness Framework.md"
+  ]
 }
