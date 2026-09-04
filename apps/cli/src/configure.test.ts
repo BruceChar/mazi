@@ -6,7 +6,9 @@ import {
     buildConfigFiles,
     buildProviderConfig,
     envStatus,
+    mergeModelChoices,
     PROVIDER_PRESETS,
+    resolveModelAnswer,
     resolvePresetSelections,
 } from './configure.js';
 
@@ -80,6 +82,20 @@ describe('交互式配置纯函数（mazi config）', () => {
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }
+    });
+
+    it('mergeModelChoices：动态 + 回退提示去重排序（U3）', () => {
+        const merged = mergeModelChoices(['gpt-4o', 'gpt-5'], ['gpt-4o-mini', 'gpt-4o']);
+        expect(merged).toEqual(['gpt-4o', 'gpt-4o-mini', 'gpt-5']);
+    });
+
+    it('resolveModelAnswer：空→fallback；数字→序号；否则字面 id', () => {
+        const choices = ['a-model', 'b-model'];
+        expect(resolveModelAnswer('', choices, 'a-model')).toBe('a-model');
+        expect(resolveModelAnswer('2', choices, 'x')).toBe('b-model');
+        expect(resolveModelAnswer('999', choices, 'x')).toBe('999');
+        expect(resolveModelAnswer('a-model', choices, 'x')).toBe('a-model');
+        expect(resolveModelAnswer('custom-id', choices, 'x')).toBe('custom-id');
     });
 
     it('envStatus：设置/未设置判定', () => {

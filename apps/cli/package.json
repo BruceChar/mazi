@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@mazi/harness-runtime": "workspace:*",
-    "@mazi/core": "workspace:*"
+    "@mazi/core": "workspace:*",
+    "@mazi/provider-llm": "workspace:*"
   },
   "bin": {
     "mazi": "./dist/cli.js"

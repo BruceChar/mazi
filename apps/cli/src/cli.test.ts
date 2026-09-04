@@ -22,10 +22,16 @@ describe('parseCli（MVP v1.0 §8 F15）', () => {
         expect(opts.configDir).toBe('/tmp/cfg');
         expect(opts.interactive).toBe(true);
     });
-    it('缺省 configDir=config', () => {
-        const opts = parseCli(['run', '任务']);
-        expect(opts.configDir).toBe('config');
-        expect(opts.userId).toBeUndefined();
+    it('缺省 configDir=MAZI_HOME（~/.mazi）', () => {
+        const home = mkdtempSync(join(tmpdir(), 'mazi-home-'));
+        process.env.MAZI_HOME = home;
+        try {
+            const opts = parseCli(['run', '任务']);
+            expect(opts.configDir).toBe(home);
+            expect(opts.userId).toBeUndefined();
+        } finally {
+            delete process.env.MAZI_HOME;
+        }
     });
     it('缺少输入抛错', () => {
         expect(() => parseCli(['run'])).toThrow();

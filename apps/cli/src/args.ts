@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { defaultConfigDir } from '@mazi/harness-runtime';
 
 export interface CliOptions {
     command: 'run' | 'config';
@@ -17,7 +18,7 @@ export function parseCli(argv: string[]): CliOptions {
         allowPositionals: true,
         options: {
             user: { type: 'string' },
-            'config-dir': { type: 'string', default: 'config' },
+            'config-dir': { type: 'string' },
             interactive: { type: 'boolean', default: false },
             'event-dir': { type: 'string' },
             db: { type: 'string' },
@@ -42,7 +43,7 @@ export function parseCli(argv: string[]): CliOptions {
         command,
         input,
         userId: values.user,
-        configDir: values['config-dir'] ?? 'config',
+        configDir: values['config-dir'] ?? defaultConfigDir(),
         interactive: values.interactive === true,
         eventDir: values['event-dir'],
         dbPath: values.db,

@@ -29,6 +29,7 @@ export async function main(argv: string[]): Promise<number> {
         await runConfigure(opts.configDir);
         return 0;
     }
+    // loadConfig 已按 MAZI_HOME 提供默认 db/events；显式 flag 优先
     const fileConfig = loadConfig(opts.configDir);
     const config: RuntimeConfig = {
         ...fileConfig,

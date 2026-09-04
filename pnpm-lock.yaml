@@ -35,6 +35,9 @@ importers:
       '@mazi/harness-runtime':
         specifier: workspace:*
         version: link:../../packages/harness-runtime
+      '@mazi/provider-llm':
+        specifier: workspace:*
+        version: link:../../packages/provider-llm
 
   packages/core: {}
 

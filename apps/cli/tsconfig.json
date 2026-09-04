@@ -9,5 +9,6 @@
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"],
   "references": [
+    { "path": "../../packages/provider-llm" },
     { "path": "../../packages/core" },{ "path": "../../packages/harness-runtime" }]
 }

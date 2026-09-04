@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { ProviderConfig } from '@mazi/harness-runtime';
+import { discoverModels } from '@mazi/provider-llm';
 
 /** 预设：脚本演示 + pi-ai 真实厂商（含默认 key 环境变量） */
 export interface ProviderPreset {
@@ -55,6 +56,24 @@ export interface ProviderSelection {
     model: string;
     /** 覆盖默认 key 环境变量；undefined = 用 preset.defaultKeyEnv */
     keyEnv?: string;
+}
+
+/** 合并动态获取 + 本地回退提示的模型 id（去重排序） */
+export function mergeModelChoices(fetched: string[], hints: string[]): string[] {
+    return [...new Set([...fetched, ...hints])].sort((a, b) => a.localeCompare(b));
+}
+
+/** 模型答案解析：空→fallback；纯数字→choices[序号-1]；否则按字面 id（choices 内/手输均可） */
+export function resolveModelAnswer(raw: string, choices: string[], fallback: string): string {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+        return fallback;
+    }
+    const idx = Number.parseInt(trimmed, 10);
+    if (!Number.isNaN(idx) && idx >= 1 && idx <= choices.length) {
+        return choices[idx - 1] as string;
+    }
+    return trimmed;
 }
 
 /** 交互输入解析：数字/逗号/空格 → 预设 id 列表 */
@@ -298,21 +317,41 @@ async function runConfigureInner(configDir: string, ask: Questioner): Promise<Ge
             selections.push({ presetId, model: preset.defaultModel });
             continue;
         }
-        const modelRaw = await ask(
-            `[${preset.label}] 模型（可选：${preset.models.map((m) => m.id).join(' / ')}）`,
-            preset.defaultModel,
-        );
-        const model = preset.models.some((m) => m.id === modelRaw) ? modelRaw : modelRaw;
         const defaultEnv = preset.defaultKeyEnv as string;
         const status = envStatus(defaultEnv);
         const keyRaw = await ask(
             `[${preset.label}] API key 环境变量（默认 ${defaultEnv}，当前${status === 'set' ? '已设置' : '未设置'}；回车默认）`,
             defaultEnv,
         );
+        const customKey = keyRaw && keyRaw !== defaultEnv ? keyRaw : undefined;
+        process.stdout.write(`[${preset.label}] 拉取最新模型列表…\n`);
+        const discovery = await discoverModels(preset.id, { apiKeyEnv: customKey });
+        if (!discovery.refreshed && discovery.warning) {
+            process.stdout.write(`  提示：使用本地目录模型（非最新）：${discovery.warning}\n`);
+        }
+        const choices = mergeModelChoices(
+            discovery.models,
+            preset.models.map((m) => m.id),
+        );
+        if (choices.length > 24) {
+            process.stdout.write(
+                `  （共 ${choices.length} 个模型，展示前 24 个；可直接输入模型 id）\n`,
+            );
+        }
+        for (const [i, id] of choices.slice(0, 24).entries()) {
+            process.stdout.write(`    ${i + 1}) ${id}\n`);
+        }
+        const defaultModel =
+            discovery.models.length > 0 ? (discovery.models[0] as string) : preset.defaultModel;
+        const modelRaw = await ask(
+            `[${preset.label}] 模型（输入序号或 id，回车=默认）`,
+            defaultModel,
+        );
+        const model = resolveModelAnswer(modelRaw, choices, defaultModel);
         selections.push({
             presetId,
             model,
-            keyEnv: keyRaw || undefined,
+            keyEnv: customKey ? keyRaw : undefined,
         });
     }
     const gen = buildConfigFiles(configDir, selections);
