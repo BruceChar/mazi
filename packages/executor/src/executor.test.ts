@@ -11,7 +11,6 @@ import type {
     ModelRef,
     Session,
     Step,
-    ToolExecutionResult,
     ToolSpec,
     Turn,
     TurnCheckpoint,
