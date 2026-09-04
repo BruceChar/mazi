@@ -1,489 +1,325 @@
-## B.0 MVP 范围定义
-MVP 的目标：**用最小代码量验证 v2 的全部核心契约**——三层观测、策略可替换、Provider 适配、Flag 开关——但不追求生产级强度。
-### 必做
-- L0 契约层完整定义
-- `provider-llm` 包：基于 pi-ai 的最小 Driver 实现 + 简单 ProviderPool
-- `flags` 包：静态 flag 求值（支持 bucket 分桶）
-- `observability` 包：内存事件总线 + 三层 span + JSONL 落盘 sink
-- `planner` 最小实现：固定规则路由（capability match → cost 优先）
-- `executor` 最小实现：顺序执行 Step，工具白名单校验
-- `strategy-plan-execute`（默认策略）+ `strategy-full-loop`（最简版）
-- `apps/cli`：本地交互入口
-### 不做（明确排除）
-- Reflector 独立评估器（MVP 用简单规则替代）
-- 沙箱与审批门（仅实现 permission 校验，不真隔离）
-- 持久化 Memory（仅内存 + Session 结束时 JSON 落盘）
-- OTel 桥接（保留接口，不实现 exporter）
-- A/B 实验管理后台（仅手工改 flag 规则文件）
+
+# AI Agent Harness MVP 设计文档
+
+> **版本**：v0.1（基于总体设计 v1.2 裁剪）
+> **目标**：快速验证核心执行闭环，具备基础可观测性、可恢复性与用户记录能力，为后续迭代提供稳定骨架。
+
 ---
-## B.1 MVP 包结构
-```
-harness-mvp/
-├── pnpm-workspace.yaml
-├── package.json
-├── tsconfig.base.json
-└── packages/
-    ├── core/                  # 完整契约（同 A.2）
-    ├── provider-llm/
-    │   └── src/
-    │       ├── driver.ts      # PiAiDriver implements LLMDriver
-    │       └── pool.ts        # 简化 ProviderPool（静态注册）
-    ├── observability/
-    │   └── src/
-    │       ├── bus.ts         # InMemoryEventBus
-    │       └── sinks/
-    │           ├── jsonl.ts   # JSONL 文件 sink
-    │           └── console.ts # 控制台 sink
-    ├── flags/
-    │   └── src/
-    │       ├── evaluator.ts   # FlagEvaluator
-    │       └── rules.ts       # 从 flags.config.json 加载
-    ├── planner/
-    │   └── src/
-    │       ├── simple-planner.ts
-    │       └── router.ts      # 规则路由
-    ├── executor/
-    │   └── src/
-    │       ├── executor.ts
-    │       └── tool-registry.ts
-    ├── strategies/
-    │   └── src/
-    │       ├── plan-execute.ts
-    │       └── full-loop.ts
-    ├── runtime/
-    │   └── src/
-    │       ├── assemble.ts    # 装配依赖
-    │       └── strategy-selector.ts
-    └── apps/
-        └── cli/
-            └── src/main.ts
-```
-**`pnpm-workspace.yaml`**：
-```yaml
-packages:
-  - 'packages/*'
-  - 'packages/apps/*'
-```
+
+## 1. MVP 目标
+
+在最小工程投入下，实现一个可运行的 Agent Harness，满足以下核心能力：
+
+- 接收用户输入，创建 Session，生成 GoalContract（简化版）。
+- 使用单一策略（full-loop 或简化的 plan-execute）驱动任务执行。
+- 支持简单的 Planner：将目标分解为 1~N 个 Turn，生成 TurnContract（仅做派生校验，不做复杂预算加权）。
+- Provider 路由采用**能力过滤 + 成本排序**的简单模式。
+- Policy Engine 提供基础拦截：工具白名单、权限校验、预算检查（不包含审批门）。
+- Usage 双层采集：Vendor（厂商返回）与 Runtime（上下文分段计数，使用估算 tokenizer）。
+- 事件系统：所有事件 emit 并强制持久化到 JSONL 文件（不可关闭）。
+- Checkpoint 断点续传：进程崩溃后能从最近的 TurnCheckpoint 恢复。
+- 用户交互记录：Session 创建时立即记录原始输入，过程中持续更新 thoughtTrace/actionTrace/feedback，结束时写入 outcome 与 metrics。
+- 提供 CLI 应用作为演示入口。
+
+**明确不包含**（延后到后续版本）：
+
+- 审批门（approval.gate）与不可逆操作的审批流程。
+- 独立 Reflector 与 LLM-as-judge 评估。
+- 六因子路由、分时定价、经济画像（Provider 路由只做基础）。
+- 预算加权切片、策略自动升降级、A/B 实验平台。
+- 复杂上下文策略（summarize/compress 等）。
+- 多策略支持（仅实现一个策略，但架构上保留接口）。
+
 ---
-## B.2 MVP 核心实现
-### B.2.1 Provider Driver（pi-ai 适配）
-```ts
-// packages/provider-llm/src/driver.ts
-import {
-  getModel, stream, complete,
-  type Context, type Tool, type Message,
-} from '@earendil-works/pi-ai';
-import type {
-  LLMDriver, LLMRequest, LLMResponse, LLMStreamEvent,
-  LLMContext, ToolSpec,
-} from '@harness/core';
-export class PiAiDriver implements LLMDriver {
-  async *stream(req: LLMRequest): AsyncIterable<LLMStreamEvent> {
-    const model = getModel(req.model.vendor as any, req.model.modelId as any);
-    const ctx = this.toPiContext(req.context);
-    const s = stream(model, ctx);
-    for await (const ev of s) {
-      yield this.mapEvent(ev);
-    }
-    const final = await s.result();
-    yield { type: 'final', message: this.fromPiMessage(final), usage: final.usage };
-  }
-  async complete(req: LLMRequest): Promise<LLMResponse> {
-    const model = getModel(req.model.vendor as any, req.model.modelId as any);
-    const res = await complete(model, this.toPiContext(req.context));
-    return { message: this.fromPiMessage(res), usage: res.usage };
-  }
-  private toPiContext(ctx: LLMContext): Context {
-    return {
-      systemPrompt: ctx.systemPrompt,
-      messages: ctx.messages as Message[],
-      tools: ctx.tools.map(this.toPiTool),
-    };
-  }
-  private toPiTool(t: ToolSpec): Tool {
-    return { name: t.name, description: t.description, parameters: t.parameters as any };
-  }
-  private mapEvent(ev: any): LLMStreamEvent {
-    // pi-ai 事件类型直接透传（thinking_delta / text_delta / toolcall_end / done / error）
-    return ev as LLMStreamEvent;
-  }
-  private fromPiMessage(m: any) { return m; }
-}
+
+## 2. 架构裁剪
+
+保留总体设计中的 L0/L1/L2 必要模块，移除或简化 L3/L4。
+
+### 2.1 保留的包
+
+| 包名                            | 说明                                                                | 简化内容                                            |
+| ------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------- |
+| `packages/core`               | 全部契约类型，零运行时依赖                                          | 使用完整定义，但 MVP 不使用的字段可保留但不实现逻辑 |
+| `packages/provider-llm`       | pi-ai 适配，ProviderPool，简单路由                                  | 仅实现 Driver 和简单路由器                          |
+| `packages/usage`              | Tokenizer 注册表（估算），成本计算器，Aggregator                    | 简化成本计算：仅支持基础价格，不考虑时段            |
+| `packages/observability`      | EventBus + JSONL 持久化 sink                                        | 仅实现 emit/subscribe/replay 基本功能               |
+| `packages/flags`              | Flag 求值器                                                         | 支持默认 Flag 集，无 A/B 分桶（可预留接口）         |
+| `packages/policy`             | 基础 Policy Engine（工具白名单、权限、预算）                        | 不包含审批门，仅同步校验                            |
+| `packages/memory`             | 简单的持久化存储（SQLite 或文件）                                   | 仅保存 Session/Turn/Step/Checkpoint，无检索         |
+| `packages/planner`            | 简化 Planner：线性分解 + 派生校验 + 均分预算                        | 不实现预算加权和复杂切片                            |
+| `packages/executor`           | Step 执行器 + 采集点 A                                              | 不包含沙箱隔离（直接调用工具）                      |
+| `packages/recovery`           | Checkpoint 管理、恢复调度                                           | 基础实现：进程重启后加载 Checkpoint                 |
+| `packages/user-profile`       | 用户交互记录创建与更新                                              | 无画像聚合分析，只记录原始数据                      |
+| `packages/strategy-full-loop` | 唯一策略实现：简化版 full-loop（Goal→Plan→Execute→简单 Reflect） | Reflect 仅为结果成功/失败判定                       |
+| `packages/harness-runtime`    | 装配器，将各模块连接                                                | 手动 wiring，不实现自动策略选择                     |
+| `apps/cli`                    | CLI 入口，接收用户输入并运行                                        | 交互式或单命令模式                                  |
+
+### 2.2 移除的包（MVP 不实现）
+
+- `packages/observer`：观察层简化，直接使用工具返回值。
+- `packages/reflector`：独立评估器，MVP 中仅做机械验收判定。
+- `packages/strategy-plan-execute` / `strategy-react-only`：MVP 只实现 full-loop。
+- `apps/server`：不提供 HTTP 服务，仅 CLI。
+
+### 2.3 依赖关系
+
 ```
-### B.2.2 Provider 池与规则路由
-```ts
-// packages/provider-llm/src/pool.ts
-import type { Provider, ModelRef, ProviderTag } from '@harness/core';
-export class ProviderPool {
-  private providers = new Map<string, Provider>();
-  register(p: Provider) { this.providers.set(p.id, p); }
-  /** 简单规则路由：capability 匹配 → costWeight 升序 → 取首个 */
-  select(requiredTags: ProviderTag[]): ModelRef | null {
-    const candidates = [...this.providers.values()].filter(p =>
-      p.health.score > 0.5 &&
-      requiredTags.every(tag => p.tags.includes(tag))
-    );
-    candidates.sort((a, b) => a.costWeight - b.costWeight);
-    const chosen = candidates[0];
-    if (!chosen) return null;
-    const model = chosen.models.find(m => requiredTags.every(tag =>
-      (tag === 'tools' && m.supportsTools) ||
-      (tag === 'vision' && m.supportsVision) ||
-      (tag === 'thinking' && m.supportsThinking) || true
-    ));
-    return model
-      ? { providerId: chosen.id, vendor: chosen.vendor, modelId: model.id }
-      : null;
-  }
-}
+core (L0)
+  ↑
+provider-llm, usage, observability, flags, policy, memory (L1)
+  ↑
+planner, executor, recovery, user-profile (L2)
+  ↑
+strategy-full-loop (L3)
+  ↑
+harness-runtime (L3.5)
+  ↑
+apps/cli (L4)
 ```
-### B.2.3 Flag 求值器
-```ts
-// packages/flags/src/evaluator.ts
-import type { FeatureFlagDefinition, FlagRule, FlagSnapshot } from '@harness/core';
-import { createHash } from 'node:crypto';
-export function evaluateFlags(
-  defs: FeatureFlagDefinition[],
-  ctx: { sessionId: string; userId?: string; goalTags?: string[] }
-): FlagSnapshot {
-  const values: Record<string, unknown> = {};
-  const trace: FlagSnapshot['trace'] = [];
-  const bucket = bucketOf(ctx.sessionId); // 0-99
-  for (const def of defs) {
-    let resolved = def.defaultValue;
-    let matched: string | undefined;
-    for (const rule of def.rules ?? []) {
-      if (matches(rule, ctx, bucket)) {
-        resolved = rule.value;
-        matched = rule.source;
-        break;
-      }
-    }
-    values[def.key] = resolved;
-    trace.push({ key: def.key, matchedRule: matched, resolvedValue: resolved });
-  }
-  return {
-    values,
-    trace,
-    isEnabled: (k) => values[k] === true,
-    getNumber: (k) => (typeof values[k] === 'number' ? values[k] as number : undefined),
-    getString: (k) => (typeof values[k] === 'string' ? values[k] as string : undefined),
-  };
-}
-function bucketOf(sessionId: string): number {
-  const h = createHash('md5').update(sessionId).digest();
-  return h[0] % 100;
-}
-function matches(rule: FlagRule<unknown>, ctx: { userId?: string; goalTags?: string[] }, bucket: number): boolean {
-  const m = rule.match ?? {};
-  if (m.userIdIn && (!ctx.userId || !m.userIdIn.includes(ctx.userId))) return false;
-  if (m.goalTagIn && !(ctx.goalTags ?? []).some(t => m.goalTagIn!.includes(t))) return false;
-  if (m.bucketRange && (bucket < m.bucketRange[0] || bucket > m.bucketRange[1])) return false;
-  return true;
-}
-```
-### B.2.4 事件总线与 JSONL Sink
-```ts
-// packages/observability/src/bus.ts
-import type { HarnessEvent, EventBus, EventFilter, EventSink } from '@harness/core';
-export class InMemoryEventBus implements EventBus {
-  private sinks: { filter: EventFilter; sink: EventSink }[] = [];
-  private buffer: HarnessEvent[] = [];   // 保留全量，供事后回放
-  emit(event: HarnessEvent): void {
-    this.buffer.push(event);             // emit 不受 flag 控制
-    for (const { filter, sink } of this.sinks) {
-      if (this.matches(filter, event)) sink.handle(event);
-    }
-  }
-  subscribe(filter: EventFilter, sink: EventSink) {
-    this.sinks.push({ filter, sink });
-    return () => {
-      this.sinks = this.sinks.filter(s => s.sink !== sink);
-    };
-  }
-  /** 事后回放：按 Session 取全量事件 */
-  replay(sessionId: string): HarnessEvent[] {
-    return this.buffer.filter(e => e.sessionId === sessionId);
-  }
-  private matches(f: EventFilter, e: HarnessEvent): boolean {
-    if (f.types && !f.types.includes(e.type)) return false;
-    if (f.requireFlag && e.attributes['harness.flag_overrides']?.[f.requireFlag.key] !== (f.requireFlag.equals ?? true)) return false;
-    return true;
-  }
-}
-```
-### B.2.5 Planner 与 Capacity 组装
-```ts
-// packages/planner/src/simple-planner.ts
-import type { Planner, GoalContract, PlanGraph, PlanNode, Capacity, PlanContext, Turn, ProviderTag } from '@harness/core';
-import type { ProviderPool } from '@harness/provider-llm';
-export class SimplePlanner implements Planner {
-  constructor(
-    private pool: ProviderPool,
-    private toolRegistry: Map<string, ToolSpecLite>,
-  ) {}
-  async plan(goal: GoalContract, ctx: PlanContext): Promise<PlanGraph> {
-    // MVP：按目标 tags 分解为单节点（简单任务）
-    const node: PlanNode = {
-      nodeId: `node-${ctx.sessionId}-0`,
-      title: goal.rawIntent,
-      acceptance: goal.success,
-      preferredModelTags: goal.tags as ProviderTag[],
-    };
-    return { sessionId: ctx.sessionId, nodes: [node], edges: [] };
-  }
-  async assembleCapacity(turn: Turn, ctx: PlanContext): Promise<Capacity> {
-    const node = ctx.planGraph.nodes.find(n => n.nodeId === turn.parentPlanNodeId)!;
-    const model = this.pool.select(node.preferredModelTags)
-      ?? throwNoProvider(node.preferredModelTags);
-    // MVP：根据目标 tags 推导工具集
-    const tools = [...this.toolRegistry.values()]
-      .filter(t => (goalAllows(t, node)));
-    const permission = tools.some(t => t.irreversible) ? 'draft' : 'read-only';
-    return {
-      model,
-      tools,
-      permission,
-      budget: { maxSteps: 20, maxCostUsd: 1.0, timeoutMs: 5 * 60_000 },
-      sandbox: { kind: 'inprocess' },          // MVP：无隔离
-      flags: ctx.flagSnapshot,
-    };
-  }
-}
-```
-### B.2.6 Executor
-```ts
-// packages/executor/src/executor.ts
-import type { Executor, Turn, Capacity, Step, HarnessEvent, EventBus } from '@harness/core';
-import type { LLMDriver } from '@harness/core';
-export class SimpleExecutor implements Executor {
-  constructor(
-    private driver: LLMDriver,
-    private bus: EventBus,
-    private toolImpls: Map<string, (args: any) => Promise<any>>,
-  ) {}
-  async *run(turn: Turn, capacity: Capacity, systemPrompt: string): AsyncIterable<Step> {
-    let seq = 0;
-    const messages: any[] = [{ role: 'user', content: turn.title }];
-    while (seq < (capacity.budget.maxSteps ?? 20)) {
-      const stepId = `${turn.turnId}-step-${seq}`;
-      const startedAt = Date.now();
-      this.emitStep(turn, stepId, seq, 'started');
-      const events = this.driver.stream({
-        model: capacity.model,
-        context: { systemPrompt, messages, tools: capacity.tools as any[] },
-      });
-      let finalMsg: any;
-      for await (const ev of events) {
-        if (ev.type === 'final') finalMsg = ev.message;
-      }
-      const toolCalls = finalMsg.content.filter((b: any) => b.type === 'toolCall');
-      // 产出 thinking step
-      const thinkStep: Step = {
-        stepId, turnId: turn.turnId, sessionId: turn.sessionId,
-        seq: seq++, kind: 'thinking',
-        payload: { kind: 'thinking', text: extractText(finalMsg) },
-        model: capacity.model,
-        usage: finalMsg.usage,
-        status: 'ok', startedAt, endedAt: Date.now(),
-      };
-      yield thinkStep;
-      if (toolCalls.length === 0) break;
-      for (const call of toolCalls) {
-        const toolStepId = `${turn.turnId}-step-${seq}`;
-        this.emitStep(turn, toolStepId, seq, 'started');
-        // 工具白名单 + permission 校验
-        const spec = capacity.tools.find(t => t.name === call.name);
-        if (!spec || !permissionAllows(spec, capacity.permission)) {
-          this.bus.emit({
-            eventId: uid(), sessionId: turn.sessionId, turnId: turn.turnId, stepId: toolStepId,
-            type: 'tool.blocked', timestamp: Date.now(),
-            attributes: { 'harness.step_kind': 'tool_call' },
-            payload: { tool: call.name, reason: 'not_allowed' },
-          });
-          continue;
-        }
-        const result = await this.toolImpls.get(call.name)!(call.arguments);
-        messages.push({ role: 'toolResult', toolCallId: call.id, toolName: call.name,
-                        content: [{ type: 'text', text: JSON.stringify(result) }], isError: false,
-                        timestamp: Date.now() });
-        yield {
-          stepId: toolStepId, turnId: turn.turnId, sessionId: turn.sessionId,
-          seq: seq++, kind: 'tool_call',
-          payload: { kind: 'tool_call', name: call.name, args: call.arguments, result },
-          status: 'ok', startedAt: Date.now(), endedAt: Date.now(),
-        };
-      }
-      messages.push(finalMsg);
-    }
-  }
-  private emitStep(turn: Turn, stepId: string, seq: number, phase: 'started' | 'ended') {
-    this.bus.emit({
-      eventId: uid(), sessionId: turn.sessionId, turnId: turn.turnId, stepId,
-      type: phase === 'started' ? 'step.started' : 'step.ended',
-      timestamp: Date.now(),
-      attributes: { 'harness.step_kind': 'thinking' },
-    });
-  }
-}
-```
-### B.2.7 两个内置策略
-```ts
-// packages/strategies/src/plan-execute.ts
-import type { HarnessStrategy, StrategyContext, StrategyCapabilities } from '@harness/core';
-export const planExecuteStrategy: HarnessStrategy = {
-  id: 'plan-execute',
-  version: '0.1.0',
-  capabilities: {
-    needsGoal: true, needsPlan: true, needsExecute: true,
-    needsObserve: false, needsReflect: false, needsPersistentState: false,
-  },
-  score: (goal) => (goal.tags.includes('simple') ? 0.9 : 0.4),
-  async *run(ctx: StrategyContext) {
-    const plan = await ctx.planner!.plan(ctx.session.goal, planCtx(ctx));
-    for (const node of plan.nodes) {
-      const turn = makeTurn(ctx.session, node);
-      const capacity = await ctx.planner!.assembleCapacity(turn, planCtx(ctx));
-      for await (const step of ctx.executor!.run(turn, capacity, systemPromptOf(node))) {
-        yield { type: 'step', step };
-      }
-    }
-  },
-};
-```
-```ts
-// packages/strategies/src/full-loop.ts
-export const fullLoopStrategy: HarnessStrategy = {
-  id: 'full-loop',
-  version: '0.1.0',
-  capabilities: {
-    needsGoal: true, needsPlan: true, needsExecute: true,
-    needsObserve: true, needsReflect: true, needsPersistentState: true,
-  },
-  score: (goal) => (goal.tags.includes('complex') || goal.tags.includes('long-horizon') ? 0.95 : 0.5),
-  async *run(ctx: StrategyContext) {
-    const plan = await ctx.planner!.plan(ctx.session.goal, planCtx(ctx));
-    for (const node of plan.nodes) {
-      const turn = makeTurn(ctx.session, node);
-      let attempt = 0;
-      while (attempt < 3) {
-        const capacity = await ctx.planner!.assembleCapacity(turn, planCtx(ctx));
-        const steps: Step[] = [];
-        for await (const step of ctx.executor!.run(turn, capacity, systemPromptOf(node))) {
-          steps.push(step);
-          yield { type: 'step', step };
-        }
-        // MVP 反思：用规则替代独立评估器
-        const verdict = ruleBasedReflect(steps, node.acceptance);
-        if (verdict.passed) break;
-        // 注入失败信息，重试
-        ctx.session.state.lastError = verdict.feedback;
-        attempt++;
-      }
-    }
-  },
-};
-```
-### B.2.8 Runtime 装配
-```ts
-// packages/runtime/src/assemble.ts
-export async function bootstrap(config: HarnessConfig) {
-  // 1. 实例化基础设施
-  const bus = new InMemoryEventBus();
-  bus.subscribe({}, new JsonlSink(config.tracePath));      // 全量落盘，永不受 flag 控制
-  if (config.flags.isEnabled('console.sink')) {
-    bus.subscribe({ minLevel: 'info' }, new ConsoleSink());
-  }
-  // 2. Provider 池
-  const pool = new ProviderPool();
-  for (const p of config.providers) pool.register(p);
-  const driver = new PiAiDriver();
-  // 3. 能力层
-  const planner = new SimplePlanner(pool, config.toolRegistry);
-  const executor = new SimpleExecutor(driver, bus, config.toolImpls);
-  const observer = config.flags.isEnabled('observe.enabled')
-    ? new SimpleObserver(bus) : undefined;
-  const reflector = config.flags.isEnabled('reflect.enabled')
-    ? new RuleReflector() : undefined;
-  // 4. 策略选择
-  const strategies = [planExecuteStrategy, fullLoopStrategy];
-  return { bus, pool, driver, planner, executor, observer, reflector, strategies, flags: config.flags };
-}
-export async function runSession(input: string, deps: Awaited<ReturnType<typeof bootstrap>>) {
-  const sessionId = ulid();
-  const flagSnapshot = evaluateFlags(flagDefinitions, { sessionId });
-  const goal = await buildGoalContract(input, flagSnapshot);
-  const strategy = selectStrategy(deps.strategies, goal);
-  const session: Session = {
-    sessionId, rawIntent: input, goal,
-    strategyId: strategy.id,
-    state: { turns: [], lastError: null },
-    flagSnapshot, createdAt: Date.now(),
-  };
-  for await (const ev of strategy.run({
-    session,
-    planner: strategy.capabilities.needsPlan ? deps.planner : undefined,
-    executor: strategy.capabilities.needsExecute ? deps.executor : undefined,
-    observer: strategy.capabilities.needsObserve ? deps.observer : undefined,
-    reflector: strategy.capabilities.needsReflect ? deps.reflector : undefined,
-    memory: new InMemoryMemory(),
-    driver: deps.driver,
-    flags: flagSnapshot,
-    emit: (e) => deps.bus.emit(e),
-  })) {
-    // CLI 实时渲染
-    render(ev);
-  }
-  deps.bus.emit({
-    eventId: ulid(), sessionId, type: 'session.ended', timestamp: Date.now(),
-    attributes: { 'harness.strategy_id': strategy.id,
-                  'harness.flag_overrides': flagSnapshot.values },
-  });
-}
-```
+
+所有依赖严格单向，L1 包之间不互相依赖，仅通过 core 协作。
+
 ---
-## B.3 MVP 默认 Flag 配置
+
+## 3. MVP 核心设计
+
+### 3.1 Session / Turn / Step 持久化
+
+- **存储**：使用 SQLite（单文件）或简单的 JSON 文件存储（为 MVP 简化，推荐 SQLite 便于查询）。
+- **表结构**：
+  - `sessions`：sessionId, userId, rawIntent, goalJson, strategyId, state, flagSnapshotJson, createdAt, endedAt, outcome
+  - `turns`：turnId, sessionId, contractJson, capacityJson, stepIdsJson, status, attempt, checkpointJson
+  - `steps`：stepId, turnId, sessionId, seq, kind, payloadJson, modelId, usageJson, status, errorJson, startedAt, endedAt
+  - `user_interactions`：recordId, sessionId, userId, rawInput, inputTimestamp, thoughtTraceJson, actionTraceJson, feedbackJson, outcomeJson, metricsJson, status, updatedAt
+- **恢复**：Session 启动时加载所有相关 Turn/Step；Turn 执行前检查 checkpoint，若有则跳过已完成 Step。
+
+### 3.2 GoalContract 与 TurnContract 简化
+
+MVP 仍然使用完整的 GoalContract 和 TurnContract 类型，但生成逻辑简化：
+
+- GoalContract 由应用层直接构造（用户输入 → 简单解析，不调用模型生成）。
+- 约束（constraints）默认为空数组，或由 CLI 参数提供简单约束（如禁止网络）。
+- 预算：`maxTurns`, `maxSteps`, `maxCostUsd` 可选，默认不限制但设置合理上限。
+- 策略提示 strategyHints 仅用于标记任务复杂度（'simple' | 'complex'），MVP 中忽略。
+- Planner 将目标分解为线性 Turn 序列（可由简单规则或调用 LLM 生成计划）。MVP 中为降低复杂度，可**只生成一个 Turn**，即整个目标作为一个子任务。后续版本再支持多 Turn。
+- TurnContract 包含：
+
+  - `statement`：等于 GoalContract.statement。
+  - `tags`：由 CLI 或简单分类器设置（例如 'general'）。
+  - `success`：简单验收，例如“执行无错误且返回结果”。
+  - `requiredTools`：由用户输入推断（如需要读取文件则包含 'fs.read'）。
+  - `maxPermission`：默认 'read-only' 或 'draft'。
+  - `budget`：均分全局预算（MVP 中只有一个 Turn，即全部预算）。
+  - `failureSignals`：默认包含 tool-error 和 budget-exceeded，action 为 'abort-turn' 或 'retry'。
+  - `termination`：maxSteps 默认 10。
+
+### 3.3 Provider 路由（简单模式）
+
+- 从 `packages/provider-llm` 的 ProviderRegistry 读取已配置的 Provider 列表（从环境变量或配置文件加载）。
+- 对每个 Turn，获取其 `tags` 中的能力要求（如需要 tools 支持）。
+- 过滤：选择支持所需能力且健康评分 > 0.5 的 Provider。
+- 排序：按基础价格（`pricing.base.inputPerMTok + outputPerMTok` 的简单组合）升序排列，选择价格最低者。
+- 故障转移：若首选 Provider 调用失败，按顺序尝试下一个。
+- 路由决策记录在 `provider.selected` 事件中。
+
+### 3.4 Policy Engine 基础拦截
+
+- 在 `executor` 执行 `tool_call` 前调用 Policy Engine。
+- 校验项：
+  1. 工具是否在 `Capacity.tools` 白名单内。
+  2. 所需权限是否满足（`toolSpec.minPermission <= capacity.permission`）。
+  3. 参数 schema 校验（使用 TypeBox 验证）。
+  4. 预算检查：当前 Turn 累计成本 + 预估成本 <= capacity.budget.maxCostUsd。
+- 若任一失败，emit `tool.blocked` 或 `policy.denied`，停止该 Step 并触发失败处理。
+- MVP 不实现审批门，若工具 `irreversible=true` 则直接拒绝或降级为只读（根据 Flag `sandbox.enabled` 决定）。
+
+### 3.5 Usage 双层采集
+
+- **采集点 A**（context 组装）：在 `executor` 构建 LLM 请求前，使用 `usage` 包的 `context-meter` 计算各段 token 数。MVP 中使用估算 tokenizer（字符数/4）。生成 `RuntimeContextBreakdown`。
+- **采集点 B**（LLM 响应）：`provider-llm` 的 driver 在流结束时捕获厂商返回的 usage（若 pi-ai 提供），填充 `VendorUsage`。若厂商未返回，则 `reportedByVendor=false`，使用估算值。
+- **采集点 C**（成本计算）：`usage` 包的 `cost-calculator` 根据 Provider 的 `pricing.base` 计算成本（不考虑时段），生成 `CostBreakdown`，并将完整 Usage 挂到 Step。
+- Aggregator 在 Turn 结束时累计 Usage，在 Session 结束时汇总。
+
+### 3.6 事件系统与持久化
+
+- 实现 `EventBus`：
+  - `emit(event)`：将事件推送到所有订阅者，并异步写入 JSONL 文件（路径由环境变量 `EVENT_LOG_DIR` 指定，若未设置则写入当前目录 `./events`）。
+  - `subscribe(filter, sink)`：订阅者接收符合条件的事件。
+  - `replay(sessionId)`：从 JSONL 文件中过滤该 session 的事件返回。
+- 事件类型：MVP 至少支持以下事件：
+  - `session.started`, `session.ended`
+  - `turn.started`, `turn.ended`
+  - `step.started`, `step.ended`
+  - `llm.request`, `llm.response`
+  - `tool.invoke`, `tool.result`, `tool.blocked`
+  - `policy.check`, `policy.denied`
+  - `provider.selected`, `provider.fallback`
+  - `plan.created`, `plan.invalid`
+  - `capacity.assembled`
+  - `budget.exceeded`
+  - `user.input.recorded`, `user.feedback.captured`
+- 所有事件必须包含 `sessionId`，Turn/Step 级事件包含 `turnId`/`stepId`。
+
+### 3.7 Checkpoint 与恢复
+
+- Executor 在每个 Step 成功结束后更新 Turn 的 Checkpoint，并持久化到 `turns` 表（`checkpointJson` 字段）。
+- Checkpoint 内容包括：`lastCompletedStepSeq`, `pendingStepIds`, `accumulatedUsage`, `accumulatedCostUsd`。
+- 进程重启或 Turn 重新开始时，Recovery 模块读取 Checkpoint，若存在且状态为 `running`，则跳过已完成的 Step，继续执行。
+- 为简化，MVP 中假设工具调用具有幂等性，或不做额外处理。
+
+### 3.8 用户交互记录
+
+- `UserInteractionRecord` 在 Session 创建时立即创建（状态 `recording`），保存 `rawInput` 和 `inputTimestamp`。
+- `user-profile` 包订阅事件总线，监听以下事件并更新记录：
+  - `step.ended`：从 Step 的 payload 中提取 `thoughtTrace`（若有 thinking）和 `actionTrace`（tool_call）。
+  - `approval.granted` / `approval.denied`：MVP 未实现审批，可忽略。
+  - `user.feedback.captured`：当 CLI 捕获到用户反馈（例如在交互中用户输入“停止”或打分）时 emit，更新 feedback 数组。
+  - `session.ended`：写入 outcome 和 metrics（durationMs, totalTokens, totalCostUsd, turnCount），状态置 `completed`。
+- MVP 中用户反馈可通过 CLI 交互输入：在 Session 执行过程中，用户可以按 Ctrl+C 中断并输入反馈，或系统在关键决策时询问用户（不实现审批，但可以询问“是否继续？”并记录用户选择）。
+
+### 3.9 策略实现（Full-Loop 简化）
+
+- `strategy-full-loop` 包实现 `HarnessStrategy` 接口。
+- 流程：
+  1. `Planner.plan(goal)` → 生成 TurnContract（可能仅一个 Turn）。
+  2. 对每个 Turn：
+     - `Planner.assembleCapacity(turn)` → 选择 Provider，解析工具，生成 Capacity。
+     - `Executor.executeTurn(turn, capacity)` → 循环执行 Step，直到满足终止条件或失败。
+     - 简单 Reflect：检查 Turn 是否成功（所有 Step 状态 ok 且满足 success 条件），否则按 failureSignals 处理。
+  3. 所有 Turn 完成后，Session 结束。
+- 不实现 Observe 和 Reflector 作为独立模块，直接在策略中嵌入简单检查。
+
+---
+
+## 4. 端到端流程（MVP 简化）
+
+```
+用户输入（CLI 读取）
+  │
+  ├─ Runtime 创建 Session，求值 Flag 快照
+  ├─ user-profile 创建 UserInteractionRecord (recording)
+  ├─ 生成 GoalContract（简单解析）
+  ├─ 选择策略（固定 full-loop）
+  │
+  ├─ Planner.plan(goal) → 生成 TurnContract（可能仅一个）
+  ├─ 对每个 Turn:
+  │    ├─ assembleCapacity → 简单路由 + 工具解析 + 权限
+  │    ├─ 循环 Step:
+  │    │    ├─ 采集点A (context-meter)
+  │    │    ├─ LLM 调用 (provider-llm)
+  │    │    ├─ 采集点B (vendor usage) → 采集点C (cost calc)
+  │    │    ├─ 若模型输出 tool_call → Policy 校验 → 执行工具 → 工具结果
+  │    │    ├─ 更新 Checkpoint
+  │    │    └─ 用户可能中断并反馈 → 记录
+  │    ├─ Turn 结束，更新状态
+  │    └─ 若失败按 failureSignals 处理
+  ├─ Session 结束，更新 UserInteractionRecord
+  └─ 输出结果到 CLI
+```
+
+---
+
+## 5. MVP 验收标准
+
+| #  | 验收项               | 标准                                                                                            |
+| -- | -------------------- | ----------------------------------------------------------------------------------------------- |
+| 1  | 基础执行             | 给定简单任务（如“读取文件并总结内容”），CLI 能成功执行并返回结果                              |
+| 2  | 契约校验             | 构造越权的 TurnContract（requiredTools 不在 allowedTools），Planner 拒绝并 emit`plan.invalid` |
+| 3  | 路由简单             | Provider 选择仅基于能力与价格，事件`provider.selected` 被记录                                 |
+| 4  | Policy 拦截          | 尝试调用不在白名单的工具，被`tool.blocked` 拦截，不执行                                       |
+| 5  | Usage 采集           | 每个含 LLM 的 Step 均挂载 Usage，包含 vendor 和 runtime 段                                      |
+| 6  | 事件持久化           | JSONL 文件中包含所有事件，即使 Flag`observe.enabled=false`                                    |
+| 7  | 断点恢复             | 模拟进程在 Turn 中途崩溃，重启后能从 Checkpoint 恢复，不重复执行已完成 Step                     |
+| 8  | 用户记录             | Session 创建时生成 UserInteractionRecord，结束后状态为 completed，包含原始输入和基本 metrics    |
+| 9  | 多 Provider 故障转移 | 首选 Provider 不可用，自动尝试下一个，记录`provider.fallback`                                 |
+| 10 | 代码结构             | 包依赖符合架构图，core 无运行时依赖，provider-llm 是唯一外部 LLM 依赖                           |
+
+---
+
+## 6. MVP 里程碑与任务分解
+
+### M1.1 基础骨架（1 周）
+
+- [ ] 初始化 monorepo，配置 pnpm workspace 和 TypeScript。
+- [ ] 实现 `packages/core` 全部类型契约。
+- [ ] 实现 `packages/flags` 基础求值。
+- [ ] 实现 `packages/observability` EventBus + JSONL sink。
+
+### M1.2 执行核心（2 周）
+
+- [ ] 实现 `packages/provider-llm`：Driver 适配 pi-ai，简单 ProviderPool 和路由。
+- [ ] 实现 `packages/usage`：context-meter（估算）、cost-calculator、aggregator。
+- [ ] 实现 `packages/policy` 基础校验。
+- [ ] 实现 `packages/planner`：单 Turn 生成、派生校验、Capacity 组装。
+- [ ] 实现 `packages/executor`：Step 循环、工具调用、采集点 A/B/C。
+- [ ] 实现 `packages/recovery`：Checkpoint 保存与加载。
+- [ ] 实现 `packages/memory`：SQLite 持久化。
+
+### M1.3 策略与集成（1 周）
+
+- [ ] 实现 `packages/strategy-full-loop` 简化策略。
+- [ ] 实现 `packages/harness-runtime` 装配。
+- [ ] 实现 `apps/cli`：输入解析、调用 runtime、输出结果。
+
+### M1.4 用户记录与打磨（1 周）
+
+- [ ] 实现 `packages/user-profile` 记录创建与更新。
+- [ ] 集成用户反馈捕获（CLI 交互）。
+- [ ] 测试端到端流程，修复问题。
+- [ ] 编写基本文档和示例。
+
+---
+
+## 7. 风险与限制
+
+- **工具调用安全**：MVP 未实现沙箱隔离，工具调用可能在宿主机直接执行，需确保仅使用低风险工具。
+- **Token 估算误差**：估算 tokenizer 可能不准确，但 MVP 阶段可接受，后续接入精确 tokenizer。
+- **单 Turn 限制**：目前只支持线性单 Turn，无法处理复杂多步骤任务，后续版本扩展。
+- **恢复依赖 Checkpoint 粒度**：若在工具执行中崩溃且工具不可幂等，可能导致状态不一致。
+- **无审批门**：高权限操作无法执行，需在配置中限制工具集。
+
+---
+
+## 附录：MVP 配置文件示例
+
 ```json
-// flags.config.json
+// config/providers.json
 {
-  "flags": [
-    { "key": "observe.enabled", "type": "boolean", "defaultValue": true },
-    { "key": "reflect.enabled", "type": "boolean", "defaultValue": false },
-    { "key": "console.sink", "type": "boolean", "defaultValue": true },
-    { "key": "memory.persistent", "type": "boolean", "defaultValue": false },
-    { "key": "approval.gate", "type": "boolean", "defaultValue": false,
-      "rules": [{ "match": { "goalTagIn": ["production"] }, "value": true, "source": "default-prod" }] },
-    { "key": "ab.planner.route-v2", "type": "boolean", "defaultValue": false,
-      "rules": [
-        { "match": { "bucketRange": [0, 49] }, "value": true, "source": "exp-route-v2-2026-09" }
-      ] }
+  "providers": [
+    {
+      "id": "openai-gpt4o-mini",
+      "vendor": "openai",
+      "models": [{ "id": "gpt-4o-mini", "contextWindow": 128000, "supportsTools": true }],
+      "pricing": { "base": { "inputPerMTok": 0.15, "outputPerMTok": 0.60 } },
+      "health": { "score": 1.0 }
+    },
+    {
+      "id": "anthropic-claude-haiku",
+      "vendor": "anthropic",
+      "models": [{ "id": "claude-3-5-haiku", "contextWindow": 200000, "supportsTools": true }],
+      "pricing": { "base": { "inputPerMTok": 0.25, "outputPerMTok": 1.25 } },
+      "health": { "score": 1.0 }
+    }
   ]
 }
 ```
----
-## B.4 MVP 验收标准
-| # | 验收项 | 测试方法 |
-|---|---|---|
-| 1 | 三层 ID 完整 | 打开 JSONL trace 文件，每条事件均含 `sessionId/turnId/stepId`（Session 级事件可缺 turnId/stepId） |
-| 2 | 策略切换 | 修改 goal tags 为 `simple` → 自动选择 plan-execute；改为 `complex` → 选择 full-loop |
-| 3 | Flag 关闭观测 | 设置 `observe.enabled=false`，确认 Observer 未实例化，但 JSONL trace 仍包含完整 llm.request/tool.invoke |
-| 4 | Flag 关闭反思 | 设置 `reflect.enabled=false`，full-loop 退化为简单完成判定，不调用 RuleReflector |
-| 5 | A/B 分桶 | 同一 flag 规则下，构造 100 个 sessionId，验证约 50 个落在 v2 bucket |
-| 6 | Provider 路由 | 注册两个 Provider（cost 1 / cost 5），目标 tags 不含特殊能力 → 永远选中 cost 1 |
-| 7 | 工具白名单 | 尝试调用未注册工具 → 产生 `tool.blocked` 事件且不执行 |
-| 8 | 事后回放 | 用 `bus.replay(sessionId)` 离线还原完整决策链 |
-| 9 | 契约零依赖 | `packages/core/package.json` 的 dependencies 为空 |
-| 10 | pi-ai 隔离 | `grep -r "@earendil-works/pi-ai" packages/ --exclude=provider-llm` 无结果 |
----
-## B.5 向 v2 演进的 Roadmap
-| 阶段 | 目标 | 关键交付 |
-|---|---|---|
-| M1（MVP 完成后） | 沙箱与审批 | `policy` 包：PermissionEngine + ApprovalGate + 进程级隔离 |
-| M2 | 持久化 Memory | `memory` 包：checkpoint/resume、检索、跨 Session 记忆 |
-| M3 | 独立 Reflector | 引入 LLM-as-judge + 校准集，替换 RuleReflector |
-| M4 | OTel 桥接 | observability 增加 OTLP exporter，对齐 GenAI semconv |
-| M5 | 高级路由 | planner 引入 cost-aware / latency-aware 加权，支持故障转移 |
-| M6 | A/B 实验平台 | flags 增加 experiment 管理 API + 自动聚合报表 |
-| M7 | 策略生态 | 开放 HarnessStrategy 插件协议，允许第三方包注册策略 |
 
+```json
+// config/tools.json
+{
+  "tools": [
+    {
+      "name": "fs.read",
+      "description": "Read file content",
+      "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] },
+      "minPermission": "read-only",
+      "sideEffects": ["fs"]
+    }
+  ]
+}
+```
 
+---
+
+本 MVP 设计文档基于总体设计 v1.2 裁剪，聚焦核心闭环，确保快速交付可运行的 Agent Harness 基础，同时为后续扩展保留架构空间。

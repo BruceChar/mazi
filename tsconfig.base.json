@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@mazi/core": ["packages/core/src/index.ts"],
+      "@mazi/observability": ["packages/observability/src/index.ts"],
+      "@mazi/flags": ["packages/flags/src/index.ts"],
+      "@mazi/provider-llm": ["packages/provider-llm/src/index.ts"],
+      "@mazi/usage": ["packages/usage/src/index.ts"],
+      "@mazi/policy": ["packages/policy/src/index.ts"],
+      "@mazi/memory": ["packages/memory/src/index.ts"],
+      "@mazi/planner": ["packages/planner/src/index.ts"],
+      "@mazi/executor": ["packages/executor/src/index.ts"],
+      "@mazi/recovery": ["packages/recovery/src/index.ts"],
+      "@mazi/user-profile": ["packages/user-profile/src/index.ts"],
+      "@mazi/strategy-full-loop": ["packages/strategy-full-loop/src/index.ts"],
+      "@mazi/harness-runtime": ["packages/harness-runtime/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "dist", "coverage"]
+}

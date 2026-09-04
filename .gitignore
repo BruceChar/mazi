@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.turbo/
+.husky/_/
+*.log
+*.tsbuildinfo
+.DS_Store
