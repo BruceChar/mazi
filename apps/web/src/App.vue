@@ -46,19 +46,11 @@ const collapsedTurns = ref({});
 const trajFilter = ref('all');
 const selectedModel = ref('');
 
-const cfgText = computed(() => {
-    const c = cfg.value;
-    if (!c) return '未连接后端';
-    return `${c.home} · ${c.providers?.length ? c.providers.join(', ') : '未配置 provider'} · ${c.storage?.driver || 'sqlite'}`;
-});
-
 const modelOptions = computed(() => {
     const list = cfg.value?.providers || [];
     if (!list.length) return [{ id: 'scripted', label: 'Scripted Demo' }];
     return list.map((id) => ({ id, label: id }));
 });
-
-const defaultModel = computed(() => modelOptions.value[0]?.id || '-');
 
 watch(
     modelOptions,
@@ -185,23 +177,18 @@ function openAudit(row) {
     ui.audit = { turn: row.turn, step: row.step };
     ui.auditSub = 'actual';
     ui.drawerTab = 'audit';
-    ui.drawer = true;
+    ui.rightOpen = true;
 }
 
 function openAuditFromStep(turn, step) {
     ui.audit = { turn, step };
     ui.auditSub = 'actual';
     ui.drawerTab = 'audit';
-    ui.drawer = true;
-}
-
-function openSessionLog() {
-    ui.drawerTab = 'events';
-    ui.drawer = true;
+    ui.rightOpen = true;
 }
 
 function closeDrawer() {
-    ui.drawer = false;
+    ui.rightOpen = false;
 }
 
 function auditJson() {
@@ -372,16 +359,12 @@ onBeforeUnmount(() => {
     <header class="topbar">
         <div class="topbar-left">
             <button class="icon-btn sidebar-toggle" title="折叠/展开侧边栏" @click="ui.sidebar = !ui.sidebar">☰</button>
-            <span class="brand">mazi<em>HARNESS</em></span>
-            <button class="new-chat-top" @click="ui.showNew = true">＋ 新会话</button>
-        </div>
-        <div class="topbar-title" :title="detail && detail.rawIntent">
-            {{ detail ? detail.rawIntent : 'AI Agent Harness' }}
+            <span class="brand">mazi</span>
+            <span class="slogan">Be water my friend</span>
         </div>
         <div class="topbar-right">
-            <span class="api-dim" id="apilog"></span>
-            <i class="dot" :class="busy ? 'busy' : cfg && cfg.providers && cfg.providers.length ? 'ok' : 'bad'"></i>
-            <button class="ghost" @click="openSessionLog">Session 日志</button>
+            <button class="ghost new-chat-top" @click="ui.showNew = true">＋ 新会话</button>
+            <button class="ghost right-toggle" :title="ui.rightOpen ? '收起审计栏' : '展开审计栏'" @click="ui.rightOpen = !ui.rightOpen">▐▌</button>
             <button class="icon-btn" :title="theme === 'dark' ? '切换到浅色' : '切换到深色'" @click="cycleTheme">
                 {{ theme === 'dark' ? '☀️' : '🌙' }}
             </button>
@@ -399,6 +382,11 @@ onBeforeUnmount(() => {
             </div>
             <div class="search-box">
                 <input v-model="q" placeholder="搜索会话…" />
+            </div>
+            <div class="sidebar-views">
+                <button :class="{ on: ui.view === 'chat' }" @click="switchView('chat')">💬 会话</button>
+                <button :class="{ on: ui.view === 'profile' }" @click="switchView('profile')">👤 画像</button>
+                <button :class="{ on: ui.view === 'ledger' }" @click="switchView('ledger')">📒 账本</button>
             </div>
             <div class="sidebar-scroll">
                 <div class="group">
@@ -422,12 +410,9 @@ onBeforeUnmount(() => {
                     </ul>
                 </div>
             </div>
-            <nav class="sidebar-nav">
-                <button :class="{ on: ui.view === 'chat' }" @click="switchView('chat')">💬 会话</button>
-                <button :class="{ on: ui.view === 'profile' }" @click="switchView('profile')">👤 画像</button>
-                <button :class="{ on: ui.view === 'ledger' }" @click="switchView('ledger')">📒 账本</button>
-                <button :class="{ on: ui.view === 'settings' }" @click="switchView('settings')">⚙️ 设置</button>
-            </nav>
+            <div class="sidebar-settings">
+                <button class="settings-btn" :class="{ on: ui.view === 'settings' }" @click="switchView('settings')">⚙️ 设置</button>
+            </div>
         </aside>
 
         <main class="workspace">
@@ -573,78 +558,79 @@ onBeforeUnmount(() => {
                     <div class="muted-block">failure_ledger 将在存储 SPI 落地后提供；当前可从失败会话的轨迹定位。</div>
                 </div>
             </template>
+            <footer class="statusbar">
+                <span class="stat"><b>{{ metrics.turns }}</b> 轮</span>
+                <span class="stat"><b>{{ metrics.steps }}</b> 步</span>
+                <span class="stat">LLM <b>{{ fmtDuration(metrics.llmMs) }}</b></span>
+                <span class="stat">工具 <b>{{ metrics.toolCalls }}</b> 次</span>
+                <span class="stat">TTFT <b>{{ avgTtft }}ms</b></span>
+                <span class="stat"><b>{{ tokRate }}</b> tok/s</span>
+                <span class="stat">tokens <b>{{ fmtTokens(metrics.tokens) }}</b></span>
+                <span class="stat">cost <b>{{ fmtUsd(metrics.cost) }}</b></span>
+                <span class="stat model-stat">{{ metrics.provider }} / {{ metrics.model }}</span>
+                <span v-if="budgetPct !== null" class="stat budget-stat">预算 {{ budgetPct }}%</span>
+            </footer>
         </main>
-    </div>
 
-    <footer class="statusbar">
-        <span class="stat"><b>{{ metrics.turns }}</b> 轮</span>
-        <span class="stat"><b>{{ metrics.steps }}</b> 步</span>
-        <span class="stat">LLM <b>{{ fmtDuration(metrics.llmMs) }}</b></span>
-        <span class="stat">工具 <b>{{ metrics.toolCalls }}</b> 次</span>
-        <span class="stat">TTFT <b>{{ avgTtft }}ms</b></span>
-        <span class="stat"><b>{{ tokRate }}</b> tok/s</span>
-        <span class="stat">tokens <b>{{ fmtTokens(metrics.tokens) }}</b></span>
-        <span class="stat">cost <b>{{ fmtUsd(metrics.cost) }}</b></span>
-        <span class="stat model-stat">{{ metrics.provider }} / {{ metrics.model }}</span>
-        <span v-if="budgetPct !== null" class="stat budget-stat">预算 {{ budgetPct }}%</span>
-    </footer>
-
-    <aside v-if="ui.drawer" class="drawer">
-        <div class="drawer-head">
-            <div class="drawer-tabs">
-                <button :class="{ on: ui.drawerTab === 'audit' }" @click="ui.drawerTab = 'audit'">审计</button>
-                <button :class="{ on: ui.drawerTab === 'events' }" @click="ui.drawerTab = 'events'">事件</button>
-            </div>
-            <button class="icon-btn" title="关闭" @click="closeDrawer">✕</button>
-        </div>
-
-        <div v-if="ui.drawerTab === 'audit'" class="drawer-body">
-            <div class="drawer-title">{{ auditTitle() }}</div>
-            <div class="drawer-tabs sub">
-                <button
-                    v-for="v in ['declared', 'authorized', 'actual', 'usage']"
-                    :key="v"
-                    :class="{ on: ui.auditSub === v }"
-                    @click="ui.auditSub = v"
-                >
-                    {{ { declared: '声明', authorized: '授权', actual: '实际', usage: '用量' }[v] }}
-                </button>
-            </div>
-            <div v-if="ui.audit && ui.audit.step">
-                <pre v-if="ui.auditSub !== 'usage'" class="audit-json">{{ auditJson() }}</pre>
-                <template v-else>
-                    <div v-for="seg in usageSegs().segs" :key="seg.key" class="usage-row">
-                        <span>{{ seg.label }}</span><span>{{ seg.value }}</span>
+        <aside class="right-panel" :class="{ open: ui.rightOpen }">
+            <div class="right-panel-inner">
+                <div class="drawer-head">
+                    <div class="drawer-tabs">
+                        <button :class="{ on: ui.drawerTab === 'audit' }" @click="ui.drawerTab = 'audit'">审计</button>
+                        <button :class="{ on: ui.drawerTab === 'events' }" @click="ui.drawerTab = 'events'">事件</button>
                     </div>
-                    <div class="usage-bar"><i v-for="seg in usageSegs().segs" :key="seg.key" :style="{ width: seg.width + '%', background: seg.color }"></i></div>
-                    <div v-if="vendorText()" class="audit-note">
-                        Vendor: in {{ vendorText().input }} / out {{ vendorText().output }}
-                        <span v-if="vendorText().reasoning"> / reasoning {{ vendorText().reasoning }}</span><br />
-                        Cache: read {{ vendorText().cacheRead }} · write {{ vendorText().cacheWrite }}<br />
-                        Timing: TTFT {{ vendorText().ttft }}ms · total {{ vendorText().totalMs }}ms<br />
-                        Cost: {{ fmtUsd(vendorText().totalCost) }} · tier {{ vendorText().tier }} · {{ vendorText().version }}
-                    </div>
-                </template>
-            </div>
-            <div v-else class="empty-hint">点击左侧消息或轨迹 Step 查看声明/授权/实际/用量</div>
-        </div>
-
-        <div v-else class="drawer-body">
-            <div class="drawer-tabs sub">
-                <select v-model="ui.eventTypes" title="事件类型">
-                    <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
-                </select>
-            </div>
-            <div class="event-log">
-                <div v-for="e in filteredEvents" :key="e.eventId" class="event-row">
-                    <span class="event-time">{{ fmtClock(e.timestamp) }}</span>
-                    <span class="event-type" :class="e.type.startsWith('tool') || e.type.startsWith('policy') ? 'warn' : ''">{{ e.type }}</span>
-                    <span class="event-ids">{{ [e.turnId, e.stepId].filter(Boolean).join('/') || 'session' }}</span>
+                    <button class="icon-btn" title="收起" @click="closeDrawer">✕</button>
                 </div>
-                <div v-if="!filteredEvents.length" class="empty-hint">暂无事件</div>
+
+                <div v-if="ui.drawerTab === 'audit'" class="drawer-body">
+                    <div class="drawer-title">{{ auditTitle() }}</div>
+                    <div class="drawer-tabs sub">
+                        <button
+                            v-for="v in ['declared', 'authorized', 'actual', 'usage']"
+                            :key="v"
+                            :class="{ on: ui.auditSub === v }"
+                            @click="ui.auditSub = v"
+                        >
+                            {{ { declared: '声明', authorized: '授权', actual: '实际', usage: '用量' }[v] }}
+                        </button>
+                    </div>
+                    <div v-if="ui.audit && ui.audit.step">
+                        <pre v-if="ui.auditSub !== 'usage'" class="audit-json">{{ auditJson() }}</pre>
+                        <template v-else>
+                            <div v-for="seg in usageSegs().segs" :key="seg.key" class="usage-row">
+                                <span>{{ seg.label }}</span><span>{{ seg.value }}</span>
+                            </div>
+                            <div class="usage-bar"><i v-for="seg in usageSegs().segs" :key="seg.key" :style="{ width: seg.width + '%', background: seg.color }"></i></div>
+                            <div v-if="vendorText()" class="audit-note">
+                                Vendor: in {{ vendorText().input }} / out {{ vendorText().output }}
+                                <span v-if="vendorText().reasoning"> / reasoning {{ vendorText().reasoning }}</span><br />
+                                Cache: read {{ vendorText().cacheRead }} · write {{ vendorText().cacheWrite }}<br />
+                                Timing: TTFT {{ vendorText().ttft }}ms · total {{ vendorText().totalMs }}ms<br />
+                                Cost: {{ fmtUsd(vendorText().totalCost) }} · tier {{ vendorText().tier }} · {{ vendorText().version }}
+                            </div>
+                        </template>
+                    </div>
+                    <div v-else class="empty-hint">点击消息或轨迹 Step 查看声明/授权/实际/用量</div>
+                </div>
+
+                <div v-else class="drawer-body">
+                    <div class="drawer-tabs sub">
+                        <select v-model="ui.eventTypes" title="事件类型">
+                            <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
+                        </select>
+                    </div>
+                    <div class="event-log">
+                        <div v-for="e in filteredEvents" :key="e.eventId" class="event-row">
+                            <span class="event-time">{{ fmtClock(e.timestamp) }}</span>
+                            <span class="event-type" :class="e.type.startsWith('tool') || e.type.startsWith('policy') ? 'warn' : ''">{{ e.type }}</span>
+                            <span class="event-ids">{{ [e.turnId, e.stepId].filter(Boolean).join('/') || 'session' }}</span>
+                        </div>
+                        <div v-if="!filteredEvents.length" class="empty-hint">暂无事件</div>
+                    </div>
+                </div>
             </div>
-        </div>
-    </aside>
+        </aside>
+    </div>
 
     <div v-if="ui.showNew" class="modal-mask" @click.self="ui.showNew = false">
         <div class="modal">

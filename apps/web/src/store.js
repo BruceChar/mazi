@@ -63,7 +63,7 @@ applyTheme(theme.value);
 export const ui = reactive({
     view: 'chat',
     mainTab: 'chat',
-    drawer: false,
+    rightOpen: false,
     drawerTab: 'audit',
     auditSub: 'actual',
     audit: null,
