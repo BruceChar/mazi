@@ -16,8 +16,8 @@
     "prepare": "husky",
     "mazi": "node apps/cli/dist/cli.js",
     "web": "node apps/web/serve.mjs",
-    "server": "node apps/server/dist/server.js",
-    "api": "node apps/server/dist/server.js",
+    "server": "node apps/api/dist/main.js",
+    "api": "node apps/api/dist/main.js",
     "web:dev": "pnpm --filter @mazi/web dev"
   },
   "devDependencies": {

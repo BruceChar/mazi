@@ -3,17 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "./dist/server.js",
-  "types": "./dist/server.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/server.d.ts",
-      "default": "./dist/server.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
+  "main": "./dist/main.js",
   "dependencies": {
     "@fastify/cors": "^11",
     "@mazi/core": "workspace:*",
@@ -27,7 +17,7 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
-    "start": "node dist/server.js"
+    "start": "node dist/main.js"
   },
   "devDependencies": {
     "@nestjs/testing": "^12",

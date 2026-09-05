@@ -165,7 +165,7 @@ pnpm web:dev                # 前端 UI(开发)：Vite 热更新，/api 自动�
 # 重启前请先结束旧进程（如 lsof -ti:4317,5174 | xargs kill）再 pnpm run server / pnpm web。
 ```
 
-**apps/web（纯前端静态服务，5174）** 与 **apps/server（纯 API 后端，4317）** 分离；
+**apps/web（纯前端静态服务，5174）** 与 **apps/api（纯 API 后端，4317，NestJS + Fastify 模块化实现）** 分离；
 页面自动指向后端（默认 http://127.0.0.1:4317，可用 `?api=http://host:port` 覆盖）。
 
 **真实会话流**：输入任务 → [仅创建会话]（`POST /api/sessions`：立即写库 + recording 记录，进入左侧列表）

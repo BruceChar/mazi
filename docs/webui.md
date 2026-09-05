@@ -209,7 +209,7 @@
 ```
 ┌─ Context Card ────────────────────────────────────────────┐
 │  📋 上下文注入 · tool-jobs · bash MAZI_HOME=/tmp/mazi-vue │
-│    MAZI_SERVER_PORT=4317 node apps/server/dist/server.js  │
+│    MAZI_SERVER_PORT=4317 node apps/api/dist/main.js       │
 └───────────────────────────────────────────────────────────┘
 ```
 
