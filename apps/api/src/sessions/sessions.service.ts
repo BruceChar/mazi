@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import type { UserInteractionRecord } from '@mazi/core';
 import type { CreateSessionOptions, RunResult, SessionGoalOverrides } from '@mazi/harness-runtime';
+import { DefaultEventBus, newHarnessEvent } from '@mazi/observability';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
@@ -24,7 +25,7 @@ export interface SessionListItem {
 export type SessionDetail = Record<string, unknown>;
 
 /**
- * SessionsService：会话创建/执行/查询投影（docs v0.2 §10.4 契约矩阵）。
+ * SessionsService：会话创建/执行/查询投影/反馈采集（docs v0.2 §10.4 契约矩阵）。
  * 领域与存储复用 @mazi/harness-runtime / @mazi/memory，本层仅做编排与投影映射。
  */
 @Injectable()
@@ -91,5 +92,33 @@ export class SessionsService {
             turns.push({ ...turn, steps: await store.listSteps(turn.turnId) });
         }
         return { ...session, turns };
+    }
+
+    /**
+     * POST /api/sessions/:id/feedback：采集用户反馈，经 HarnessRuntime 同一事件总线
+     * emit + flush（JSONL 双写完成后再应答，SSE 订阅者实时可见；契约对齐旧实现）。
+     */
+    async recordFeedback(
+        sessionId: string,
+        body: Record<string, unknown>,
+    ): Promise<{ ok: boolean }> {
+        const type =
+            body.type === 'text_feedback'
+                ? 'text_feedback'
+                : body.type === 'decision_change'
+                  ? 'decision_change'
+                  : 'output_rating';
+        const feedback = {
+            timestamp: Date.now(),
+            type,
+            content: typeof body.content === 'string' ? body.content : undefined,
+            rating: typeof body.rating === 'number' ? body.rating : undefined,
+        };
+        const bus = this.runtime.harness().eventBus as DefaultEventBus;
+        bus.emit(
+            newHarnessEvent({ type: 'user.feedback.captured', sessionId, payload: { feedback } }),
+        );
+        await bus.flush();
+        return { ok: true };
     }
 }

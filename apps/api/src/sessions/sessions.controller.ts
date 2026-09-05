@@ -3,7 +3,7 @@ import type { RunResult } from '@mazi/harness-runtime';
 import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { SessionsService } from './sessions.service.js';
 
-/** /api/sessions*：创建/列表/详情/执行（契约对齐 docs v0.2 §10.4；POST 均 200） */
+/** /api/sessions*：创建/列表/详情/执行/反馈（契约对齐 docs v0.2 §10.4；POST 均 200） */
 @Controller('sessions')
 export class SessionsController {
     constructor(private readonly sessions: SessionsService) {}
@@ -33,5 +33,14 @@ export class SessionsController {
     @Get(':id/timeline')
     timeline(@Param('id') sessionId: string) {
         return this.sessions.sessionDetail(sessionId);
+    }
+
+    @Post(':id/feedback')
+    @HttpCode(200)
+    feedback(
+        @Param('id') sessionId: string,
+        @Body() body: Record<string, unknown>,
+    ): Promise<{ ok: boolean }> {
+        return this.sessions.recordFeedback(sessionId, body);
     }
 }
