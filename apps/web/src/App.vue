@@ -1,142 +1,666 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
-import { API_BASE } from './api.js';
-import { api } from './api.js';
-import { loadConfig, loadSessions, select, createAndRun, runCurrent, sendFeedback, loadProfile, ui, sessions, current, detail, cfg, busy, metrics, events, fmtUsd, fmtTime, esc, short, icon, badge } from './store.js';
-const showNew = ref(false);
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import {
+    badge,
+    busy,
+    cfg,
+    createAndRun,
+    current,
+    detail,
+    events,
+    fmtClock,
+    fmtDuration,
+    fmtTokens,
+    fmtUsd,
+    icon,
+    loadConfig,
+    loadProfile,
+    loadSessions,
+    metrics,
+    relTime,
+    runCurrent,
+    select,
+    sendFeedback,
+    sessions,
+    setTheme,
+    short,
+    stepLabel,
+    stopEvents,
+    theme,
+    ui,
+} from './store.js';
+
+const prompt = ref('');
 const q = ref('');
-const trajFilter = ref('all');
-const view = ref('chat');
-const mainTab = ref('chat');
-const rightTab = ref('audit');
-const auditView = ref('actual');
-const draft = ref({ statement: '', permission: 'read-only', budgetUsd: 0.5, maxSteps: 8 });
+const draft = ref({
+    statement: '',
+    permission: 'read-only',
+    budgetUsd: 0.5,
+    maxSteps: 8,
+    userId: '',
+});
 const profile = ref(null);
-const ledger = ref(null);
-const stepOpen = ref({});
-const openFeedback = ref(false);
 const feedbackSent = ref(false);
-const cfgText = computed(() => { const c = cfg.value; if (!c) return '…'; return c.home + ' · ' + (c.providers.length ? c.providers.join(', ') : '未配置 provider') + ' · ' + c.storage.driver; });
-const budgetPct = computed(() => { const b = metrics.budget; if (!b) return null; return Math.min(100, Math.round((metrics.cost / b) * 100)); });
-const filteredEvents = computed(() => events.list.filter((e) => events.types === 'all' || e.type.startsWith(events.types)).map((e) => e));
-const isCanRun = computed(() => detail.value && detail.value.outcome === undefined && detail.value.state === 'running');
-async function openNew() { showNew.value = true; }
-async function submitDraft(exec) { await createAndRun(exec, { statement: draft.value.statement || null, permissionCeiling: draft.value.permission, maxCostUsd: Number(draft.value.budgetUsd) || undefined, maxSteps: Number(draft.value.maxSteps) || undefined }); if (exec) showNew.value = false; }
-function stepTitle(s) { const p = s.payload || {}; if (s.kind === 'thinking') return short(p.content, 90); if (s.kind === 'tool_call') return p.toolName + ' ' + short(JSON.stringify(p.arguments || {}), 100); if (s.kind === 'observation') return short(p.content, 120); return s.stepId; }
-function toggleStep(id) { stepOpen.value[id] = !stepOpen.value[id]; }
-function showAudit(turn, step) { ui.audit = { turn, step }; rightTab.value = 'audit'; }
-function triple() { const a = ui.audit; if (!a || !a.step) return ''; const obj = { sessionId: a.step.sessionId, turnId: a.step.turnId, stepId: a.step.stepId, seq: a.step.seq, kind: a.step.kind, status: a.step.status, payload: a.step.payload, model: a.step.model, usage: a.step.usage, contract: (a.turn && a.turn.contract) || null, capacity: (a.turn && a.turn.capacity) || null }; return JSON.stringify(obj, null, 2); }
-function usageSegs() { const s = ui.audit && ui.audit.step && ui.audit.step.usage; if (!s) return []; const r = s.runtime; const segs = [ { k: 'sys', v: r && r.systemPromptTokens, c: '#60a5fa' }, { k: 'hist', v: r && r.historyTokens, c: '#a78bfa' }, { k: 'tool', v: r && r.toolSchemaTokens, c: '#34d399' }, { k: 'in', v: r && r.newInputTokens, c: '#fbbf24' }, { k: 'obs', v: r && r.observationTokens, c: '#f472b6' } ].filter((x) => x.v > 0); const tot = segs.reduce((a, b) => a + b.v, 0) || 1; return segs.map((x) => ({ ...x, w: Math.max(2, Math.round((x.v / tot) * 100)) })); }
-function vendorStats() { const s = ui.audit && ui.audit.step && ui.audit.step.usage; if (!s) return null; const v = s.vendor || {}; const t = s.timing || {}; const c = s.cost || {}; return { input: v.inputTokens, output: v.outputTokens, cacheRead: v.cacheReadInputTokens, cacheWrite: v.cacheCreationInputTokens, reasoning: v.reasoningOutputTokens, ttft: t.ttftMs, total: t.totalMs, tier: c.priceTierApplied, ver: c.pricingVersion, cost: c.totalCostUsd }; }
-async function switchView(name) { view.value = name; if (name === 'profile') profile.value = await loadProfile('me'); if (name === 'ledger') ledger.value = null; }
-async function feedback(rating) { if (!current.value) return; await sendFeedback(current.value, rating, null); feedbackSent.value = true; openFeedback.value = false; }
-onMounted(async () => { await loadConfig(); await loadSessions(); if (sessions.value[0]) await select(sessions.value[0].sessionId); });
-const copy = (t) => { navigator.clipboard && navigator.clipboard.writeText(t); };
+const openSteps = ref({});
+const collapsedTurns = ref({});
+const trajFilter = ref('all');
+const selectedModel = ref('');
+
+const cfgText = computed(() => {
+    const c = cfg.value;
+    if (!c) return '未连接后端';
+    return `${c.home} · ${c.providers?.length ? c.providers.join(', ') : '未配置 provider'} · ${c.storage?.driver || 'sqlite'}`;
+});
+
+const modelOptions = computed(() => {
+    const list = cfg.value?.providers || [];
+    if (!list.length) return [{ id: 'scripted', label: 'Scripted Demo' }];
+    return list.map((id) => ({ id, label: id }));
+});
+
+const defaultModel = computed(() => modelOptions.value[0]?.id || '-');
+
+watch(
+    modelOptions,
+    (options) => {
+        if (!options.some((option) => option.id === selectedModel.value)) {
+            selectedModel.value = options[0]?.id || '';
+        }
+    },
+    { immediate: true },
+);
+
+const sessionItems = computed(() => {
+    const key = q.value.trim().toLowerCase();
+    if (!key) return sessions.value;
+    return sessions.value.filter((s) =>
+        String(s.title || s.input || '').toLowerCase().includes(key),
+    );
+});
+
+const chatRows = computed(() => {
+    const rows = [];
+    for (const turn of detail.value?.turns || []) {
+        for (const step of turn.steps || []) {
+            rows.push({ turn, step });
+        }
+    }
+    return rows;
+});
+
+const canRun = computed(
+    () => !!(detail.value && detail.value.outcome === undefined && detail.value.state === 'running'),
+);
+
+const budgetPct = computed(() => {
+    const max = metrics.budget;
+    if (!max) return null;
+    return Math.min(100, Math.round((metrics.cost / max) * 100));
+});
+
+const avgTtft = computed(() =>
+    metrics.steps && metrics.ttftSum ? Math.round(metrics.ttftSum / metrics.steps) : 0,
+);
+
+const tokRate = computed(() =>
+    metrics.llmMs > 0 ? Math.round((metrics.tokens / metrics.llmMs) * 1000) : 0,
+);
+
+const eventTypes = computed(() => [
+    'all',
+    ...new Set(events.list.map((e) => e.type)),
+]);
+
+const filteredEvents = computed(() =>
+    events.list
+        .filter((e) => ui.eventTypes === 'all' || e.type === ui.eventTypes)
+        .slice(-300)
+        .reverse(),
+);
+
+function isOpenStep(stepId) {
+    return openSteps.value[stepId] ?? true;
+}
+
+function toggleOpenStep(stepId) {
+    openSteps.value[stepId] = !(openSteps.value[stepId] ?? true);
+}
+
+function isTurnOpen(turnId) {
+    return collapsedTurns.value[turnId] !== false;
+}
+
+function toggleTurn(turnId) {
+    collapsedTurns.value[turnId] = !isTurnOpen(turnId);
+}
+
+function turnStart(row, index) {
+    if (index === 0) return true;
+    return chatRows.value[index - 1].turn.turnId !== row.turn.turnId;
+}
+
+function stepTitle(row) {
+    const s = row.step;
+    const p = s.payload || {};
+    if (s.kind === 'thinking') return short(p.content, 80);
+    if (s.kind === 'tool_call') {
+        const args = short(JSON.stringify(p.arguments || {}), 70);
+        return `${p.toolName} ${args}`;
+    }
+    if (s.kind === 'observation') return short(p.content, 110);
+    return s.stepId;
+}
+
+function stepBody(row) {
+    const p = row.step.payload || {};
+    if (row.step.kind === 'tool_call') {
+        return {
+            title: `${p.toolName || 'tool'}`,
+            json: JSON.stringify(p.arguments || {}, null, 2),
+        };
+    }
+    return { title: '', text: p.content || '' };
+}
+
+function rowDuration(row) {
+    return fmtDuration(row.step.usage?.timing?.totalMs);
+}
+
+function rowTokens(row) {
+    const v = row.step.usage?.vendor;
+    return fmtTokens((v?.inputTokens || 0) + (v?.outputTokens || 0));
+}
+
+function rowModel(row) {
+    return row.step.model?.modelId || row.turn.capacity?.model?.modelId || '-';
+}
+
+function auditTitle() {
+    const audit = ui.audit;
+    if (!audit?.step) return '';
+    return `Step #${audit.step.seq} · ${stepLabel(audit.step.kind)}`;
+}
+
+function openAudit(row) {
+    ui.audit = { turn: row.turn, step: row.step };
+    ui.auditSub = 'actual';
+    ui.drawerTab = 'audit';
+    ui.drawer = true;
+}
+
+function openAuditFromStep(turn, step) {
+    ui.audit = { turn, step };
+    ui.auditSub = 'actual';
+    ui.drawerTab = 'audit';
+    ui.drawer = true;
+}
+
+function openSessionLog() {
+    ui.drawerTab = 'events';
+    ui.drawer = true;
+}
+
+function closeDrawer() {
+    ui.drawer = false;
+}
+
+function auditJson() {
+    const audit = ui.audit;
+    if (!audit) return '';
+    if (ui.auditSub === 'declared') {
+        return JSON.stringify(audit.turn?.contract || {}, null, 2);
+    }
+    if (ui.auditSub === 'authorized') {
+        return JSON.stringify(audit.turn?.capacity || {}, null, 2);
+    }
+    const s = audit.step;
+    return JSON.stringify(
+        {
+            sessionId: s.sessionId,
+            turnId: s.turnId,
+            stepId: s.stepId,
+            seq: s.seq,
+            kind: s.kind,
+            status: s.status,
+            payload: s.payload,
+            model: s.model,
+            usage: s.usage,
+            contract: audit.turn?.contract || null,
+            capacity: audit.turn?.capacity || null,
+        },
+        null,
+        2,
+    );
+}
+
+function usageSegs() {
+    const usage = ui.audit?.step?.usage;
+    if (!usage) return { segs: [], total: 0 };
+    const r = usage.runtime || {};
+    const raw = [
+        ['sys', 'System', r.systemPromptTokens, '#60a5fa'],
+        ['hist', 'History', r.historyTokens, '#a78bfa'],
+        ['tool', 'Tool schema', r.toolSchemaTokens, '#34d399'],
+        ['in', 'New input', r.newInputTokens, '#fbbf24'],
+        ['obs', 'Observation', r.observationTokens, '#f472b6'],
+    ].filter(([, , v]) => Number(v) > 0);
+    const total = raw.reduce((acc, [, , v]) => acc + Number(v), 0) || 1;
+    const segs = raw.map(([key, label, value, color]) => ({
+        key,
+        label,
+        value,
+        color,
+        width: Math.max(2, Math.round((Number(value) / total) * 100)),
+    }));
+    return { segs, total };
+}
+
+function vendorText() {
+    const usage = ui.audit?.step?.usage;
+    if (!usage) return null;
+    const v = usage.vendor || {};
+    const c = usage.cost || {};
+    const t = usage.timing || {};
+    return {
+        input: v.inputTokens || 0,
+        output: v.outputTokens || 0,
+        cacheRead: v.cacheReadInputTokens || 0,
+        cacheWrite: v.cacheCreationInputTokens || 0,
+        reasoning: v.reasoningOutputTokens || 0,
+        totalCost: c.totalCostUsd || 0,
+        tier: c.priceTierApplied || '-',
+        version: c.pricingVersion || '-',
+        ttft: t.ttftMs || 0,
+        totalMs: t.totalMs || 0,
+    };
+}
+
+function eventLine(event) {
+    const ids = [event.sessionId, event.turnId, event.stepId].filter(Boolean).join('/');
+    return ids ? `${event.type}  ·  ${ids}` : event.type;
+}
+
+function copyText(text) {
+    if (navigator.clipboard) {
+        void navigator.clipboard.writeText(text);
+    }
+}
+
+function copyRow(row) {
+    copyText(
+        JSON.stringify(
+            {
+                sessionId: row.step.sessionId,
+                turnId: row.step.turnId,
+                stepId: row.step.stepId,
+                kind: row.step.kind,
+                payload: row.step.payload,
+                usage: row.step.usage,
+            },
+            null,
+            2,
+        ),
+    );
+}
+
+async function rate(row, rating) {
+    feedbackSent.value = true;
+    try {
+        await sendFeedback(row.step.sessionId, rating, `step ${row.step.stepId}`);
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
+async function submitPrompt() {
+    const text = prompt.value.trim();
+    if (!text) {
+        if (current.value && canRun.value) {
+            await runCurrent(current.value);
+        }
+        return;
+    }
+    prompt.value = '';
+    await createAndRun(true, {
+        statement: text,
+        permissionCeiling: draft.value.permission,
+        maxCostUsd: draft.value.budgetUsd,
+        maxSteps: draft.value.maxSteps,
+        userId: draft.value.userId || undefined,
+    });
+}
+
+async function submitNew(exec) {
+    await createAndRun(exec, {
+        statement: draft.value.statement,
+        permissionCeiling: draft.value.permission,
+        maxCostUsd: draft.value.budgetUsd,
+        maxSteps: draft.value.maxSteps,
+        userId: draft.value.userId || undefined,
+    });
+}
+
+async function switchView(name) {
+    ui.view = name;
+    if (name === 'profile') {
+        profile.value = await loadProfile('me');
+    }
+}
+
+function cycleTheme() {
+    setTheme(theme.value === 'dark' ? 'light' : 'dark');
+}
+
+async function openSession(sessionId) {
+    await select(sessionId);
+}
+
+onMounted(async () => {
+    await loadConfig();
+    await loadSessions();
+    if (sessions.value[0]) {
+        await select(sessions.value[0].sessionId);
+    }
+});
+
+onBeforeUnmount(() => {
+    stopEvents();
+});
 </script>
 
 <template>
-  <header class="topbar">
-    <span class="brand">mazi<em>·</em>harness</span>
-    <span class="dim" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ cfgText }}</span>
-    <span class="status"><i class="dot" :class="busy ? 'busy' : cfg && cfg.providers.length ? 'ok' : 'bad'"></i><span id="apilog" class="dim"></span></span>
-  </header>
-  <main class="layout">
-    <aside class="col" style="width:260px;border-right:1px solid var(--line)">
-      <div style="padding:10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px">
-        <input placeholder="搜索会话…" v-model="q" />
-        <button class="primary" @click="openNew">＋ 新建会话</button>
-      </div>
-      <ul class="list">
-        <li v-for="s in sessions.filter((x) => !q || String(x.title || x.input).toLowerCase().includes(q.toLowerCase()))" :key="s.sessionId" :class="{ active: current === s.sessionId }" @click="select(s.sessionId)">
-          <div style="color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ esc(s.title || s.input) }}</div>
-          <div class="muted" style="font-size:11px;display:flex;gap:8px"><span class="badge" :class="badge(s.outcome)">{{ s.outcome || 'running' }}</span><span>{{ s.turns ?? '-' }} turns</span><span>{{ fmtUsd(s.costUsd) }}</span></div>
-        </li>
-        <li v-if="!sessions.length" class="muted">暂无会话</li>
-      </ul>
-      <div class="row" style="padding:8px 10px;border-top:1px solid var(--line)">
-        <button class="navbtn" :class="view === 'chat' && 'on'" @click="switchView('chat')">会话</button>
-        <button class="navbtn" :class="view === 'profile' && 'on'" @click="switchView('profile')">画像</button>
-        <button class="navbtn" :class="view === 'ledger' && 'on'" @click="switchView('ledger')">账本</button>
-        <button class="navbtn" @click="switchView('settings')">设置</button>
-      </div>
-    </aside>
-    <section class="col main" style="min-width:0">
-      <template v-if="view === 'chat'">
-        <div style="padding:12px 14px 6px;display:flex;gap:8px;align-items:flex-end">
-          <textarea v-model="draft.statement" rows="2" style="flex:1" placeholder="任务描述，例如：读取 README.md 并汇报（Ctrl+Enter 运行）" @keydown.ctrl.enter="submitDraft(true)"></textarea>
-          <button :disabled="busy" @click="submitDraft(false)">仅创建</button>
-          <button class="primary" :disabled="busy" @click="submitDraft(true)">创建并运行</button>
+    <header class="topbar">
+        <div class="topbar-left">
+            <button class="icon-btn sidebar-toggle" title="折叠/展开侧边栏" @click="ui.sidebar = !ui.sidebar">☰</button>
+            <span class="brand">mazi<em>HARNESS</em></span>
+            <button class="new-chat-top" @click="ui.showNew = true">＋ 新会话</button>
         </div>
-        <div v-if="ui.err" class="card" style="margin:8px 14px">{{ ui.err }}</div>
-        <div v-if="detail" style="padding:2px 14px;border-bottom:1px solid var(--line)">
-          <div class="row" style="justify-content:space-between">
-            <div><b>{{ esc(detail.rawIntent) }}</b> <span class="muted">session {{ detail.sessionId }}</span></div>
-            <div class="row"><button v-if="isCanRun" :disabled="busy" @click="runCurrent(detail.sessionId)">▶ 执行</button><button v-if="detail.outcome" @click="openFeedback = true">反馈</button><button @click="copy(detail.sessionId)" title="复制 Session ID">⧉</button></div>
-          </div>
-          <div class="seg" style="margin:4px 0"><button :class="mainTab === 'chat' && 'on'" @click="mainTab = 'chat'">对话流</button><button :class="mainTab === 'traj' && 'on'" @click="mainTab = 'traj'">轨迹</button></div>
+        <div class="topbar-title" :title="detail && detail.rawIntent">
+            {{ detail ? detail.rawIntent : 'AI Agent Harness' }}
         </div>
-        <div class="scroll" style="flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:6px">
-          <template v-if="mainTab === 'chat' && detail && detail.turns">
-            <template v-for="turn in detail.turns" :key="turn.turnId"><div class="card" style="background:var(--panel2)"><b>Turn</b> {{ esc((turn.contract && turn.contract.statement) || turn.turnId) }} <span class="muted">status {{ turn.status }} · attempt {{ turn.attempt }}</span></div>
-              <div v-for="s in turn.steps" :key="s.stepId" class="step" :class="{ open: stepOpen[s.stepId] }" @click="toggleStep(s.stepId); showAudit(turn, s)">
-                <div class="row"><span>{{ icon(s.kind) }}</span><span>{{ esc(stepTitle(s)) }}</span><span class="muted" style="font-size:11px">#{{ s.seq }} · {{ s.status }}{{ s.model ? ' · ' + s.model.modelId : '' }}</span></div>
-                <pre>{{ JSON.stringify({ payload: s.payload, usage: s.usage }, null, 2) }}</pre>
-              </div>
-            </template>
-          </template>
-          <template v-else-if="mainTab === 'traj' && detail && detail.turns">
-            <div class="row" style="gap:4px;flex-wrap:wrap"><span v-for="f in ['all','thinking','tool_call','observation','policy','provider']" :key="f" class="filter-chip" :class="trajFilter === f && 'on'" @click="trajFilter = f">{{ f }}</span></div>
-            <div v-for="turn in detail.turns" :key="turn.turnId" style="margin-top:4px">
-              <div class="card" style="background:var(--panel2)">Turn {{ esc((turn.contract && turn.contract.statement) || turn.turnId) }}</div>
-              <div v-for="s in turn.steps.filter((x) => trajFilter === 'all' || x.kind === trajFilter)" :key="s.stepId" class="row muted" style="margin:2px 0 0 10px;cursor:pointer" @click="showAudit(turn, s); rightTab = 'audit'">{{ icon(s.kind) }} <span style="color:var(--fg)">{{ esc(stepTitle(s)) }}</span> <span style="font-size:11px">#{{ s.seq }} {{ s.status }}{{ s.model ? ' · ' + s.model.modelId : '' }}</span></div>
+        <div class="topbar-right">
+            <span class="api-dim" id="apilog"></span>
+            <i class="dot" :class="busy ? 'busy' : cfg && cfg.providers && cfg.providers.length ? 'ok' : 'bad'"></i>
+            <button class="ghost" @click="openSessionLog">Session 日志</button>
+            <button class="icon-btn" :title="theme === 'dark' ? '切换到浅色' : '切换到深色'" @click="cycleTheme">
+                {{ theme === 'dark' ? '☀️' : '🌙' }}
+            </button>
+        </div>
+    </header>
+
+    <div class="app-shell">
+        <aside class="sidebar" :class="{ show: ui.sidebar }">
+            <div class="sidebar-new">
+                <button class="primary new-session" @click="ui.showNew = true">＋ 新会话</button>
             </div>
-          </template>
-          <div v-else-if="detail" class="muted">（空会话：点击 ▶ 执行）</div>
-          <div v-if="openFeedback" class="card row" style="align-items:center;justify-content:space-between"><span>这个结果有帮助吗？</span><span class="row"><button @click="feedback(5)">👍</button><button @click="feedback(1)">👎</button><button @click="openFeedback = false">✕</button></span></div>
-        </div>
-      </template>
-      <template v-else-if="view === 'settings'">
-        <div class="card" style="margin:16px"><h3 class="lbl">设置</h3><div class="field"><label>数据目录</label><input :value="cfg ? cfg.home : ''" readonly /></div><div class="field"><label>存储</label><input :value="cfg ? cfg.storage.driver + ' · ' + cfg.storage.db : ''" readonly /></div><div class="field"><label>Provider</label><div>{{ cfg ? cfg.providers.join(', ') : '-' }}</div></div><div class="muted">配置保存在 ~/.mazi（providers/tools/flags.json）。修改后重启 server。</div></div>
-      </template>
-      <template v-else-if="view === 'profile'">
-        <div class="card" style="margin:16px"><h3 class="lbl">用户画像</h3><pre class="mono">{{ profile ? JSON.stringify(profile, null, 2) : '暂无数据（在顶部输入 userId 运行后可聚合）' }}</pre></div>
-      </template>
-      <template v-else>
-        <div class="card" style="margin:16px"><h3 class="lbl">失败分类账</h3><div class="muted">failure_ledger 将在存储 SPI（BE-8）落地后提供；当前可从“执行失败”的会话查看轨迹定位。</div></div>
-      </template>
-    </section>
-    <aside class="col" style="width:340px;border-left:1px solid var(--line)">
-      <div class="seg"><button :class="rightTab === 'audit' && 'on'" @click="rightTab = 'audit'">审计</button><button :class="rightTab === 'events' && 'on'" @click="rightTab = 'events'">事件</button></div>
-      <div v-show="rightTab === 'audit'" class="scroll" style="flex:1;padding:10px">
-        <div class="seg" style="margin-bottom:8px"><button v-for="v in ['declared','authorized','actual','usage']" :key="v" :class="auditView === v && 'on'" @click="auditView = v">{{ { declared: '声明', authorized: '授权', actual: '实际', usage: '用量' }[v] }}</button></div>
-        <template v-if="ui.audit && ui.audit.step">
-          <pre v-if="auditView !== 'usage'" class="mono">{{ auditView === 'declared' ? JSON.stringify((ui.audit.turn && ui.audit.turn.contract) || {}, null, 2) : auditView === 'authorized' ? JSON.stringify((ui.audit.turn && ui.audit.turn.capacity) || {}, null, 2) : triple() }}</pre>
-          <template v-else>
-            <div v-for="seg in usageSegs()" :key="seg.k" class="row muted" style="justify-content:space-between"><span>{{ seg.k }}</span><span>{{ seg.v }}</span></div>
-            <div class="bar" style="margin:6px 0"><i v-for="seg in usageSegs()" :key="seg.k" :style="{ width: seg.w + '%', background: seg.c }"></i></div>
-            <div v-if="vendorStats()" class="muted" style="font-size:11px">vendor: in {{ vendorStats().input }} / out {{ vendorStats().output }}{{ vendorStats().reasoning ? ' / r ' + vendorStats().reasoning : '' }}<br/>timing: ttft {{ vendorStats().ttft || 0 }}ms · {{ vendorStats().total || 0 }}ms<br/>cost {{ fmtUsd(vendorStats().cost) }} · tier {{ vendorStats().tier }} · {{ vendorStats().ver }}</div>
-          </template>
-        </template>
-        <div v-else class="muted">点击左侧 Step 查看声明/授权/实际/用量</div>
-      </div>
-      <div v-show="rightTab === 'events'" class="scroll" style="flex:1;padding:10px">
-        <pre class="mono">{{ filteredEvents.slice(-500).map((e) => e.type + '  ' + [e.sessionId, e.turnId, e.stepId].filter(Boolean).join('/')).join(String.fromCharCode(10)) }}</pre>
-        <div class="muted">{{ events.list.length }} events</div>
-      </div>
-    </aside>
-  </main>
-  <footer class="bottom">
-    <span>turns <b>{{ metrics.turns }}</b></span><span>steps <b>{{ metrics.steps }}</b></span><span>tokens <b>{{ metrics.tokens }}</b></span><span>cost <b>{{ fmtUsd(metrics.cost) }}</b></span><span class="muted">{{ metrics.provider }} / {{ metrics.model }}</span>
-    <span v-if="budgetPct !== null" class="muted" style="margin-left:auto">预算 {{ budgetPct }}%</span>
-  </footer>
-  <div v-if="showNew" class="modal-mask" @click.self="showNew = false">
-    <div class="modal"><h3 class="lbl">新建会话 · GoalContract</h3>
-      <div class="field"><label>任务</label><textarea v-model="draft.statement" rows="3" placeholder="目标陈述"></textarea></div>
-      <div class="grid2"><div class="field"><label>权限上限</label><select v-model="draft.permission"><option v-for="p in ['text','read-only','draft','approved','autonomous']" :key="p" :value="p">{{ p }}</option></select></div>
-      <div class="field"><label>预算（USD）</label><input type="number" v-model.number="draft.budgetUsd" step="0.1" /></div>
-      <div class="field"><label>最大步数</label><input type="number" v-model.number="draft.maxSteps" /></div>
-      </div>
-      <div class="row" style="justify-content:flex-end;margin-top:12px"><button @click="showNew = false">取消</button><button class="primary" @click="submitDraft(true)">创建并运行</button><button @click="submitDraft(false)">仅创建</button></div>
+            <div class="workspace-head">
+                <span>工作区</span>
+                <span class="head-icons"><i>🔍</i><i>≡</i><i>＋</i></span>
+            </div>
+            <div class="search-box">
+                <input v-model="q" placeholder="搜索会话…" />
+            </div>
+            <div class="sidebar-scroll">
+                <div class="group">
+                    <div class="group-head">📁 未分组 · {{ sessions.length }}</div>
+                    <ul class="session-list">
+                        <li
+                            v-for="s in sessionItems"
+                            :key="s.sessionId"
+                            :class="{ active: current === s.sessionId }"
+                            @click="openSession(s.sessionId)"
+                        >
+                            <div class="session-title">{{ s.title || s.input }}</div>
+                            <div class="session-meta">
+                                <span class="badge" :class="badge(s.outcome)">{{ s.outcome || 'recording' }}</span>
+                                <span>{{ s.turns ?? '-' }} turns</span>
+                                <span>{{ fmtUsd(s.costUsd) }}</span>
+                                <span class="time">{{ relTime(s.updatedAt || s.createdAt) }}</span>
+                            </div>
+                        </li>
+                        <li v-if="!sessionItems.length" class="empty-sidebar">暂无会话</li>
+                    </ul>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <button :class="{ on: ui.view === 'chat' }" @click="switchView('chat')">💬 会话</button>
+                <button :class="{ on: ui.view === 'profile' }" @click="switchView('profile')">👤 画像</button>
+                <button :class="{ on: ui.view === 'ledger' }" @click="switchView('ledger')">📒 账本</button>
+                <button :class="{ on: ui.view === 'settings' }" @click="switchView('settings')">⚙️ 设置</button>
+            </nav>
+        </aside>
+
+        <main class="workspace">
+            <template v-if="ui.view === 'chat'">
+                <div class="main-tabs">
+                    <button :class="{ on: ui.mainTab === 'chat' }" @click="ui.mainTab = 'chat'">对话</button>
+                    <button :class="{ on: ui.mainTab === 'traj' }" @click="ui.mainTab = 'traj'">轨迹</button>
+                </div>
+                <div v-if="detail" class="session-strip">
+                    <div class="session-id" title="Session ID">{{ detail.sessionId }}</div>
+                    <div class="strip-actions">
+                        <button v-if="canRun" :disabled="busy" @click="runCurrent(current)">▶ 执行</button>
+                        <span v-if="detail.outcome" class="badge" :class="badge(detail.outcome)">{{ detail.outcome }}</span>
+                        <button :disabled="busy" @click="runCurrent(current)" title="重新执行">↻</button>
+                        <button title="复制 Session ID" @click="copyText(detail.sessionId)">⧉</button>
+                    </div>
+                </div>
+
+                <div class="chat-scroll">
+                    <div v-if="ui.err" class="error-banner">{{ ui.err }}</div>
+
+                    <template v-if="ui.mainTab === 'chat'">
+                        <div v-if="detail && detail.rawIntent" class="user-message">
+                            <div class="msg-head"><span class="msg-icon">🧑</span><span class="msg-label">我</span></div>
+                            <div class="msg-text">{{ detail.rawIntent }}</div>
+                        </div>
+                        <template v-for="(row, index) in chatRows" :key="row.step.stepId">
+                            <div v-if="turnStart(row, index)" class="turn-divider">
+                                Turn {{ (detail.turns || []).indexOf(row.turn) + 1 }}
+                                <span class="muted-inline">{{ row.turn.status }} · attempt {{ row.turn.attempt }}</span>
+                            </div>
+                            <div class="msg" :class="[`msg-${row.step.kind}`, { open: isOpenStep(row.step.stepId) }]">
+                                <div class="msg-head" @click="toggleOpenStep(row.step.stepId)">
+                                    <span class="msg-icon">{{ icon(row.step.kind) }}</span>
+                                    <span class="msg-label">{{ stepLabel(row.step.kind) }}</span>
+                                    <span class="msg-title">{{ stepTitle(row) }}</span>
+                                    <span class="msg-brief">#{{ row.step.seq }} · {{ row.step.status }} · {{ rowModel(row) }}</span>
+                                    <button class="mini chevron">{{ isOpenStep(row.step.stepId) ? '▾' : '▸' }}</button>
+                                </div>
+                                <div v-if="isOpenStep(row.step.stepId)" class="msg-body">
+                                    <template v-if="row.step.kind === 'tool_call'">
+                                        <div class="mono-block">
+                                            <div class="mono-title">🔧 {{ stepBody(row).title }}</div>
+                                            <pre>{{ stepBody(row).json }}</pre>
+                                        </div>
+                                    </template>
+                                    <pre v-else class="plain-text">{{ stepBody(row).text }}</pre>
+                                </div>
+                                <div class="msg-foot">
+                                    <button class="mini like" title="有帮助" @click="rate(row, 5)">👍</button>
+                                    <button class="mini like" title="没帮助" @click="rate(row, 1)">👎</button>
+                                    <button class="mini" @click="copyRow(row)">📋 复制</button>
+                                    <span class="meta-gap"></span>
+                                    <span class="meta">用量 {{ rowTokens(row) }} tok</span>
+                                    <span class="meta">用时 {{ rowDuration(row) }}</span>
+                                    <span class="meta">{{ fmtClock(row.step.startedAt) }}</span>
+                                    <button class="mini audit-link" @click="openAudit(row)">审计</button>
+                                </div>
+                            </div>
+                        </template>
+                        <div v-if="detail && !chatRows.length" class="empty-hint">
+                            空会话：点击“▶ 执行”让 harness 开始工作
+                        </div>
+                        <div v-if="feedbackSent && detail && detail.outcome" class="ok-banner">反馈已记录 👍</div>
+                    </template>
+
+                    <template v-else>
+                        <div class="toolbar">
+                            <button
+                                v-for="f in ['all', 'thinking', 'tool_call', 'observation']"
+                                :key="f"
+                                class="chip"
+                                :class="{ on: trajFilter === f }"
+                                @click="trajFilter = f"
+                            >
+                                {{ f }}
+                            </button>
+                        </div>
+                        <div v-for="(turn, tIndex) in (detail && detail.turns) || []" :key="turn.turnId" class="traj-turn">
+                            <div class="traj-turn-head" @click="toggleTurn(turn.turnId)">
+                                <span class="chevron">{{ isTurnOpen(turn.turnId) ? '▾' : '▸' }}</span>
+                                <span>Turn {{ tIndex + 1 }} · {{ (turn.contract && turn.contract.statement) || turn.turnId }}</span>
+                                <span class="muted-inline">{{ turn.status }}</span>
+                            </div>
+                            <div v-if="isTurnOpen(turn.turnId)" class="traj-tree">
+                                <div
+                                    v-for="step in turn.steps.filter((s) => trajFilter === 'all' || s.kind === trajFilter)"
+                                    :key="step.stepId"
+                                    class="traj-step"
+                                    @click="openAuditFromStep(turn, step)"
+                                >
+                                    <span class="msg-icon">{{ icon(step.kind) }}</span>
+                                    <span class="traj-title">{{ short(stepTitle({ turn, step }), 72) }}</span>
+                                    <span class="muted-inline">#{{ step.seq }} {{ step.status }}</span>
+                                    <span v-if="step.model" class="muted-inline">{{ step.model.modelId }}</span>
+                                    <span v-if="step.usage" class="muted-inline">{{ fmtTokens(step.usage.vendor.inputTokens + step.usage.vendor.outputTokens) }} tok</span>
+                                </div>
+                                <div v-if="!turn.steps.length" class="empty-hint">无步骤</div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="input-area">
+                    <button class="icon-btn add-btn" title="添加附件/引用" @click="ui.showNew = true">＋</button>
+                    <textarea
+                        v-model="prompt"
+                        rows="1"
+                        placeholder="输入任务…（Enter 发送，Shift+Enter 换行）"
+                        @keydown.enter.exact.prevent="submitPrompt"
+                    ></textarea>
+                    <div class="input-actions">
+                        <select v-model="selectedModel" title="模型">
+                            <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
+                        </select>
+                        <button class="ghost" title="刷新状态" @click="runCurrent(current)">↻</button>
+                        <button class="send" :disabled="busy" title="发送" @click="submitPrompt">⬆</button>
+                    </div>
+                </div>
+            </template>
+
+            <template v-else-if="ui.view === 'settings'">
+                <div class="page-card">
+                    <h1>设置</h1>
+                    <div class="field-row"><label>数据目录</label><input :value="cfg ? cfg.home : ''" readonly /></div>
+                    <div class="field-row"><label>存储</label><input :value="cfg ? `${cfg.storage.driver} · ${cfg.storage.db}` : ''" readonly /></div>
+                    <div class="field-row"><label>Provider</label><div class="value-text">{{ cfg ? cfg.providers.join(', ') : '-' }}</div></div>
+                    <div class="field-row"><label>主题</label><select :value="theme" @change="setTheme($event.target.value)"><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></div>
+                    <div class="muted-block">配置保存在 ~/.mazi（providers/tools/flags.json）。修改后重启 server。</div>
+                </div>
+            </template>
+
+            <template v-else-if="ui.view === 'profile'">
+                <div class="page-card">
+                    <h1>用户画像</h1>
+                    <pre>{{ profile ? JSON.stringify(profile, null, 2) : '暂无数据（带 userId 运行会话后可见）' }}</pre>
+                </div>
+            </template>
+
+            <template v-else>
+                <div class="page-card">
+                    <h1>失败分类账</h1>
+                    <div class="muted-block">failure_ledger 将在存储 SPI 落地后提供；当前可从失败会话的轨迹定位。</div>
+                </div>
+            </template>
+        </main>
     </div>
-  </div>
+
+    <footer class="statusbar">
+        <span class="stat"><b>{{ metrics.turns }}</b> 轮</span>
+        <span class="stat"><b>{{ metrics.steps }}</b> 步</span>
+        <span class="stat">LLM <b>{{ fmtDuration(metrics.llmMs) }}</b></span>
+        <span class="stat">工具 <b>{{ metrics.toolCalls }}</b> 次</span>
+        <span class="stat">TTFT <b>{{ avgTtft }}ms</b></span>
+        <span class="stat"><b>{{ tokRate }}</b> tok/s</span>
+        <span class="stat">tokens <b>{{ fmtTokens(metrics.tokens) }}</b></span>
+        <span class="stat">cost <b>{{ fmtUsd(metrics.cost) }}</b></span>
+        <span class="stat model-stat">{{ metrics.provider }} / {{ metrics.model }}</span>
+        <span v-if="budgetPct !== null" class="stat budget-stat">预算 {{ budgetPct }}%</span>
+    </footer>
+
+    <aside v-if="ui.drawer" class="drawer">
+        <div class="drawer-head">
+            <div class="drawer-tabs">
+                <button :class="{ on: ui.drawerTab === 'audit' }" @click="ui.drawerTab = 'audit'">审计</button>
+                <button :class="{ on: ui.drawerTab === 'events' }" @click="ui.drawerTab = 'events'">事件</button>
+            </div>
+            <button class="icon-btn" title="关闭" @click="closeDrawer">✕</button>
+        </div>
+
+        <div v-if="ui.drawerTab === 'audit'" class="drawer-body">
+            <div class="drawer-title">{{ auditTitle() }}</div>
+            <div class="drawer-tabs sub">
+                <button
+                    v-for="v in ['declared', 'authorized', 'actual', 'usage']"
+                    :key="v"
+                    :class="{ on: ui.auditSub === v }"
+                    @click="ui.auditSub = v"
+                >
+                    {{ { declared: '声明', authorized: '授权', actual: '实际', usage: '用量' }[v] }}
+                </button>
+            </div>
+            <div v-if="ui.audit && ui.audit.step">
+                <pre v-if="ui.auditSub !== 'usage'" class="audit-json">{{ auditJson() }}</pre>
+                <template v-else>
+                    <div v-for="seg in usageSegs().segs" :key="seg.key" class="usage-row">
+                        <span>{{ seg.label }}</span><span>{{ seg.value }}</span>
+                    </div>
+                    <div class="usage-bar"><i v-for="seg in usageSegs().segs" :key="seg.key" :style="{ width: seg.width + '%', background: seg.color }"></i></div>
+                    <div v-if="vendorText()" class="audit-note">
+                        Vendor: in {{ vendorText().input }} / out {{ vendorText().output }}
+                        <span v-if="vendorText().reasoning"> / reasoning {{ vendorText().reasoning }}</span><br />
+                        Cache: read {{ vendorText().cacheRead }} · write {{ vendorText().cacheWrite }}<br />
+                        Timing: TTFT {{ vendorText().ttft }}ms · total {{ vendorText().totalMs }}ms<br />
+                        Cost: {{ fmtUsd(vendorText().totalCost) }} · tier {{ vendorText().tier }} · {{ vendorText().version }}
+                    </div>
+                </template>
+            </div>
+            <div v-else class="empty-hint">点击左侧消息或轨迹 Step 查看声明/授权/实际/用量</div>
+        </div>
+
+        <div v-else class="drawer-body">
+            <div class="drawer-tabs sub">
+                <select v-model="ui.eventTypes" title="事件类型">
+                    <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
+                </select>
+            </div>
+            <div class="event-log">
+                <div v-for="e in filteredEvents" :key="e.eventId" class="event-row">
+                    <span class="event-time">{{ fmtClock(e.timestamp) }}</span>
+                    <span class="event-type" :class="e.type.startsWith('tool') || e.type.startsWith('policy') ? 'warn' : ''">{{ e.type }}</span>
+                    <span class="event-ids">{{ [e.turnId, e.stepId].filter(Boolean).join('/') || 'session' }}</span>
+                </div>
+                <div v-if="!filteredEvents.length" class="empty-hint">暂无事件</div>
+            </div>
+        </div>
+    </aside>
+
+    <div v-if="ui.showNew" class="modal-mask" @click.self="ui.showNew = false">
+        <div class="modal">
+            <h1>新建会话 · GoalContract</h1>
+            <div class="field-row"><label>任务</label><textarea v-model="draft.statement" rows="3" placeholder="目标陈述，例如：读取 README.md 并汇报"></textarea></div>
+            <div class="grid2">
+                <div class="field-row"><label>权限上限</label><select v-model="draft.permission"><option v-for="p in ['text', 'read-only', 'draft', 'approved', 'autonomous']" :key="p" :value="p">{{ p }}</option></select></div>
+                <div class="field-row"><label>预算（USD）</label><input v-model.number="draft.budgetUsd" type="number" step="0.1" /></div>
+                <div class="field-row"><label>最大步数</label><input v-model.number="draft.maxSteps" type="number" /></div>
+                <div class="field-row"><label>UserId（可选）</label><input v-model="draft.userId" placeholder="me" /></div>
+            </div>
+            <div class="modal-actions">
+                <button class="ghost" @click="ui.showNew = false">取消</button>
+                <button @click="submitNew(false)">仅创建</button>
+                <button class="primary" :disabled="busy" @click="submitNew(true)">创建并运行</button>
+            </div>
+        </div>
+    </div>
 </template>
