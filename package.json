@@ -15,10 +15,9 @@
     "check": "pnpm lint && pnpm test",
     "prepare": "husky",
     "mazi": "node apps/cli/dist/cli.js",
-    "web": "node apps/web/serve.mjs",
-    "server": "node apps/api/dist/main.js",
     "api": "node apps/api/dist/main.js",
-    "web:dev": "pnpm --filter @mazi/web dev"
+    "ui:dev": "pnpm --filter @mazi/webui dev",
+    "dev": "pnpm api & pnpm ui:dev"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",

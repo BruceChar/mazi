@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import LineIcon from './LineIcon.vue';
 import {
     badge,
     busy,
@@ -45,6 +46,7 @@ const openSteps = ref({});
 const collapsedTurns = ref({});
 const trajFilter = ref('all');
 const selectedModel = ref('');
+const accountOpen = ref(false);
 
 const modelOptions = computed(() => {
     const list = cfg.value?.providers || [];
@@ -332,6 +334,11 @@ async function switchView(name) {
     if (name === 'profile') {
         profile.value = await loadProfile('me');
     }
+    accountOpen.value = false;
+}
+
+function toggleAccount() {
+    accountOpen.value = !accountOpen.value;
 }
 
 function cycleTheme() {
@@ -358,16 +365,35 @@ onBeforeUnmount(() => {
 <template>
     <header class="topbar">
         <div class="topbar-left">
-            <button class="icon-btn sidebar-toggle" title="折叠/展开侧边栏" @click="ui.sidebar = !ui.sidebar">☰</button>
+            <button class="icon-btn sidebar-toggle" title="折叠/展开侧边栏" @click="ui.sidebar = !ui.sidebar"><LineIcon name="menu" /></button>
             <span class="brand">mazi</span>
-            <span class="slogan">Be water my friend</span>
+            <span class="slogan">Be water, my friend</span>
         </div>
         <div class="topbar-right">
-            <button class="ghost new-chat-top" @click="ui.showNew = true">＋ 新会话</button>
-            <button class="ghost right-toggle" :title="ui.rightOpen ? '收起审计栏' : '展开审计栏'" @click="ui.rightOpen = !ui.rightOpen">▐▌</button>
+            <button class="ghost right-toggle" :title="ui.rightOpen ? '收起审计栏' : '展开审计栏'" @click="ui.rightOpen = !ui.rightOpen"><LineIcon name="panel" /></button>
             <button class="icon-btn" :title="theme === 'dark' ? '切换到浅色' : '切换到深色'" @click="cycleTheme">
-                {{ theme === 'dark' ? '☀️' : '🌙' }}
+                <LineIcon :name="theme === 'dark' ? 'sun' : 'moon'" />
             </button>
+            <div class="account-root">
+                <button class="icon-btn account-btn" title="个人中心" @click.stop="toggleAccount">
+                    <LineIcon name="user" />
+                </button>
+                <div v-if="accountOpen" class="account-drawer" @click.stop>
+                    <div class="account-title">个人中心</div>
+                    <button @click="switchView('profile')">
+                        <LineIcon name="userMessage" size="15" />
+                        <span>画像</span>
+                    </button>
+                    <button @click="switchView('ledger')">
+                        <LineIcon name="observation" size="15" />
+                        <span>账本</span>
+                    </button>
+                    <button @click="switchView('settings')">
+                        <LineIcon name="settings" size="15" />
+                        <span>设置</span>
+                    </button>
+                </div>
+            </div>
         </div>
     </header>
 
@@ -378,19 +404,17 @@ onBeforeUnmount(() => {
             </div>
             <div class="workspace-head">
                 <span>工作区</span>
-                <span class="head-icons"><i>🔍</i><i>≡</i><i>＋</i></span>
+                <span class="head-icons">
+                    <button class="head-icon" title="搜索"><LineIcon name="search" size="14" /></button>
+                    <button class="head-icon" title="通过路径选择工作区"><LineIcon name="plus" size="14" /></button>
+                </span>
             </div>
             <div class="search-box">
                 <input v-model="q" placeholder="搜索会话…" />
             </div>
-            <div class="sidebar-views">
-                <button :class="{ on: ui.view === 'chat' }" @click="switchView('chat')">💬 会话</button>
-                <button :class="{ on: ui.view === 'profile' }" @click="switchView('profile')">👤 画像</button>
-                <button :class="{ on: ui.view === 'ledger' }" @click="switchView('ledger')">📒 账本</button>
-            </div>
-            <div class="sidebar-scroll">
-                <div class="group">
-                    <div class="group-head">📁 未分组 · {{ sessions.length }}</div>
+                <div class="sidebar-scroll">
+                    <div class="group">
+                        <div class="group-head">会话 · {{ sessions.length }}</div>
                     <ul class="session-list">
                         <li
                             v-for="s in sessionItems"
@@ -411,7 +435,10 @@ onBeforeUnmount(() => {
                 </div>
             </div>
             <div class="sidebar-settings">
-                <button class="settings-btn" :class="{ on: ui.view === 'settings' }" @click="switchView('settings')">⚙️ 设置</button>
+                <button class="settings-btn" @click="switchView('settings')">
+                    <LineIcon name="settings" size="15" />
+                    设置
+                </button>
             </div>
         </aside>
 
@@ -424,10 +451,13 @@ onBeforeUnmount(() => {
                 <div v-if="detail" class="session-strip">
                     <div class="session-id" title="Session ID">{{ detail.sessionId }}</div>
                     <div class="strip-actions">
-                        <button v-if="canRun" :disabled="busy" @click="runCurrent(current)">▶ 执行</button>
+                        <button v-if="canRun" :disabled="busy" @click="runCurrent(current)">
+                            <LineIcon name="play" size="13" />
+                            执行
+                        </button>
                         <span v-if="detail.outcome" class="badge" :class="badge(detail.outcome)">{{ detail.outcome }}</span>
-                        <button :disabled="busy" @click="runCurrent(current)" title="重新执行">↻</button>
-                        <button title="复制 Session ID" @click="copyText(detail.sessionId)">⧉</button>
+                        <button :disabled="busy" @click="runCurrent(current)" title="重新执行"><LineIcon name="refresh" size="14" /></button>
+                        <button title="复制 Session ID" @click="copyText(detail.sessionId)"><LineIcon name="copy" size="14" /></button>
                     </div>
                 </div>
 
@@ -436,7 +466,7 @@ onBeforeUnmount(() => {
 
                     <template v-if="ui.mainTab === 'chat'">
                         <div v-if="detail && detail.rawIntent" class="user-message">
-                            <div class="msg-head"><span class="msg-icon">🧑</span><span class="msg-label">我</span></div>
+                            <div class="msg-head"><span class="msg-icon"><LineIcon name="user" size="14" /></span><span class="msg-label">我</span></div>
                             <div class="msg-text">{{ detail.rawIntent }}</div>
                         </div>
                         <template v-for="(row, index) in chatRows" :key="row.step.stepId">
@@ -446,7 +476,7 @@ onBeforeUnmount(() => {
                             </div>
                             <div class="msg" :class="[`msg-${row.step.kind}`, { open: isOpenStep(row.step.stepId) }]">
                                 <div class="msg-head" @click="toggleOpenStep(row.step.stepId)">
-                                    <span class="msg-icon">{{ icon(row.step.kind) }}</span>
+                                    <span class="msg-icon"><LineIcon :name="icon(row.step.kind)" size="14" /></span>
                                     <span class="msg-label">{{ stepLabel(row.step.kind) }}</span>
                                     <span class="msg-title">{{ stepTitle(row) }}</span>
                                     <span class="msg-brief">#{{ row.step.seq }} · {{ row.step.status }} · {{ rowModel(row) }}</span>
@@ -455,16 +485,16 @@ onBeforeUnmount(() => {
                                 <div v-if="isOpenStep(row.step.stepId)" class="msg-body">
                                     <template v-if="row.step.kind === 'tool_call'">
                                         <div class="mono-block">
-                                            <div class="mono-title">🔧 {{ stepBody(row).title }}</div>
+                                            <div class="mono-title"><LineIcon name="tool" size="14" /> {{ stepBody(row).title }}</div>
                                             <pre>{{ stepBody(row).json }}</pre>
                                         </div>
                                     </template>
                                     <pre v-else class="plain-text">{{ stepBody(row).text }}</pre>
                                 </div>
                                 <div class="msg-foot">
-                                    <button class="mini like" title="有帮助" @click="rate(row, 5)">👍</button>
-                                    <button class="mini like" title="没帮助" @click="rate(row, 1)">👎</button>
-                                    <button class="mini" @click="copyRow(row)">📋 复制</button>
+                                    <button class="mini like" title="有帮助" @click="rate(row, 5)"><LineIcon name="like" size="14" /></button>
+                                    <button class="mini like" title="没帮助" @click="rate(row, 1)"><LineIcon name="dislike" size="14" /></button>
+                                    <button class="mini" @click="copyRow(row)"><LineIcon name="copy" size="14" /> 复制</button>
                                     <span class="meta-gap"></span>
                                     <span class="meta">用量 {{ rowTokens(row) }} tok</span>
                                     <span class="meta">用时 {{ rowDuration(row) }}</span>
@@ -474,9 +504,9 @@ onBeforeUnmount(() => {
                             </div>
                         </template>
                         <div v-if="detail && !chatRows.length" class="empty-hint">
-                            空会话：点击“▶ 执行”让 harness 开始工作
+                            Be Water My Friend
                         </div>
-                        <div v-if="feedbackSent && detail && detail.outcome" class="ok-banner">反馈已记录 👍</div>
+                        <div v-if="feedbackSent && detail && detail.outcome" class="ok-banner">反馈已记录</div>
                     </template>
 
                     <template v-else>
@@ -493,7 +523,7 @@ onBeforeUnmount(() => {
                         </div>
                         <div v-for="(turn, tIndex) in (detail && detail.turns) || []" :key="turn.turnId" class="traj-turn">
                             <div class="traj-turn-head" @click="toggleTurn(turn.turnId)">
-                                <span class="chevron">{{ isTurnOpen(turn.turnId) ? '▾' : '▸' }}</span>
+                                <LineIcon class="chevron" :name="isTurnOpen(turn.turnId) ? 'chevronDown' : 'chevronRight'" size="14" />
                                 <span>Turn {{ tIndex + 1 }} · {{ (turn.contract && turn.contract.statement) || turn.turnId }}</span>
                                 <span class="muted-inline">{{ turn.status }}</span>
                             </div>
@@ -504,7 +534,7 @@ onBeforeUnmount(() => {
                                     class="traj-step"
                                     @click="openAuditFromStep(turn, step)"
                                 >
-                                    <span class="msg-icon">{{ icon(step.kind) }}</span>
+                                    <span class="msg-icon"><LineIcon :name="icon(step.kind)" size="14" /></span>
                                     <span class="traj-title">{{ short(stepTitle({ turn, step }), 72) }}</span>
                                     <span class="muted-inline">#{{ step.seq }} {{ step.status }}</span>
                                     <span v-if="step.model" class="muted-inline">{{ step.model.modelId }}</span>
@@ -517,7 +547,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div class="input-area">
-                    <button class="icon-btn add-btn" title="添加附件/引用" @click="ui.showNew = true">＋</button>
+                        <button class="icon-btn add-btn" title="通过路径选择工作区"><LineIcon name="plus" size="17" /></button>
                     <textarea
                         v-model="prompt"
                         rows="1"
@@ -528,8 +558,8 @@ onBeforeUnmount(() => {
                         <select v-model="selectedModel" title="模型">
                             <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
                         </select>
-                        <button class="ghost" title="刷新状态" @click="runCurrent(current)">↻</button>
-                        <button class="send" :disabled="busy" title="发送" @click="submitPrompt">⬆</button>
+                        <button class="ghost" title="刷新状态" @click="runCurrent(current)"><LineIcon name="refresh" size="15" /></button>
+                        <button class="send" :disabled="busy" title="发送" @click="submitPrompt"><LineIcon name="send" size="16" /></button>
                     </div>
                 </div>
             </template>
@@ -579,7 +609,7 @@ onBeforeUnmount(() => {
                         <button :class="{ on: ui.drawerTab === 'audit' }" @click="ui.drawerTab = 'audit'">审计</button>
                         <button :class="{ on: ui.drawerTab === 'events' }" @click="ui.drawerTab = 'events'">事件</button>
                     </div>
-                    <button class="icon-btn" title="收起" @click="closeDrawer">✕</button>
+                    <button class="icon-btn" title="收起" @click="closeDrawer"><LineIcon name="close" size="15" /></button>
                 </div>
 
                 <div v-if="ui.drawerTab === 'audit'" class="drawer-body">

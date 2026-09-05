@@ -136,6 +136,7 @@ pre {
     align-items: center;
     gap: 12px;
     min-width: 0;
+    /* background-color: red; */
 }
 
 .brand {
@@ -152,6 +153,9 @@ pre {
     font-style: italic;
     letter-spacing: 0.02em;
     white-space: nowrap;
+    align-self: end;
+    line-height: 1.2;
+    /* background-color: rgb(9, 255, 0); */
 }
 
 .new-chat-top {
@@ -235,9 +239,68 @@ pre {
 
 .head-icons {
     display: inline-flex;
-    gap: 5px;
-    font-size: 11px;
-    cursor: pointer;
+    gap: 3px;
+}
+
+.head-icon {
+    border: none;
+    background: transparent;
+    color: var(--fg-secondary);
+    padding: 3px;
+    display: grid;
+    place-items: center;
+    border-radius: 5px;
+}
+
+.head-icon:hover {
+    background: var(--bg-hover);
+}
+
+.account-root {
+    position: relative;
+}
+
+.account-btn {
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+}
+
+.account-drawer {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 190px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    box-shadow: 0 14px 36px var(--shadow);
+    padding: 6px;
+    z-index: 30;
+}
+
+.account-title {
+    padding: 8px 10px 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg-secondary);
+}
+
+.account-drawer button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-start;
+    border: none;
+    background: transparent;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.account-drawer button:hover {
+    background: var(--bg-hover);
 }
 
 .search-box {
@@ -248,34 +311,6 @@ pre {
     width: 100%;
     background: var(--bg-chat);
     border-color: var(--border);
-}
-
-.sidebar-views {
-    display: flex;
-    gap: 3px;
-    padding: 0 10px 8px;
-    border-bottom: 1px solid var(--border);
-}
-
-.sidebar-views button {
-    flex: 1;
-    border: none;
-    background: transparent;
-    color: var(--fg-secondary);
-    padding: 6px 2px;
-    font-size: 12px;
-    border-radius: 6px;
-}
-
-.sidebar-views button:hover {
-    background: var(--bg-hover);
-    color: var(--fg);
-}
-
-.sidebar-views button.on {
-    background: var(--bg-active);
-    color: var(--accent);
-    font-weight: 600;
 }
 
 .sidebar-scroll {
@@ -520,7 +555,9 @@ pre {
 }
 
 .msg-icon {
-    font-size: 14px;
+    display: inline-grid;
+    place-items: center;
+    color: var(--fg-secondary);
 }
 
 .msg-label {
