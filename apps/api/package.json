@@ -1,0 +1,36 @@
+{
+  "name": "@mazi/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@fastify/cors": "^11",
+    "@mazi/core": "workspace:*",
+    "@mazi/harness-runtime": "workspace:*",
+    "@mazi/observability": "workspace:*",
+    "@nestjs/common": "^12",
+    "@nestjs/core": "^12",
+    "@nestjs/platform-fastify": "^12",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "start": "node dist/server.js"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^12",
+    "fastify": "^5"
+  }
+}

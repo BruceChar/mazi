@@ -30,6 +30,18 @@
       "semicolons": "always"
     }
   },
+  "overrides": [
+    {
+      "includes": ["apps/api/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useImportType": "off"
+          }
+        }
+      }
+    }
+  ],
   "json": {
     "formatter": {
       "indentStyle": "space",

@@ -1,0 +1,18 @@
+{
+  "extends": "./../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../../packages/harness-runtime" },
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/core" }
+  ]
+}
