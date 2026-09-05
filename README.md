@@ -47,10 +47,8 @@ pnpm mazi config [选项]              # 交互式配置 provider
 
 ### 4. 配置目录
 
-`providers.json` 中每个 provider 带一个 `driver`：
-
-- **`scripted`**（默认演示，确定性模拟，无需凭据）：示例配置已内置在 `apps/cli/config/`。
-- **`pi-ai`**（真实厂商，见下方 §5）：经 `@earendil-works/pi-ai` 调用 OpenAI / Anthropic / DeepSeek / OpenRouter 等。
+`providers.json` 中每个 provider 带一个真实厂商 `driver`（`type: 'pi-ai'`），
+经 `@earendil-works/pi-ai` 调用 OpenAI / Anthropic / DeepSeek / OpenRouter 等。
 
 `tools.json` 声明工具白名单（含 schema、minPermission、副作用域）；`flags.json` 可选覆盖默认 Flag。
 
@@ -60,24 +58,12 @@ pnpm mazi config [选项]              # 交互式配置 provider
 pnpm mazi config --config-dir <你的配置目录>   # 默认 ./config
 ```
 
-向导会列出可选 provider（OpenAI / DeepSeek / 脚本演示），询问要启用的项与模型，
+向导会列出真实 provider（OpenAI / DeepSeek 等），询问要启用的项与模型，
 并**检测 `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` 是否已设置**，最后生成
 `providers.json` / `tools.json` / `flags.json`。生成的真实厂商 driver 通常省略
 `apiKeyEnv`——运行时按 provider 默认映射读取环境变量（见下方 §5 说明）。
 
-### 5. 两种运行方式
-
-**方式 A：内置 ScriptedDriver 演示（推荐先跑通）**
-
-```bash
-pnpm mazi run "读取 README.md 并汇报" \
-  --config-dir apps/cli/config --event-dir ./events-demo
-# 等价于：node apps/cli/dist/cli.js run "读取 README.md 并汇报" --config-dir apps/cli/config --event-dir ./events-demo
-```
-
-输出示例末尾 `outcome: success | turns: 1 | tokens: … | costUsd: …`；事件 JSONL 完整落在 `./events-demo/<sessionId>.jsonl`。
-
-**方式 B：真实厂商（pi-ai）**
+### 5. 真实厂商运行（pi-ai）
 
 以 OpenAI 为例，新建目录 `config-real/`，`providers.json`：
 

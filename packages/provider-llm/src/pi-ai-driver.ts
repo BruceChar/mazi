@@ -38,10 +38,7 @@ export interface PiAiDriverDeps {
     now?: () => number;
 }
 
-/**
- * 真实厂商 Driver（feature：provider-adapter，设计文档 docs/ProviderAdapter设计.md）。
- * 经 core LLMDriver 防腐层注入，上层零改动；惰性解析模型、env 凭据校验。
- */
+/** 真实厂商 Driver：经 core LLMDriver 防腐层注入，惰性解析模型和凭据。 */
 export class PiAiDriver implements LLMDriver {
     private readonly provider: string;
     private readonly modelId: string;
@@ -130,7 +127,7 @@ export class PiAiDriver implements LLMDriver {
 
     /**
      * 凭据解析：
-     * - 显式配置 apiKeyEnv → 缺失即抛错（PA-A3）；
+     * - 显式配置 apiKeyEnv → 缺失即抛错；
      * - 未显式配置 → 按 provider 默认 env 名读取（openai→OPENAI_API_KEY、deepseek→DEEPSEEK_API_KEY 等），
      *   命中映射但缺失 → 抛清晰错误；
      * - 未命中映射的 provider（如 faux / 无鉴权自定义端点）→ 不校验，交由 pi-ai/端点决定。

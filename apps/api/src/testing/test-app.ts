@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
@@ -18,7 +18,7 @@ export interface TestAppHandle {
 
 /**
  * 装配测试用 Nest 应用：MAZI_HOME 指向工作区内独立临时目录（不触碰 ~/.mazi）；
- * copyDemoConfig 时写入 scripted 演示 providers/tools/flags，供真实执行链路测试。
+ * copyDemoConfig 时写入真实厂商配置与内置工具定义，供执行链路测试。
  */
 export async function createTestApp(
     options: { copyDemoConfig?: boolean } = {},
@@ -27,7 +27,33 @@ export async function createTestApp(
     mkdirSync(base, { recursive: true });
     const home = mkdtempSync(join(base, 'home-'));
     if (options.copyDemoConfig) {
-        for (const file of ['providers.json', 'tools.json', 'flags.json']) {
+        writeFileSync(
+            join(home, 'providers.json'),
+            JSON.stringify(
+                {
+                    providers: [
+                        {
+                            id: 'faux',
+                            vendor: 'faux',
+                            tags: ['tools'],
+                            models: [
+                                {
+                                    id: 'faux-model',
+                                    contextWindow: 64000,
+                                    supportsTools: true,
+                                    supportsThinking: true,
+                                    supportsVision: false,
+                                },
+                            ],
+                            driver: { type: 'pi-ai', provider: 'faux', model: 'faux-model' },
+                        },
+                    ],
+                },
+                null,
+                2,
+            ),
+        );
+        for (const file of ['tools.json', 'flags.json']) {
             copyFileSync(join(DEMO_CONFIG, file), join(home, file));
         }
     }

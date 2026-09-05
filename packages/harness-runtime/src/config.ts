@@ -22,7 +22,7 @@ export interface ToolConfig {
 export type ProviderConfig = ProviderJson;
 
 export interface RuntimeConfig {
-    /** Provider JSON（driver.type=scripted 等，由 provider-llm 解释） */
+    /** Provider JSON（driver.type=pi-ai，由 provider-llm 解释） */
     providers: ProviderConfig[];
     tools: ToolConfig[];
     /** 追加/覆盖默认 Flag（按 key） */

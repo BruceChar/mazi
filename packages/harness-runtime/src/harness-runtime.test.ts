@@ -5,12 +5,25 @@ import { describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from './config.js';
 import { HarnessRuntime } from './runtime.js';
 
+class OfflineDriver {
+    async *stream(_request) {
+        yield { type: 'text-delta', delta: '完成。' };
+        yield { type: 'end', finishReason: 'stop' };
+    }
+}
+
+function offlineRuntime() {
+    const rt = Reflect.construct(HarnessRuntime, [cfg()]);
+    rt.drivers.set('pi-a', new OfflineDriver());
+    return rt;
+}
+
 function cfg(): RuntimeConfig {
     return {
         providers: [
             {
-                id: 'scripted-a',
-                vendor: 'scripted',
+                id: 'pi-a',
+                vendor: 'openai',
                 tags: ['tools'],
                 models: [
                     {
@@ -22,23 +35,9 @@ function cfg(): RuntimeConfig {
                     },
                 ],
                 driver: {
-                    type: 'scripted',
-                    rounds: [
-                        {
-                            toolCalls: [
-                                {
-                                    callId: 'c',
-                                    toolName: 'fs.read',
-                                    arguments: { path: 'README.md' },
-                                },
-                            ],
-                            usage: { inputTokens: 10, outputTokens: 5, reportedByVendor: true },
-                        },
-                        {
-                            text: '完成。',
-                            usage: { inputTokens: 6, outputTokens: 4, reportedByVendor: true },
-                        },
-                    ],
+                    type: 'pi-ai',
+                    provider: 'faux',
+                    model: 'm',
                 },
                 pricing: {
                     currency: 'USD',
@@ -78,13 +77,13 @@ function cfg(): RuntimeConfig {
 
 describe('createSession / executeSession（run 兼容）', () => {
     it('createSession 立即生成 recording 会话；executeSession 完成并写 outcome', async () => {
-        const rt = new HarnessRuntime(cfg());
+        const rt = offlineRuntime();
         const created = await rt.createSession('读取 README.md', { userId: 'u' });
         expect(created.sessionId.length).toBeGreaterThan(0);
         const before = await rt.getRecord(created.sessionId);
         expect(before?.status).toBe('recording');
         const result = await rt.executeSession(created.sessionId);
-        expect(result.outcome).toBe('success');
+        expect(result.outcome, `offline result=${JSON.stringify(result)}`).toBe('success');
         const after = await rt.getRecord(created.sessionId);
         expect(after?.status).toBe('completed');
         expect(after?.outcome?.status).toBe('success');
@@ -92,7 +91,7 @@ describe('createSession / executeSession（run 兼容）', () => {
     });
 
     it('重复执行已结束会话抛错', async () => {
-        const rt = new HarnessRuntime(cfg());
+        const rt = offlineRuntime();
         const created = await rt.createSession('读取 README.md');
         await rt.executeSession(created.sessionId);
         await expect(rt.executeSession(created.sessionId)).rejects.toThrow(/已结束/);
@@ -100,7 +99,7 @@ describe('createSession / executeSession（run 兼容）', () => {
     });
 
     it('run 与 create+execute 等价（向后兼容）', async () => {
-        const rt = new HarnessRuntime(cfg());
+        const rt = offlineRuntime();
         const a = await rt.run('读取 README.md');
         const created = await rt.createSession('读取 README.md');
         const b = await rt.executeSession(created.sessionId);

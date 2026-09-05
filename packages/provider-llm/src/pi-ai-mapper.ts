@@ -57,7 +57,7 @@ export function messagesToPi(
         }
         if (msg.role === 'assistant') {
             if (msg.toolCallId !== undefined || msg.name !== undefined) {
-                // 工具意图：内容为空且无 arguments 信息，跳过（详见设计文档 §2.3）
+                // 工具意图无 arguments 信息，依赖紧随其后的 tool 结果还原调用
                 continue;
             }
             const assistant: AssistantMessage = {

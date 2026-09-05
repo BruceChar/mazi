@@ -209,7 +209,7 @@ describe('PiAiDriver 默认 env 读取（openai→OPENAI_API_KEY / deepseek→DE
 });
 
 describe('DefaultDriverRegistry（PA-A4）', () => {
-    it('type=scripted → ScriptedDriver；type=pi-ai → PiAiDriver；未知 type 抛错', () => {
+    it('type=pi-ai → PiAiDriver；未知或缺失 type 抛错', () => {
         const reg = new DefaultDriverRegistry();
         const provider = normalizeProvider({
             id: 'p',
@@ -224,13 +224,6 @@ describe('DefaultDriverRegistry（PA-A4）', () => {
                 },
             ],
         });
-        const scriptedDriver = reg.build(provider, {
-            id: 'p',
-            vendor: 'v',
-            models: provider.models,
-            driver: { type: 'scripted', rounds: [{ text: 'x' }] },
-        });
-        expect(scriptedDriver.constructor.name).toBe('ScriptedDriver');
         const piDriver = reg.build(provider, {
             id: 'p',
             vendor: 'v',
@@ -245,6 +238,14 @@ describe('DefaultDriverRegistry（PA-A4）', () => {
                 models: provider.models,
                 driver: { type: 'nope' as never },
             }),
-        ).toThrow(/未知 driver.type/);
+        ).toThrow(/未知或缺失 driver.type/);
+        expect(() =>
+            reg.build(provider, {
+                id: 'p',
+                vendor: 'v',
+                models: provider.models,
+                driver: {},
+            }),
+        ).toThrow(/缺失 driver.type/);
     });
 });

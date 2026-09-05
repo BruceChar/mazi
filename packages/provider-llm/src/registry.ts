@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type {
     EconomicsProfile,
     LLMDriver,
@@ -7,40 +5,7 @@ import type {
     PerformanceProfile,
     PricingSchedule,
     Provider,
-    VendorUsage,
 } from '@mazi/core';
-import type { ScriptedDriverOptions } from './driver.js';
-import { ScriptedDriver } from './driver.js';
-
-/** 脚本化工具调用声明（ScriptedRound.toolCalls 的元素） */
-export interface ScriptedToolCall {
-    callId: string;
-    toolName: string;
-    arguments: Record<string, unknown>;
-}
-
-/** 脚本化单轮输出：text/reasoning/toolCalls 任选组合；usage/finishReason 可选 */
-export interface ScriptedRound {
-    text?: string;
-    reasoning?: string;
-    toolCalls?: ScriptedToolCall[];
-    usage?: VendorUsage;
-    finishReason?: string;
-}
-
-/** scenarioFile 的内容结构：{ rounds, failCalls? } */
-export interface ScenarioFile {
-    rounds: ScriptedRound[];
-    failCalls?: number;
-}
-
-/** scripted 驱动配置段 */
-export interface ScriptedDriverJson {
-    type?: 'scripted';
-    rounds?: ScriptedRound[];
-    scenarioFile?: string;
-    failCalls?: number;
-}
 
 /** pi-ai 真实厂商驱动配置段 */
 export interface PiAiDriverJson {
@@ -62,12 +27,7 @@ export interface ProviderJson {
     /** 业务专长标签（SpecialtyTag），缺省 [] */
     specialties?: string[];
     models: ModelDescriptor[];
-    /**
-     * 驱动配置（driver.type 分派，见 DefaultDriverRegistry）：
-     * - scripted：确定性模拟，rounds 与 scenarioFile 二选一（scenarioFile 优先）
-     * - pi-ai：真实厂商（@earendil-works/pi-ai），provider/model/apiKeyEnv（apiKeyEnv 缺省按 provider 默认 env 读取）
-     */
-    driver?: ScriptedDriverJson | PiAiDriverJson | ({ type?: string } & Record<string, unknown>);
+    driver?: PiAiDriverJson;
     /** 分时定价（缺省字段由 normalizeProvider 补默认值） */
     pricing?: Partial<PricingSchedule>;
     health?: {
@@ -78,7 +38,7 @@ export interface ProviderJson {
     costWeight?: number;
 }
 
-/** base 缺省单价 input/output = 1/3（与 MVP 文档 §9 示例 0.5/1.5 的 1:3 比例一致） */
+/** base 缺省单价（USD / 1M token）。 */
 const DEFAULT_INPUT_PER_MTok = 1;
 const DEFAULT_OUTPUT_PER_MTok = 3;
 
@@ -157,63 +117,9 @@ export function normalizeProvider(json: ProviderJson): Provider {
     };
 }
 
-/** 读取 scenarioFile（相对 process.cwd()）：{ rounds, failCalls? } */
-function loadScenarioFile(scenarioFile: string): ScenarioFile {
-    const absolutePath = resolve(process.cwd(), scenarioFile);
-    let raw: string;
-    try {
-        raw = readFileSync(absolutePath, 'utf8');
-    } catch (error) {
-        throw new Error(
-            `ScriptedDriverRegistry: scenarioFile 读取失败 "${scenarioFile}"（${absolutePath}）：${(error as Error).message}`,
-        );
-    }
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(raw);
-    } catch (error) {
-        throw new Error(
-            `ScriptedDriverRegistry: scenarioFile "${scenarioFile}" 不是合法 JSON：${(error as Error).message}`,
-        );
-    }
-    const scenario = parsed as Partial<ScenarioFile>;
-    if (!Array.isArray(scenario.rounds)) {
-        throw new Error(`ScriptedDriverRegistry: scenarioFile "${scenarioFile}" 缺少 rounds 数组`);
-    }
-    const result: ScenarioFile = { rounds: scenario.rounds as ScriptedRound[] };
-    if (scenario.failCalls !== undefined) {
-        result.failCalls = scenario.failCalls;
-    }
-    return result;
-}
-
 /** 驱动工厂：由归一化 Provider + 原始配置 JSON 构造 LLMDriver */
 export interface DriverRegistry {
     build(provider: Provider, json: ProviderJson): LLMDriver;
 }
 
-/**
- * scripted 驱动注册表（MVP 唯一实现，MVP 文档 §3.2/§8 F5）：
- * scenarioFile 存在时读取它（相对 cwd 的 { rounds, failCalls? }，优先于
- * driver.rounds）；failCalls 取 driver.failCalls ?? scenarioFile.failCalls ?? 0。
- */
-export class ScriptedDriverRegistry implements DriverRegistry {
-    build(_provider: Provider, json: ProviderJson): LLMDriver {
-        const driver = json.driver;
-        const type = driver?.type ?? 'scripted';
-        if (type !== 'scripted') {
-            throw new Error(
-                `ScriptedDriverRegistry: 不支持的 driver.type "${type}"（仅 scripted，pi-ai 请用 DefaultDriverRegistry）`,
-            );
-        }
-        const scripted = driver as ScriptedDriverJson | undefined;
-        const scenario = scripted?.scenarioFile
-            ? loadScenarioFile(scripted.scenarioFile)
-            : undefined;
-        const options: ScriptedDriverOptions = {
-            rounds: scenario ? scenario.rounds : (scripted?.rounds ?? []),
-            failCalls: scripted?.failCalls ?? scenario?.failCalls ?? 0,
-        };
-        return new ScriptedDriver(options);
-    }
-}
+export { DefaultDriverRegistry } from './default-registry.js';

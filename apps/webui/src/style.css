@@ -313,6 +313,18 @@ pre {
     border-color: var(--border);
 }
 
+.workspace-path {
+    margin: 0 12px 8px;
+    padding: 6px 8px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    color: var(--fg-secondary);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .sidebar-scroll {
     flex: 1;
     overflow: auto;
@@ -323,6 +335,39 @@ pre {
     padding: 4px 8px 6px;
     color: var(--fg-secondary);
     font-size: 12px;
+}
+
+.group-head.project-head {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    position: relative;
+    cursor: pointer;
+}
+
+.group-head.project-head:hover {
+    background: var(--bg-hover);
+    border-radius: 5px;
+}
+
+.project-fold {
+    display: inline-grid;
+    place-items: center;
+    padding: 2px;
+}
+
+.project-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg);
+}
+
+.project-add {
+    display: inline-grid;
+    place-items: center;
+    padding: 2px;
 }
 
 .session-list {
@@ -508,7 +553,7 @@ pre {
     border: 1px solid var(--border);
     background: var(--bg-chat);
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 9px 11px;
     align-self: flex-end;
     max-width: 84%;
 }
@@ -517,11 +562,21 @@ pre {
     white-space: pre-wrap;
 }
 
+.user-meta {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 5px;
+    color: var(--fg-secondary);
+    font-size: 10px;
+}
+
 .msg {
     border: 1px solid var(--border);
     background: var(--bg);
     border-radius: 8px;
     overflow: hidden;
+    display: flex;
 }
 
 .msg-thinking {
@@ -542,11 +597,24 @@ pre {
     background: var(--bg-chat);
 }
 
+.msg-gutter {
+    flex: 0 0 30px;
+    display: grid;
+    place-items: start;
+    padding: 8px 0 0;
+    justify-content: center;
+}
+
+.msg-main {
+    min-width: 0;
+    flex: 1;
+}
+
 .msg-head {
     display: flex;
     align-items: center;
-    gap: 7px;
-    padding: 7px 10px;
+    gap: 8px;
+    padding: 8px 10px 0;
     cursor: pointer;
 }
 
@@ -558,6 +626,18 @@ pre {
     display: inline-grid;
     place-items: center;
     color: var(--fg-secondary);
+}
+
+.msg-thinking .msg-gutter {
+    color: var(--fg-secondary);
+}
+
+.msg-tool_call .msg-gutter {
+    color: var(--accent);
+}
+
+.msg-observation .msg-gutter {
+    color: var(--ok);
 }
 
 .msg-label {
@@ -583,6 +663,12 @@ pre {
     white-space: nowrap;
 }
 
+.chevron {
+    color: var(--fg-secondary);
+    display: inline-grid;
+    place-items: center;
+}
+
 .mini {
     border: none;
     background: transparent;
@@ -600,12 +686,12 @@ pre {
 }
 
 .msg-body {
-    border-top: 1px solid var(--border);
-    padding: 9px 12px;
+    padding: 8px 10px 0 0;
 }
 
 .plain-text {
     font-size: 13px;
+    white-space: pre-wrap;
 }
 
 .mono-block {
@@ -618,6 +704,9 @@ pre {
 }
 
 .mono-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     color: var(--fg-secondary);
     margin-bottom: 4px;
 }
@@ -626,8 +715,7 @@ pre {
     display: flex;
     align-items: center;
     gap: 2px;
-    padding: 5px 10px;
-    border-top: 1px solid var(--border);
+    padding: 5px 10px 6px 0;
     color: var(--fg-secondary);
     font-size: 11px;
 }
@@ -970,6 +1058,36 @@ pre {
     border-radius: 9px;
     background: var(--bg);
     padding: 16px 18px;
+}
+
+.page-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.page-heading h1 {
+    margin: 0;
+}
+
+.back-btn {
+    transform: rotate(180deg);
+    display: grid;
+    place-items: center;
+}
+
+.page-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.page-actions .primary {
+    color: #ffffff;
+    background: var(--accent);
+    border-color: transparent;
 }
 
 .page-card h1,

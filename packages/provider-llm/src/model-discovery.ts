@@ -17,7 +17,7 @@ export interface ModelDiscoveryDeps {
 }
 
 /**
- * 动态模型发现（设计文档 §2 / U3）：
+ * 动态模型发现：
  * 1. provider 有可用 key（默认 env 或 apiKeyEnv）→ `Models.refresh` 拉取最新目录；
  * 2. 候选 = 刷新后的 `getModels(provider)`；失败/无 key → 回退本地静态目录并提示。
  */

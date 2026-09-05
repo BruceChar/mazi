@@ -15,19 +15,13 @@ import {
 describe('交互式配置纯函数（mazi config）', () => {
     it('resolvePresetSelections：数字/逗号/空格/id 均可解析且去重', () => {
         expect(resolvePresetSelections('1,2', PROVIDER_PRESETS)).toEqual(['openai', 'deepseek']);
-        expect(resolvePresetSelections('3 1', PROVIDER_PRESETS)).toEqual([
-            'scripted-demo',
-            'openai',
-        ]);
+        expect(resolvePresetSelections('3 1', PROVIDER_PRESETS)).toEqual(['openai']);
         expect(resolvePresetSelections('deepseek,openai', PROVIDER_PRESETS)).toEqual([
             'deepseek',
             'openai',
         ]);
         expect(resolvePresetSelections('99', PROVIDER_PRESETS)).toEqual([]);
-        expect(resolvePresetSelections('2,2,3', PROVIDER_PRESETS)).toEqual([
-            'deepseek',
-            'scripted-demo',
-        ]);
+        expect(resolvePresetSelections('2,2,3', PROVIDER_PRESETS)).toEqual(['deepseek']);
     });
 
     it('buildProviderConfig：openai 默认 key env，未显式 apiKeyEnv（靠 driver 默认映射读取 OPENAI_API_KEY）', () => {
@@ -52,11 +46,6 @@ describe('交互式配置纯函数（mazi config）', () => {
             model: 'deepseek-chat',
         });
         expect((cfg.driver as { apiKeyEnv?: string }).apiKeyEnv).toBe('MY_DS_KEY');
-    });
-
-    it('buildProviderConfig：scripted-demo 生成 scripted 驱动（无 key）', () => {
-        const cfg = buildProviderConfig({ presetId: 'scripted-demo', model: 'scripted-1' });
-        expect(cfg.driver).toMatchObject({ type: 'scripted' });
     });
 
     it('buildConfigFiles 生成三个文件内容且可写盘', () => {

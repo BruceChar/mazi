@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type {
     EventBus,
     FeatureFlagDefinition,
@@ -42,6 +43,8 @@ export interface RunResult {
 
 export interface RunOptions {
     userId?: string;
+    /** 工作区根路径；文件工具只允许读取该目录内文件 */
+    workspaceRoot?: string;
 }
 
 /** createSession 可覆盖的 Goal 项（webui 新建会话配置） */
@@ -52,13 +55,24 @@ export interface CreateSessionOptions extends RunOptions {
     goal?: SessionGoalOverrides;
 }
 
-function fsReadToolImpl(args: Record<string, unknown>): Promise<ToolExecutionResult> {
+function fsReadToolImpl(
+    args: Record<string, unknown>,
+    workspaceRoot?: string,
+): Promise<ToolExecutionResult> {
     const path = typeof args.path === 'string' ? args.path : undefined;
     if (!path) {
         return Promise.resolve({ ok: false, error: '缺少 path 参数' });
     }
+    const absolutePath = resolve(workspaceRoot ?? process.cwd(), path);
+    if (workspaceRoot && !absolutePath.startsWith(resolve(workspaceRoot))) {
+        return Promise.resolve({
+            ok: false,
+            error: 'path 超出当前工作区权限范围',
+            retryable: false,
+        });
+    }
     try {
-        const content = readFileSync(path, 'utf8');
+        const content = readFileSync(absolutePath, 'utf8');
         return Promise.resolve({ ok: true, content });
     } catch (error) {
         return Promise.resolve({ ok: false, error: (error as Error).message, retryable: false });
@@ -66,7 +80,10 @@ function fsReadToolImpl(args: Record<string, unknown>): Promise<ToolExecutionRes
 }
 
 /** 由 ToolConfig 构建 ToolRegistry + ToolInvoker */
-function buildTools(config: RuntimeConfig): { registry: ToolRegistry; invoker: ToolInvoker } {
+function buildTools(
+    config: RuntimeConfig,
+    workspaceRoot?: string,
+): { registry: ToolRegistry; invoker: ToolInvoker } {
     const specs = config.tools.map((t) => ({
         name: t.name,
         description: t.description,
@@ -82,7 +99,9 @@ function buildTools(config: RuntimeConfig): { registry: ToolRegistry; invoker: T
     for (const t of config.tools) {
         impls.set(
             t.name,
-            t.impl ?? (t.name === 'fs.read' ? fsReadToolImpl : defaultNoImpl(t.name)),
+            t.name === 'fs.read'
+                ? (args) => fsReadToolImpl(args, workspaceRoot)
+                : (t.impl ?? defaultNoImpl(t.name)),
         );
     }
     const registry: ToolRegistry = {
@@ -162,14 +181,16 @@ export class HarnessRuntime {
     private readonly drivers: Map<string, LLMDriver>;
     private readonly flags: FeatureFlagDefinition[];
     private readonly config: RuntimeConfig;
+    private readonly workspaceRoot?: string;
     private readonly recorder: UserProfileRecorder;
     private activeSnapshot?: ReturnType<typeof createFlagSnapshot>;
 
-    constructor(config: RuntimeConfig) {
+    constructor(config: RuntimeConfig, options: { workspaceRoot?: string } = {}) {
         this.config = config;
+        this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
         this.memory = new SqliteMemoryStore(config.dbPath);
-        this.tools = buildTools(config);
+        this.tools = buildTools(config, options.workspaceRoot);
         this.providers = config.providers.map((p) => normalizeProvider(p));
         this.router = new SimpleRouter(this.providers);
         const driverRegistry = new DefaultDriverRegistry();
@@ -227,6 +248,13 @@ export class HarnessRuntime {
     async createSession(input: string, opts: RunOptions = {}): Promise<{ sessionId: string }> {
         const sessionId = ulid();
         const goal = buildGoal(sessionId, input, this.config);
+        if (this.workspaceRoot) {
+            goal.constraints.push({
+                kind: 'data-boundary',
+                rule: `workspace-root:${this.workspaceRoot}`,
+                description: '文件权限默认限制在当前工作区内',
+            });
+        }
         const ctxFlags = { sessionId, userId: opts.userId, goalTags: goal.strategyHints };
         const snapshot = createFlagSnapshot(this.flags, ctxFlags);
         this.activeSnapshot = snapshot;
@@ -285,7 +313,9 @@ export class HarnessRuntime {
             assembleCapacity: async (turn: Turn) => plannerImpl.assembleCapacity(turn, goal),
         };
         const policy: PolicyEngine = new PolicyEngineImpl({
-            goalConstraints: goal.constraints,
+            goalConstraints: goal.constraints.filter(
+                (constraint) => constraint.kind !== 'data-boundary',
+            ),
             accumulatedCostUsd: 0,
         });
         const executor = new Executor({
@@ -386,6 +416,10 @@ export class HarnessRuntime {
             turnCount: metrics.turnCount,
             record: await this.getRecord(sessionId),
         };
+    }
+
+    get currentWorkspaceRoot(): string | undefined {
+        return this.workspaceRoot;
     }
 
     /** recorder 异步创建记录：轮询至记录已生成（recording/completed，上限 500ms） */

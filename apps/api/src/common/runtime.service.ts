@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import type { MaziPaths, RuntimeConfig } from '@mazi/harness-runtime';
 import {
     configOverview,
@@ -19,6 +21,11 @@ import { ApiError } from './api-error.js';
 export class ApiRuntimeService implements OnApplicationShutdown {
     private runtime: HarnessRuntime | undefined;
     private running = false;
+    private workspaceRoot?: string;
+    private workspacesState: { projects: { title: string; path: string; sessionIds: string[] }[] } =
+        {
+            projects: [],
+        };
     private readonly paths: MaziPaths = ensureMaziDirs();
     private readonly config: RuntimeConfig = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
         consoleEnabled: false,
@@ -34,12 +41,83 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return this.running;
     }
 
-    /** 首次调用时装配 HarnessRuntime 并复用 */
+    /** 按当前工作区惰性装配运行时；未绑定工作区时复用默认运行时 */
     harness(): HarnessRuntime {
-        if (!this.runtime) {
-            this.runtime = new HarnessRuntime(this.config);
+        if (!this.workspaceRoot) {
+            if (!this.runtime) {
+                this.runtime = new HarnessRuntime(this.config);
+            }
+            return this.runtime as HarnessRuntime;
         }
-        return this.runtime;
+        if (!this.workspaces.has(this.workspaceRoot)) {
+            const workspaceRuntime = new HarnessRuntime(this.config, {
+                workspaceRoot: this.workspaceRoot,
+            });
+            this.workspaces.set(this.workspaceRoot, workspaceRuntime);
+        }
+        return this.workspaces.get(this.workspaceRoot) as HarnessRuntime;
+    }
+
+    private readonly workspaces = new Map<string, HarnessRuntime>();
+
+    private get workspacesFile(): string {
+        return join(this.paths.home, 'workspaces.json');
+    }
+
+    private readWorkspacesState() {
+        try {
+            const parsed = JSON.parse(readFileSync(this.workspacesFile, 'utf8')) as {
+                projects?: { title: string; path: string; sessionIds: string[] }[];
+            };
+            this.workspacesState.projects = parsed.projects ?? [];
+        } catch {
+            this.workspacesState.projects = [];
+        }
+        return this.workspacesState.projects;
+    }
+
+    private writeWorkspacesState() {
+        mkdirSync(dirname(this.workspacesFile), { recursive: true });
+        writeFileSync(this.workspacesFile, JSON.stringify(this.workspacesState, null, 2));
+    }
+
+    setWorkspaceRoot(root?: string): void {
+        if (!root) {
+            this.workspaceRoot = undefined;
+            return;
+        }
+        const resolved = join(root);
+        if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
+            throw new ApiError(400, '工作区路径不存在或不是目录');
+        }
+        this.workspaceRoot = resolved;
+        const projects = this.readWorkspacesState();
+        if (!projects.some((project) => project.path === resolved)) {
+            projects.push({ title: basename(resolved), path: resolved, sessionIds: [] });
+            this.writeWorkspacesState();
+        }
+    }
+
+    projects(): { title: string; path: string; sessionIds: string[] }[] {
+        return this.readWorkspacesState();
+    }
+
+    addProjectSession(sessionId: string): void {
+        if (!this.workspaceRoot) return;
+        const projects = this.readWorkspacesState();
+        const project = projects.find((item) => item.path === this.workspaceRoot);
+        if (project && !project.sessionIds.includes(sessionId)) {
+            project.sessionIds.push(sessionId);
+            this.writeWorkspacesState();
+        }
+    }
+
+    get selectedWorkspaceRoot(): string | undefined {
+        return this.workspaceRoot;
+    }
+
+    get selectedProject(): { title: string; path: string; sessionIds: string[] } | undefined {
+        return this.projects().find((project) => project.path === this.workspaceRoot);
     }
 
     /** 配置总览（configOverview 同源） */

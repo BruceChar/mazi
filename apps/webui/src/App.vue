@@ -19,8 +19,9 @@ import {
     loadSessions,
     metrics,
     relTime,
+    saveUserPreferences,
     runCurrent,
-    select,
+    openSession,
     sendFeedback,
     sessions,
     setTheme,
@@ -29,6 +30,12 @@ import {
     stopEvents,
     theme,
     ui,
+    userPreferences,
+    workspaceRoot,
+    projects,
+    selectWorkspace,
+    loadWorkspace,
+    pickWorkspace,
 } from './store.js';
 
 const prompt = ref('');
@@ -47,10 +54,14 @@ const collapsedTurns = ref({});
 const trajFilter = ref('all');
 const selectedModel = ref('');
 const accountOpen = ref(false);
+const searchOpen = ref(false);
+const projectCollapsed = ref({});
+const projectMenuFor = ref('');
+const preferences = ref({ ...userPreferences });
+const activeUserId = computed(() => userPreferences.displayName || 'me');
 
 const modelOptions = computed(() => {
     const list = cfg.value?.providers || [];
-    if (!list.length) return [{ id: 'scripted', label: 'Scripted Demo' }];
     return list.map((id) => ({ id, label: id }));
 });
 
@@ -316,7 +327,7 @@ async function submitPrompt() {
         maxCostUsd: draft.value.budgetUsd,
         maxSteps: draft.value.maxSteps,
         userId: draft.value.userId || undefined,
-    });
+    }, workspaceRoot.value);
 }
 
 async function submitNew(exec) {
@@ -326,15 +337,43 @@ async function submitNew(exec) {
         maxCostUsd: draft.value.budgetUsd,
         maxSteps: draft.value.maxSteps,
         userId: draft.value.userId || undefined,
-    });
+    }, workspaceRoot.value);
 }
 
 async function switchView(name) {
     ui.view = name;
     if (name === 'profile') {
-        profile.value = await loadProfile('me');
+        profile.value = await loadProfile(activeUserId.value);
     }
     accountOpen.value = false;
+}
+
+function backToChat() {
+    ui.view = 'chat';
+}
+
+function openWorkspaceModal() {
+    void openSystemPicker();
+}
+
+function toggleProject(path) {
+    projectCollapsed.value[path] = !projectCollapsed.value[path];
+}
+
+function isProjectOpen(path) {
+    return projectCollapsed.value[path] !== true;
+}
+
+function startProjectSession(path) {
+    ui.showNew = true;
+}
+
+async function openSystemPicker() {
+    try {
+        await pickWorkspace();
+    } catch (error) {
+        ui.err = String(error);
+    }
 }
 
 function toggleAccount() {
@@ -345,15 +384,30 @@ function cycleTheme() {
     setTheme(theme.value === 'dark' ? 'light' : 'dark');
 }
 
-async function openSession(sessionId) {
-    await select(sessionId);
+async function openSelectedSession(sessionId) {
+    await openSession(sessionId);
+    feedbackSent.value = false;
+}
+
+function savePreferences() {
+    saveUserPreferences(preferences.value);
+    backToChat();
 }
 
 onMounted(async () => {
-    await loadConfig();
-    await loadSessions();
-    if (sessions.value[0]) {
-        await select(sessions.value[0].sessionId);
+    document.addEventListener('click', () => {
+        accountOpen.value = false;
+        searchOpen.value = false;
+    });
+    try {
+        await loadConfig();
+        await loadSessions();
+        await loadWorkspace();
+        if (sessions.value[0]) {
+            await select(sessions.value[0].sessionId);
+        }
+    } catch (error) {
+        ui.err = String(error);
     }
 });
 
@@ -400,27 +454,69 @@ onBeforeUnmount(() => {
     <div class="app-shell">
         <aside class="sidebar" :class="{ show: ui.sidebar }">
             <div class="sidebar-new">
-                <button class="primary new-session" @click="ui.showNew = true">＋ 新会话</button>
+                <button class="primary new-session" @click="ui.showNew = true">
+                    <LineIcon name="plus" size="15" />
+                    新会话
+                </button>
             </div>
             <div class="workspace-head">
                 <span>工作区</span>
                 <span class="head-icons">
-                    <button class="head-icon" title="搜索"><LineIcon name="search" size="14" /></button>
-                    <button class="head-icon" title="通过路径选择工作区"><LineIcon name="plus" size="14" /></button>
+                    <button class="head-icon" title="搜索" @click.stop="searchOpen = !searchOpen">
+                        <LineIcon name="search" size="14" />
+                    </button>
+                    <button class="head-icon" title="打开工作区路径" @click="openWorkspaceModal">
+                        <LineIcon name="plus" size="14" />
+                    </button>
                 </span>
             </div>
-            <div class="search-box">
+            <div v-if="searchOpen" class="search-box">
                 <input v-model="q" placeholder="搜索会话…" />
             </div>
-                <div class="sidebar-scroll">
-                    <div class="group">
-                        <div class="group-head">会话 · {{ sessions.length }}</div>
+            <div class="sidebar-scroll">
+                <div v-for="project in projects" :key="project.path" class="group">
+                    <div
+                        class="group-head project-head"
+                        :title="project.path"
+                        @mouseenter="projectMenuFor = project.path"
+                        @mouseleave="projectMenuFor = ''"
+                    >
+                        <button class="head-icon project-fold" :title="isProjectOpen(project.path) ? '折叠' : '展开'" @click.stop="toggleProject(project.path)">
+                            <LineIcon :name="isProjectOpen(project.path) ? 'chevronDown' : 'chevronRight'" size="13" />
+                        </button>
+                        <span class="project-title">{{ project.title }}</span>
+                        <button v-if="projectMenuFor === project.path" class="head-icon project-add" title="添加项目内会话" @click.stop="startProjectSession(project.path)">
+                            <LineIcon name="plus" size="13" />
+                        </button>
+                    </div>
+                    <ul class="session-list">
+                        <template v-if="isProjectOpen(project.path)">
+                            <li
+                                v-for="s in sessionItems.filter((item) => project.sessionIds.includes(item.sessionId))"
+                                :key="s.sessionId"
+                                :class="{ active: current === s.sessionId }"
+                                @click="openSelectedSession(s.sessionId)"
+                            >
+                                <div class="session-title">{{ s.title || s.input }}</div>
+                                <div class="session-meta">
+                                    <span class="badge" :class="badge(s.outcome)">{{ s.outcome || 'recording' }}</span>
+                                    <span class="time">{{ relTime(s.updatedAt || s.createdAt) }}</span>
+                                </div>
+                            </li>
+                            <li v-if="!sessionItems.filter((item) => project.sessionIds.includes(item.sessionId)).length" class="empty-sidebar">
+                                暂无项目会话
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+                <div class="group">
+                    <div class="group-head">会话 · {{ sessions.length }}</div>
                     <ul class="session-list">
                         <li
                             v-for="s in sessionItems"
                             :key="s.sessionId"
                             :class="{ active: current === s.sessionId }"
-                            @click="openSession(s.sessionId)"
+                            @click="openSelectedSession(s.sessionId)"
                         >
                             <div class="session-title">{{ s.title || s.input }}</div>
                             <div class="session-meta">
@@ -435,9 +531,9 @@ onBeforeUnmount(() => {
                 </div>
             </div>
             <div class="sidebar-settings">
-                <button class="settings-btn" @click="switchView('settings')">
+                <button class="settings-btn" @click="switchView('system-settings')">
                     <LineIcon name="settings" size="15" />
-                    设置
+                    系统设置
                 </button>
             </div>
         </aside>
@@ -466,8 +562,11 @@ onBeforeUnmount(() => {
 
                     <template v-if="ui.mainTab === 'chat'">
                         <div v-if="detail && detail.rawIntent" class="user-message">
-                            <div class="msg-head"><span class="msg-icon"><LineIcon name="user" size="14" /></span><span class="msg-label">我</span></div>
                             <div class="msg-text">{{ detail.rawIntent }}</div>
+                            <div class="user-meta">
+                                <span>{{ activeUserId }}</span>
+                                <span>{{ fmtClock(detail.createdAt) }}</span>
+                            </div>
                         </div>
                         <template v-for="(row, index) in chatRows" :key="row.step.stepId">
                             <div v-if="turnStart(row, index)" class="turn-divider">
@@ -475,31 +574,33 @@ onBeforeUnmount(() => {
                                 <span class="muted-inline">{{ row.turn.status }} · attempt {{ row.turn.attempt }}</span>
                             </div>
                             <div class="msg" :class="[`msg-${row.step.kind}`, { open: isOpenStep(row.step.stepId) }]">
-                                <div class="msg-head" @click="toggleOpenStep(row.step.stepId)">
-                                    <span class="msg-icon"><LineIcon :name="icon(row.step.kind)" size="14" /></span>
-                                    <span class="msg-label">{{ stepLabel(row.step.kind) }}</span>
-                                    <span class="msg-title">{{ stepTitle(row) }}</span>
-                                    <span class="msg-brief">#{{ row.step.seq }} · {{ row.step.status }} · {{ rowModel(row) }}</span>
-                                    <button class="mini chevron">{{ isOpenStep(row.step.stepId) ? '▾' : '▸' }}</button>
-                                </div>
-                                <div v-if="isOpenStep(row.step.stepId)" class="msg-body">
-                                    <template v-if="row.step.kind === 'tool_call'">
-                                        <div class="mono-block">
-                                            <div class="mono-title"><LineIcon name="tool" size="14" /> {{ stepBody(row).title }}</div>
-                                            <pre>{{ stepBody(row).json }}</pre>
-                                        </div>
-                                    </template>
-                                    <pre v-else class="plain-text">{{ stepBody(row).text }}</pre>
-                                </div>
-                                <div class="msg-foot">
-                                    <button class="mini like" title="有帮助" @click="rate(row, 5)"><LineIcon name="like" size="14" /></button>
-                                    <button class="mini like" title="没帮助" @click="rate(row, 1)"><LineIcon name="dislike" size="14" /></button>
-                                    <button class="mini" @click="copyRow(row)"><LineIcon name="copy" size="14" /> 复制</button>
-                                    <span class="meta-gap"></span>
-                                    <span class="meta">用量 {{ rowTokens(row) }} tok</span>
-                                    <span class="meta">用时 {{ rowDuration(row) }}</span>
-                                    <span class="meta">{{ fmtClock(row.step.startedAt) }}</span>
-                                    <button class="mini audit-link" @click="openAudit(row)">审计</button>
+                                <div class="msg-gutter"><span class="msg-icon"><LineIcon :name="icon(row.step.kind)" size="14" /></span></div>
+                                <div class="msg-main">
+                                    <div class="msg-head" @click="toggleOpenStep(row.step.stepId)">
+                                        <span class="msg-label">{{ stepLabel(row.step.kind) }}</span>
+                                        <span class="msg-title">{{ stepTitle(row) }}</span>
+                                        <span class="msg-brief">#{{ row.step.seq }} · {{ row.step.status }} · {{ rowModel(row) }}</span>
+                                        <span class="chevron"><LineIcon :name="isOpenStep(row.step.stepId) ? 'chevronDown' : 'chevronRight'" size="14" /></span>
+                                    </div>
+                                    <div v-if="isOpenStep(row.step.stepId)" class="msg-body">
+                                        <template v-if="row.step.kind === 'tool_call'">
+                                            <div class="mono-block">
+                                                <div class="mono-title"><LineIcon name="tool" size="14" /> {{ stepBody(row).title }}</div>
+                                                <pre>{{ stepBody(row).json }}</pre>
+                                            </div>
+                                        </template>
+                                        <pre v-else class="plain-text">{{ stepBody(row).text }}</pre>
+                                    </div>
+                                    <div class="msg-foot">
+                                        <button class="mini like" title="有帮助" @click="rate(row, 5)"><LineIcon name="like" size="14" /></button>
+                                        <button class="mini like" title="没帮助" @click="rate(row, 1)"><LineIcon name="dislike" size="14" /></button>
+                                        <button class="mini" @click="copyRow(row)"><LineIcon name="copy" size="14" /> 复制</button>
+                                        <span class="meta-gap"></span>
+                                        <span class="meta">用量 {{ rowTokens(row) }} tok</span>
+                                        <span class="meta">用时 {{ rowDuration(row) }}</span>
+                                        <span class="meta">{{ fmtClock(row.step.startedAt) }}</span>
+                                        <button class="mini audit-link" @click="openAudit(row)">审计</button>
+                                    </div>
                                 </div>
                             </div>
                         </template>
@@ -564,9 +665,14 @@ onBeforeUnmount(() => {
                 </div>
             </template>
 
-            <template v-else-if="ui.view === 'settings'">
+            <template v-else-if="ui.view === 'system-settings'">
                 <div class="page-card">
-                    <h1>设置</h1>
+                    <div class="page-heading">
+                        <button class="icon-btn back-btn" title="返回会话" @click="backToChat">
+                            <LineIcon name="chevronRight" size="16" />
+                        </button>
+                        <h1>系统设置</h1>
+                    </div>
                     <div class="field-row"><label>数据目录</label><input :value="cfg ? cfg.home : ''" readonly /></div>
                     <div class="field-row"><label>存储</label><input :value="cfg ? `${cfg.storage.driver} · ${cfg.storage.db}` : ''" readonly /></div>
                     <div class="field-row"><label>Provider</label><div class="value-text">{{ cfg ? cfg.providers.join(', ') : '-' }}</div></div>
@@ -575,16 +681,45 @@ onBeforeUnmount(() => {
                 </div>
             </template>
 
+            <template v-else-if="ui.view === 'settings'">
+                <div class="page-card">
+                    <div class="page-heading">
+                        <button class="icon-btn back-btn" title="返回会话" @click="backToChat">
+                            <LineIcon name="chevronRight" size="16" />
+                        </button>
+                        <h1>个人设置</h1>
+                    </div>
+                    <div class="field-row"><label>用户名</label><input v-model="preferences.displayName" /></div>
+                    <div class="field-row"><label>常用工具 / 喜好</label><input v-model="preferences.favoriteTools" placeholder="例如：Vue、TypeScript、终端工作流" /></div>
+                    <div class="field-row"><label>代码风格</label><textarea v-model="preferences.codeStyle" rows="3" /></div>
+                    <div class="field-row"><label>模型回答风格</label><textarea v-model="preferences.responseStyle" rows="3" /></div>
+                    <div class="page-actions">
+                        <button class="ghost" @click="backToChat">取消</button>
+                        <button class="primary" @click="savePreferences">保存</button>
+                    </div>
+                </div>
+            </template>
+
             <template v-else-if="ui.view === 'profile'">
                 <div class="page-card">
-                    <h1>用户画像</h1>
+                    <div class="page-heading">
+                        <button class="icon-btn back-btn" title="返回会话" @click="backToChat">
+                            <LineIcon name="chevronRight" size="16" />
+                        </button>
+                        <h1>用户画像</h1>
+                    </div>
                     <pre>{{ profile ? JSON.stringify(profile, null, 2) : '暂无数据（带 userId 运行会话后可见）' }}</pre>
                 </div>
             </template>
 
             <template v-else>
                 <div class="page-card">
-                    <h1>失败分类账</h1>
+                    <div class="page-heading">
+                        <button class="icon-btn back-btn" title="返回会话" @click="backToChat">
+                            <LineIcon name="chevronRight" size="16" />
+                        </button>
+                        <h1>失败分类账</h1>
+                    </div>
                     <div class="muted-block">failure_ledger 将在存储 SPI 落地后提供；当前可从失败会话的轨迹定位。</div>
                 </div>
             </template>
@@ -679,4 +814,5 @@ onBeforeUnmount(() => {
             </div>
         </div>
     </div>
+
 </template>

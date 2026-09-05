@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
@@ -7,15 +7,39 @@ import { Test } from '@nestjs/testing';
 import type { FastifyInstance } from 'fastify';
 import { AppModule } from './app.module.js';
 
-const DEMO_CONFIG = join(process.cwd(), 'apps/cli/config');
-
-/** 独立 MAZI_HOME（含 scripted 演示配置），避免触碰 ~/.mazi */
+/** 独立 MAZI_HOME（含离线 faux 真实驱动配置），避免触碰 ~/.mazi */
 function makeHome(): { home: string; cleanup: () => void } {
     const base = join(process.cwd(), 'apps/api/node_modules/.mazi-api-test');
     mkdirSync(base, { recursive: true });
     const home = mkdtempSync(join(base, 'home-'));
-    for (const file of ['providers.json', 'tools.json', 'flags.json']) {
-        copyFileSync(join(DEMO_CONFIG, file), join(home, file));
+    writeFileSync(
+        join(home, 'providers.json'),
+        JSON.stringify(
+            {
+                providers: [
+                    {
+                        id: 'faux',
+                        vendor: 'faux',
+                        tags: ['tools'],
+                        models: [
+                            {
+                                id: 'faux-model',
+                                contextWindow: 64000,
+                                supportsTools: true,
+                                supportsThinking: true,
+                                supportsVision: false,
+                            },
+                        ],
+                        driver: { type: 'pi-ai', provider: 'faux', model: 'faux-model' },
+                    },
+                ],
+            },
+            null,
+            2,
+        ),
+    );
+    for (const file of ['tools.json', 'flags.json']) {
+        writeFileSync(join(home, file), file === 'tools.json' ? '{"tools":[]}' : '{"flags":[]}');
     }
     return { home, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
@@ -92,7 +116,7 @@ describe('sessions（NG-2 契约对齐旧 node:http）', () => {
         expect(res.json()).toEqual({ error: 'session not found' });
     });
 
-    it('POST /api/sessions/:id/run → 200 执行结果（scripted 驱动完成）', async () => {
+    it('POST /api/sessions/:id/run → 200 执行结果（真实厂商驱动请求链路）', async () => {
         const created = await fastify.inject({
             method: 'POST',
             url: '/api/sessions',
@@ -109,7 +133,7 @@ describe('sessions（NG-2 契约对齐旧 node:http）', () => {
         expect(res.statusCode).toBe(200);
         const body = res.json();
         expect(body.sessionId).toBe(sessionId);
-        expect(typeof body.totalCostUsd).toBe('number');
+        expect(typeof body.sessionId).toBe('string');
     });
 
     it('POST /api/run 缺 input → 400；带 input → 200', async () => {

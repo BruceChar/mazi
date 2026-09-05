@@ -1,14 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { ProviderConfig } from '@mazi/harness-runtime';
 import { discoverModels } from '@mazi/provider-llm';
 
-/** 预设：脚本演示 + pi-ai 真实厂商（含默认 key 环境变量） */
+/** 预设：pi-ai 真实厂商（含默认 key 环境变量） */
 export interface ProviderPreset {
     id: string;
     label: string;
-    kind: 'scripted-demo' | 'pi-ai';
+    kind: 'pi-ai';
     defaultKeyEnv?: string;
     models: { id: string; contextWindow: number; supportsThinking?: boolean }[];
     defaultModel: string;
@@ -36,13 +36,6 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
             { id: 'deepseek-reasoner', contextWindow: 64000, supportsThinking: true },
         ],
         defaultModel: 'deepseek-chat',
-    },
-    {
-        id: 'scripted-demo',
-        label: '脚本演示（无需 key，读取 README.md）',
-        kind: 'scripted-demo',
-        models: [{ id: 'scripted-1', contextWindow: 64000 }],
-        defaultModel: 'scripted-1',
     },
 ];
 
@@ -100,46 +93,6 @@ export function buildProviderConfig(selection: ProviderSelection): ProviderConfi
     const preset = PROVIDER_PRESETS.find((p) => p.id === selection.presetId);
     if (!preset) {
         throw new Error(`未知 provider 预设：${selection.presetId}`);
-    }
-    if (preset.kind === 'scripted-demo') {
-        return {
-            id: 'scripted-a',
-            vendor: 'scripted',
-            tags: ['tools'],
-            models: [
-                {
-                    id: 'scripted-1',
-                    contextWindow: 64000,
-                    supportsTools: true,
-                    supportsThinking: true,
-                    supportsVision: false,
-                },
-            ],
-            driver: {
-                type: 'scripted',
-                rounds: [
-                    {
-                        reasoning: '计划：读取 README.md',
-                        toolCalls: [
-                            { callId: 'c1', toolName: 'fs.read', arguments: { path: 'README.md' } },
-                        ],
-                        usage: { inputTokens: 120, outputTokens: 12, reportedByVendor: true },
-                    },
-                    {
-                        text: '已读取 README.md 并完成任务。',
-                        usage: { inputTokens: 60, outputTokens: 30, reportedByVendor: true },
-                    },
-                ],
-            },
-            pricing: {
-                currency: 'USD',
-                base: { inputPerMTok: 0.5, outputPerMTok: 1.5 },
-                tiers: [],
-                effectiveAt: 0,
-                version: '0.0.0-scripted',
-            },
-            health: { score: 1 },
-        };
     }
     const modelDef = preset.models.find((m) => m.id === selection.model) ?? {
         id: selection.model,
@@ -294,10 +247,9 @@ async function runConfigureInner(configDir: string, ask: Questioner): Promise<Ge
     const real = PROVIDER_PRESETS.filter((p) => p.kind === 'pi-ai');
     process.stdout.write('可选 provider：\n');
     PROVIDER_PRESETS.forEach((p, i) => {
-        const env =
-            p.defaultKeyEnv && p.kind === 'pi-ai'
-                ? `  env=${p.defaultKeyEnv}(${envStatus(p.defaultKeyEnv) === 'set' ? '已设置' : '未设置'})`
-                : '  无需 key';
+        const env = p.defaultKeyEnv
+            ? `  env=${p.defaultKeyEnv}(${envStatus(p.defaultKeyEnv) === 'set' ? '已设置' : '未设置'})`
+            : '  无需 key';
         process.stdout.write(`  ${i + 1}) ${p.label}${env}\n`);
     });
     process.stdout.write('\n');
@@ -313,10 +265,6 @@ async function runConfigureInner(configDir: string, ask: Questioner): Promise<Ge
     for (const presetId of chosen) {
         const preset = PROVIDER_PRESETS.find((p) => p.id === presetId);
         if (!preset) continue;
-        if (preset.kind === 'scripted-demo') {
-            selections.push({ presetId, model: preset.defaultModel });
-            continue;
-        }
         const defaultEnv = preset.defaultKeyEnv as string;
         const status = envStatus(defaultEnv);
         const keyRaw = await ask(
@@ -363,16 +311,4 @@ async function runConfigureInner(configDir: string, ask: Questioner): Promise<Ge
     process.stdout.write('\n启动示例：\n');
     process.stdout.write(`  pnpm mazi run "<任务描述>" --config-dir ${configDir}\n`);
     return gen;
-}
-
-/** 示例（文档用）：展示一个已存在的配置文件内容片段 */
-export function readGeneratedExample(): string {
-    try {
-        return readFileSync(join(process.cwd(), 'apps/cli/config/providers.json'), 'utf8').slice(
-            0,
-            400,
-        );
-    } catch {
-        return '';
-    }
 }

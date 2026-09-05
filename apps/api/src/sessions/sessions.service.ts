@@ -48,6 +48,7 @@ export class SessionsService {
                     : undefined,
         };
         const created = await this.runtime.harness().createSession(input, options);
+        this.runtime.addProjectSession(created.sessionId);
         return { sessionId: created.sessionId, state: 'running' };
     }
 

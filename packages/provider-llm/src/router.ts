@@ -53,7 +53,7 @@ function baseUnitCostUsdOf(provider: Provider): number {
 }
 
 /**
- * MVP SimpleRouter（feature F5，MVP 文档 §3.2/§5.1、E7）：
+ * SimpleRouter：
  * 输入 turn.tags 的能力标签（与 CAPABILITY_TAGS 取交集，非能力标签不参与过滤）；
  * 硬过滤：provider.health.score > 0.5 且对每个能力标签满足（tags 声明或能力模型，
  * 缺 health 视为不健康）；排序：baseUnitCostUsd 升序、同价按 provider.id 字典序，

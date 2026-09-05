@@ -17,7 +17,7 @@ function model(over: Partial<ModelDescriptor> & { id: string }): ModelDescriptor
 
 /** ProviderJson 工厂：vendor/models 缺省后由 over 覆盖 */
 function providerJson(id: string, over: Partial<ProviderJson> = {}): ProviderJson {
-    return { vendor: 'scripted', models: [], ...over, id };
+    return { vendor: 'test', models: [], ...over, id };
 }
 
 describe('SimpleRouter（MVP v1.0 §8 F5 / §5.1、E7）', () => {
@@ -40,7 +40,7 @@ describe('SimpleRouter（MVP v1.0 §8 F5 / §5.1、E7）', () => {
         expect(matches[0]?.provider.id).toBe('tooled');
         expect(matches[0]?.model).toEqual({
             providerId: 'tooled',
-            vendor: 'scripted',
+            vendor: 'test',
             modelId: 't',
         });
         expect(router.select(['tools']).provider.id).toBe('tooled');
