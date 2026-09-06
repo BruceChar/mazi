@@ -397,8 +397,39 @@ pre {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    padding-right: 18px;
     font-size: 13px;
     color: var(--fg);
+}
+
+.session-actions {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: none;
+    gap: 2px;
+}
+
+.session-list li:hover .session-actions {
+    display: flex;
+}
+
+.session-actions button {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-secondary);
+    cursor: pointer;
+}
+
+.session-actions button:hover {
+    background: var(--bg-active);
+    color: var(--accent);
 }
 
 .session-meta {

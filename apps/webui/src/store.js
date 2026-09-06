@@ -443,6 +443,37 @@ export async function runCurrent(sessionId) {
     }
 }
 
+export async function updateConversation(conversationId, changes) {
+    await api(`/api/conversations/${conversationId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(changes),
+    });
+    await loadConversations();
+}
+
+export async function deleteConversationById(conversationId) {
+    if (currentConversation.value === conversationId) {
+        current.value = null;
+        currentConversation.value = null;
+        detail.value = null;
+        stopEvents();
+    }
+    await api(`/api/conversations/${conversationId}`, { method: 'DELETE' });
+    await loadConversations();
+}
+
+export async function renameProject(path, title) {
+    const state = await api('/api/workspaces/project', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path, title }),
+    });
+    if (Array.isArray(state.projects)) {
+        projects.value = state.projects;
+    }
+}
+
 export async function sendFeedback(sessionId, rating, content) {
     await api(`/api/sessions/${sessionId}/feedback`, {
         method: 'POST',

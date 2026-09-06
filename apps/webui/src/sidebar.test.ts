@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { defaultConversations, isWorkspaceConversation, projectConversations } from './sidebar.ts';
+import {
+    activeConversations,
+    defaultConversations,
+    isWorkspaceConversation,
+    projectConversations,
+} from './sidebar.ts';
 
 function conversation(id, overrides = {}) {
     return {
@@ -13,6 +18,11 @@ function conversation(id, overrides = {}) {
 }
 
 describe('sidebar conversation grouping', () => {
+    it('已归档会话从活动列表隐藏', () => {
+        const conversations = [conversation('plain'), conversation('archived', { archived: true })];
+        expect(activeConversations(conversations).map((c) => c.conversationId)).toEqual(['plain']);
+    });
+
     it('workspace 与 projectId 必须成对才算工作区会话', () => {
         expect(isWorkspaceConversation(conversation('c1', { workspace: '/w' }))).toBe(false);
         expect(isWorkspaceConversation(conversation('c2', { projectId: 'p' }))).toBe(false);

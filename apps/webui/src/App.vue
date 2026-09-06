@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './LineIcon.vue';
-import { defaultConversations, projectConversations } from './sidebar.ts';
+import { activeConversations, defaultConversations, projectConversations } from './sidebar.ts';
 import {
     badge,
     busy,
@@ -9,6 +9,7 @@ import {
     createAndRun,
     current,
     currentConversation,
+    deleteConversationById,
     detail,
     events,
     fmtClock,
@@ -39,6 +40,8 @@ import {
     loadWorkspace,
     pickWorkspace,
     conversations,
+    renameProject,
+    updateConversation,
 } from './store.js';
 
 const prompt = ref('');
@@ -79,7 +82,7 @@ watch(
 );
 
 const filteredConversations = computed(() => {
-    const base = conversations.value.filter((conversation) => !conversation.archived);
+    const base = activeConversations(conversations.value);
     const key = q.value.trim().toLowerCase();
     if (!key) return base;
     return base.filter((conversation) => {
@@ -92,6 +95,9 @@ const filteredConversations = computed(() => {
 });
 
 const generalConversations = computed(() => defaultConversations(filteredConversations.value));
+const archivedConversations = computed(() =>
+    conversations.value.filter((conversation) => conversation.archived),
+);
 
 const chatRows = computed(() => {
     const rows = [];
@@ -378,6 +384,31 @@ function startProjectSession(path) {
     ui.showNew = true;
 }
 
+async function renameConversationById(conversation) {
+    const title = window.prompt('重命名会话', conversationTitle(conversation));
+    if (title?.trim()) {
+        await updateConversation(conversation.conversationId, { title: title.trim() });
+    }
+}
+
+async function setConversationArchived(conversation, archived) {
+    await updateConversation(conversation.conversationId, { archived });
+}
+
+async function removeConversation(conversation) {
+    if (!window.confirm(`删除会话「${conversationTitle(conversation)}」？此操作同时删除其 Session 数据。`)) {
+        return;
+    }
+    await deleteConversationById(conversation.conversationId);
+}
+
+async function renameProjectById(project) {
+    const title = window.prompt('重命名项目', project.title);
+    if (title?.trim()) {
+        await renameProject(project.path, title.trim());
+    }
+}
+
 async function openSystemPicker() {
     try {
         await pickWorkspace();
@@ -541,6 +572,9 @@ onBeforeUnmount(() => {
                             <LineIcon :name="isProjectOpen(project.path) ? 'chevronDown' : 'chevronRight'" size="13" />
                         </button>
                         <span class="project-title">{{ project.title }}</span>
+                        <button v-if="projectMenuFor === project.path" class="head-icon" title="重命名项目" @click.stop="renameProjectById(project)">
+                            <LineIcon name="rename" size="13" />
+                        </button>
                         <button v-if="projectMenuFor === project.path" class="head-icon project-add" title="添加项目内会话" @click.stop="startProjectSession(project.path)">
                             <LineIcon name="plus" size="13" />
                         </button>
@@ -554,6 +588,11 @@ onBeforeUnmount(() => {
                                 @click="openConversation(c)"
                             >
                                 <div class="session-title">{{ conversationTitle(c) }}</div>
+                                <div class="session-actions">
+                                    <button title="重命名会话" @click.stop="renameConversationById(c)"><LineIcon name="rename" size="13" /></button>
+                                    <button title="归档会话" @click.stop="setConversationArchived(c, true)"><LineIcon name="archive" size="13" /></button>
+                                    <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
+                                </div>
                                 <div class="session-meta">
                                     <span class="badge" :class="badge(conversationOutcome(c))">{{ conversationOutcome(c) }}</span>
                                     <span class="time">{{ relTime(c.updatedAt || c.createdAt) }}</span>
@@ -575,6 +614,11 @@ onBeforeUnmount(() => {
                             @click="openConversation(c)"
                         >
                             <div class="session-title">{{ conversationTitle(c) }}</div>
+                            <div class="session-actions">
+                                <button title="重命名会话" @click.stop="renameConversationById(c)"><LineIcon name="rename" size="13" /></button>
+                                <button title="归档会话" @click.stop="setConversationArchived(c, true)"><LineIcon name="archive" size="13" /></button>
+                                <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
+                            </div>
                             <div class="session-meta">
                                 <span class="badge" :class="badge(conversationOutcome(c))">{{ conversationOutcome(c) }}</span>
                                 <span>{{ conversationTurns(c) }} turns</span>
@@ -583,6 +627,28 @@ onBeforeUnmount(() => {
                             </div>
                         </li>
                         <li v-if="!generalConversations.length" class="empty-sidebar">暂无会话</li>
+                    </ul>
+                </div>
+                <div class="group">
+                    <div class="group-head">已归档 · {{ archivedConversations.length }}</div>
+                    <ul class="session-list">
+                        <li
+                            v-for="c in archivedConversations"
+                            :key="c.conversationId"
+                            :class="{ active: isConversationActive(c) }"
+                            @click="openConversation(c)"
+                        >
+                            <div class="session-title">{{ conversationTitle(c) }}</div>
+                            <div class="session-actions">
+                                <button title="重命名会话" @click.stop="renameConversationById(c)"><LineIcon name="rename" size="13" /></button>
+                                <button title="恢复会话" @click.stop="setConversationArchived(c, false)"><LineIcon name="restore" size="13" /></button>
+                                <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
+                            </div>
+                            <div class="session-meta">
+                                <span class="time">{{ relTime(c.updatedAt || c.createdAt) }}</span>
+                            </div>
+                        </li>
+                        <li v-if="!archivedConversations.length" class="empty-sidebar">暂无归档</li>
                     </ul>
                 </div>
             </div>

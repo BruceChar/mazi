@@ -26,6 +26,10 @@ const paths = {
     close: 'M5 5l14 14M19 5L5 19',
     chevronDown: 'M5 9l7 7 7-7',
     chevronRight: 'M9 5l7 7-7 7',
+    rename: 'M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17zM14.5 6.5l3 3',
+    archive: 'M4 8h16M6 8v11h12V8M4 4h16v4H4z',
+    restore: 'M4 12a8 8 0 1 0 2.4-5.7M4 4v5h5',
+    trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6',
 };
 </script>
 
