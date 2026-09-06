@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flattenConversationFlow, flattenSessionFlow } from './flow.ts';
+import { assistantParagraphs, flattenConversationFlow, flattenSessionFlow } from './flow.ts';
 
 function step(id, seq, kind, startedAt) {
     return { stepId: id, seq, kind, status: 'ok', startedAt };
@@ -62,6 +62,14 @@ describe('conversation chat flow flattening', () => {
             'step:step:s1:b',
             'step:step:s1:c',
             'assistant:step:s1:d',
+        ]);
+    });
+
+    it('assistantParagraphs 将 Markdown 列表转成 • 项并丢弃空行', () => {
+        expect(assistantParagraphs('- 已修复模型\n\n• 已跑通对话\n* 测试通过')).toEqual([
+            { text: '• 已修复模型', bullet: true },
+            { text: '• 已跑通对话', bullet: true },
+            { text: '• 测试通过', bullet: true },
         ]);
     });
 });

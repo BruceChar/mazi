@@ -35,6 +35,18 @@ export function flattenConversationFlow(sessions) {
     return ordered.flatMap((session) => flattenSessionFlow(session));
 }
 
+/** 模型最终输出按行拆段：`- / * / •` 开头转为 • 列表项 */
+export function assistantParagraphs(text) {
+    return String(text ?? '')
+        .split('\n')
+        .map((line) => {
+            const stripped = line.replace(/^\s*[-*•]\s+/, '');
+            const bullet = stripped !== line;
+            return { text: bullet ? `• ${stripped}` : line, bullet };
+        })
+        .filter((paragraph) => paragraph.text.trim().length > 0);
+}
+
 /** 已成功 Session 的最后一个成功 thinking Step 视为大模型最终输出 */
 function finalThinkingStepId(session) {
     if (session?.outcome !== 'success') {

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './LineIcon.vue';
-import { flattenConversationFlow } from './flow.ts';
+import { assistantParagraphs, flattenConversationFlow } from './flow.ts';
 import { activeConversations, defaultConversations, projectConversations } from './sidebar.ts';
 import {
     badge,
@@ -73,7 +73,32 @@ const activeUserId = computed(() => userPreferences.displayName || 'me');
 
 const modelOptions = computed(() => {
     const list = cfg.value?.providers || [];
-    return list.map((id) => ({ id, label: id }));
+    return list.map((id) => ({
+        id,
+        label: id === 'deepseek' ? 'DeepSeek-V4-Flash High' : id,
+    }));
+});
+
+const hasToolActivity = computed(() =>
+    flowSessions.value.some((session) =>
+        (session.turns || []).some((turn) =>
+            (turn.steps || []).some((step) => step.kind === 'tool_call'),
+        ),
+    ),
+);
+
+const workedFor = computed(() => {
+    const d = detail.value;
+    if (!d) return '';
+    const end = d.endedAt ?? Date.now();
+    const start = d.createdAt ?? end;
+    const ms = Math.max(0, end - start);
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.round((ms % 60000) / 1000);
+    if (minutes > 0) {
+        return `${minutes}m ${seconds}s`;
+    }
+    return `${seconds}s`;
 });
 
 watch(
@@ -136,11 +161,11 @@ const filteredEvents = computed(() =>
 );
 
 function isOpenStep(stepId) {
-    return openSteps.value[stepId] ?? true;
+    return openSteps.value[stepId] ?? false;
 }
 
 function toggleOpenStep(stepId) {
-    openSteps.value[stepId] = !(openSteps.value[stepId] ?? true);
+    openSteps.value[stepId] = !(openSteps.value[stepId] ?? false);
 }
 
 function isTurnOpen(turnId) {
@@ -161,6 +186,33 @@ function stepTitle(row) {
     }
     if (s.kind === 'observation') return short(p.content, 110);
     return s.stepId;
+}
+
+function traceIcon(item) {
+    const p = item.step.payload || {};
+    const tool = p.toolName || '';
+    if (item.step.kind === 'thinking') return '💭';
+    if (tool.includes('search') || tool.includes('find')) return '🔍';
+    if (tool.includes('write') || tool.includes('edit') || tool.includes('patch')) return '✏️';
+    if (tool.includes('run') || tool.includes('exec') || tool.includes('shell')) return '▶️';
+    if (tool === 'fs.read') return '📖';
+    return item.step.kind === 'observation' ? '📋' : '🔧';
+}
+
+function traceTitle(item) {
+    const p = item.step.payload || {};
+    if (item.step.kind === 'tool_call') {
+        const path = p.arguments?.path;
+        return path ? `Read ${path}` : (p.toolName || 'tool');
+    }
+    return stepTitle(item);
+}
+
+function traceLabel(item) {
+    if (item.step.kind === 'thinking') return '思考';
+    if (item.step.kind === 'tool_call') return (item.step.payload || {}).toolName === 'fs.read' ? 'Read' : 'Run';
+    if (item.step.kind === 'observation') return 'Result';
+    return stepLabel(item.step.kind);
 }
 
 function stepBody(row) {
@@ -506,6 +558,10 @@ onBeforeUnmount(() => {
             <span class="brand">mazi</span>
             <span class="slogan">Be water, my friend</span>
         </div>
+        <div v-if="workedFor" class="work-time">
+            Worked for {{ workedFor }}
+            <LineIcon name="chevronDown" size="12" />
+        </div>
         <div class="topbar-right">
             <button class="ghost right-toggle" :title="ui.rightOpen ? '收起审计栏' : '展开审计栏'" @click="ui.rightOpen = !ui.rightOpen"><LineIcon name="panel" /></button>
             <button class="icon-btn" :title="theme === 'dark' ? '切换到浅色' : '切换到深色'" @click="cycleTheme">
@@ -679,14 +735,24 @@ onBeforeUnmount(() => {
                                 v-else-if="item.type === 'assistant'"
                                 class="assistant-message"
                             >
-                                <div class="assistant-body">{{ item.text }}</div>
+                                <div class="assistant-body">
+                                    <template v-for="(paragraph, index) in assistantParagraphs(item.text)" :key="index">
+                                        <div
+                                            v-if="paragraph.text"
+                                            class="assistant-line"
+                                            :class="{ bullet: paragraph.bullet }"
+                                        >
+                                            {{ paragraph.text }}
+                                        </div>
+                                    </template>
+                                </div>
                             </div>
                             <div v-else class="trace-step">
-                                <div class="trace-gutter"><LineIcon :name="icon(item.step.kind)" size="12" /></div>
+                                <div class="trace-gutter"><span class="trace-emoji">{{ traceIcon(item) }}</span></div>
                                 <div class="trace-main">
                                     <button class="trace-head" @click="toggleOpenStep(item.step.stepId)">
-                                        <span class="trace-label">{{ stepLabel(item.step.kind) }}</span>
-                                        <span class="trace-title">{{ stepTitle(item) }}</span>
+                                        <span class="trace-label">{{ traceLabel(item) }}</span>
+                                        <span class="trace-title">{{ traceTitle(item) }}</span>
                                         <span class="trace-meta">{{ rowModel(item) }}</span>
                                         <span class="trace-chevron"><LineIcon :name="isOpenStep(item.step.stepId) ? 'chevronDown' : 'chevronRight'" size="11" /></span>
                                     </button>
@@ -769,6 +835,13 @@ onBeforeUnmount(() => {
                         <select v-model="selectedModel" title="模型">
                             <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
                         </select>
+                        <button
+                            class="approve"
+                            :disabled="!hasToolActivity"
+                            title="审批 Agent 的工具/代码变更（审批通道后续接入）"
+                        >
+                            Approve for me
+                        </button>
                         <button class="ghost" title="刷新状态" @click="runCurrent(current)"><LineIcon name="refresh" size="15" /></button>
                         <button class="send" :disabled="busy" title="发送" @click="submitPrompt"><LineIcon name="send" size="16" /></button>
                     </div>

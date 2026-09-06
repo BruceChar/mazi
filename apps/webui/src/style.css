@@ -16,6 +16,8 @@
     --error: #ef4444;
     --shadow: rgba(15, 23, 42, 0.12);
     --status-bg: #f9fafb;
+    --user-bubble: #f3f4f6;
+    --trace-text: #9ca3af;
 }
 
 :root[data-theme='dark'] {
@@ -35,6 +37,8 @@
     --error: #f87171;
     --shadow: rgba(0, 0, 0, 0.45);
     --status-bg: #0b1220;
+    --user-bubble: #1e293b;
+    --trace-text: #94a3b8;
 }
 
 * {
@@ -137,6 +141,15 @@ pre {
     gap: 12px;
     min-width: 0;
     /* background-color: red; */
+}
+
+.work-time {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--fg-secondary);
+    font-size: 12px;
+    cursor: default;
 }
 
 .brand {
@@ -542,9 +555,9 @@ pre {
 }
 
 .user-message {
-    background: var(--bg-code);
+    background: var(--user-bubble);
     color: var(--fg);
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 9px 12px 7px;
     align-self: flex-end;
     max-width: 78%;
@@ -578,12 +591,20 @@ pre {
     word-break: break-word;
 }
 
+.assistant-line {
+    min-height: 1.65em;
+}
+
+.assistant-line.bullet {
+    padding-left: 4px;
+}
+
 .trace-step {
     display: flex;
     align-items: flex-start;
     gap: 7px;
     align-self: stretch;
-    color: var(--fg-secondary);
+    color: var(--trace-text);
     font-size: 12px;
     line-height: 1.5;
 }
@@ -593,6 +614,11 @@ pre {
     place-items: center;
     padding-top: 3px;
     color: inherit;
+}
+
+.trace-emoji {
+    font-size: 12px;
+    line-height: 1.3;
 }
 
 .trace-main {
@@ -648,7 +674,7 @@ pre {
 .trace-text {
     white-space: pre-wrap;
     word-break: break-word;
-    color: var(--fg-secondary);
+    color: inherit;
 }
 
 .trace-json {
@@ -776,7 +802,6 @@ pre {
     align-items: flex-end;
     gap: 8px;
     padding: 10px 16px 12px;
-    border-top: 1px solid var(--border);
     background: var(--bg);
 }
 
@@ -784,8 +809,11 @@ pre {
     flex: 1;
     max-height: 160px;
     min-height: 38px;
-    padding: 9px 10px;
+    padding: 10px 14px;
     line-height: 1.45;
+    background: var(--user-bubble);
+    border: none;
+    border-radius: 20px;
 }
 
 .add-btn {
@@ -800,8 +828,25 @@ pre {
 }
 
 .input-actions select {
-    max-width: 150px;
+    max-width: 180px;
     font-size: 12px;
+    border: none;
+    background: transparent;
+    color: var(--fg-secondary);
+}
+
+.approve {
+    border: none;
+    border-radius: 999px;
+    background: var(--user-bubble);
+    color: var(--fg);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.approve:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--fg);
 }
 
 .send {
