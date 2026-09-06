@@ -85,7 +85,6 @@ function makeAggregate(totalTurns: number): Session['aggregate'] {
 function makeSession(sessionId: string, turns: Turn[] = []): Session {
     return {
         sessionId,
-        userId: 'user-1',
         rawIntent: '帮我整理本周 TODO',
         goal: makeGoal(sessionId, '整理本周 TODO'),
         strategyId: 'full-loop',
@@ -335,7 +334,6 @@ describe('SqliteMemoryStore（MVP v1.0 §8 F8 / D1 node:sqlite）', () => {
         const l = loaded as Session;
         expect(l.rawIntent).toBe(session.rawIntent);
         expect(l.strategyId).toBe('full-loop');
-        expect(l.userId).toBe('user-1');
         expect(l.goal).toEqual(session.goal);
         expect(l.aggregate).toEqual(session.aggregate);
         // flagSnapshot：values/trace 深等，且重建后方法可调用
@@ -374,13 +372,11 @@ describe('SqliteMemoryStore（MVP v1.0 §8 F8 / D1 node:sqlite）', () => {
         s2.state = 'succeeded';
         s2.outcome = 'success';
         s2.endedAt = NOW + 500;
-        s2.userId = undefined;
         await store.saveSession(s2);
         const loaded = await store.loadSession('s-up-1');
         expect(loaded?.state).toBe('succeeded');
         expect(loaded?.outcome).toBe('success');
         expect(loaded?.endedAt).toBe(NOW + 500);
-        expect(loaded?.userId).toBeUndefined();
         expect(loaded?.rawIntent).toBe(s1.rawIntent);
     });
 

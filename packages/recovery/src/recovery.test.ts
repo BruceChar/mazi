@@ -30,7 +30,6 @@ function stubFlag(): FlagSnapshot {
 function makeSession(turn: Turn): Session {
     return {
         sessionId: turn.sessionId,
-        userId: 'u1',
         rawIntent: '读取文件并汇报',
         goal: {
             goalId: ulid(),

@@ -71,7 +71,6 @@ function hydrateFlagSnapshot(raw: unknown): FlagSnapshot {
 
 /** sessions 行 → Session 主体（turns 由调用方从子表水合后填充） */
 function sessionFromRow(row: SqlRow): Session {
-    const userId = asString(row.user_id);
     const endedAt = asNumber(row.ended_at);
     const outcome = asString(row.outcome);
     const aggregate = fromJson<Session['aggregate']>(row.aggregate_json);
@@ -85,9 +84,6 @@ function sessionFromRow(row: SqlRow): Session {
         flagSnapshot: hydrateFlagSnapshot(row.flag_snapshot_json),
         createdAt: row.created_at as number,
     };
-    if (userId !== undefined) {
-        session.userId = userId;
-    }
     if (endedAt !== undefined) {
         session.endedAt = endedAt;
     }
@@ -214,12 +210,11 @@ export class SqliteMemoryStore implements MemoryStore {
         this.db
             .prepare(
                 `INSERT INTO sessions
-                    (session_id, user_id, raw_intent, goal_json, strategy_id, state,
+                    (session_id, raw_intent, goal_json, strategy_id, state,
                      flag_snapshot_json, turn_ids_json, aggregate_json, created_at,
                      ended_at, outcome)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id) DO UPDATE SET
-                        user_id = excluded.user_id,
                         raw_intent = excluded.raw_intent,
                         goal_json = excluded.goal_json,
                         strategy_id = excluded.strategy_id,
@@ -233,7 +228,6 @@ export class SqliteMemoryStore implements MemoryStore {
             )
             .run(
                 session.sessionId,
-                session.userId ?? null,
                 session.rawIntent,
                 JSON.stringify(session.goal),
                 session.strategyId,

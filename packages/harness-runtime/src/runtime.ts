@@ -260,7 +260,6 @@ export class HarnessRuntime {
         this.activeSnapshot = snapshot;
         const session: Session = {
             sessionId,
-            userId: opts.userId,
             rawIntent: input,
             goal,
             strategyId: 'full-loop',

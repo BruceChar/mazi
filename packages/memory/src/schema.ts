@@ -8,7 +8,6 @@
 const DDL_STATEMENTS: string[] = [
     `CREATE TABLE IF NOT EXISTS sessions (
         session_id TEXT PRIMARY KEY,
-        user_id TEXT,
         raw_intent TEXT NOT NULL,
         goal_json TEXT NOT NULL,
         strategy_id TEXT NOT NULL,

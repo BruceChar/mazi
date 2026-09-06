@@ -17,7 +17,6 @@ export type SessionState =
 /** 用户的一次输入 = 一个 Session（聚合根） */
 export interface Session {
     sessionId: string;
-    userId?: string;
     rawIntent: string;
     /** 顶层契约（静态声明，生成后基本只读） */
     goal: GoalContract;
