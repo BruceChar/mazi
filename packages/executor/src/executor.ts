@@ -213,7 +213,7 @@ export class Executor {
             const built = buildContext({
                 systemPrompt: this.deps.systemPrompt,
                 steps,
-                newInput: roundIndex === 0 ? turn.contract.statement : '',
+                newInput: turn.contract.statement,
                 tools: capacity.tools,
             });
             const runtime = this.deps.meter.measure(

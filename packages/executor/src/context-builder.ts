@@ -76,7 +76,12 @@ export interface BuiltContext {
 /** 上下文分段（供采集点 A ContextMeter 计数）；obs/retrieved/examples 段 MVP 以最近观测近似 */
 export function buildContext(input: BuildContextInput): BuiltContext {
     const { systemPrompt = '', steps, newInput, tools } = input;
-    const messages = buildContextMessages(steps);
+    const history = buildContextMessages(steps);
+    // 用户原始输入必须先进入 LLM 消息，而不是只出现在上下文计分段
+    const messages =
+        newInput.trim().length > 0
+            ? [{ role: 'user' as const, content: newInput }, ...history]
+            : history;
     const historyText = messages.map((m) => `${m.role}: ${m.content} ${m.name ?? ''}`).join('\n');
     const latestObservation = [...steps]
         .reverse()

@@ -144,7 +144,7 @@ describe('createSession / executeSession（run 兼容）', () => {
             goal: { allowedTools: [], requiredTools: [] },
         });
         await rt.executeSession(created.sessionId);
-        expect(capture.systemPrompt).toContain('conversationally');
+        expect(capture.systemPrompt).toContain('directly and completely');
         expect(capture.systemPrompt).not.toContain('finish the task');
         await rt.close();
     });

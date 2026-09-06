@@ -175,7 +175,7 @@ function summarizeSession(
 const DEFAULT_AGENT_SYSTEM_PROMPT =
     'You are a helpful agent. Answer conversational questions directly. Only call tools when the user explicitly asks you to read, inspect, modify files, or work with the current workspace.';
 const DEFAULT_CHAT_SYSTEM_PROMPT =
-    'You are a helpful assistant. Answer the latest user message directly and conversationally. Do not call tools or ask for a plan.';
+    'You are a helpful assistant. Answer the latest user message directly and completely in the same language as the user. Do not call tools, do not ask for a plan, and do not ask "what do you need help with" unless the question is genuinely ambiguous.';
 
 /**
  * HarnessRuntime（feature F14，MVP 文档 §3.2/§8 F14）：

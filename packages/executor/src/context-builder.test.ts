@@ -1,6 +1,6 @@
 import type { Step } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { buildContextMessages } from './context-builder.js';
+import { buildContext, buildContextMessages } from './context-builder.js';
 
 function step(over: Partial<Step>): Step {
     return {
@@ -45,6 +45,29 @@ describe('buildContextMessages（工具轮历史重建）', () => {
             role: 'tool',
             toolCallId: 'call_00_real',
             name: 'fs.read',
+        });
+    });
+
+    it('buildContext 把用户原始输入注入 messages 首条（LLM 必须真实看到输入）', () => {
+        const built = buildContext({
+            systemPrompt: 'sys',
+            steps: [
+                step({
+                    seq: 0,
+                    kind: 'thinking',
+                    payload: { content: '我在思考' },
+                }),
+            ],
+            newInput: 'how to think',
+            tools: [],
+        });
+        expect(built.context.messages[0]).toEqual({
+            role: 'user',
+            content: 'how to think',
+        });
+        expect(built.context.messages[1]).toMatchObject({
+            role: 'assistant',
+            content: '我在思考',
         });
     });
 });
