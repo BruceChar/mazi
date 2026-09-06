@@ -37,15 +37,25 @@ describe('交互式配置纯函数（mazi config）', () => {
     it('buildProviderConfig：deepseek 默认模型与 key env；自定义 apiKeyEnv 会写入', () => {
         const cfg = buildProviderConfig({
             presetId: 'deepseek',
-            model: 'deepseek-chat',
+            model: 'deepseek-v4-flash',
             keyEnv: 'MY_DS_KEY',
         });
         expect(cfg.driver).toMatchObject({
             type: 'pi-ai',
             provider: 'deepseek',
-            model: 'deepseek-chat',
+            model: 'deepseek-v4-flash',
         });
         expect((cfg.driver as { apiKeyEnv?: string }).apiKeyEnv).toBe('MY_DS_KEY');
+    });
+
+    it('DeepSeek 预设仅包含 pi-ai v4 目录模型（deepseek-chat/reasoner 已退役）', () => {
+        const preset = PROVIDER_PRESETS.find((p) => p.id === 'deepseek');
+        expect(preset?.models.map((m) => m.id)).toEqual([
+            'deepseek-v4-flash',
+            'deepseek-v4-flash-vision-exp',
+            'deepseek-v4-pro',
+        ]);
+        expect(preset?.defaultModel).toBe('deepseek-v4-flash');
     });
 
     it('buildConfigFiles 生成三个文件内容且可写盘', () => {
@@ -53,7 +63,7 @@ describe('交互式配置纯函数（mazi config）', () => {
         try {
             const gen = buildConfigFiles(dir, [
                 { presetId: 'openai', model: 'gpt-4o-mini' },
-                { presetId: 'deepseek', model: 'deepseek-chat' },
+                { presetId: 'deepseek', model: 'deepseek-v4-flash' },
             ]);
             expect(gen.providers.map((p) => p.id)).toEqual(['openai', 'deepseek']);
             expect(gen.files.map((f) => f.name)).toEqual([

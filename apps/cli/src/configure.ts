@@ -32,10 +32,15 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
         kind: 'pi-ai',
         defaultKeyEnv: 'DEEPSEEK_API_KEY',
         models: [
-            { id: 'deepseek-chat', contextWindow: 64000 },
-            { id: 'deepseek-reasoner', contextWindow: 64000, supportsThinking: true },
+            { id: 'deepseek-v4-flash', contextWindow: 1_000_000, supportsThinking: true },
+            {
+                id: 'deepseek-v4-flash-vision-exp',
+                contextWindow: 1_000_000,
+                supportsThinking: true,
+            },
+            { id: 'deepseek-v4-pro', contextWindow: 1_000_000, supportsThinking: true },
         ],
-        defaultModel: 'deepseek-chat',
+        defaultModel: 'deepseek-v4-flash',
     },
 ];
 
@@ -125,7 +130,9 @@ export function buildProviderConfig(selection: ProviderSelection): ProviderConfi
                 preset.id === 'openai'
                     ? { inputPerMTok: 0.15, outputPerMTok: 0.6 }
                     : preset.id === 'deepseek'
-                      ? { inputPerMTok: 0.27, outputPerMTok: 1.1 }
+                      ? selection.model === 'deepseek-v4-pro'
+                          ? { inputPerMTok: 0.435, outputPerMTok: 0.87 }
+                          : { inputPerMTok: 0.14, outputPerMTok: 0.28 }
                       : { inputPerMTok: 1, outputPerMTok: 3 },
             tiers: [],
             effectiveAt: 0,

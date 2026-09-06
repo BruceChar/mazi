@@ -6,6 +6,7 @@ import {
     fauxThinking,
     fauxToolCall,
 } from '@earendil-works/pi-ai';
+import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import type { LLMStreamEvent } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import { DefaultDriverRegistry } from './default-registry.js';
@@ -247,5 +248,20 @@ describe('DefaultDriverRegistry（PA-A4）', () => {
                 driver: {},
             }),
         ).toThrow(/缺失 driver.type/);
+    });
+});
+
+describe('真实 DeepSeek 目录模型（回归：deepseek-chat 退役导致会话全失败）', () => {
+    it('v4 目录可解析 deepseek-v4-flash / vision / pro，且不含已退役 deepseek-chat', () => {
+        const models = builtinModels();
+        const ids = models.getModels('deepseek').map((m) => m.id);
+        expect(ids).toContain('deepseek-v4-flash');
+        expect(ids).toContain('deepseek-v4-flash-vision-exp');
+        expect(ids).toContain('deepseek-v4-pro');
+        expect(ids).not.toContain('deepseek-chat');
+        expect(ids).not.toContain('deepseek-reasoner');
+        for (const id of ids.filter((x) => x.startsWith('deepseek-v4'))) {
+            expect(models.getModel('deepseek', id)).toBeDefined();
+        }
     });
 });
