@@ -839,6 +839,7 @@ onBeforeUnmount(() => {
                             class="approve"
                             :disabled="!hasToolActivity"
                             title="审批 Agent 的工具/代码变更（审批通道后续接入）"
+                            @click="ui.err = '审批通道尚未接入，当前仅展示样式入口'"
                         >
                             Approve for me
                         </button>
