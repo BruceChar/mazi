@@ -52,6 +52,9 @@ interface Session {
 5. Turn / Step 只挂载在 core Session 下，是「一次用户输入 + 完整模型输出」内部的可观测轨迹；Conversation 不直接包含 Turn/Step。
 6. 一个工作区项目会话仅当 `projectId` 与 `workspace` 同时存在时成立；二者必须成对出现。
 
+7. **执行模式**：普通会话（无 `projectId`/`workspace`）以纯对话执行，创建时 `goal.allowedTools=[]`（不注入文件工具，避免“你好”等消息被当成文件任务）；
+   工作区会话保留工具白名单，按任务模式执行。API 层在 `POST /api/sessions` 创建时按归属注入该 Goal 覆盖。
+
 ## 3. UI 展示规则
 
 侧边栏的两类列表是同一个 `Conversation[]` 的筛选视图，不再存储或返回第二份项目会话列表：
