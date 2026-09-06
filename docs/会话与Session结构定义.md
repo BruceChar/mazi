@@ -14,7 +14,10 @@
 
 ## 2. 结构定义
 
+Conversation 属于 **API/应用层的业务抽象**，不在 `packages/core` 中定义；core 层仍只维护 Session/Turn/Step 领域契约。API 层 Conversation 通过组装核心 Session 形成可展示的业务会话。
+
 ```ts
+// apps/api 层（示意；类型可引用 core 的 Session）
 /** 会话：普通会话与工作区会话共用；一个会话由 Session[] 组成 */
 interface Conversation {
     conversationId: string;
@@ -30,6 +33,7 @@ interface Conversation {
     updatedAt: number;
 }
 
+// packages/core：Session/Turn/Step 领域契约保持独立
 /** Session：一次单独的用户输入 + 大模型的完整输出（保留 Turn/Step 执行轨迹） */
 interface Session {
     sessionId: string;
@@ -44,8 +48,8 @@ interface Session {
 1. `Conversation.sessions` 是 `Session[]`；普通会话与工作区会话都是同一个 `Conversation` 容器，不再为工作区维护一套独立列表。
 2. Session 仍是独立聚合，自身仅带 `sessionId`，不增加任何指向 Conversation 的反向字段；归属关系只由 `Conversation.sessions` 持有。
 3. `userId` 表示会话归属用户，只挂在 Conversation 上；Session 不再保存 userId。Session 创建/Flag/用户画像需要用户上下文时，从所属 Conversation 读取。
-4. 一个会话可以只包含一个 Session，也可以包含多个 Session；同一会话内的 Session 共享归属用户。
-5. Turn / Step 只挂载在 Session 下，是「一次用户输入 + 完整模型输出」内部的可观测轨迹。
+4. 一个 Conversation 可以只包含一个 Session，也可以包含多个 Session；同一 Conversation 内的 Session 共享归属用户。
+5. Turn / Step 只挂载在 core Session 下，是「一次用户输入 + 完整模型输出」内部的可观测轨迹；Conversation 不直接包含 Turn/Step。
 6. 一个工作区项目会话仅当 `projectId` 与 `workspace` 同时存在时成立；二者必须成对出现。
 
 ## 3. UI 展示规则
@@ -59,9 +63,10 @@ interface Session {
 
 当前实现中 Session 直接承担了 UI「会话」的职责，且工作区归属由 `projects[].sessionIds` 外部维护。按本定义调整时涉及：
 
-- core 契约：新增 `Conversation` 聚合并持有 `userId`，Session 不再保存 `userId`；
-- 存储：会话通过 `Conversation.sessions` 持有 Session 引用/列表，不再依赖 `workspaces.json` 的 `sessionIds` 作为唯一归属；用户维度数据（Flag/画像）以 Conversation 的用户归属为入口；
-- API：列表以会话为单位返回，工作区归属直接携带在会话对象上；
+- core：Session 不再保存 `userId`；Session/Turn/Step 不感知 Conversation，不新增任何反向引用；
+- apps/api：新增 Conversation 业务抽象并持有 `userId`/`workspace`/`projectId`/`sessions`；
+- 存储：Conversation 通过 `sessions` 持有 Session 引用/列表，不再依赖 `workspaces.json` 的 `sessionIds` 作为唯一归属；用户维度数据（Flag/画像）在 API 层以 Conversation 的用户归属为入口；
+- API：列表以 Conversation 为单位返回，工作区归属直接携带在会话对象上；
 - WebUI：会话列表按 `Conversation.sessions` 渲染，工作区展示改为基于会话归属字段过滤。
 
 以上影响在正式实施前以本文为准对齐，避免产生重复的数据视图。
