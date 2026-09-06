@@ -10,8 +10,9 @@ export function buildGoal(
     sessionId: string,
     rawIntent: string,
     config: RuntimeConfig,
+    overrides: NonNullable<RuntimeConfig['goal']> = {},
 ): GoalContract {
-    const g = config.goal ?? {};
+    const g = { ...(config.goal ?? {}), ...overrides };
     const maxSteps = g.maxSteps ?? 8;
     const budget = {
         maxSteps,

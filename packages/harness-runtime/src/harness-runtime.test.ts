@@ -107,4 +107,22 @@ describe('createSession / executeSession（run 兼容）', () => {
         expect(a.sessionId).not.toBe(b.sessionId);
         await rt.close();
     });
+
+    it('createSession 应用 Session 级 goal 覆盖（普通会话可清空工具）', async () => {
+        const rt = offlineRuntime();
+        const created = await rt.createSession('你好', {
+            goal: {
+                allowedTools: [],
+                requiredTools: [],
+                permissionCeiling: 'text',
+                maxSteps: 4,
+            },
+        });
+        const session = await rt.store.loadSession(created.sessionId);
+        expect(session?.goal.allowedTools).toEqual([]);
+        expect(session?.goal.permissionCeiling).toBe('text');
+        const result = await rt.executeSession(created.sessionId);
+        expect(result.outcome).toBe('success');
+        await rt.close();
+    });
 });

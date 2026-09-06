@@ -121,6 +121,38 @@ describe('conversations（会话业务抽象列表）', () => {
         expect(conversation.sessions).toHaveLength(2);
     });
 
+    it('普通会话（无 workspace）清空工具白名单；工作区会话保留工具', async () => {
+        const plain = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '你好' },
+        });
+        expect(plain.statusCode).toBe(200);
+        const plainDetail = await fastify.inject({
+            method: 'GET',
+            url: `/api/sessions/${plain.json().sessionId}/timeline`,
+        });
+        expect(plainDetail.json().goal.allowedTools).toEqual([]);
+
+        const workspace = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: {
+                input: '读取文件并汇报',
+                workspace: '/workspace/project-b',
+                projectId: 'project-b',
+            },
+        });
+        expect(workspace.statusCode).toBe(200);
+        const workspaceDetail = await fastify.inject({
+            method: 'GET',
+            url: `/api/sessions/${workspace.json().sessionId}/timeline`,
+        });
+        expect(workspaceDetail.json().goal.allowedTools).toEqual(['all-registry']);
+    });
+
     it('GET /api/conversations 支持 q 筛选与 limit 分页', async () => {
         const marker = `分页标记 ${Date.now()}`;
         await fastify.inject({

@@ -58,23 +58,30 @@ export class SessionsService {
         } else if (this.runtime.selectedWorkspaceRoot !== undefined) {
             this.runtime.setWorkspaceRoot(undefined);
         }
+        const bodyWorkspace =
+            typeof body.workspace === 'string' && body.workspace.trim()
+                ? body.workspace.trim()
+                : typeof body.workspacePath === 'string' && body.workspacePath.trim()
+                  ? body.workspacePath.trim()
+                  : undefined;
+        const workspace =
+            targetContext?.workspace ?? bodyWorkspace ?? this.runtime.selectedWorkspaceRoot;
+        const workspaceMode = Boolean(workspace?.trim());
+        const goal =
+            typeof body.goal === 'object' && body.goal
+                ? (body.goal as SessionGoalOverrides)
+                : undefined;
+        // 普通会话（无工作区归属）= 纯对话：不注入文件工具，避免被当作任务执行
+        const sessionGoal: CreateSessionOptions['goal'] = workspaceMode
+            ? goal
+            : { ...(goal ?? {}), allowedTools: [], requiredTools: [] };
         const options: CreateSessionOptions = {
             userId:
                 (typeof body.userId === 'string' ? body.userId : undefined) ??
                 targetContext?.userId,
-            goal:
-                typeof body.goal === 'object' && body.goal
-                    ? (body.goal as SessionGoalOverrides)
-                    : undefined,
+            goal: sessionGoal,
         };
         const created = await this.runtime.harness().createSession(input, options);
-        const workspace =
-            targetContext?.workspace ??
-            (typeof body.workspace === 'string' && body.workspace.trim()
-                ? body.workspace.trim()
-                : typeof body.workspacePath === 'string' && body.workspacePath.trim()
-                  ? body.workspacePath.trim()
-                  : this.runtime.selectedWorkspaceRoot);
         const projectId =
             targetContext?.projectId ??
             (typeof body.projectId === 'string' && body.projectId.trim()

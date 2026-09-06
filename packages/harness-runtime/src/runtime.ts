@@ -250,9 +250,12 @@ export class HarnessRuntime {
     }
 
     /** 创建会话：构建 Goal/Flag 快照并持久化（不执行），记录即时为 recording（webui 会话列表可先出现空会话） */
-    async createSession(input: string, opts: RunOptions = {}): Promise<{ sessionId: string }> {
+    async createSession(
+        input: string,
+        opts: CreateSessionOptions = {},
+    ): Promise<{ sessionId: string }> {
         const sessionId = ulid();
-        const goal = buildGoal(sessionId, input, this.config);
+        const goal = buildGoal(sessionId, input, this.config, opts.goal);
         if (this.workspaceRoot) {
             goal.constraints.push({
                 kind: 'data-boundary',
