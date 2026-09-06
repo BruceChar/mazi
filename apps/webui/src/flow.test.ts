@@ -37,4 +37,31 @@ describe('conversation chat flow flattening', () => {
         ]);
         expect(rows.every((r) => r.type === 'user' || r.type === 'step')).toBe(true);
     });
+
+    it('已成功 Session 中最后一个成功 thinking 标记为 assistant 输出，其余内部步骤为 step', () => {
+        const rows = flattenSessionFlow({
+            sessionId: 's1',
+            rawIntent: '读取文件',
+            outcome: 'success',
+            createdAt: 10,
+            turns: [
+                {
+                    turnId: 't1',
+                    steps: [
+                        step('a', 0, 'thinking', 11),
+                        step('b', 1, 'tool_call', 12),
+                        step('c', 2, 'observation', 13),
+                        step('d', 3, 'thinking', 14),
+                    ],
+                },
+            ],
+        });
+        expect(rows.map((r) => `${r.type}:${r.key}`)).toEqual([
+            'user:user:s1',
+            'step:step:s1:a',
+            'step:step:s1:b',
+            'step:step:s1:c',
+            'assistant:step:s1:d',
+        ]);
+    });
 });

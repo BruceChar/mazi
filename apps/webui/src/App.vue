@@ -676,36 +676,26 @@ onBeforeUnmount(() => {
                                 </div>
                             </div>
                             <div
-                                v-else
-                                class="msg"
-                                :class="[`msg-${item.step.kind}`, { open: isOpenStep(item.step.stepId) }]"
+                                v-else-if="item.type === 'assistant'"
+                                class="assistant-message"
                             >
-                                <div class="msg-gutter"><span class="msg-icon"><LineIcon :name="icon(item.step.kind)" size="14" /></span></div>
-                                <div class="msg-main">
-                                    <div class="msg-head" @click="toggleOpenStep(item.step.stepId)">
-                                        <span class="msg-label">{{ stepLabel(item.step.kind) }}</span>
-                                        <span class="msg-title">{{ stepTitle(item) }}</span>
-                                        <span class="msg-brief">#{{ item.step.seq }} · {{ item.step.status }} · {{ rowModel(item) }}</span>
-                                        <span class="chevron"><LineIcon :name="isOpenStep(item.step.stepId) ? 'chevronDown' : 'chevronRight'" size="14" /></span>
-                                    </div>
-                                    <div v-if="isOpenStep(item.step.stepId)" class="msg-body">
+                                <div class="assistant-body">{{ item.text }}</div>
+                            </div>
+                            <div v-else class="trace-step">
+                                <div class="trace-gutter"><LineIcon :name="icon(item.step.kind)" size="12" /></div>
+                                <div class="trace-main">
+                                    <button class="trace-head" @click="toggleOpenStep(item.step.stepId)">
+                                        <span class="trace-label">{{ stepLabel(item.step.kind) }}</span>
+                                        <span class="trace-title">{{ stepTitle(item) }}</span>
+                                        <span class="trace-meta">{{ rowModel(item) }}</span>
+                                        <span class="trace-chevron"><LineIcon :name="isOpenStep(item.step.stepId) ? 'chevronDown' : 'chevronRight'" size="11" /></span>
+                                    </button>
+                                    <div v-if="isOpenStep(item.step.stepId)" class="trace-body">
                                         <template v-if="item.step.kind === 'tool_call'">
-                                            <div class="mono-block">
-                                                <div class="mono-title"><LineIcon name="tool" size="14" /> {{ stepBody(item).title }}</div>
-                                                <pre>{{ stepBody(item).json }}</pre>
-                                            </div>
+                                            <span class="trace-tool">{{ stepBody(item).title }}</span>
+                                            <pre class="trace-json">{{ stepBody(item).json }}</pre>
                                         </template>
-                                        <pre v-else class="plain-text">{{ stepBody(item).text }}</pre>
-                                    </div>
-                                    <div class="msg-foot">
-                                        <button class="mini like" title="有帮助" @click="rate(item, 5)"><LineIcon name="like" size="14" /></button>
-                                        <button class="mini like" title="没帮助" @click="rate(item, 1)"><LineIcon name="dislike" size="14" /></button>
-                                        <button class="mini" @click="copyRow(item)"><LineIcon name="copy" size="14" /> 复制</button>
-                                        <span class="meta-gap"></span>
-                                        <span class="meta">用量 {{ rowTokens(item) }} tok</span>
-                                        <span class="meta">用时 {{ rowDuration(item) }}</span>
-                                        <span class="meta">{{ fmtClock(item.step.startedAt) }}</span>
-                                        <button class="mini audit-link" @click="openAudit(item)">审计</button>
+                                        <div v-else class="trace-text">{{ stepBody(item).text }}</div>
                                     </div>
                                 </div>
                             </div>
