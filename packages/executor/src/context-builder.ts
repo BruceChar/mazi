@@ -32,10 +32,16 @@ export function buildContextMessages(steps: Step[]): LLMMessage[] {
                 break;
             }
             case 'observation': {
-                const p = step.payload as { toolName?: string; content: string; isError?: boolean };
+                const p = step.payload as {
+                    toolName?: string;
+                    content: string;
+                    contextContent?: string;
+                    isError?: boolean;
+                };
+                const content = p.contextContent ?? p.content;
                 messages.push({
                     role: 'tool',
-                    content: p.isError ? `[error] ${p.content}` : p.content,
+                    content: p.isError ? `[error] ${content}` : content,
                     name: p.toolName,
                 });
                 break;
@@ -65,8 +71,10 @@ export function buildContext(input: BuildContextInput): BuiltContext {
     const latestObservation = [...steps]
         .reverse()
         .find((s) => s.kind === 'observation' && s.status === 'ok');
-    const observationText =
-        (latestObservation?.payload as { content?: string } | undefined)?.content ?? '';
+    const observationPayload = latestObservation?.payload as
+        | { content?: string; contextContent?: string }
+        | undefined;
+    const observationText = observationPayload?.contextContent ?? observationPayload?.content ?? '';
     const sections: ContextSections = {
         systemPrompt,
         history: historyText,

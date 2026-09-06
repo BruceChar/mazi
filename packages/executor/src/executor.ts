@@ -6,6 +6,7 @@ import type {
     LLMRound,
     LLMStreamEvent,
     MemoryStore,
+    Observer,
     PolicyEngine,
     Step,
     TokenTotals,
@@ -16,7 +17,7 @@ import type {
     VendorUsage,
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
-import { newHarnessEvent } from '@mazi/observability';
+import { DefaultObserver, newHarnessEvent } from '@mazi/observability';
 import type { ContextMeter, CostCalculator } from '@mazi/usage';
 import { backfillDrift, emptyTokenTotals, isDriftExcessive } from '@mazi/usage';
 import { buildContext } from './context-builder.js';
@@ -61,6 +62,8 @@ export interface ExecutorDeps {
     now?: () => number;
     /** Provider 层注入的轮次归一函数；缺省使用本地 fallback */
     roundCollector?: RoundCollector;
+    /** 观察层；缺省使用结构化 DefaultObserver */
+    observer?: Observer;
 }
 
 /** 故障转移候选模型（与 provider.selected 顺序一致） */
@@ -136,7 +139,11 @@ function baseEvent(
  * 采集点：A=context 分段计数（ContextMeter）、B=vendor usage+timing、C=计价+漂移回填。
  */
 export class Executor {
-    constructor(private readonly deps: ExecutorDeps) {}
+    private readonly observer: Observer;
+
+    constructor(private readonly deps: ExecutorDeps) {
+        this.observer = deps.observer ?? new DefaultObserver();
+    }
 
     async executeTurn(turn: Turn, capacity: Capacity): Promise<TurnExecutionOutcome> {
         const sessionId = turn.sessionId;
@@ -372,7 +379,7 @@ export class Executor {
                     roundSteps.push(toolStep);
                     // observation Step：观察回注（含错误结果）
                     const obsSeq = seqBase + 1 + round.toolCalls.length + i;
-                    const observation = this.observationStep(
+                    const observation = await this.observationStep(
                         turn,
                         sessionId,
                         obsSeq,
@@ -509,22 +516,26 @@ export class Executor {
         };
     }
 
-    private observationStep(
+    private async observationStep(
         turn: Turn,
         sessionId: string,
         seq: number,
         toolName: string,
         result: ToolExecutionResult,
-    ): Step {
+    ): Promise<Step> {
+        const payload = await this.observer.observeToolResult({
+            sessionId,
+            turnId: turn.turnId,
+            toolName,
+            result,
+        });
         const obs: Step = {
             stepId: ulid(),
             turnId: turn.turnId,
             sessionId,
             seq,
             kind: 'observation',
-            payload: result.ok
-                ? { toolName, content: result.content }
-                : { toolName, content: result.error, isError: true },
+            payload,
             status: 'ok',
             startedAt: this.now(),
             endedAt: this.now(),

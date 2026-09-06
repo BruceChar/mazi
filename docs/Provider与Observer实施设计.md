@@ -75,3 +75,8 @@ Session/Turn/Step 数据模型、Checkpoint、事件三层 ID 不变。
 3. 新建 `@mazi/observer`：结构化观察载荷实现与测试；
 4. executor：替换观察 Step 生成逻辑；
 5. 全量测试、构建与文档同步。
+
+## 6. 实施状态
+
+- 已完成：core 契约（`LLMRound`/`ObservationPayload.contextContent`/`Observer`）、provider-llm 流式轮次归一、`DefaultObserver`（结构化截断与错误分类）、Executor 接入与上下文回注、SQLite `MemoryStore` 抽象保留。
+- 未做：存储 SPI/PostgreSQL；Observer 仅处理工具执行结果，尚未扩展为 LLM/思考观察；Reflector 仍未实现。
