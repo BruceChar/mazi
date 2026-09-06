@@ -214,6 +214,12 @@ function traceTitle(item) {
     return stepTitle(item);
 }
 
+function traceContent(item) {
+    const text = stepBody(item).text || '';
+    const limit = item.step.kind === 'observation' ? 240 : 900;
+    return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
 function traceLabel(item) {
     if (item.step.kind === 'thinking') return '思考';
     if (item.step.kind === 'tool_call') return (item.step.payload || {}).toolName === 'fs.read' ? 'Read' : 'Run';
@@ -769,7 +775,7 @@ onBeforeUnmount(() => {
                                             <span class="trace-tool">{{ stepBody(item).title }}</span>
                                             <pre class="trace-json">{{ stepBody(item).json }}</pre>
                                         </template>
-                                        <div v-else class="trace-text">{{ stepBody(item).text }}</div>
+                                        <div v-else class="trace-text">{{ traceContent(item) }}</div>
                                     </div>
                                 </div>
                             </div>
