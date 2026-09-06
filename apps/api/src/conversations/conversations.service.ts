@@ -67,9 +67,48 @@ export class ConversationsService {
         this.write();
     }
 
+    /** 迁移历史数据：旧 workspaces.json 里的 sessionIds 回填为 Conversation 记录 */
+    private async backfillLegacySessions(): Promise<void> {
+        this.read();
+        const knownSessionIds = new Set(
+            this.state.conversations.flatMap((conversation) => conversation.sessionIds),
+        );
+        const legacyBySession = new Map<string, { workspace?: string; projectId?: string }>();
+        for (const project of this.runtime.projects()) {
+            for (const sessionId of project.sessionIds) {
+                legacyBySession.set(sessionId, {
+                    workspace: project.path,
+                    projectId: project.path,
+                });
+            }
+        }
+        const records = await this.runtime.harness().store.listUserInteractionRecords();
+        let added = false;
+        for (const record of records) {
+            if (knownSessionIds.has(record.sessionId)) {
+                continue;
+            }
+            const legacy = legacyBySession.get(record.sessionId) ?? {};
+            this.state.conversations.push({
+                conversationId: ulid(),
+                title: record.rawInput.slice(0, 80),
+                userId: record.userId,
+                sessionIds: [record.sessionId],
+                workspace: legacy.workspace,
+                projectId: legacy.projectId,
+                createdAt: record.inputTimestamp,
+                updatedAt: record.updatedAt,
+            });
+            added = true;
+        }
+        if (added) {
+            this.write();
+        }
+    }
+
     /** API 会话列表：记录按 updatedAt 倒序，水合 core Session 后返回 */
     async list(): Promise<Conversation[]> {
-        this.read();
+        await this.backfillLegacySessions();
         const records = [...this.state.conversations].sort(
             (a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt,
         );
