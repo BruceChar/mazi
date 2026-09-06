@@ -343,7 +343,7 @@ async function submitPrompt() {
         maxCostUsd: draft.value.budgetUsd,
         maxSteps: draft.value.maxSteps,
         userId: draft.value.userId || undefined,
-    }, workspaceRoot.value);
+    }, workspaceRoot.value, currentConversation.value || undefined);
 }
 
 async function submitNew(exec) {

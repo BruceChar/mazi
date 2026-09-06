@@ -386,7 +386,7 @@ export function recompute() {
     metrics.provider = firstCapacity?.model?.providerId || '-';
 }
 
-export async function createAndRun(exec, goalOverrides, workspacePath) {
+export async function createAndRun(exec, goalOverrides, workspacePath, conversationId) {
     const text = goalOverrides?.statement?.trim() || '';
     if (!text) return null;
     busy.value = true;
@@ -399,16 +399,23 @@ export async function createAndRun(exec, goalOverrides, workspacePath) {
                   maxSteps: goalOverrides.maxSteps || undefined,
               }
             : undefined;
+        const body = {
+            input: text,
+            userId: goalOverrides?.userId,
+            goal,
+            workspacePath,
+        };
+        if (conversationId) {
+            body.conversationId = conversationId;
+        }
         const created = await api('/api/sessions', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-                input: text,
-                userId: goalOverrides?.userId,
-                goal,
-                workspacePath,
-            }),
+            body: JSON.stringify(body),
         });
+        if (created.conversationId) {
+            currentConversation.value = created.conversationId;
+        }
         await loadConversations();
         await select(created.sessionId);
         if (exec) {
