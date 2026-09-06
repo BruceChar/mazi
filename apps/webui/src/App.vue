@@ -8,6 +8,7 @@ import {
     cfg,
     createAndRun,
     current,
+    currentConversation,
     detail,
     events,
     fmtClock,
@@ -78,9 +79,10 @@ watch(
 );
 
 const filteredConversations = computed(() => {
+    const base = conversations.value.filter((conversation) => !conversation.archived);
     const key = q.value.trim().toLowerCase();
-    if (!key) return conversations.value;
-    return conversations.value.filter((conversation) => {
+    if (!key) return base;
+    return base.filter((conversation) => {
         const title = String(conversation.title || '').toLowerCase().includes(key);
         const sessionHit = (conversation.sessions || []).some((session) =>
             String(session.rawIntent || '').toLowerCase().includes(key),
@@ -421,7 +423,10 @@ function conversationCostUsd(conversation) {
 }
 
 function isConversationActive(conversation) {
-    return (conversation?.sessions || []).some((session) => session.sessionId === current.value);
+    return (
+        currentConversation.value === conversation?.conversationId ||
+        (conversation?.sessions || []).some((session) => session.sessionId === current.value)
+    );
 }
 
 function projectConversationItems(project) {
@@ -429,6 +434,7 @@ function projectConversationItems(project) {
 }
 
 async function openConversation(conversation) {
+    currentConversation.value = conversation.conversationId;
     const session = conversationLatestSession(conversation);
     if (session) {
         await openSession(session.sessionId);
@@ -453,6 +459,7 @@ onMounted(async () => {
         const firstConversation = conversations.value[0];
         const firstSession = conversationLatestSession(firstConversation);
         if (firstSession) {
+            currentConversation.value = firstConversation.conversationId;
             await select(firstSession.sessionId);
         }
     } catch (error) {
@@ -607,7 +614,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div class="chat-scroll">
-                    <div v-if="ui.err" class="error-banner">{{ ui.err }}</div>
+                    <div v-if="ui.err && conversations.length" class="error-banner">{{ ui.err }}</div>
 
                     <template v-if="ui.mainTab === 'chat'">
                         <div v-if="detail && detail.rawIntent" class="user-message">
@@ -653,7 +660,8 @@ onBeforeUnmount(() => {
                                 </div>
                             </div>
                         </template>
-                        <div v-if="detail && !chatRows.length" class="empty-hint">
+                        <div v-if="!detail" class="empty-hint">暂无会话，点击「新会话」开始</div>
+                        <div v-else-if="!chatRows.length" class="empty-hint">
                             Be Water My Friend
                         </div>
                         <div v-if="feedbackSent && detail && detail.outcome" class="ok-banner">反馈已记录</div>

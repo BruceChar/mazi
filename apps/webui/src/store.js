@@ -113,6 +113,7 @@ export function saveUserPreferences(next) {
 
 export const conversations = ref([]);
 export const current = ref(null);
+export const currentConversation = ref(null);
 export const detail = ref(null);
 export const cfg = ref(null);
 export const workspaceRoot = ref('');
@@ -217,6 +218,7 @@ export async function loadConfig() {
 export async function loadConversations() {
     try {
         conversations.value = await api('/api/conversations');
+        ui.err = null;
     } catch (error) {
         ui.err = String(error);
     }
