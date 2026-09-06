@@ -361,6 +361,26 @@ describe('SqliteMemoryStore（MVP v1.0 §8 F8 / D1 node:sqlite）', () => {
         expect(steps[2].decisionContext).toEqual(st3.decisionContext);
     });
 
+    it('deleteSession 级联删除 Turn/Step/用户交互记录', async () => {
+        const store = mem();
+        const session = makeSession('s-del-1', [makeTurn('turn-del-1', 's-del-1')]);
+        const step = thinkingStep('st-del-1', 'turn-del-1', 's-del-1', 1);
+        await store.saveStep(step);
+        await store.saveSession(session);
+        await store.saveUserInteractionRecord(
+            makeRecord('rec-del-1', 's-del-1', { userId: 'u-del' }),
+        );
+
+        await store.deleteSession('s-del-1');
+
+        expect(await store.loadSession('s-del-1')).toBeUndefined();
+        expect(await store.listTurns('s-del-1')).toEqual([]);
+        expect(await store.listSteps('turn-del-1')).toEqual([]);
+        expect(await store.loadUserInteractionBySession('s-del-1')).toBeUndefined();
+        const records = await store.listUserInteractionRecords({ userId: 'u-del' });
+        expect(records.some((r) => r.sessionId === 's-del-1')).toBe(false);
+    });
+
     it('边界：loadSession 未知 id → undefined；saveSession 同 id 二次保存覆盖为最新字段', async () => {
         const store = mem();
         expect(await store.loadSession('missing-session')).toBeUndefined();

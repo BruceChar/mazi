@@ -261,6 +261,14 @@ export class SqliteMemoryStore implements MemoryStore {
         return { ...base, turns: hydratedTurns };
     }
 
+    /** 级联删除 Session 及其关联数据 */
+    async deleteSession(sessionId: string): Promise<void> {
+        this.db.prepare('DELETE FROM steps WHERE session_id = ?').run(sessionId);
+        this.db.prepare('DELETE FROM turns WHERE session_id = ?').run(sessionId);
+        this.db.prepare('DELETE FROM user_interactions WHERE session_id = ?').run(sessionId);
+        this.db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId);
+    }
+
     /** Turn UPSERT（按 turn_id 覆盖，同 Key 可重复保存） */
     async saveTurn(turn: Turn): Promise<void> {
         this.db

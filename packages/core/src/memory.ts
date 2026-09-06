@@ -5,6 +5,8 @@ import type { UserInteractionRecord } from './user-interaction.js';
 export interface MemoryStore {
     saveSession(session: Session): Promise<void>;
     loadSession(sessionId: string): Promise<Session | undefined>;
+    /** 级联删除 Session 及其 Turn/Step/用户交互记录 */
+    deleteSession(sessionId: string): Promise<void>;
     saveTurn(turn: Turn): Promise<void>;
     listTurns(sessionId: string): Promise<Turn[]>;
     saveStep(step: Step): Promise<void>;
