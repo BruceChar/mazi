@@ -1,6 +1,7 @@
 # Agent Coding Prompt
 
-
+所有更新遵循最小原则
+每次更新都得git commit
 
 ## 一、第一优先级：文档优先 + 测试先行双基准
 
