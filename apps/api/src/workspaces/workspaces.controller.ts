@@ -23,7 +23,7 @@ export class WorkspacesController {
     @Get('current')
     current(): {
         path?: string;
-        projects?: { title: string; path: string; sessionIds: string[] }[];
+        projects?: { title: string; path: string }[];
     } {
         return {
             path: this.runtime.selectedWorkspaceRoot,
@@ -34,7 +34,7 @@ export class WorkspacesController {
     /** 重命名项目展示名（body: path/title） */
     @Patch('project')
     renameProject(@Body() body: Record<string, unknown>): {
-        projects: { title: string; path: string; sessionIds: string[] }[];
+        projects: { title: string; path: string }[];
     } {
         const path = typeof body.path === 'string' ? body.path : '';
         const title = typeof body.title === 'string' ? body.title : '';
@@ -46,7 +46,7 @@ export class WorkspacesController {
     @Post('pick')
     async pick(): Promise<{
         path?: string;
-        projects?: { title: string; path: string; sessionIds: string[] }[];
+        projects?: { title: string; path: string }[];
     }> {
         try {
             const { stdout } = await execFileAsync('osascript', [

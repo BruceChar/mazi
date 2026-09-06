@@ -68,7 +68,6 @@ export class SessionsService {
                     : undefined,
         };
         const created = await this.runtime.harness().createSession(input, options);
-        this.runtime.addProjectSession(created.sessionId);
         const workspace =
             targetContext?.workspace ??
             (typeof body.workspace === 'string' && body.workspace.trim()

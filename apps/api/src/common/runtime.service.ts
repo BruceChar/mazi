@@ -19,13 +19,13 @@ import { ApiError } from './api-error.js';
  */
 @Injectable()
 export class ApiRuntimeService implements OnApplicationShutdown {
+    private readonly workspaces = new Map<string, HarnessRuntime>();
     private runtime: HarnessRuntime | undefined;
     private running = false;
     private workspaceRoot?: string;
-    private workspacesState: { projects: { title: string; path: string; sessionIds: string[] }[] } =
-        {
-            projects: [],
-        };
+    private workspacesState: {
+        projects: { title: string; path: string; sessionIds?: string[] }[];
+    } = { projects: [] };
     private readonly paths: MaziPaths = ensureMaziDirs();
     private readonly config: RuntimeConfig = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
         consoleEnabled: false,
@@ -58,16 +58,14 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return this.workspaces.get(this.workspaceRoot) as HarnessRuntime;
     }
 
-    private readonly workspaces = new Map<string, HarnessRuntime>();
-
     private get workspacesFile(): string {
         return join(this.paths.home, 'workspaces.json');
     }
 
-    private readWorkspacesState() {
+    private readWorkspacesState(): { title: string; path: string; sessionIds?: string[] }[] {
         try {
             const parsed = JSON.parse(readFileSync(this.workspacesFile, 'utf8')) as {
-                projects?: { title: string; path: string; sessionIds: string[] }[];
+                projects?: { title: string; path: string; sessionIds?: string[] }[];
             };
             this.workspacesState.projects = parsed.projects ?? [];
         } catch {
@@ -93,13 +91,28 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.workspaceRoot = resolved;
         const projects = this.readWorkspacesState();
         if (!projects.some((project) => project.path === resolved)) {
-            projects.push({ title: basename(resolved), path: resolved, sessionIds: [] });
+            projects.push({ title: basename(resolved), path: resolved });
             this.writeWorkspacesState();
         }
     }
 
-    projects(): { title: string; path: string; sessionIds: string[] }[] {
+    /** 对外项目列表：仅 title/path，Session 归属由 Conversation 字段承担 */
+    projects(): { title: string; path: string }[] {
+        return this.readWorkspacesState().map(({ title, path }) => ({ title, path }));
+    }
+
+    /** 迁移期读取：保留可能存在的旧 sessionIds 供 Conversation 回填 */
+    legacyProjects(): { title: string; path: string; sessionIds?: string[] }[] {
         return this.readWorkspacesState();
+    }
+
+    /** 迁移完成：从 workspaces.json 中移除旧 sessionIds */
+    stripLegacyProjectSessionIds(): void {
+        const projects = this.readWorkspacesState();
+        if (projects.some((project) => project.sessionIds !== undefined)) {
+            this.workspacesState.projects = projects.map(({ title, path }) => ({ title, path }));
+            this.writeWorkspacesState();
+        }
     }
 
     renameProject(path: string, title: string): void {
@@ -115,38 +128,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.writeWorkspacesState();
     }
 
-    addProjectSession(sessionId: string): void {
-        if (!this.workspaceRoot) return;
-        const projects = this.readWorkspacesState();
-        const project = projects.find((item) => item.path === this.workspaceRoot);
-        if (project && !project.sessionIds.includes(sessionId)) {
-            project.sessionIds.push(sessionId);
-            this.writeWorkspacesState();
-        }
-    }
-
-    /** 从旧 workspaces.json 归属中移除 Session（兼容层清理） */
-    removeProjectSession(sessionId: string): void {
-        const projects = this.readWorkspacesState();
-        let changed = false;
-        for (const project of projects) {
-            const nextIds = project.sessionIds.filter((id) => id !== sessionId);
-            if (nextIds.length !== project.sessionIds.length) {
-                project.sessionIds = nextIds;
-                changed = true;
-            }
-        }
-        if (changed) {
-            this.writeWorkspacesState();
-        }
-    }
-
     get selectedWorkspaceRoot(): string | undefined {
         return this.workspaceRoot;
-    }
-
-    get selectedProject(): { title: string; path: string; sessionIds: string[] } | undefined {
-        return this.projects().find((project) => project.path === this.workspaceRoot);
     }
 
     /** 配置总览（configOverview 同源） */

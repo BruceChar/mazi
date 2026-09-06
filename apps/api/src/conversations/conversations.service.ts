@@ -147,7 +147,6 @@ export class ConversationsService {
         this.write();
         for (const sessionId of conversation.sessionIds) {
             await this.runtime.harness().store.deleteSession(sessionId);
-            this.runtime.removeProjectSession(sessionId);
         }
     }
 
@@ -158,8 +157,8 @@ export class ConversationsService {
             this.state.conversations.flatMap((conversation) => conversation.sessionIds),
         );
         const legacyBySession = new Map<string, { workspace?: string; projectId?: string }>();
-        for (const project of this.runtime.projects()) {
-            for (const sessionId of project.sessionIds) {
+        for (const project of this.runtime.legacyProjects()) {
+            for (const sessionId of project.sessionIds ?? []) {
                 legacyBySession.set(sessionId, {
                     workspace: project.path,
                     projectId: project.path,
@@ -188,6 +187,7 @@ export class ConversationsService {
         if (added) {
             this.write();
         }
+        this.runtime.stripLegacyProjectSessionIds();
     }
 
     /** API 会话列表：记录按 updatedAt 倒序，水合 core Session 后返回 */

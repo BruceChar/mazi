@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { createTestApp, type TestAppHandle } from '../testing/test-app.js';
@@ -87,6 +87,10 @@ describe('conversations（会话业务抽象列表）', () => {
         );
         expect(conversation?.workspace).toBe('/legacy/workspace');
         expect(conversation?.projectId).toBe('/legacy/workspace');
+        const stored = JSON.parse(readFileSync(join(handle.home, 'workspaces.json'), 'utf8')) as {
+            projects: Array<{ sessionIds?: string[] }>;
+        };
+        expect(stored.projects[0].sessionIds).toBeUndefined();
     });
 
     it('POST /api/sessions 携带 conversationId 时追加到已有 Conversation', async () => {
@@ -183,8 +187,6 @@ describe('conversations（会话业务抽象列表）', () => {
             payload: { path: '/ws/project', title: 'new-name' },
         });
         expect(res.statusCode).toBe(200);
-        expect(res.json().projects).toEqual([
-            { title: 'new-name', path: '/ws/project', sessionIds: [] },
-        ]);
+        expect(res.json().projects).toEqual([{ title: 'new-name', path: '/ws/project' }]);
     });
 });
