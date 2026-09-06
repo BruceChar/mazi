@@ -5,6 +5,7 @@ import type { PiModelMeta } from './pi-ai-mapper.js';
 import {
     buildPiContext,
     mapFinishReason,
+    restoreSanitizedToolName,
     toVendorUsage,
     translatePiEvent,
 } from './pi-ai-mapper.js';
@@ -72,7 +73,14 @@ export class PiAiDriver implements LLMDriver {
         const stream = this.models.stream(model, context, apiKey ? { apiKey } : undefined);
         for await (const event of stream as AsyncIterable<AssistantMessageEvent>) {
             for (const mapped of translatePiEvent(event)) {
-                yield mapped;
+                if (mapped.type === 'tool-call') {
+                    yield {
+                        ...mapped,
+                        toolName: restoreSanitizedToolName(mapped.toolName, req.context.tools),
+                    };
+                } else {
+                    yield mapped;
+                }
             }
         }
     }

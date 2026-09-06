@@ -5,6 +5,7 @@ import {
     buildPiContext,
     mapFinishReason,
     messagesToPi,
+    restoreSanitizedToolName,
     toolsToPi,
     toVendorUsage,
     translatePiEvent,
@@ -49,7 +50,7 @@ describe('pi-ai mapper（离线，ProviderAdapter 设计 PA-A2）', () => {
             content: { text: string }[];
         }[];
         expect(toolResults[0]).toMatchObject({
-            toolName: 'fs.read',
+            toolName: 'fs_read',
             toolCallId: 'c1',
             isError: false,
         });
@@ -79,7 +80,8 @@ describe('pi-ai mapper（离线，ProviderAdapter 设计 PA-A2）', () => {
         expect(ctx.systemPrompt).toBe('system-x');
         expect(ctx.messages).toEqual([]);
         expect(ctx.tools).toHaveLength(1);
-        expect(ctx.tools?.[0]?.name).toBe('fs.read');
+        // 真实厂商（OpenAI/DeepSeek）要求 function.name 匹配 ^[a-zA-Z0-9_-]+$
+        expect(ctx.tools?.[0]?.name).toBe('fs_read');
     });
 
     it('toolsToPi：参数按 TSchema 透传', () => {
@@ -94,6 +96,20 @@ describe('pi-ai mapper（离线，ProviderAdapter 设计 PA-A2）', () => {
         expect(tools[0]).toMatchObject({ name: 'a', description: 'd' });
         const first = tools[0] as { parameters: { type: string } };
         expect(first.parameters.type).toBe('object');
+    });
+
+    it('工具名清洗：含点/空格的名字发给厂商前替换为合法字符，并能还原原始名', () => {
+        const spec: ToolSpec = {
+            name: 'fs.read',
+            description: '读文件',
+            parameters: { type: 'object', properties: {} },
+            minPermission: 'read-only',
+            sideEffects: ['fs'],
+        };
+        const pi = toolsToPi([spec]);
+        expect(pi[0]?.name).toMatch(/^[a-zA-Z0-9_-]+$/);
+        expect(pi[0]?.name).toBe('fs_read');
+        expect(restoreSanitizedToolName('fs_read', [spec])).toBe('fs.read');
     });
 
     it('toVendorUsage：input/output/cache/reasoning 全映射，reportedByVendor=true', () => {

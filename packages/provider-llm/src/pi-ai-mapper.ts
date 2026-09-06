@@ -29,10 +29,24 @@ const EMPTY_USAGE = (): Usage => ({
 /** ToolSpec → pi-ai Tool（parameters 为 JSON-schema 子集对象，按 TSchema 透传） */
 export function toolsToPi(tools: ToolSpec[]): Tool[] {
     return tools.map((tool) => ({
-        name: tool.name,
+        name: sanitizeToolName(tool.name),
         description: tool.description,
         parameters: tool.parameters as unknown as TSchema,
     }));
+}
+
+/**
+ * OpenAI/DeepSeek Chat Completions 的 function.name 仅允许 ^[a-zA-Z0-9_-]+$；
+ * 防腐层在发往厂商前把非法字符替换为 '_'（如 fs.read → fs_read）。
+ */
+export function sanitizeToolName(name: string): string {
+    return name.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+/** 由厂商返回的清洗后工具名还原原始工具名；无匹配时原样返回。 */
+export function restoreSanitizedToolName(name: string, tools: ToolSpec[]): string {
+    const matched = tools.find((tool) => sanitizeToolName(tool.name) === name);
+    return matched?.name ?? name;
 }
 
 /**
@@ -78,7 +92,7 @@ export function messagesToPi(
         const toolResult: ToolResultMessage = {
             role: 'toolResult',
             toolCallId: msg.toolCallId ?? 'call-unknown',
-            toolName: msg.name ?? 'tool',
+            toolName: sanitizeToolName(msg.name ?? 'tool'),
             content: [
                 {
                     type: 'text',
