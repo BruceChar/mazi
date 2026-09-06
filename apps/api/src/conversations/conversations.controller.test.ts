@@ -126,7 +126,7 @@ describe('conversations（会话业务抽象列表）', () => {
             method: 'POST',
             url: '/api/sessions',
             headers: { 'content-type': 'application/json' },
-            payload: { input: '你好' },
+            payload: { input: '你好', goal: { loopMode: 'react-only' } },
         });
         expect(plain.statusCode).toBe(200);
         const plainDetail = await fastify.inject({
@@ -134,6 +134,7 @@ describe('conversations（会话业务抽象列表）', () => {
             url: `/api/sessions/${plain.json().sessionId}/timeline`,
         });
         expect(plainDetail.json().goal.allowedTools).toEqual([]);
+        expect(plainDetail.json().goal.loopMode).toBe('react-only');
 
         const workspace = await fastify.inject({
             method: 'POST',

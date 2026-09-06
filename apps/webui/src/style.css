@@ -835,6 +835,10 @@ pre {
     color: var(--fg-secondary);
 }
 
+.input-actions .mode-select {
+    max-width: 132px;
+}
+
 .approve {
     border: none;
     border-radius: 999px;

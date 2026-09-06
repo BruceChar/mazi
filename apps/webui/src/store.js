@@ -421,6 +421,7 @@ export async function createAndRun(exec, goalOverrides, workspacePath, conversat
                   permissionCeiling: goalOverrides.permissionCeiling,
                   maxCostUsd: goalOverrides.maxCostUsd || undefined,
                   maxSteps: goalOverrides.maxSteps || undefined,
+                  loopMode: goalOverrides.loopMode,
               }
             : undefined;
         const body = {

@@ -299,4 +299,105 @@ describe('FullLoopStrategy（MVP v1.0 §8 F12）', () => {
         expect(ctx.session.turns[0]?.status).toBe('failed');
         expect(ctx.session.turns[0]?.attempt).toBe(1);
     });
+
+    it('goal-plan-execute（GPE）：跳过 Reflector，执行成功即接受', async () => {
+        const g = goal([]);
+        g.loopMode = 'goal-plan-execute';
+        const executor = makeExecutor((turn) => {
+            turn.status = 'succeeded';
+            return {
+                ok: true,
+                reason: 'final-answer',
+                steps: [],
+                finalMessage: '完成',
+                accumulatedTokens: {
+                    input: 1,
+                    output: 1,
+                    cacheWrite: 0,
+                    cacheRead: 0,
+                    reasoning: 0,
+                },
+                accumulatedCostUsd: 0,
+            };
+        });
+        const { ctx, emitted } = makeCtx(g, contract(g), executor);
+        let reflected = false;
+        ctx.reflector = {
+            reflect: async () => {
+                reflected = true;
+                return {
+                    accepted: false,
+                    matchedConditions: [],
+                    failedConditions: ['不应走到反射'],
+                };
+            },
+        };
+        await runAll(ctx);
+        expect(reflected).toBe(false);
+        expect(ctx.session.turns[0]?.status).toBe('succeeded');
+        const selected = emitted.find((e) => e.type === 'strategy.selected');
+        expect(selected?.payload).toMatchObject({ mode: 'goal-plan-execute' });
+        expect(emitted.at(-1)?.payload).toMatchObject({ accepted: true });
+    });
+
+    it('react-only：跳过 planner.plan，单 Turn 直接执行且不 Reflect', async () => {
+        const g = goal([]);
+        g.loopMode = 'react-only';
+        const executor = makeExecutor((turn) => {
+            turn.status = 'succeeded';
+            return {
+                ok: true,
+                reason: 'final-answer',
+                steps: [],
+                finalMessage: '直接回答',
+                accumulatedTokens: {
+                    input: 1,
+                    output: 1,
+                    cacheWrite: 0,
+                    cacheRead: 0,
+                    reasoning: 0,
+                },
+                accumulatedCostUsd: 0,
+            };
+        });
+        const emitted: HarnessEvent[] = [];
+        const session = sessionOf(g);
+        let planCalls = 0;
+        let assembleCalls = 0;
+        const planner: Planner = {
+            plan: async () => {
+                planCalls++;
+                return [];
+            },
+            assembleCapacity: async () => {
+                assembleCalls++;
+                return capacity();
+            },
+        };
+        const ctx: StrategyContext = {
+            session,
+            planner,
+            executor: executor as unknown as StrategyContext['executor'],
+            memory: new MemoryStub(),
+            driver: {} as never,
+            flags: stubFlag(),
+            emit: (e: HarnessEvent) => void emitted.push(e),
+        };
+        let reflected = false;
+        ctx.reflector = {
+            reflect: async () => {
+                reflected = true;
+                return { accepted: true, matchedConditions: [], failedConditions: [] };
+            },
+        };
+        await runAll(ctx);
+        expect(planCalls).toBe(0);
+        expect(assembleCalls).toBe(1);
+        expect(reflected).toBe(false);
+        expect(session.turns).toHaveLength(1);
+        expect(session.turns[0]?.contract.parentPlanNodeId).toBe('react-1');
+        expect(emitted.find((e) => e.type === 'strategy.selected')?.payload).toMatchObject({
+            mode: 'react-only',
+        });
+    });
 });

@@ -148,4 +148,18 @@ describe('createSession / executeSession（run 兼容）', () => {
         expect(capture.systemPrompt).not.toContain('finish the task');
         await rt.close();
     });
+
+    it('Session goal.loopMode=react-only 持久化且跳过 Planner 后仍完成', async () => {
+        const rt = offlineRuntime();
+        const created = await rt.createSession('你好', {
+            goal: { allowedTools: [], requiredTools: [], loopMode: 'react-only' },
+        });
+        const session = await rt.store.loadSession(created.sessionId);
+        expect(session?.goal.loopMode).toBe('react-only');
+        const result = await rt.executeSession(created.sessionId);
+        expect(result.outcome).toBe('success');
+        const saved = await rt.store.loadSession(created.sessionId);
+        expect(saved?.goal.loopMode).toBe('react-only');
+        await rt.close();
+    });
 });

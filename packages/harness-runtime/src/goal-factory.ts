@@ -39,6 +39,7 @@ export function buildGoal(
         },
         termination: { maxSteps },
         rollbackPolicy: { strategy: 'none' },
+        loopMode: g.loopMode,
         strategyHints: ['complex'],
         metadata: {
             requiredTools: g.requiredTools ?? [],

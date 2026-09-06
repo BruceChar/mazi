@@ -39,6 +39,7 @@ export interface RuntimeConfig {
         maxSteps?: number;
         maxCostUsd?: number;
         successConditions?: string[];
+        loopMode?: 'goal-plan-execute-reflect' | 'goal-plan-execute' | 'react-only';
     };
     systemPrompt?: string;
     contextWindow?: number;

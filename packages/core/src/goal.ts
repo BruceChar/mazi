@@ -29,6 +29,9 @@ export interface RollbackPolicy {
     description?: string;
 }
 
+/** Session 级可选 Loop 编排模式（默认 goal-plan-execute-reflect） */
+export type LoopMode = 'goal-plan-execute-reflect' | 'goal-plan-execute' | 'react-only';
+
 /** Session 级 GoalContract：全局约束与预算来源 */
 export interface GoalContract {
     goalId: string;
@@ -48,6 +51,8 @@ export interface GoalContract {
     rollbackPolicy: RollbackPolicy;
     /** 策略选择提示（仅供 Strategy 选择，不参与 Provider 路由） */
     strategyHints?: StrategyHint[];
+    /** Loop 编排模式：GPER（默认）/ GPE / react-only；运行期只读 */
+    loopMode?: LoopMode;
     metadata?: Record<string, unknown>;
 }
 

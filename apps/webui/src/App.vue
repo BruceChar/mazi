@@ -57,7 +57,13 @@ const draft = ref({
     budgetUsd: 0.5,
     maxSteps: 8,
     userId: '',
+    loopMode: 'goal-plan-execute-reflect',
 });
+const LOOP_MODE_OPTIONS = [
+    { value: 'goal-plan-execute-reflect', label: 'GPER · 默认' },
+    { value: 'goal-plan-execute', label: 'Plan-Execute' },
+    { value: 'react-only', label: 'React Only' },
+];
 const profile = ref(null);
 const feedbackSent = ref(false);
 const openSteps = ref({});
@@ -386,6 +392,7 @@ async function submitPrompt() {
         maxCostUsd: draft.value.budgetUsd,
         maxSteps: draft.value.maxSteps,
         userId: draft.value.userId || undefined,
+        loopMode: draft.value.loopMode,
     }, workspaceRoot.value, currentConversation.value || undefined);
 }
 
@@ -396,6 +403,7 @@ async function submitNew(exec) {
         maxCostUsd: draft.value.budgetUsd,
         maxSteps: draft.value.maxSteps,
         userId: draft.value.userId || undefined,
+        loopMode: draft.value.loopMode,
     }, workspaceRoot.value);
 }
 
@@ -835,6 +843,11 @@ onBeforeUnmount(() => {
                         <select v-model="selectedModel" title="模型">
                             <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
                         </select>
+                        <select v-model="draft.loopMode" class="mode-select" title="Loop 模式">
+                            <option v-for="m in LOOP_MODE_OPTIONS" :key="m.value" :value="m.value">
+                                {{ m.label }}
+                            </option>
+                        </select>
                         <button
                             class="approve"
                             :disabled="!hasToolActivity"
@@ -1002,6 +1015,14 @@ onBeforeUnmount(() => {
                 <div class="field-row"><label>预算（USD）</label><input v-model.number="draft.budgetUsd" type="number" step="0.1" /></div>
                 <div class="field-row"><label>最大步数</label><input v-model.number="draft.maxSteps" type="number" /></div>
                 <div class="field-row"><label>UserId（可选）</label><input v-model="draft.userId" placeholder="me" /></div>
+                <div class="field-row">
+                    <label>Loop 模式</label>
+                    <select v-model="draft.loopMode">
+                        <option v-for="m in LOOP_MODE_OPTIONS" :key="m.value" :value="m.value">
+                            {{ m.label }}
+                        </option>
+                    </select>
+                </div>
             </div>
             <div class="modal-actions">
                 <button class="ghost" @click="ui.showNew = false">取消</button>
