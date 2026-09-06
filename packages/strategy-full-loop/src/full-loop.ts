@@ -50,7 +50,7 @@ const CAPABILITIES: StrategyCapabilities = {
     needsGoal: true,
     needsPlan: true,
     needsExecute: true,
-    needsObserve: false,
+    needsObserve: true,
     needsReflect: false,
     needsPersistentState: true,
 };

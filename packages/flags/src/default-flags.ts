@@ -7,7 +7,7 @@ import type { FeatureFlagDefinition } from '@mazi/core';
 export const DEFAULT_FLAGS: FeatureFlagDefinition[] = [
     {
         key: 'observe.enabled',
-        description: 'Observer/观察消费开关（MVP 无独立 Observer，语义保留）',
+        description: 'Observer/观察消费开关（结构化工具观察已落地）',
         type: 'boolean',
         defaultValue: true,
     },
