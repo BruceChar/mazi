@@ -17,7 +17,7 @@ import type {
     VendorUsage,
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
-import { DefaultObserver, newHarnessEvent } from '@mazi/observability';
+import { compactContextText, DefaultObserver, newHarnessEvent } from '@mazi/observability';
 import type { ContextMeter, CostCalculator } from '@mazi/usage';
 import { backfillDrift, emptyTokenTotals, isDriftExcessive } from '@mazi/usage';
 import { buildContext } from './context-builder.js';
@@ -293,7 +293,7 @@ export class Executor {
                 sessionId,
                 seqBase,
                 'thinking',
-                { content: assistantText },
+                { content: assistantText, contextContent: compactContextText(assistantText) },
                 capacity,
                 usage,
             );

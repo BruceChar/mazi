@@ -15,7 +15,8 @@ export function buildContextMessages(steps: Step[]): LLMMessage[] {
         }
         switch (step.kind) {
             case 'thinking': {
-                const content = (step.payload as { content?: string }).content ?? '';
+                const payload = step.payload as { content?: string; contextContent?: string };
+                const content = payload.contextContent ?? payload.content ?? '';
                 if (content.length > 0) {
                     messages.push({ role: 'assistant', content });
                 }

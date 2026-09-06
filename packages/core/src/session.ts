@@ -110,6 +110,8 @@ export interface Step {
 /** thinking Step 的载荷 */
 export interface ThinkingPayload {
     content: string;
+    /** 供模型上下文回注的裁剪内容；缺省回退 content */
+    contextContent?: string;
 }
 
 /** tool_call Step 的载荷 */

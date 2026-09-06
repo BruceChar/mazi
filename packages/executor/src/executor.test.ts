@@ -282,6 +282,8 @@ describe('Executor（MVP v1.0 §8 F10）', () => {
         const observation = outcome.steps.find((s) => s.kind === 'observation');
         expect(observation?.payload.structured).toMatchObject({ ok: true, toolName: 'fs.read' });
         expect(observation?.payload.contextContent).toBe('FILE CONTENT');
+        const thinking = outcome.steps.find((s) => s.kind === 'thinking');
+        expect(typeof thinking?.payload.contextContent).toBe('string');
         const llmSteps = outcome.steps.filter((s) => s.usage !== undefined);
         expect(llmSteps.length).toBeGreaterThanOrEqual(2);
         for (const s of llmSteps) {
