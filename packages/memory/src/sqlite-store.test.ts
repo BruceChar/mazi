@@ -564,7 +564,13 @@ describe('SqliteMemoryStore（MVP v1.0 §8 F8 / D1 node:sqlite）', () => {
                 )
                 .all() as { name: string }[]
         ).map((row) => row.name);
-        expect(tables).toEqual(['sessions', 'steps', 'turns', 'user_interactions']);
+        expect(tables).toEqual([
+            'failure_ledger',
+            'sessions',
+            'steps',
+            'turns',
+            'user_interactions',
+        ]);
         const indexes = (
             db
                 .prepare(
@@ -573,6 +579,7 @@ describe('SqliteMemoryStore（MVP v1.0 §8 F8 / D1 node:sqlite）', () => {
                 .all() as { name: string }[]
         ).map((row) => row.name);
         expect(indexes).toEqual([
+            'idx_failure_ledger_kind_created_at',
             'idx_steps_turn_id',
             'idx_steps_turn_id_seq',
             'idx_turns_session_id',
@@ -580,6 +587,30 @@ describe('SqliteMemoryStore（MVP v1.0 §8 F8 / D1 node:sqlite）', () => {
             'idx_user_interactions_user_id',
         ]);
         db.close();
+    });
+
+    it('failure_ledger：写入后可按时间倒序查询', async () => {
+        const store = mem();
+        await store.addFailureRecord({
+            recordId: 'fl-a',
+            sessionId: 'sess-fail-a',
+            failureKind: 'timeout',
+            costUsd: 0.1,
+            tags: ['timeout'],
+            summary: 'turn 超时',
+            createdAt: NOW,
+        });
+        await store.addFailureRecord({
+            recordId: 'fl-b',
+            sessionId: 'sess-fail-b',
+            failureKind: 'budget-exceeded',
+            tags: [],
+            createdAt: NOW + 100,
+        });
+        const all = await store.listFailureRecords();
+        expect(all.map((r) => r.recordId)).toEqual(['fl-b', 'fl-a']);
+        const limited = await store.listFailureRecords({ limit: 1 });
+        expect(limited.map((r) => r.recordId)).toEqual(['fl-b']);
     });
 
     it('异常：close 后继续写入 rejected；close 幂等不抛；空库各查询返回空/undefined', async () => {

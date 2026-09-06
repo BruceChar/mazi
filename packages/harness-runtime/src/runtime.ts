@@ -392,6 +392,19 @@ export class HarnessRuntime {
             ? `执行异常：${strategyError.message}`
             : summarizeSession(turnSteps);
         const metrics = await this.sessionMetrics(session, turnSteps);
+        if (outcome !== 'success') {
+            const providerId = session.turns[0]?.capacity?.model?.providerId;
+            await this.memory.addFailureRecord({
+                recordId: ulid(),
+                sessionId,
+                failureKind: outcome,
+                costUsd: metrics.totalCostUsd,
+                providerId,
+                tags: [],
+                summary: (summary ?? '').slice(0, 240),
+                createdAt: session.endedAt,
+            });
+        }
         await this.memory.saveSession(session);
         this.bus.emit(
             newHarnessEvent({

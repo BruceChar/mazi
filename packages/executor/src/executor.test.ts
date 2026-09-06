@@ -60,6 +60,7 @@ class MemoryStub implements MemoryStore {
     async loadSession(id: string): Promise<Session | undefined> {
         return structuredClone(this.sessions.get(id));
     }
+    async deleteSession(): Promise<void> {}
     async saveTurn(t: Turn): Promise<void> {
         this.turns.set(t.turnId, structuredClone(t));
         const list = this.turnList.get(t.sessionId) ?? [];
@@ -124,6 +125,10 @@ class MemoryStub implements MemoryStore {
             all = all.slice(0, opts.limit);
         }
         return structuredClone(all);
+    }
+    async addFailureRecord(): Promise<void> {}
+    async listFailureRecords(): Promise<never[]> {
+        return [];
     }
 }
 

@@ -1,4 +1,5 @@
 export type * from './capacity.js';
+export type * from './failure.js';
 export type * from './flags.js';
 export type * from './goal.js';
 export { ulid } from './id.js';

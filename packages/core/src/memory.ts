@@ -1,3 +1,4 @@
+import type { FailureLedgerRecord } from './failure.js';
 import type { Session, Step, Turn, TurnCheckpoint } from './session.js';
 import type { UserInteractionRecord } from './user-interaction.js';
 
@@ -21,4 +22,6 @@ export interface MemoryStore {
         status?: 'recording' | 'completed';
         limit?: number;
     }): Promise<UserInteractionRecord[]>;
+    addFailureRecord(record: FailureLedgerRecord): Promise<void>;
+    listFailureRecords(opts?: { limit?: number }): Promise<FailureLedgerRecord[]>;
 }

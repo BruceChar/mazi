@@ -76,6 +76,7 @@ class MemoryStub implements MemoryStore {
     async loadSession(): Promise<Session | undefined> {
         return undefined;
     }
+    async deleteSession(): Promise<void> {}
     async saveTurn(t: Turn): Promise<void> {
         // capacity.flags 含函数，无法 structuredClone：存储时剥离（测试不依赖该字段）
         const stored = {
@@ -103,6 +104,10 @@ class MemoryStub implements MemoryStore {
         return undefined;
     }
     async listUserInteractionRecords(): Promise<never[]> {
+        return [];
+    }
+    async addFailureRecord(): Promise<void> {}
+    async listFailureRecords(): Promise<never[]> {
         return [];
     }
 }

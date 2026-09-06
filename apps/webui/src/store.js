@@ -132,6 +132,7 @@ export const metrics = reactive({
     provider: '-',
 });
 export const events = reactive({ list: [], types: 'all' });
+export const ledger = ref([]);
 
 export const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -494,5 +495,14 @@ export async function loadProfile(userId) {
         return await api(`/api/users/${encodeURIComponent(userId)}/profile`);
     } catch {
         return null;
+    }
+}
+
+export async function loadLedger() {
+    try {
+        ledger.value = await api('/api/ledger?limit=200');
+        ui.err = null;
+    } catch (error) {
+        ui.err = String(error);
     }
 }

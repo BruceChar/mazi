@@ -1177,6 +1177,38 @@ pre {
     border-radius: 6px;
 }
 
+.ledger-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+}
+
+.ledger-item:last-child {
+    border-bottom: none;
+}
+
+.ledger-main,
+.ledger-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.ledger-meta {
+    flex: 0 0 auto;
+    color: var(--fg-secondary);
+}
+
+.mono-text {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: var(--fg-secondary);
+}
+
 .field-row {
     margin: 10px 0;
 }

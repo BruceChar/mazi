@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import type {
+    FailureLedgerRecord,
     FlagSnapshot,
     MemoryStore,
     Session,
@@ -178,6 +179,24 @@ function recordFromRow(row: SqlRow): UserInteractionRecord {
         record.outcome = outcome;
     }
     return record;
+}
+
+/** failure_ledger 行 → FailureLedgerRecord */
+function failureFromRow(row: SqlRow): FailureLedgerRecord {
+    return {
+        recordId: row.record_id as string,
+        sessionId: row.session_id as string,
+        failureKind: row.failure_kind as string,
+        tags: fromJson<string[]>(row.tags_json) ?? [],
+        createdAt: row.created_at as number,
+        ...(asString(row.turn_id) === undefined ? {} : { turnId: asString(row.turn_id) }),
+        ...(asString(row.step_id) === undefined ? {} : { stepId: asString(row.step_id) }),
+        ...(asNumber(row.cost_usd) === undefined ? {} : { costUsd: asNumber(row.cost_usd) }),
+        ...(asString(row.provider_id) === undefined
+            ? {}
+            : { providerId: asString(row.provider_id) }),
+        ...(asString(row.summary) === undefined ? {} : { summary: asString(row.summary) }),
+    };
 }
 
 /**
@@ -460,5 +479,41 @@ export class SqliteMemoryStore implements MemoryStore {
         }
         const rows = this.db.prepare(sql).all(...params);
         return rows.map((row) => recordFromRow(row));
+    }
+
+    /** 追加失败分类账记录 */
+    async addFailureRecord(record: FailureLedgerRecord): Promise<void> {
+        this.db
+            .prepare(
+                `INSERT OR REPLACE INTO failure_ledger
+                    (record_id, session_id, turn_id, step_id, failure_kind, cost_usd,
+                     provider_id, tags_json, summary, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+                record.recordId,
+                record.sessionId,
+                record.turnId ?? null,
+                record.stepId ?? null,
+                record.failureKind,
+                record.costUsd ?? null,
+                record.providerId ?? null,
+                JSON.stringify(record.tags),
+                record.summary ?? null,
+                record.createdAt,
+            );
+    }
+
+    /** 失败分类账列表：按 created_at 倒序 */
+    async listFailureRecords(opts?: { limit?: number }): Promise<FailureLedgerRecord[]> {
+        let sql = 'SELECT * FROM failure_ledger ORDER BY created_at DESC, rowid DESC';
+        const params: SqlParam[] = [];
+        const limit = opts?.limit;
+        if (typeof limit === 'number' && limit > 0) {
+            sql += ' LIMIT ?';
+            params.push(Math.floor(limit));
+        }
+        const rows = this.db.prepare(sql).all(...params);
+        return rows.map((row) => failureFromRow(row));
     }
 }

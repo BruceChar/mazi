@@ -1,10 +1,10 @@
 /**
  * @mazi/memory 存储 Schema（MVP 设计文档 v1.0 §4.3 D1 / §8 F8）。
- * 四张表：sessions / turns / steps / user_interactions，对象图以 JSON 列落盘；
+ * 五张表：sessions / turns / steps / user_interactions / failure_ledger，对象图以 JSON 列落盘；
  * 由 SqliteMemoryStore 在打开连接后调用，幂等（IF NOT EXISTS），可安全重复执行。
  */
 
-/** 幂等 DDL 集合：四表 + 五索引（覆盖按会话/用户/时序查询的热点路径） */
+/** 幂等 DDL 集合：五表 + 六索引（覆盖按会话/用户/时序查询的热点路径） */
 const DDL_STATEMENTS: string[] = [
     `CREATE TABLE IF NOT EXISTS sessions (
         session_id TEXT PRIMARY KEY,
@@ -59,11 +59,24 @@ const DDL_STATEMENTS: string[] = [
         status TEXT NOT NULL,
         updated_at INTEGER NOT NULL
     );`,
+    `CREATE TABLE IF NOT EXISTS failure_ledger (
+        record_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        turn_id TEXT,
+        step_id TEXT,
+        failure_kind TEXT NOT NULL,
+        cost_usd REAL,
+        provider_id TEXT,
+        tags_json TEXT NOT NULL,
+        summary TEXT,
+        created_at INTEGER NOT NULL
+    );`,
     'CREATE INDEX IF NOT EXISTS idx_turns_session_id ON turns(session_id);',
     'CREATE INDEX IF NOT EXISTS idx_steps_turn_id_seq ON steps(turn_id, seq);',
     'CREATE INDEX IF NOT EXISTS idx_steps_turn_id ON steps(turn_id);',
     'CREATE INDEX IF NOT EXISTS idx_user_interactions_session_id ON user_interactions(session_id);',
     'CREATE INDEX IF NOT EXISTS idx_user_interactions_user_id ON user_interactions(user_id);',
+    'CREATE INDEX IF NOT EXISTS idx_failure_ledger_kind_created_at ON failure_ledger(failure_kind, created_at);',
 ];
 
 /**

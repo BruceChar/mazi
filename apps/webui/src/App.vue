@@ -19,6 +19,7 @@ import {
     icon,
     loadConfig,
     loadConversations,
+    loadLedger,
     loadProfile,
     metrics,
     relTime,
@@ -42,6 +43,7 @@ import {
     conversations,
     renameProject,
     updateConversation,
+    ledger,
 } from './store.js';
 
 const prompt = ref('');
@@ -369,6 +371,9 @@ async function switchView(name) {
     ui.view = name;
     if (name === 'profile') {
         profile.value = await loadProfile(activeUserId.value);
+    }
+    if (name === 'ledger') {
+        await loadLedger();
     }
     accountOpen.value = false;
 }
@@ -871,7 +876,19 @@ onBeforeUnmount(() => {
                         </button>
                         <h1>失败分类账</h1>
                     </div>
-                    <div class="muted-block">failure_ledger 将在存储 SPI 落地后提供；当前可从失败会话的轨迹定位。</div>
+                    <div v-if="!ledger.length" class="empty-hint">暂无失败记录</div>
+                    <div v-for="item in ledger" :key="item.recordId" class="ledger-item">
+                        <div class="ledger-main">
+                            <span class="badge" :class="badge(item.failureKind)">{{ item.failureKind }}</span>
+                            <span class="mono-text">{{ item.sessionId }}</span>
+                            <span v-if="item.summary" class="muted-inline">{{ item.summary }}</span>
+                        </div>
+                        <div class="ledger-meta">
+                            <span v-if="item.providerId">{{ item.providerId }}</span>
+                            <span v-if="item.costUsd !== undefined">{{ fmtUsd(item.costUsd) }}</span>
+                            <span>{{ fmtClock(item.createdAt) }}</span>
+                        </div>
+                    </div>
                 </div>
             </template>
             <footer class="statusbar">

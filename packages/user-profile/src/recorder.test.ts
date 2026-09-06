@@ -42,6 +42,7 @@ class MemoryStub implements MemoryStore {
     async loadSession(): Promise<Session | undefined> {
         return undefined;
     }
+    async deleteSession(): Promise<void> {}
     async saveTurn(): Promise<void> {}
     async listTurns(): Promise<Turn[]> {
         return [];
@@ -53,6 +54,10 @@ class MemoryStub implements MemoryStore {
     async saveCheckpoint(): Promise<void> {}
     async loadCheckpoint(): Promise<TurnCheckpoint | undefined> {
         return undefined;
+    }
+    async addFailureRecord(): Promise<void> {}
+    async listFailureRecords(): Promise<never[]> {
+        return [];
     }
 }
 

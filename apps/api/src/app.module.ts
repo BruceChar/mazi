@@ -7,6 +7,8 @@ import { ConversationsController } from './conversations/conversations.controlle
 import { ConversationsService } from './conversations/conversations.service.js';
 import { EventsController } from './events/events.controller.js';
 import { HealthController } from './health/health.controller.js';
+import { LedgerController } from './ledger/ledger.controller.js';
+import { LedgerService } from './ledger/ledger.service.js';
 import { RunsController } from './runs/runs.controller.js';
 import { SessionsController } from './sessions/sessions.controller.js';
 import { SessionsService } from './sessions/sessions.service.js';
@@ -19,6 +21,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
     imports: [RuntimeModule],
     controllers: [
         HealthController,
+        LedgerController,
         RunsController,
         SessionsController,
         ConversationsController,
@@ -30,6 +33,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         { provide: APP_FILTER, useClass: ApiExceptionsFilter },
         SessionsService,
         ConversationsService,
+        LedgerService,
         UsersService,
     ],
 })
