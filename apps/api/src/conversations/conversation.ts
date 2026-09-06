@@ -17,6 +17,35 @@ export interface Conversation {
     updatedAt: number;
 }
 
+/** Conversation 持久化形态：仅持有 Session 引用，投影时再水合为 Session[] */
+export interface ConversationRecord {
+    conversationId: string;
+    title: string;
+    userId?: string;
+    sessionIds: string[];
+    workspace?: string;
+    projectId?: string;
+    createdAt: number;
+    updatedAt: number;
+}
+
+/** 持久化记录 → API 会话对象 */
+export function conversationFromRecord(
+    record: ConversationRecord,
+    sessions: Session[],
+): Conversation {
+    return {
+        conversationId: record.conversationId,
+        title: record.title,
+        userId: record.userId,
+        sessions,
+        workspace: record.workspace,
+        projectId: record.projectId,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+    };
+}
+
 /** 归属字段是否完整，决定该会话是否属于工作区项目 */
 export function hasWorkspaceContext(conversation: Conversation): boolean {
     return conversation.workspace !== undefined && conversation.projectId !== undefined;

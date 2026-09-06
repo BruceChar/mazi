@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { ApiExceptionsFilter } from './common/api-error.js';
 import { RuntimeModule } from './common/runtime.module.js';
+import { ConversationsController } from './conversations/conversations.controller.js';
+import { ConversationsService } from './conversations/conversations.service.js';
 import { EventsController } from './events/events.controller.js';
 import { HealthController } from './health/health.controller.js';
 import { RunsController } from './runs/runs.controller.js';
@@ -19,6 +21,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         HealthController,
         RunsController,
         SessionsController,
+        ConversationsController,
         UsersController,
         EventsController,
         WorkspacesController,
@@ -26,6 +29,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
     providers: [
         { provide: APP_FILTER, useClass: ApiExceptionsFilter },
         SessionsService,
+        ConversationsService,
         UsersService,
     ],
 })

@@ -5,6 +5,7 @@ import { DefaultEventBus, newHarnessEvent } from '@mazi/observability';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
+import { ConversationsService } from '../conversations/conversations.service.js';
 
 /** 会话列表投影行（GET /api/sessions 响应元素，契约对齐旧实现） */
 export interface SessionListItem {
@@ -30,7 +31,10 @@ export type SessionDetail = Record<string, unknown>;
  */
 @Injectable()
 export class SessionsService {
-    constructor(private readonly runtime: ApiRuntimeService) {}
+    constructor(
+        private readonly runtime: ApiRuntimeService,
+        private readonly conversations: ConversationsService,
+    ) {}
 
     /** POST /api/sessions：创建会话（不执行）；body.input 必填，body.goal 透传（运行时语义同旧实现） */
     async createSession(
@@ -49,6 +53,23 @@ export class SessionsService {
         };
         const created = await this.runtime.harness().createSession(input, options);
         this.runtime.addProjectSession(created.sessionId);
+        const workspace =
+            typeof body.workspace === 'string' && body.workspace.trim()
+                ? body.workspace.trim()
+                : typeof body.workspacePath === 'string' && body.workspacePath.trim()
+                  ? body.workspacePath.trim()
+                  : this.runtime.selectedWorkspaceRoot;
+        const projectId =
+            typeof body.projectId === 'string' && body.projectId.trim()
+                ? body.projectId.trim()
+                : workspace;
+        this.conversations.recordNewSession({
+            sessionId: created.sessionId,
+            title: input.slice(0, 80),
+            userId: options.userId,
+            workspace,
+            projectId,
+        });
         return { sessionId: created.sessionId, state: 'running' };
     }
 
