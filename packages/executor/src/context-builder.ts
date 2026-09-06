@@ -9,6 +9,7 @@ import type { ContextSections } from '@mazi/usage';
  */
 export function buildContextMessages(steps: Step[]): LLMMessage[] {
     const messages: LLMMessage[] = [];
+    let pendingToolCallId: string | undefined;
     for (const step of steps) {
         if (step.status !== 'ok') {
             continue;
@@ -35,6 +36,7 @@ export function buildContextMessages(steps: Step[]): LLMMessage[] {
                     toolCallId: p.callId,
                     arguments: p.arguments,
                 });
+                pendingToolCallId = p.callId;
                 break;
             }
             case 'observation': {
@@ -43,12 +45,14 @@ export function buildContextMessages(steps: Step[]): LLMMessage[] {
                     content: string;
                     contextContent?: string;
                     isError?: boolean;
+                    toolCallId?: string;
                 };
                 const content = p.contextContent ?? p.content;
                 messages.push({
                     role: 'tool',
                     content: p.isError ? `[error] ${content}` : content,
                     name: p.toolName,
+                    toolCallId: p.toolCallId ?? pendingToolCallId,
                 });
                 break;
             }
