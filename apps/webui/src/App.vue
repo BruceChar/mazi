@@ -487,7 +487,7 @@ onMounted(async () => {
         await loadConfig();
         await loadConversations();
         await loadWorkspace();
-        const firstConversation = conversations.value[0];
+        const firstConversation = activeConversations(conversations.value)[0];
         const firstSession = conversationLatestSession(firstConversation);
         if (firstSession) {
             currentConversation.value = firstConversation.conversationId;
