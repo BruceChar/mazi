@@ -8,7 +8,7 @@
 | 术语 | 含义 |
 | --- | --- |
 | 会话（Conversation） | UI 侧一个可展开的对话条目，是一个聚合容器，**由多个 Session 组成**；普通会话与工作区会话是同一结构 |
-| Session | 一次单独的用户输入，以及大模型针对该输入的**完整输出**；完整输出内部的执行轨迹由 Turn / Step 记录 |
+| Session | 一次单独的用户输入，以及大模型针对该输入的**完整输出**；自身带 `sessionId`，原有 Session/Turn/Step 结构不变 |
 | Turn / Step | 属于某个 Session 完整输出的执行轨迹，描述模型回复与工具调用过程；不跨 Session、更不跨会话 |
 | 工作区会话 | 与普通会话完全同构，仅多了 `projectId`、`workspace` 两个归属属性 |
 
@@ -31,7 +31,6 @@ interface Conversation {
 /** Session：一次单独的用户输入 + 大模型的完整输出（保留 Turn/Step 执行轨迹） */
 interface Session {
     sessionId: string;
-    conversationId: string;
     userId?: string;
     rawIntent: string;
     turns: Turn[];
@@ -42,9 +41,10 @@ interface Session {
 约束：
 
 1. `Conversation.sessions` 是 `Session[]`；普通会话与工作区会话都是同一个 `Conversation` 容器，不再为工作区维护一套独立列表。
-2. `Session` 必须归属且仅归属一个会话，通过 `conversationId` 表达归属。
-3. 一个工作区项目会话仅当 `projectId` 与 `workspace` 同时存在时成立；二者必须成对出现。
-4. Turn / Step 只挂载在 Session 下，是「一次用户输入 + 完整模型输出」内部的可观测轨迹。
+2. Session 仍是独立聚合，自身仅带 `sessionId`，不增加任何指向 Conversation 的反向字段；归属关系只由 `Conversation.sessions` 持有。
+3. 一个会话可以只包含一个 Session，也可以包含多个 Session；Session 自身结构、Turn/Step 结构均不因会话层而改变。
+4. 一个工作区项目会话仅当 `projectId` 与 `workspace` 同时存在时成立；二者必须成对出现。
+5. Turn / Step 只挂载在 Session 下，是「一次用户输入 + 完整模型输出」内部的可观测轨迹。
 
 ## 3. UI 展示规则
 
@@ -57,8 +57,8 @@ interface Session {
 
 当前实现中 Session 直接承担了 UI「会话」的职责，且工作区归属由 `projects[].sessionIds` 外部维护。按本定义调整时涉及：
 
-- core 契约：新增 `Conversation`，Session 增加 `conversationId`；
-- 存储：会话与 Session 的归属关系落到持久层，不再依赖 `workspaces.json` 的 `sessionIds`；
+- core 契约：新增 `Conversation` 聚合，Session 本身保持不变；
+- 存储：会话通过 `Conversation.sessions` 持有 Session 引用/列表，不再依赖 `workspaces.json` 的 `sessionIds` 作为唯一归属；
 - API：列表以会话为单位返回，工作区归属直接携带在会话对象上；
 - WebUI：会话列表按 `Conversation.sessions` 渲染，工作区展示改为基于会话归属字段过滤。
 
