@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './LineIcon.vue';
-import { sessionsOutsideProjects } from './sidebar.ts';
+import { defaultConversations, projectConversations } from './sidebar.ts';
 import {
     badge,
     busy,
@@ -16,15 +16,15 @@ import {
     fmtUsd,
     icon,
     loadConfig,
+    loadConversations,
     loadProfile,
-    loadSessions,
     metrics,
     relTime,
     saveUserPreferences,
     runCurrent,
+    select,
     openSession,
     sendFeedback,
-    sessions,
     setTheme,
     short,
     stepLabel,
@@ -37,6 +37,7 @@ import {
     selectWorkspace,
     loadWorkspace,
     pickWorkspace,
+    conversations,
 } from './store.js';
 
 const prompt = ref('');
@@ -76,17 +77,19 @@ watch(
     { immediate: true },
 );
 
-const sessionItems = computed(() => {
+const filteredConversations = computed(() => {
     const key = q.value.trim().toLowerCase();
-    if (!key) return sessions.value;
-    return sessions.value.filter((s) =>
-        String(s.title || s.input || '').toLowerCase().includes(key),
-    );
+    if (!key) return conversations.value;
+    return conversations.value.filter((conversation) => {
+        const title = String(conversation.title || '').toLowerCase().includes(key);
+        const sessionHit = (conversation.sessions || []).some((session) =>
+            String(session.rawIntent || '').toLowerCase().includes(key),
+        );
+        return title || sessionHit;
+    });
 });
 
-const generalSessionItems = computed(() =>
-    sessionsOutsideProjects(sessionItems.value, projects.value),
-);
+const generalConversations = computed(() => defaultConversations(filteredConversations.value));
 
 const chatRows = computed(() => {
     const rows = [];
@@ -389,8 +392,47 @@ function cycleTheme() {
     setTheme(theme.value === 'dark' ? 'light' : 'dark');
 }
 
-async function openSelectedSession(sessionId) {
-    await openSession(sessionId);
+function conversationLatestSession(conversation) {
+    const sessions = conversation?.sessions || [];
+    return sessions.length > 0 ? sessions[sessions.length - 1] : null;
+}
+
+function conversationTitle(conversation) {
+    return conversation?.title || conversationLatestSession(conversation)?.rawIntent || '';
+}
+
+function conversationOutcome(conversation) {
+    const session = conversationLatestSession(conversation);
+    return session?.outcome || 'recording';
+}
+
+function conversationTurns(conversation) {
+    return (conversation?.sessions || []).reduce(
+        (total, session) => total + (session.aggregate?.totalTurns ?? session.turns?.length ?? 0),
+        0,
+    );
+}
+
+function conversationCostUsd(conversation) {
+    return (conversation?.sessions || []).reduce(
+        (total, session) => total + (session.aggregate?.totalCostUsd ?? 0),
+        0,
+    );
+}
+
+function isConversationActive(conversation) {
+    return (conversation?.sessions || []).some((session) => session.sessionId === current.value);
+}
+
+function projectConversationItems(project) {
+    return projectConversations(filteredConversations.value, project.path, project.path);
+}
+
+async function openConversation(conversation) {
+    const session = conversationLatestSession(conversation);
+    if (session) {
+        await openSession(session.sessionId);
+    }
     feedbackSent.value = false;
 }
 
@@ -406,10 +448,12 @@ onMounted(async () => {
     });
     try {
         await loadConfig();
-        await loadSessions();
+        await loadConversations();
         await loadWorkspace();
-        if (sessions.value[0]) {
-            await select(sessions.value[0].sessionId);
+        const firstConversation = conversations.value[0];
+        const firstSession = conversationLatestSession(firstConversation);
+        if (firstSession) {
+            await select(firstSession.sessionId);
         }
     } catch (error) {
         ui.err = String(error);
@@ -497,41 +541,41 @@ onBeforeUnmount(() => {
                     <ul class="session-list">
                         <template v-if="isProjectOpen(project.path)">
                             <li
-                                v-for="s in sessionItems.filter((item) => project.sessionIds.includes(item.sessionId))"
-                                :key="s.sessionId"
-                                :class="{ active: current === s.sessionId }"
-                                @click="openSelectedSession(s.sessionId)"
+                                v-for="c in projectConversationItems(project)"
+                                :key="c.conversationId"
+                                :class="{ active: isConversationActive(c) }"
+                                @click="openConversation(c)"
                             >
-                                <div class="session-title">{{ s.title || s.input }}</div>
+                                <div class="session-title">{{ conversationTitle(c) }}</div>
                                 <div class="session-meta">
-                                    <span class="badge" :class="badge(s.outcome)">{{ s.outcome || 'recording' }}</span>
-                                    <span class="time">{{ relTime(s.updatedAt || s.createdAt) }}</span>
+                                    <span class="badge" :class="badge(conversationOutcome(c))">{{ conversationOutcome(c) }}</span>
+                                    <span class="time">{{ relTime(c.updatedAt || c.createdAt) }}</span>
                                 </div>
                             </li>
-                            <li v-if="!sessionItems.filter((item) => project.sessionIds.includes(item.sessionId)).length" class="empty-sidebar">
+                            <li v-if="!projectConversationItems(project).length" class="empty-sidebar">
                                 暂无项目会话
                             </li>
                         </template>
                     </ul>
                 </div>
                 <div class="group">
-                    <div class="group-head">会话 · {{ generalSessionItems.length }}</div>
+                    <div class="group-head">会话 · {{ generalConversations.length }}</div>
                     <ul class="session-list">
                         <li
-                            v-for="s in generalSessionItems"
-                            :key="s.sessionId"
-                            :class="{ active: current === s.sessionId }"
-                            @click="openSelectedSession(s.sessionId)"
+                            v-for="c in generalConversations"
+                            :key="c.conversationId"
+                            :class="{ active: isConversationActive(c) }"
+                            @click="openConversation(c)"
                         >
-                            <div class="session-title">{{ s.title || s.input }}</div>
+                            <div class="session-title">{{ conversationTitle(c) }}</div>
                             <div class="session-meta">
-                                <span class="badge" :class="badge(s.outcome)">{{ s.outcome || 'recording' }}</span>
-                                <span>{{ s.turns ?? '-' }} turns</span>
-                                <span>{{ fmtUsd(s.costUsd) }}</span>
-                                <span class="time">{{ relTime(s.updatedAt || s.createdAt) }}</span>
+                                <span class="badge" :class="badge(conversationOutcome(c))">{{ conversationOutcome(c) }}</span>
+                                <span>{{ conversationTurns(c) }} turns</span>
+                                <span>{{ fmtUsd(conversationCostUsd(c)) }}</span>
+                                <span class="time">{{ relTime(c.updatedAt || c.createdAt) }}</span>
                             </div>
                         </li>
-                        <li v-if="!generalSessionItems.length" class="empty-sidebar">暂无会话</li>
+                        <li v-if="!generalConversations.length" class="empty-sidebar">暂无会话</li>
                     </ul>
                 </div>
             </div>

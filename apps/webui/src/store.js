@@ -111,7 +111,7 @@ export function saveUserPreferences(next) {
     }
 }
 
-export const sessions = ref([]);
+export const conversations = ref([]);
 export const current = ref(null);
 export const detail = ref(null);
 export const cfg = ref(null);
@@ -214,9 +214,9 @@ export async function loadConfig() {
     }
 }
 
-export async function loadSessions() {
+export async function loadConversations() {
     try {
-        sessions.value = await api('/api/sessions?limit=100');
+        conversations.value = await api('/api/conversations');
     } catch (error) {
         ui.err = String(error);
     }
@@ -273,7 +273,7 @@ async function refreshDetail(sessionId) {
     try {
         detail.value = await api(`/api/sessions/${sessionId}/timeline`);
         recompute();
-        await loadSessions();
+        await loadConversations();
     } catch {
         // 会话被清理或后端临时不可用时保留旧快照
     }
@@ -407,7 +407,7 @@ export async function createAndRun(exec, goalOverrides, workspacePath) {
                 workspacePath,
             }),
         });
-        await loadSessions();
+        await loadConversations();
         await select(created.sessionId);
         if (exec) {
             await runCurrent(created.sessionId);
@@ -432,7 +432,7 @@ export async function runCurrent(sessionId) {
             headers: { 'content-type': 'application/json' },
             body: '{}',
         });
-        await loadSessions();
+        await loadConversations();
         await select(sessionId);
     } catch (error) {
         ui.err = String(error);

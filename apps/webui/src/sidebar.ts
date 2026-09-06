@@ -1,10 +1,17 @@
-/** 收集所有工作区项目已归属的会话 id。 */
-export function projectSessionIds(projects) {
-    return new Set((projects || []).flatMap((project) => project.sessionIds || []).filter(Boolean));
+/** 会话归属字段是否完整，决定是否展示在工作区项目分组 */
+export function isWorkspaceConversation(conversation) {
+    return conversation?.workspace !== undefined && conversation?.projectId !== undefined;
 }
 
-/** 过滤掉已归属工作区项目的会话，剩余内容用于默认“会话”分组。 */
-export function sessionsOutsideProjects(sessions, projects) {
-    const assignedIds = projectSessionIds(projects);
-    return (sessions || []).filter((session) => !assignedIds.has(session.sessionId));
+/** 默认“会话”区：未归属任何工作区项目的会话 */
+export function defaultConversations(conversations) {
+    return (conversations || []).filter((conversation) => !isWorkspaceConversation(conversation));
+}
+
+/** 工作区项目分组：从同一批会话中按归属字段筛选 */
+export function projectConversations(conversations, workspace, projectId) {
+    return (conversations || []).filter(
+        (conversation) =>
+            conversation?.workspace === workspace && conversation?.projectId === projectId,
+    );
 }
