@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { createTestApp, type TestAppHandle } from '../testing/test-app.js';
@@ -18,6 +18,8 @@ describe('conversations（会话业务抽象列表）', () => {
     });
 
     it('POST /api/sessions 后生成一个含该 Session 的 Conversation，并携带用户/工作区归属', async () => {
+        const workspacePath = join(handle.home, 'project-a');
+        mkdirSync(workspacePath, { recursive: true });
         const created = await fastify.inject({
             method: 'POST',
             url: '/api/sessions',
@@ -25,7 +27,7 @@ describe('conversations（会话业务抽象列表）', () => {
             payload: {
                 input: '读取文件并汇报',
                 userId: 'alice',
-                workspace: '/workspace/project-a',
+                workspace: workspacePath,
                 projectId: 'project-a',
             },
         });
@@ -47,7 +49,7 @@ describe('conversations（会话业务抽象列表）', () => {
         );
         expect(conversation).toBeDefined();
         expect(conversation?.userId).toBe('alice');
-        expect(conversation?.workspace).toBe('/workspace/project-a');
+        expect(conversation?.workspace).toBe(workspacePath);
         expect(conversation?.projectId).toBe('project-a');
         expect(conversation?.sessions.map((s) => s.sessionId)).toEqual([sessionId]);
     });
@@ -136,13 +138,15 @@ describe('conversations（会话业务抽象列表）', () => {
         expect(plainDetail.json().goal.allowedTools).toEqual([]);
         expect(plainDetail.json().goal.loopMode).toBe('react-only');
 
+        const workspacePath = join(handle.home, 'project-b');
+        mkdirSync(workspacePath, { recursive: true });
         const workspace = await fastify.inject({
             method: 'POST',
             url: '/api/sessions',
             headers: { 'content-type': 'application/json' },
             payload: {
                 input: '读取文件并汇报',
-                workspace: '/workspace/project-b',
+                workspace: workspacePath,
                 projectId: 'project-b',
             },
         });
@@ -152,6 +156,25 @@ describe('conversations（会话业务抽象列表）', () => {
             url: `/api/sessions/${workspace.json().sessionId}/timeline`,
         });
         expect(workspaceDetail.json().goal.allowedTools).toEqual(['all-registry']);
+
+        const reactWorkspace = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: {
+                input: '直接回答',
+                workspace: workspacePath,
+                projectId: 'project-b',
+                goal: { loopMode: 'react-only' },
+            },
+        });
+        expect(reactWorkspace.statusCode).toBe(200);
+        const reactDetail = await fastify.inject({
+            method: 'GET',
+            url: `/api/sessions/${reactWorkspace.json().sessionId}/timeline`,
+        });
+        expect(reactDetail.json().goal.allowedTools).toEqual([]);
+        expect(reactDetail.json().goal.loopMode).toBe('react-only');
     });
 
     it('GET /api/conversations 支持 q 筛选与 limit 分页', async () => {

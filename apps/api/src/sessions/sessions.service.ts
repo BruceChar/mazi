@@ -51,19 +51,20 @@ export class SessionsService {
         const targetContext = conversationId
             ? this.conversations.context(conversationId)
             : undefined;
-        if (targetContext?.workspace !== undefined) {
-            if (this.runtime.selectedWorkspaceRoot !== targetContext.workspace) {
-                this.runtime.setWorkspaceRoot(targetContext.workspace);
-            }
-        } else if (this.runtime.selectedWorkspaceRoot !== undefined) {
-            this.runtime.setWorkspaceRoot(undefined);
-        }
         const bodyWorkspace =
             typeof body.workspace === 'string' && body.workspace.trim()
                 ? body.workspace.trim()
                 : typeof body.workspacePath === 'string' && body.workspacePath.trim()
                   ? body.workspacePath.trim()
                   : undefined;
+        const resolvedWorkspaceRoot = targetContext?.workspace ?? bodyWorkspace;
+        if (resolvedWorkspaceRoot !== undefined) {
+            if (this.runtime.selectedWorkspaceRoot !== resolvedWorkspaceRoot) {
+                this.runtime.setWorkspaceRoot(resolvedWorkspaceRoot);
+            }
+        } else if (this.runtime.selectedWorkspaceRoot !== undefined) {
+            this.runtime.setWorkspaceRoot(undefined);
+        }
         const workspace =
             targetContext?.workspace ?? bodyWorkspace ?? this.runtime.selectedWorkspaceRoot;
         const workspaceMode = Boolean(workspace?.trim());
@@ -71,10 +72,11 @@ export class SessionsService {
             typeof body.goal === 'object' && body.goal
                 ? (body.goal as SessionGoalOverrides)
                 : undefined;
-        // 普通会话（无工作区归属）= 纯对话：不注入文件工具，避免被当作任务执行
-        const sessionGoal: CreateSessionOptions['goal'] = workspaceMode
-            ? goal
-            : { ...(goal ?? {}), allowedTools: [], requiredTools: [] };
+        // 普通会话（无工作区归属）与 react-only = 纯对话：不注入文件工具
+        const directChat = !workspaceMode || goal?.loopMode === 'react-only';
+        const sessionGoal: CreateSessionOptions['goal'] = directChat
+            ? { ...(goal ?? {}), allowedTools: [], requiredTools: [] }
+            : goal;
         const options: CreateSessionOptions = {
             userId:
                 (typeof body.userId === 'string' ? body.userId : undefined) ??

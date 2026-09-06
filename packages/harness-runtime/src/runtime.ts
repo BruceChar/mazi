@@ -172,7 +172,8 @@ function summarizeSession(
     return content && content.length > 0 ? content.slice(0, 2000) : undefined;
 }
 
-const DEFAULT_AGENT_SYSTEM_PROMPT = 'You are a helpful agent. Follow the plan and finish the task.';
+const DEFAULT_AGENT_SYSTEM_PROMPT =
+    'You are a helpful agent. Answer conversational questions directly. Only call tools when the user explicitly asks you to read, inspect, modify files, or work with the current workspace.';
 const DEFAULT_CHAT_SYSTEM_PROMPT =
     'You are a helpful assistant. Answer the latest user message directly and conversationally. Do not call tools or ask for a plan.';
 
