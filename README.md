@@ -1,6 +1,6 @@
 # mazi — AI Agent Harness（MVP）
 
-依据《[总体设计文档 v1.2](docs/总体设计文档v1.2.md)》裁剪实现的 Agent 执行框架 MVP。
+依据《[总体设计文档 v1.3](docs/总体设计文档v1.3.md)》裁剪实现的 Agent 执行框架 MVP（v1.2 为历史基线）。
 设计契约：《[MVP 设计文档 v1.0](docs/MVP设计文档v1.0.md)》、真实厂商接入见《[Provider Adapter 设计](docs/ProviderAdapter设计.md)》。
 
 ---
@@ -119,7 +119,7 @@ pnpm mazi run "读取 README.md 并汇报" \
 ## 测试与质量门禁
 
 ```bash
-pnpm check        # biome lint + vitest（当前 129 用例）
+pnpm check        # biome lint + vitest（当前 163 用例）
 pnpm build        # turbo tsc -b 全量构建
 pnpm exec vitest run packages/<pkg>/src   # 单包测试
 ```
@@ -151,7 +151,7 @@ pnpm web:dev                # 前端 UI(开发)：Vite 热更新，/api 自动�
 # 重启前请先结束旧进程（如 lsof -ti:4317,5174 | xargs kill）再 pnpm run server / pnpm web。
 ```
 
-**apps/web（纯前端静态服务，5174）** 与 **apps/api（纯 API 后端，4317，NestJS + Fastify 模块化实现）** 分离；
+**apps/webui（纯前端静态服务，5174）** 与 **apps/api（纯 API 后端，4317，NestJS + Fastify 模块化实现）** 分离；
 页面自动指向后端（默认 http://127.0.0.1:4317，可用 `?api=http://host:port` 覆盖）。
 
 **真实会话流**：输入任务 → [仅创建会话]（`POST /api/sessions`：立即写库 + recording 记录，进入左侧列表）
@@ -159,6 +159,6 @@ pnpm web:dev                # 前端 UI(开发)：Vite 热更新，/api 自动�
 
 三栏 UI（docs/webui.md MVP 子集）：会话列表 / 轨迹对话（thinking/tool_call/observation）/ 审计与事件（三方记录+Usage）/ 底部指标。
 
-- 后端 API：`POST /api/sessions`、`POST /api/sessions/:id/run`、`GET /api/sessions`、`GET /api/sessions/:id`、
-  `GET /api/events/<sessionId>[?follow=1]`（SSE）、`POST /api/sessions/:id/feedback`、`GET /api/config|health`、`POST /api/run`（一次性兼容）。
+- 后端 API：`GET/PATCH/DELETE /api/conversations`、`POST /api/sessions`、`POST /api/sessions/:id/run`、`GET /api/sessions`、`GET /api/sessions/:id`、
+  `GET /api/events/<sessionId>[?follow=1]`（SSE）、`POST /api/sessions/:id/feedback`、`GET /api/config|health`、`POST /api/run`（一次性兼容）、`PATCH /api/workspaces/project`。
 - 存储默认 SQLite（`~/.mazi/mazi.db`）+ JSONL 事件；PostgreSQL/向量为存储 SPI 后续（docs/后端与存储设计.md）。

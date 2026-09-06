@@ -1,9 +1,10 @@
 # AI Agent Harness MVP 设计文档
 
 > **版本**：v1.0（正式版；替代 `docs/MVP设计文档.md` v0.1 草稿与 `docs/执行计划.md` 中的旧技术选型）
-> **依据**：`docs/总体设计文档v1.2.md` §13（MVP 范围界定：M1 必须完成、M2 推荐）
+> **依据**：`docs/总体设计文档v1.3.md` §8（后续路线；M1 已完成、M2 起为生产安全与演进范围；v1.2 为历史基线）
 > **仓库基线**：monorepo（F1）与 `packages/core` 全部契约（F2）已在提交 `9caf2c9` 及之前完成；本版将 F3 起的实现拆分为独立 Feature。
 > **执行约束**：本仓库遵循 `AGENT.md` —— 文档先行、测试先行、严格原子化提交、禁止跨范围修改、禁止无依据优化。
+> **现状勘误（2026-09-06）**：v1.1 变更记录中的 ScriptedDriver 已被真实 pi-ai driver 取代；`sessions` 表不再含 `user_id`；Conversation/Session 术语调整见总体设计 v1.3 与会话结构定义。
 
 ---
 
@@ -125,12 +126,12 @@ pnpm workspace + TypeScript + turbo + biome + vitest 已就绪（提交 `3e04087
 
 | 表 | 主键 | 关键列 |
 | -- | ---- | ------ |
-| sessions | session_id | user_id, raw_intent, goal_json, strategy_id, state, flag_snapshot_json, turn_ids_json, aggregate_json, created_at, ended_at, outcome |
+| sessions | session_id | raw_intent, goal_json, strategy_id, state, flag_snapshot_json, turn_ids_json, aggregate_json, created_at, ended_at, outcome |
 | turns | turn_id | session_id, contract_json, capacity_json, step_ids_json, status, attempt, checkpoint_json |
 | steps | step_id | turn_id, session_id, seq, kind, payload_json, model_json, usage_json, status, error_json, decision_context_json, started_at, ended_at |
 | user_interactions | record_id | session_id, user_id, raw_input, input_timestamp, thought_trace_json, action_trace_json, feedback_json, outcome_json, metrics_json, tags_json, status, updated_at |
 
-索引：sessions(user_id)、turns(session_id)、steps(turn_id, seq)、user_interactions(session_id)、user_interactions(user_id)。
+索引：turns(session_id)、steps(turn_id, seq)、user_interactions(session_id)、user_interactions(user_id)。
 
 ---
 

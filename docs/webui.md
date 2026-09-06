@@ -1,6 +1,6 @@
-# AI Agent Harness WebUI 设计文档（v1.2）
+# AI Agent Harness WebUI 设计文档（v1.3）
 
-> **版本**：v1.2
+> **版本**：v1.3（v1.2 为历史版本；会话/项目结构以总体设计 v1.3 与会话结构定义为准）
 > **定位**：面向复杂真实任务的 AI Agent 执行框架可视化界面。
 > **风格基准**：DeepSeek Harness WebUI（浅色默认、深色侧边栏、高信息密度对话流、实时底部指标带）
 
