@@ -172,6 +172,10 @@ function summarizeSession(
     return content && content.length > 0 ? content.slice(0, 2000) : undefined;
 }
 
+const DEFAULT_AGENT_SYSTEM_PROMPT = 'You are a helpful agent. Follow the plan and finish the task.';
+const DEFAULT_CHAT_SYSTEM_PROMPT =
+    'You are a helpful assistant. Answer the latest user message directly and conversationally. Do not call tools or ask for a plan.';
+
 /**
  * HarnessRuntime（feature F14，MVP 文档 §3.2/§8 F14）：
  * 装配全部模块后对外暴露 run(input)：Session → Goal → FullLoop → 结果；
@@ -356,9 +360,7 @@ export class HarnessRuntime {
                     }
                 );
             },
-            systemPrompt:
-                this.config.systemPrompt ??
-                'You are a helpful agent. Follow the plan and finish the task.',
+            systemPrompt: this.systemPromptFor(goal),
             promptVersion: '0.1.0',
             roundCollector: collectLLMRound,
         });
@@ -441,6 +443,15 @@ export class HarnessRuntime {
 
     get currentWorkspaceRoot(): string | undefined {
         return this.workspaceRoot;
+    }
+
+    /** 按 Session Goal 选择提示词：普通会话（显式清空工具）= 对话式；其余按任务式 */
+    private systemPromptFor(goal: GoalContract): string {
+        const toolFree = Array.isArray(goal.allowedTools) && goal.allowedTools.length === 0;
+        if (toolFree) {
+            return DEFAULT_CHAT_SYSTEM_PROMPT;
+        }
+        return this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT;
     }
 
     /** recorder 异步创建记录：轮询至记录已生成（recording/completed，上限 500ms） */

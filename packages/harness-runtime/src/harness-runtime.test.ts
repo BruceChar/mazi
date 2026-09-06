@@ -12,6 +12,16 @@ class OfflineDriver {
     }
 }
 
+class PromptCaptureDriver {
+    systemPrompt = '';
+
+    async *stream(request) {
+        this.systemPrompt = request.context.systemPrompt ?? '';
+        yield { type: 'text-delta', delta: '你好，我在这里。' };
+        yield { type: 'end', finishReason: 'stop' };
+    }
+}
+
 function offlineRuntime() {
     const rt = Reflect.construct(HarnessRuntime, [cfg()]);
     rt.drivers.set('pi-a', new OfflineDriver());
@@ -123,6 +133,19 @@ describe('createSession / executeSession（run 兼容）', () => {
         expect(session?.goal.permissionCeiling).toBe('text');
         const result = await rt.executeSession(created.sessionId);
         expect(result.outcome).toBe('success');
+        await rt.close();
+    });
+
+    it('普通会话（无工具）使用对话式系统提示词，不要求“完成任务”', async () => {
+        const rt = offlineRuntime();
+        const capture = new PromptCaptureDriver();
+        rt.drivers.set('pi-a', capture);
+        const created = await rt.createSession('你好', {
+            goal: { allowedTools: [], requiredTools: [] },
+        });
+        await rt.executeSession(created.sessionId);
+        expect(capture.systemPrompt).toContain('conversationally');
+        expect(capture.systemPrompt).not.toContain('finish the task');
         await rt.close();
     });
 });
