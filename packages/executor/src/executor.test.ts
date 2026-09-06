@@ -279,6 +279,9 @@ describe('Executor（MVP v1.0 §8 F10）', () => {
         expect(outcome.finalMessage).toContain('已读取');
         expect(invocations).toEqual(['fs.read']);
         expect(outcome.steps.length).toBeGreaterThanOrEqual(4);
+        const observation = outcome.steps.find((s) => s.kind === 'observation');
+        expect(observation?.payload.structured).toMatchObject({ ok: true, toolName: 'fs.read' });
+        expect(observation?.payload.contextContent).toBe('FILE CONTENT');
         const llmSteps = outcome.steps.filter((s) => s.usage !== undefined);
         expect(llmSteps.length).toBeGreaterThanOrEqual(2);
         for (const s of llmSteps) {
