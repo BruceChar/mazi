@@ -24,7 +24,12 @@ import { SqliteMemoryStore } from '@mazi/memory';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '@mazi/observability';
 import { MvpPlanner } from '@mazi/planner';
 import { PolicyEngineImpl } from '@mazi/policy';
-import { DefaultDriverRegistry, normalizeProvider, SimpleRouter } from '@mazi/provider-llm';
+import {
+    collectLLMRound,
+    DefaultDriverRegistry,
+    normalizeProvider,
+    SimpleRouter,
+} from '@mazi/provider-llm';
 import { FullLoopStrategy } from '@mazi/strategy-full-loop';
 import { ContextMeter, CostCalculator } from '@mazi/usage';
 import { getRecordBySession, UserProfileRecorder } from '@mazi/user-profile';
@@ -352,6 +357,7 @@ export class HarnessRuntime {
                 this.config.systemPrompt ??
                 'You are a helpful agent. Follow the plan and finish the task.',
             promptVersion: '0.1.0',
+            roundCollector: collectLLMRound,
         });
         const strategy = new FullLoopStrategy();
         const strategyCtx: StrategyContext = {

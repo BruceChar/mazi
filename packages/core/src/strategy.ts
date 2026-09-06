@@ -4,12 +4,25 @@ import type { MemoryStore } from './memory.js';
 import type { HarnessEvent } from './observability.js';
 import type { Planner } from './planner.js';
 import type { LLMDriver } from './provider.js';
-import type { Session } from './session.js';
+import type { ObservationPayload, Session } from './session.js';
+import type { ToolExecutionResult } from './tool.js';
 
 /** 策略注入点：L2 执行/观察/反思模块句柄，方法级契约由对应包里程碑定义 */
 export type Executor = object;
-export type Observer = object;
 export type Reflector = object;
+
+/** 工具执行结果的结构化观察上下文 */
+export interface ObservationContext {
+    sessionId: string;
+    turnId: string;
+    toolName: string;
+    result: ToolExecutionResult;
+}
+
+/** Observer：把工具执行结果转换为可回注的结构化观察载荷 */
+export interface Observer {
+    observeToolResult(ctx: ObservationContext): Promise<ObservationPayload>;
+}
 
 /** 策略能力声明 */
 export interface StrategyCapabilities {

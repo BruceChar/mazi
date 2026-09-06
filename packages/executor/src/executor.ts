@@ -3,6 +3,7 @@ import type {
     EventBus,
     HarnessError,
     LLMDriver,
+    LLMRound,
     LLMStreamEvent,
     MemoryStore,
     PolicyEngine,
@@ -58,6 +59,8 @@ export interface ExecutorDeps {
     /** Step 级决策上下文快照（审计用） */
     promptVersion?: string;
     now?: () => number;
+    /** Provider 层注入的轮次归一函数；缺省使用本地 fallback */
+    roundCollector?: RoundCollector;
 }
 
 /** 故障转移候选模型（与 provider.selected 顺序一致） */
@@ -65,15 +68,55 @@ export interface ExecutorDepsFallbackModel {
     model: Capacity['model'];
 }
 
-interface RoundResult {
-    text: string;
-    reasoning: string;
-    toolCalls: { callId: string; toolName: string; arguments: Record<string, unknown> }[];
-    vendorUsage?: VendorUsage;
-    ttftMs: number;
-    totalMs: number;
-    finishReason?: string;
-    driverError?: Error;
+type RoundResult = LLMRound;
+
+export type RoundCollector = (
+    events: Iterable<LLMStreamEvent>,
+    startedAt: number,
+    now: () => number,
+) => LLMRound;
+
+/** 缺省轮次归一（供测试/未注入 collector 的场合使用；生产由 Provider 层注入） */
+export function localRoundCollector(
+    events: Iterable<LLMStreamEvent>,
+    startedAt: number,
+    now: () => number,
+): LLMRound {
+    const text: string[] = [];
+    const reasoning: string[] = [];
+    const toolCalls: LLMRound['toolCalls'] = [];
+    let vendorUsage: LLMRound['vendorUsage'];
+    let finishReason: string | undefined;
+    let firstTextAt: number | undefined;
+    for (const event of events) {
+        switch (event.type) {
+            case 'text-delta':
+                if (firstTextAt === undefined) firstTextAt = now();
+                text.push(event.delta);
+                break;
+            case 'reasoning-delta':
+                reasoning.push(event.delta);
+                break;
+            case 'tool-call':
+                toolCalls.push(event);
+                break;
+            case 'usage':
+                vendorUsage = event.usage;
+                break;
+            case 'end':
+                finishReason = event.finishReason;
+                break;
+        }
+    }
+    return {
+        text: text.join(''),
+        reasoning: reasoning.join(''),
+        toolCalls,
+        vendorUsage,
+        finishReason,
+        ttftMs: firstTextAt === undefined ? 0 : firstTextAt - startedAt,
+        totalMs: now() - startedAt,
+    };
 }
 
 function baseEvent(
@@ -435,43 +478,7 @@ export class Executor {
             .stream({ model: capacity.model, context })) {
             events.push(e);
         }
-        const text: string[] = [];
-        const reasoning: string[] = [];
-        const toolCalls: RoundResult['toolCalls'] = [];
-        let vendorUsage: VendorUsage | undefined;
-        let finishReason: string | undefined;
-        let ttftMs = 0;
-        let firstTextAt: number | undefined;
-        for (const e of events) {
-            switch (e.type) {
-                case 'text-delta':
-                    if (firstTextAt === undefined) firstTextAt = this.now();
-                    text.push(e.delta);
-                    break;
-                case 'reasoning-delta':
-                    reasoning.push(e.delta);
-                    break;
-                case 'tool-call':
-                    toolCalls.push(e);
-                    break;
-                case 'usage':
-                    vendorUsage = e.usage;
-                    break;
-                case 'end':
-                    finishReason = e.finishReason;
-                    break;
-            }
-        }
-        ttftMs = firstTextAt === undefined ? 0 : firstTextAt - at;
-        return {
-            text: text.join(''),
-            reasoning: reasoning.join(''),
-            toolCalls,
-            vendorUsage,
-            ttftMs,
-            totalMs: this.now() - at,
-            finishReason,
-        };
+        return (this.deps.roundCollector ?? localRoundCollector)(events, at, () => this.now());
     }
 
     private step(

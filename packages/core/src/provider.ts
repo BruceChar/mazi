@@ -185,14 +185,28 @@ export interface LLMResponse {
 export type LLMStreamEvent =
     | { type: 'text-delta'; delta: string }
     | { type: 'reasoning-delta'; delta: string }
-    | {
-          type: 'tool-call';
-          callId: string;
-          toolName: string;
-          arguments: Record<string, unknown>;
-      }
+    | ToolCallStreamEvent
     | { type: 'usage'; usage: VendorUsage }
     | { type: 'end'; finishReason: string };
+
+/** 流式工具调用意图 */
+export interface ToolCallStreamEvent {
+    type: 'tool-call';
+    callId: string;
+    toolName: string;
+    arguments: Record<string, unknown>;
+}
+
+/** Provider 归一后的一次完整 LLM 轮次（Observer/Executor 共用） */
+export interface LLMRound {
+    text: string;
+    reasoning: string;
+    toolCalls: ToolCallStreamEvent[];
+    vendorUsage?: VendorUsage;
+    finishReason?: string;
+    ttftMs: number;
+    totalMs: number;
+}
 
 /** LLM 调用统一入口，由 provider-llm 包实现 */
 export interface LLMDriver {

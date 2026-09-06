@@ -17,5 +17,6 @@ export type {
     ProviderJson,
 } from './registry.js';
 export { normalizeProvider } from './registry.js';
+export { collectLLMRound } from './round.js';
 export type { RouteCandidate } from './router.js';
 export { CAPABILITY_TAGS, SimpleRouter } from './router.js';

@@ -124,6 +124,10 @@ export interface ObservationPayload {
     toolName?: string;
     content: string;
     isError?: boolean;
+    /** 用于模型上下文回注的裁剪内容；缺省回退 content */
+    contextContent?: string;
+    /** 结构化的可审计摘要（如状态码、数值、截断标记） */
+    structured?: Record<string, unknown>;
 }
 
 /** Harness 统一错误结构 */
