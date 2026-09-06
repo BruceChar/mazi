@@ -119,7 +119,7 @@ pnpm mazi run "读取 README.md 并汇报" \
 ## 测试与质量门禁
 
 ```bash
-pnpm check        # biome lint + vitest（当前 171 用例）
+pnpm check        # biome lint + vitest（当前 173 用例）
 pnpm build        # turbo tsc -b 全量构建
 pnpm exec vitest run packages/<pkg>/src   # 单包测试
 ```
