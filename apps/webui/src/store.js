@@ -112,6 +112,7 @@ export function saveUserPreferences(next) {
 }
 
 export const conversations = ref([]);
+export const flowSessions = ref([]);
 export const current = ref(null);
 export const currentConversation = ref(null);
 export const detail = ref(null);
@@ -277,8 +278,30 @@ async function refreshDetail(sessionId) {
         detail.value = await api(`/api/sessions/${sessionId}/timeline`);
         recompute();
         await loadConversations();
+        await loadConversationFlow();
     } catch {
         // 会话被清理或后端临时不可用时保留旧快照
+    }
+}
+
+/** 加载当前 Conversation 全部 Session 的完整时间线（含 Steps），供连续对话流渲染 */
+export async function loadConversationFlow() {
+    const conversationId = currentConversation.value;
+    const conversation = conversations.value.find(
+        (item) => item.conversationId === conversationId,
+    );
+    if (!conversationId || !conversation) {
+        flowSessions.value = [];
+        return;
+    }
+    try {
+        const sessionIds = (conversation.sessions || []).map((s) => s.sessionId);
+        const details = await Promise.all(
+            sessionIds.map((sessionId) => api(`/api/sessions/${sessionId}/timeline`)),
+        );
+        flowSessions.value = details.filter(Boolean);
+    } catch {
+        flowSessions.value = [];
     }
 }
 
@@ -419,6 +442,7 @@ export async function createAndRun(exec, goalOverrides, workspacePath, conversat
         }
         await loadConversations();
         await select(created.sessionId);
+        await loadConversationFlow();
         if (exec) {
             await runCurrent(created.sessionId);
         }
@@ -444,6 +468,7 @@ export async function runCurrent(sessionId) {
         });
         await loadConversations();
         await select(sessionId);
+        await loadConversationFlow();
     } catch (error) {
         ui.err = String(error);
     } finally {
@@ -465,6 +490,7 @@ export async function deleteConversationById(conversationId) {
         current.value = null;
         currentConversation.value = null;
         detail.value = null;
+        flowSessions.value = [];
         stopEvents();
     }
     await api(`/api/conversations/${conversationId}`, { method: 'DELETE' });

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './LineIcon.vue';
+import { flattenConversationFlow } from './flow.ts';
 import { activeConversations, defaultConversations, projectConversations } from './sidebar.ts';
 import {
     badge,
@@ -12,12 +13,14 @@ import {
     deleteConversationById,
     detail,
     events,
+    flowSessions,
     fmtClock,
     fmtDuration,
     fmtTokens,
     fmtUsd,
     icon,
     loadConfig,
+    loadConversationFlow,
     loadConversations,
     loadLedger,
     loadProfile,
@@ -100,25 +103,7 @@ const generalConversations = computed(() => defaultConversations(filteredConvers
 const archivedConversations = computed(() =>
     conversations.value.filter((conversation) => conversation.archived),
 );
-const activeConversation = computed(() => {
-    const byId = conversations.value.find(
-        (conversation) => conversation.conversationId === currentConversation.value,
-    );
-    if (byId) return byId;
-    return conversations.value.find((conversation) =>
-        (conversation.sessions || []).some((session) => session.sessionId === current.value),
-    );
-});
-
-const chatRows = computed(() => {
-    const rows = [];
-    for (const turn of detail.value?.turns || []) {
-        for (const step of turn.steps || []) {
-            rows.push({ turn, step });
-        }
-    }
-    return rows;
-});
+const conversationFlow = computed(() => flattenConversationFlow(flowSessions.value));
 
 const canRun = computed(
     () => !!(detail.value && detail.value.outcome === undefined && detail.value.state === 'running'),
@@ -164,11 +149,6 @@ function isTurnOpen(turnId) {
 
 function toggleTurn(turnId) {
     collapsedTurns.value[turnId] = !isTurnOpen(turnId);
-}
-
-function turnStart(row, index) {
-    if (index === 0) return true;
-    return chatRows.value[index - 1].turn.turnId !== row.turn.turnId;
 }
 
 function stepTitle(row) {
@@ -484,12 +464,7 @@ async function openConversation(conversation) {
     if (session) {
         await openSession(session.sessionId);
     }
-    feedbackSent.value = false;
-}
-
-async function openConversationSession(conversation, session) {
-    currentConversation.value = conversation.conversationId;
-    await openSession(session.sessionId);
+    await loadConversationFlow();
     feedbackSent.value = false;
 }
 
@@ -512,6 +487,7 @@ onMounted(async () => {
         if (firstSession) {
             currentConversation.value = firstConversation.conversationId;
             await select(firstSession.sessionId);
+            await loadConversationFlow();
         }
     } catch (error) {
         ui.err = String(error);
@@ -686,81 +662,56 @@ onBeforeUnmount(() => {
                     <button :class="{ on: ui.mainTab === 'chat' }" @click="ui.mainTab = 'chat'">对话</button>
                     <button :class="{ on: ui.mainTab === 'traj' }" @click="ui.mainTab = 'traj'">轨迹</button>
                 </div>
-                <div v-if="detail" class="session-strip">
-                    <div class="session-id" title="Session ID">{{ detail.sessionId }}</div>
-                    <div class="strip-actions">
-                        <button v-if="canRun" :disabled="busy" @click="runCurrent(current)">
-                            <LineIcon name="play" size="13" />
-                            执行
-                        </button>
-                        <span v-if="detail.outcome" class="badge" :class="badge(detail.outcome)">{{ detail.outcome }}</span>
-                        <button :disabled="busy" @click="runCurrent(current)" title="重新执行"><LineIcon name="refresh" size="14" /></button>
-                        <button title="复制 Session ID" @click="copyText(detail.sessionId)"><LineIcon name="copy" size="14" /></button>
-                    </div>
-                </div>
-
-                <div v-if="activeConversation && activeConversation.sessions.length > 1" class="session-nav">
-                    <span class="session-nav-label">Sessions</span>
-                    <button
-                        v-for="(session, index) in activeConversation.sessions"
-                        :key="session.sessionId"
-                        :class="{ active: current === session.sessionId }"
-                        :title="session.rawIntent"
-                        @click="openConversationSession(activeConversation, session)"
-                    >
-                        #{{ index + 1 }} · {{ short(session.rawIntent, 18) }}
-                    </button>
-                </div>
 
                 <div class="chat-scroll">
                     <div v-if="ui.err && conversations.length" class="error-banner">{{ ui.err }}</div>
 
                     <template v-if="ui.mainTab === 'chat'">
-                        <div v-if="detail && detail.rawIntent" class="user-message">
-                            <div class="msg-text">{{ detail.rawIntent }}</div>
-                            <div class="user-meta">
-                                <span>{{ activeUserId }}</span>
-                                <span>{{ fmtClock(detail.createdAt) }}</span>
+                        <template v-for="item in conversationFlow" :key="item.key">
+                            <div v-if="item.type === 'user'" class="user-message">
+                                <div class="msg-text">{{ item.text }}</div>
+                                <div class="user-meta">
+                                    <span>{{ item.session.userId || activeUserId }}</span>
+                                    <span>{{ fmtClock(item.createdAt) }}</span>
+                                </div>
                             </div>
-                        </div>
-                        <template v-for="(row, index) in chatRows" :key="row.step.stepId">
-                            <div v-if="turnStart(row, index)" class="turn-divider">
-                                Turn {{ (detail.turns || []).indexOf(row.turn) + 1 }}
-                                <span class="muted-inline">{{ row.turn.status }} · attempt {{ row.turn.attempt }}</span>
-                            </div>
-                            <div class="msg" :class="[`msg-${row.step.kind}`, { open: isOpenStep(row.step.stepId) }]">
-                                <div class="msg-gutter"><span class="msg-icon"><LineIcon :name="icon(row.step.kind)" size="14" /></span></div>
+                            <div
+                                v-else
+                                class="msg"
+                                :class="[`msg-${item.step.kind}`, { open: isOpenStep(item.step.stepId) }]"
+                            >
+                                <div class="msg-gutter"><span class="msg-icon"><LineIcon :name="icon(item.step.kind)" size="14" /></span></div>
                                 <div class="msg-main">
-                                    <div class="msg-head" @click="toggleOpenStep(row.step.stepId)">
-                                        <span class="msg-label">{{ stepLabel(row.step.kind) }}</span>
-                                        <span class="msg-title">{{ stepTitle(row) }}</span>
-                                        <span class="msg-brief">#{{ row.step.seq }} · {{ row.step.status }} · {{ rowModel(row) }}</span>
-                                        <span class="chevron"><LineIcon :name="isOpenStep(row.step.stepId) ? 'chevronDown' : 'chevronRight'" size="14" /></span>
+                                    <div class="msg-head" @click="toggleOpenStep(item.step.stepId)">
+                                        <span class="msg-label">{{ stepLabel(item.step.kind) }}</span>
+                                        <span class="msg-title">{{ stepTitle(item) }}</span>
+                                        <span class="msg-brief">#{{ item.step.seq }} · {{ item.step.status }} · {{ rowModel(item) }}</span>
+                                        <span class="chevron"><LineIcon :name="isOpenStep(item.step.stepId) ? 'chevronDown' : 'chevronRight'" size="14" /></span>
                                     </div>
-                                    <div v-if="isOpenStep(row.step.stepId)" class="msg-body">
-                                        <template v-if="row.step.kind === 'tool_call'">
+                                    <div v-if="isOpenStep(item.step.stepId)" class="msg-body">
+                                        <template v-if="item.step.kind === 'tool_call'">
                                             <div class="mono-block">
-                                                <div class="mono-title"><LineIcon name="tool" size="14" /> {{ stepBody(row).title }}</div>
-                                                <pre>{{ stepBody(row).json }}</pre>
+                                                <div class="mono-title"><LineIcon name="tool" size="14" /> {{ stepBody(item).title }}</div>
+                                                <pre>{{ stepBody(item).json }}</pre>
                                             </div>
                                         </template>
-                                        <pre v-else class="plain-text">{{ stepBody(row).text }}</pre>
+                                        <pre v-else class="plain-text">{{ stepBody(item).text }}</pre>
                                     </div>
                                     <div class="msg-foot">
-                                        <button class="mini like" title="有帮助" @click="rate(row, 5)"><LineIcon name="like" size="14" /></button>
-                                        <button class="mini like" title="没帮助" @click="rate(row, 1)"><LineIcon name="dislike" size="14" /></button>
-                                        <button class="mini" @click="copyRow(row)"><LineIcon name="copy" size="14" /> 复制</button>
+                                        <button class="mini like" title="有帮助" @click="rate(item, 5)"><LineIcon name="like" size="14" /></button>
+                                        <button class="mini like" title="没帮助" @click="rate(item, 1)"><LineIcon name="dislike" size="14" /></button>
+                                        <button class="mini" @click="copyRow(item)"><LineIcon name="copy" size="14" /> 复制</button>
                                         <span class="meta-gap"></span>
-                                        <span class="meta">用量 {{ rowTokens(row) }} tok</span>
-                                        <span class="meta">用时 {{ rowDuration(row) }}</span>
-                                        <span class="meta">{{ fmtClock(row.step.startedAt) }}</span>
-                                        <button class="mini audit-link" @click="openAudit(row)">审计</button>
+                                        <span class="meta">用量 {{ rowTokens(item) }} tok</span>
+                                        <span class="meta">用时 {{ rowDuration(item) }}</span>
+                                        <span class="meta">{{ fmtClock(item.step.startedAt) }}</span>
+                                        <button class="mini audit-link" @click="openAudit(item)">审计</button>
                                     </div>
                                 </div>
                             </div>
                         </template>
                         <div v-if="!detail" class="empty-hint">暂无会话，点击「新会话」开始</div>
-                        <div v-else-if="!chatRows.length" class="empty-hint">
+                        <div v-else-if="!conversationFlow.length" class="empty-hint">
                             Be Water My Friend
                         </div>
                         <div v-if="feedbackSent && detail && detail.outcome" class="ok-banner">反馈已记录</div>
@@ -778,28 +729,41 @@ onBeforeUnmount(() => {
                                 {{ f }}
                             </button>
                         </div>
-                        <div v-for="(turn, tIndex) in (detail && detail.turns) || []" :key="turn.turnId" class="traj-turn">
-                            <div class="traj-turn-head" @click="toggleTurn(turn.turnId)">
-                                <LineIcon class="chevron" :name="isTurnOpen(turn.turnId) ? 'chevronDown' : 'chevronRight'" size="14" />
-                                <span>Turn {{ tIndex + 1 }} · {{ (turn.contract && turn.contract.statement) || turn.turnId }}</span>
-                                <span class="muted-inline">{{ turn.status }}</span>
-                            </div>
-                            <div v-if="isTurnOpen(turn.turnId)" class="traj-tree">
-                                <div
-                                    v-for="step in turn.steps.filter((s) => trajFilter === 'all' || s.kind === trajFilter)"
-                                    :key="step.stepId"
-                                    class="traj-step"
-                                    @click="openAuditFromStep(turn, step)"
-                                >
-                                    <span class="msg-icon"><LineIcon :name="icon(step.kind)" size="14" /></span>
-                                    <span class="traj-title">{{ short(stepTitle({ turn, step }), 72) }}</span>
-                                    <span class="muted-inline">#{{ step.seq }} {{ step.status }}</span>
-                                    <span v-if="step.model" class="muted-inline">{{ step.model.modelId }}</span>
-                                    <span v-if="step.usage" class="muted-inline">{{ fmtTokens(step.usage.vendor.inputTokens + step.usage.vendor.outputTokens) }} tok</span>
+                        <template v-for="session in flowSessions" :key="session.sessionId">
+                            <div
+                                v-for="(turn, tIndex) in session.turns || []"
+                                :key="turn.turnId"
+                                class="traj-turn"
+                            >
+                                <div class="traj-turn-head" @click="toggleTurn(turn.turnId)">
+                                    <LineIcon class="chevron" :name="isTurnOpen(turn.turnId) ? 'chevronDown' : 'chevronRight'" size="14" />
+                                    <span>Turn {{ tIndex + 1 }} · {{ (turn.contract && turn.contract.statement) || turn.turnId }}</span>
+                                    <span class="muted-inline">{{ turn.status }} · {{ session.outcome || session.state }}</span>
                                 </div>
-                                <div v-if="!turn.steps.length" class="empty-hint">无步骤</div>
+                                <div v-if="isTurnOpen(turn.turnId)" class="traj-tree">
+                                    <div
+                                        v-for="step in (turn.steps || []).filter((s) => trajFilter === 'all' || s.kind === trajFilter)"
+                                        :key="step.stepId"
+                                        class="traj-step"
+                                        @click="openAuditFromStep(turn, step)"
+                                    >
+                                        <span class="msg-icon"><LineIcon :name="icon(step.kind)" size="14" /></span>
+                                        <span class="traj-title">{{ short(stepTitle({ turn, step }), 72) }}</span>
+                                        <span class="muted-inline">#{{ step.seq }} {{ step.status }}</span>
+                                        <span v-if="step.model" class="muted-inline">{{ step.model.modelId }}</span>
+                                        <span v-if="step.usage" class="muted-inline">{{ fmtTokens(step.usage.vendor.inputTokens + step.usage.vendor.outputTokens) }} tok</span>
+                                    </div>
+                                    <div v-if="!turn.steps.length" class="empty-hint">无步骤</div>
+                                </div>
                             </div>
-                        </div>
+                            <div
+                                v-if="!(session.turns || []).length"
+                                class="traj-session-empty"
+                            >
+                                {{ session.outcome ? `${session.outcome} · ` : '' }}暂无轨迹
+                            </div>
+                        </template>
+                        <div v-if="!flowSessions.length" class="empty-hint">暂无轨迹</div>
                     </template>
                 </div>
 
