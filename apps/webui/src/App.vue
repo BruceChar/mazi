@@ -98,6 +98,15 @@ const generalConversations = computed(() => defaultConversations(filteredConvers
 const archivedConversations = computed(() =>
     conversations.value.filter((conversation) => conversation.archived),
 );
+const activeConversation = computed(() => {
+    const byId = conversations.value.find(
+        (conversation) => conversation.conversationId === currentConversation.value,
+    );
+    if (byId) return byId;
+    return conversations.value.find((conversation) =>
+        (conversation.sessions || []).some((session) => session.sessionId === current.value),
+    );
+});
 
 const chatRows = computed(() => {
     const rows = [];
@@ -473,6 +482,12 @@ async function openConversation(conversation) {
     feedbackSent.value = false;
 }
 
+async function openConversationSession(conversation, session) {
+    currentConversation.value = conversation.conversationId;
+    await openSession(session.sessionId);
+    feedbackSent.value = false;
+}
+
 function savePreferences() {
     saveUserPreferences(preferences.value);
     backToChat();
@@ -677,6 +692,19 @@ onBeforeUnmount(() => {
                         <button :disabled="busy" @click="runCurrent(current)" title="重新执行"><LineIcon name="refresh" size="14" /></button>
                         <button title="复制 Session ID" @click="copyText(detail.sessionId)"><LineIcon name="copy" size="14" /></button>
                     </div>
+                </div>
+
+                <div v-if="activeConversation && activeConversation.sessions.length > 1" class="session-nav">
+                    <span class="session-nav-label">Sessions</span>
+                    <button
+                        v-for="(session, index) in activeConversation.sessions"
+                        :key="session.sessionId"
+                        :class="{ active: current === session.sessionId }"
+                        :title="session.rawIntent"
+                        @click="openConversationSession(activeConversation, session)"
+                    >
+                        #{{ index + 1 }} · {{ short(session.rawIntent, 18) }}
+                    </button>
                 </div>
 
                 <div class="chat-scroll">
