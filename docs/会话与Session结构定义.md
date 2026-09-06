@@ -1,6 +1,6 @@
 # 会话与 Session 结构定义
 
-> 版本：v0.2
+> 版本：v0.3
 > 目的：对齐「会话（Conversation）」「Session」「Turn / Step」的层级边界，并统一普通会话与工作区会话的数据结构。
 
 ## 1. 术语边界
@@ -78,3 +78,11 @@ interface Session {
 - `GET /api/conversations` 返回 Conversation 投影：归属字段随 Conversation 返回，`sessions` 水合为 core Session 数组。
 - 旧的 `workspaces.json` 项目会话关联保留为兼容层，后续 WebUI 迁移到 Conversation 过滤后移除。
 - 向已有 Conversation 追加 Session 的入口（续聊）不在本期范围，`ConversationRecord.sessionIds` 已为追加预留。
+
+## 6. 会话与项目管理（v0.3）
+
+- Conversation 管理以 Conversation 为单位：
+  - `PATCH /api/conversations/:id`：更新 `title`、`archived`；
+  - `DELETE /api/conversations/:id`：删除 Conversation，并级联删除其 core Session/Turn/Step 与用户交互记录。
+- 归档只作用于 Conversation 记录（`archived: true`），不删除 Session；默认列表与项目分组隐藏已归档，UI 提供归档分组与恢复入口。
+- 项目名是 API 层 `workspaces.json` 中项目的展示字段；`PATCH /api/workspaces/project`（body: `path`/`title`）重命名项目，Conversation 的 `workspace/projectId` 归属不变。
