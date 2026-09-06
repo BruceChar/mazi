@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './LineIcon.vue';
+import { sessionsOutsideProjects } from './sidebar.ts';
 import {
     badge,
     busy,
@@ -82,6 +83,10 @@ const sessionItems = computed(() => {
         String(s.title || s.input || '').toLowerCase().includes(key),
     );
 });
+
+const generalSessionItems = computed(() =>
+    sessionsOutsideProjects(sessionItems.value, projects.value),
+);
 
 const chatRows = computed(() => {
     const rows = [];
@@ -510,10 +515,10 @@ onBeforeUnmount(() => {
                     </ul>
                 </div>
                 <div class="group">
-                    <div class="group-head">会话 · {{ sessions.length }}</div>
+                    <div class="group-head">会话 · {{ generalSessionItems.length }}</div>
                     <ul class="session-list">
                         <li
-                            v-for="s in sessionItems"
+                            v-for="s in generalSessionItems"
                             :key="s.sessionId"
                             :class="{ active: current === s.sessionId }"
                             @click="openSelectedSession(s.sessionId)"
@@ -526,7 +531,7 @@ onBeforeUnmount(() => {
                                 <span class="time">{{ relTime(s.updatedAt || s.createdAt) }}</span>
                             </div>
                         </li>
-                        <li v-if="!sessionItems.length" class="empty-sidebar">暂无会话</li>
+                        <li v-if="!generalSessionItems.length" class="empty-sidebar">暂无会话</li>
                     </ul>
                 </div>
             </div>
