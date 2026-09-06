@@ -15,6 +15,8 @@ export interface Conversation {
     projectId?: string;
     createdAt: number;
     updatedAt: number;
+    /** 归档标记：true 表示从活动列表隐藏，可恢复 */
+    archived?: boolean;
 }
 
 /** Conversation 持久化形态：仅持有 Session 引用，投影时再水合为 Session[] */
@@ -27,6 +29,7 @@ export interface ConversationRecord {
     projectId?: string;
     createdAt: number;
     updatedAt: number;
+    archived?: boolean;
 }
 
 /** 持久化记录 → API 会话对象 */
@@ -43,6 +46,7 @@ export function conversationFromRecord(
         projectId: record.projectId,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
+        archived: record.archived,
     };
 }
 

@@ -102,12 +102,41 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return this.readWorkspacesState();
     }
 
+    renameProject(path: string, title: string): void {
+        if (!title.trim()) {
+            throw new ApiError(400, '缺少 title');
+        }
+        const projects = this.readWorkspacesState();
+        const project = projects.find((item) => item.path === path);
+        if (!project) {
+            throw new ApiError(404, 'project not found');
+        }
+        project.title = title.trim();
+        this.writeWorkspacesState();
+    }
+
     addProjectSession(sessionId: string): void {
         if (!this.workspaceRoot) return;
         const projects = this.readWorkspacesState();
         const project = projects.find((item) => item.path === this.workspaceRoot);
         if (project && !project.sessionIds.includes(sessionId)) {
             project.sessionIds.push(sessionId);
+            this.writeWorkspacesState();
+        }
+    }
+
+    /** 从旧 workspaces.json 归属中移除 Session（兼容层清理） */
+    removeProjectSession(sessionId: string): void {
+        const projects = this.readWorkspacesState();
+        let changed = false;
+        for (const project of projects) {
+            const nextIds = project.sessionIds.filter((id) => id !== sessionId);
+            if (nextIds.length !== project.sessionIds.length) {
+                project.sessionIds = nextIds;
+                changed = true;
+            }
+        }
+        if (changed) {
             this.writeWorkspacesState();
         }
     }

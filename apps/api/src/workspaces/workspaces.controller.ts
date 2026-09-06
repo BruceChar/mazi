@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 
@@ -29,6 +29,17 @@ export class WorkspacesController {
             path: this.runtime.selectedWorkspaceRoot,
             projects: this.runtime.projects(),
         };
+    }
+
+    /** 重命名项目展示名（body: path/title） */
+    @Patch('project')
+    renameProject(@Body() body: Record<string, unknown>): {
+        projects: { title: string; path: string; sessionIds: string[] }[];
+    } {
+        const path = typeof body.path === 'string' ? body.path : '';
+        const title = typeof body.title === 'string' ? body.title : '';
+        this.runtime.renameProject(path, title);
+        return { projects: this.runtime.projects() };
     }
 
     /** 弹出系统目录选择器（macOS: osascript 选文件夹对话框） */

@@ -88,4 +88,75 @@ describe('conversations（会话业务抽象列表）', () => {
         expect(conversation?.workspace).toBe('/legacy/workspace');
         expect(conversation?.projectId).toBe('/legacy/workspace');
     });
+
+    it('PATCH /api/conversations/:id 重命名并归档，DELETE 后级联移除 Session', async () => {
+        const created = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '待管理会话' },
+        });
+        const { sessionId } = created.json();
+
+        const before = (await fastify.inject({ method: 'GET', url: '/api/conversations' })).json();
+        const conversation = before.find((item: { sessions: Array<{ sessionId: string }> }) =>
+            item.sessions.some((s) => s.sessionId === sessionId),
+        );
+        expect(conversation).toBeDefined();
+
+        const patched = await fastify.inject({
+            method: 'PATCH',
+            url: `/api/conversations/${conversation.conversationId}`,
+            headers: { 'content-type': 'application/json' },
+            payload: { title: '改名后的会话', archived: true },
+        });
+        expect(patched.statusCode).toBe(200);
+
+        const after = (await fastify.inject({ method: 'GET', url: '/api/conversations' })).json();
+        const renamed = after.find(
+            (item: { conversationId: string }) =>
+                item.conversationId === conversation.conversationId,
+        );
+        expect(renamed.title).toBe('改名后的会话');
+        expect(renamed.archived).toBe(true);
+
+        const removed = await fastify.inject({
+            method: 'DELETE',
+            url: `/api/conversations/${conversation.conversationId}`,
+        });
+        expect(removed.statusCode).toBe(200);
+        const finalList = (
+            await fastify.inject({ method: 'GET', url: '/api/conversations' })
+        ).json();
+        expect(
+            finalList.some(
+                (item: { conversationId: string }) =>
+                    item.conversationId === conversation.conversationId,
+            ),
+        ).toBe(false);
+        const sessionDetail = await fastify.inject({
+            method: 'GET',
+            url: `/api/sessions/${sessionId}/timeline`,
+        });
+        expect(sessionDetail.statusCode).toBe(404);
+    });
+
+    it('PATCH /api/workspaces/project 重命名项目展示名', async () => {
+        writeFileSync(
+            join(handle.home, 'workspaces.json'),
+            JSON.stringify({
+                projects: [{ title: 'old-name', path: '/ws/project', sessionIds: [] }],
+            }),
+        );
+        const res = await fastify.inject({
+            method: 'PATCH',
+            url: '/api/workspaces/project',
+            headers: { 'content-type': 'application/json' },
+            payload: { path: '/ws/project', title: 'new-name' },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json().projects).toEqual([
+            { title: 'new-name', path: '/ws/project', sessionIds: [] },
+        ]);
+    });
 });

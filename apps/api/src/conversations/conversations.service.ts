@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Session } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { Injectable } from '@nestjs/common';
+import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 import {
     type Conversation,
@@ -65,6 +66,48 @@ export class ConversationsService {
             updatedAt: now,
         });
         this.write();
+    }
+
+    /** 更新 Conversation 展示名或归档状态 */
+    update(conversationId: string, changes: { title?: string; archived?: boolean }): void {
+        this.read();
+        const conversation = this.state.conversations.find(
+            (item) => item.conversationId === conversationId,
+        );
+        if (!conversation) {
+            throw new ApiError(404, 'conversation not found');
+        }
+        if (changes.title !== undefined) {
+            const title = changes.title.trim();
+            if (!title) {
+                throw new ApiError(400, '缺少 title');
+            }
+            conversation.title = title;
+        }
+        if (changes.archived !== undefined) {
+            conversation.archived = changes.archived;
+        }
+        conversation.updatedAt = Date.now();
+        this.write();
+    }
+
+    /** 删除 Conversation，并级联删除其包含的 core Session 数据 */
+    async remove(conversationId: string): Promise<void> {
+        this.read();
+        const conversation = this.state.conversations.find(
+            (item) => item.conversationId === conversationId,
+        );
+        if (!conversation) {
+            throw new ApiError(404, 'conversation not found');
+        }
+        this.state.conversations = this.state.conversations.filter(
+            (item) => item.conversationId !== conversationId,
+        );
+        this.write();
+        for (const sessionId of conversation.sessionIds) {
+            await this.runtime.harness().store.deleteSession(sessionId);
+            this.runtime.removeProjectSession(sessionId);
+        }
     }
 
     /** 迁移历史数据：旧 workspaces.json 里的 sessionIds 回填为 Conversation 记录 */
