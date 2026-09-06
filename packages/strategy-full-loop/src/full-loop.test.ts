@@ -13,7 +13,8 @@ import type {
 import { ulid } from '@mazi/core';
 import type { TurnExecutionOutcome } from '@mazi/executor';
 import { describe, expect, it } from 'vitest';
-import { acceptanceMet, FullLoopStrategy } from './full-loop.js';
+import { FullLoopStrategy } from './full-loop.js';
+import { acceptanceMet } from './reflector.js';
 
 function stubFlag(): FlagSnapshot {
     return {

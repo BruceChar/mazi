@@ -79,4 +79,4 @@ Session/Turn/Step 数据模型、Checkpoint、事件三层 ID 不变。
 ## 6. 实施状态
 
 - 已完成：core 契约（`LLMRound`/`ObservationPayload.contextContent`/`Observer`）、provider-llm 流式轮次归一、`DefaultObserver`（结构化截断与错误分类）、Executor 接入与上下文回注、SQLite `MemoryStore` 抽象保留。
-- 未做：存储 SPI/PostgreSQL；独立 Reflector 仍未实现。Observer 现同时覆盖工具结果与 LLM 文本/思考的上下文裁剪。
+- 未做：存储 SPI/PostgreSQL、LLM-as-judge Reflector。已落地：Observer 覆盖工具结果与 LLM 文本/思考的上下文裁剪；独立 `MechanicalReflector`（确定性机械验收）已接入 Full-Loop。

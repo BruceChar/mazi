@@ -1,5 +1,4 @@
 import type {
-    AcceptanceSpec,
     HarnessStrategy,
     StrategyCapabilities,
     StrategyContext,
@@ -9,49 +8,14 @@ import type {
 import { ulid } from '@mazi/core';
 import type { Executor, TurnExecutionOutcome } from '@mazi/executor';
 import { newHarnessEvent } from '@mazi/observability';
-
-/**
- * 机械验收（MVP Reflect 最小实现，MVP 文档 §5.1/§8 F12）：
- * 所有 success.conditions 均须满足。MVP 支持三类条件：
- * - 'contains:<sub>'：最终回答包含子串
- * - 'regex:<pattern>'：最终回答匹配正则
- * - 其他字符串：按子串匹配处理
- */
-export function acceptanceMet(
-    spec: AcceptanceSpec,
-    outcomeOk: boolean,
-    finalMessage?: string,
-): boolean {
-    if (!outcomeOk) {
-        return false;
-    }
-    const message = finalMessage ?? '';
-    for (const condition of spec.conditions) {
-        if (condition.startsWith('contains:')) {
-            if (!message.includes(condition.slice('contains:'.length))) {
-                return false;
-            }
-        } else if (condition.startsWith('regex:')) {
-            try {
-                if (!new RegExp(condition.slice('regex:'.length)).test(message)) {
-                    return false;
-                }
-            } catch {
-                return false;
-            }
-        } else if (!message.includes(condition)) {
-            return false;
-        }
-    }
-    return true;
-}
+import { MechanicalReflector } from './reflector.js';
 
 const CAPABILITIES: StrategyCapabilities = {
     needsGoal: true,
     needsPlan: true,
     needsExecute: true,
     needsObserve: true,
-    needsReflect: false,
+    needsReflect: true,
     needsPersistentState: true,
 };
 
@@ -161,7 +125,15 @@ export class FullLoopStrategy implements HarnessStrategy {
             }
             const ok = outcome?.ok === true;
             const final = outcome?.finalMessage;
-            const accepted = acceptanceMet(contract.success, ok, final);
+            const reflector = ctx.reflector ?? new MechanicalReflector();
+            const verdict = await reflector.reflect({
+                sessionId: turn.sessionId,
+                turnId: turn.turnId,
+                success: contract.success,
+                outcomeOk: ok,
+                finalMessage: final,
+            });
+            const accepted = verdict.accepted;
             if (ok && !accepted) {
                 turn.status = 'failed';
                 await ctx.memory.saveTurn(turn);
