@@ -89,6 +89,34 @@ describe('conversations（会话业务抽象列表）', () => {
         expect(conversation?.projectId).toBe('/legacy/workspace');
     });
 
+    it('POST /api/sessions 携带 conversationId 时追加到已有 Conversation', async () => {
+        const first = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '第一问' },
+        });
+        expect(first.statusCode).toBe(200);
+        const firstBody = first.json() as { conversationId: string };
+
+        const second = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '追问', conversationId: firstBody.conversationId },
+        });
+        expect(second.statusCode).toBe(200);
+        expect((second.json() as { conversationId: string }).conversationId).toBe(
+            firstBody.conversationId,
+        );
+
+        const list = (await fastify.inject({ method: 'GET', url: '/api/conversations' })).json();
+        const conversation = list.find(
+            (item: { conversationId: string }) => item.conversationId === firstBody.conversationId,
+        );
+        expect(conversation.sessions).toHaveLength(2);
+    });
+
     it('PATCH /api/conversations/:id 重命名并归档，DELETE 后级联移除 Session', async () => {
         const created = await fastify.inject({
             method: 'POST',

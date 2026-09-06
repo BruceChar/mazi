@@ -39,13 +39,29 @@ export class SessionsService {
     /** POST /api/sessions：创建会话（不执行）；body.input 必填，body.goal 透传（运行时语义同旧实现） */
     async createSession(
         body: Record<string, unknown>,
-    ): Promise<{ sessionId: string; state: string }> {
+    ): Promise<{ sessionId: string; state: string; conversationId: string }> {
         const input = typeof body.input === 'string' ? body.input.trim() : '';
         if (!input) {
             throw new ApiError(400, '缺少 input');
         }
+        const conversationId =
+            typeof body.conversationId === 'string' && body.conversationId.trim()
+                ? body.conversationId.trim()
+                : undefined;
+        const targetContext = conversationId
+            ? this.conversations.context(conversationId)
+            : undefined;
+        if (targetContext?.workspace !== undefined) {
+            if (this.runtime.selectedWorkspaceRoot !== targetContext.workspace) {
+                this.runtime.setWorkspaceRoot(targetContext.workspace);
+            }
+        } else if (this.runtime.selectedWorkspaceRoot !== undefined) {
+            this.runtime.setWorkspaceRoot(undefined);
+        }
         const options: CreateSessionOptions = {
-            userId: typeof body.userId === 'string' ? body.userId : undefined,
+            userId:
+                (typeof body.userId === 'string' ? body.userId : undefined) ??
+                targetContext?.userId,
             goal:
                 typeof body.goal === 'object' && body.goal
                     ? (body.goal as SessionGoalOverrides)
@@ -54,23 +70,36 @@ export class SessionsService {
         const created = await this.runtime.harness().createSession(input, options);
         this.runtime.addProjectSession(created.sessionId);
         const workspace =
-            typeof body.workspace === 'string' && body.workspace.trim()
+            targetContext?.workspace ??
+            (typeof body.workspace === 'string' && body.workspace.trim()
                 ? body.workspace.trim()
                 : typeof body.workspacePath === 'string' && body.workspacePath.trim()
                   ? body.workspacePath.trim()
-                  : this.runtime.selectedWorkspaceRoot;
+                  : this.runtime.selectedWorkspaceRoot);
         const projectId =
-            typeof body.projectId === 'string' && body.projectId.trim()
+            targetContext?.projectId ??
+            (typeof body.projectId === 'string' && body.projectId.trim()
                 ? body.projectId.trim()
-                : workspace;
-        this.conversations.recordNewSession({
+                : workspace);
+        const sessionInput = {
             sessionId: created.sessionId,
             title: input.slice(0, 80),
             userId: options.userId,
             workspace,
             projectId,
-        });
-        return { sessionId: created.sessionId, state: 'running' };
+        };
+        let createdConversationId: string;
+        if (conversationId) {
+            this.conversations.appendSession(conversationId, sessionInput);
+            createdConversationId = conversationId;
+        } else {
+            createdConversationId = this.conversations.recordNewSession(sessionInput);
+        }
+        return {
+            sessionId: created.sessionId,
+            state: 'running',
+            conversationId: createdConversationId,
+        };
     }
 
     /** POST /api/run 与 POST /api/sessions/:id/run：进程内串行执行（busy → 409） */

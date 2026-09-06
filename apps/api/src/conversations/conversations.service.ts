@@ -51,12 +51,13 @@ export class ConversationsService {
         writeFileSync(this.file, JSON.stringify(this.state, null, 2));
     }
 
-    /** 新 Session 默认创建一个只含该 Session 的 Conversation */
-    recordNewSession(input: NewConversationSession): void {
+    /** 新 Session 默认创建一个只含该 Session 的 Conversation，返回 conversationId */
+    recordNewSession(input: NewConversationSession): string {
         this.read();
+        const conversationId = ulid();
         const now = Date.now();
         this.state.conversations.push({
-            conversationId: ulid(),
+            conversationId,
             title: input.title,
             userId: input.userId,
             sessionIds: [input.sessionId],
@@ -66,6 +67,46 @@ export class ConversationsService {
             updatedAt: now,
         });
         this.write();
+        return conversationId;
+    }
+
+    /** 把 Session 追加到已有 Conversation（同 conversation 内续聊） */
+    appendSession(conversationId: string, input: NewConversationSession): void {
+        this.read();
+        const conversation = this.state.conversations.find(
+            (item) => item.conversationId === conversationId,
+        );
+        if (!conversation) {
+            throw new ApiError(404, 'conversation not found');
+        }
+        if (!conversation.sessionIds.includes(input.sessionId)) {
+            conversation.sessionIds.push(input.sessionId);
+        }
+        if (conversation.userId === undefined && input.userId !== undefined) {
+            conversation.userId = input.userId;
+        }
+        conversation.updatedAt = Date.now();
+        this.write();
+    }
+
+    /** 查找 Conversation 的归属上下文（供创建追加 Session 时使用） */
+    context(conversationId: string): {
+        userId?: string;
+        workspace?: string;
+        projectId?: string;
+    } {
+        this.read();
+        const conversation = this.state.conversations.find(
+            (item) => item.conversationId === conversationId,
+        );
+        if (!conversation) {
+            throw new ApiError(404, 'conversation not found');
+        }
+        return {
+            userId: conversation.userId,
+            workspace: conversation.workspace,
+            projectId: conversation.projectId,
+        };
     }
 
     /** 更新 Conversation 展示名或归档状态 */

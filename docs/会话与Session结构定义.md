@@ -74,7 +74,7 @@ interface Session {
 ## 5. 实现落地（v0.2）
 
 - Conversation 由 apps/api 的 `ConversationsService` 以 JSON（`$MAZI_HOME/conversations.json`）持久化；Session 记录仍由 core 存储维护，Conversation 只持有 `sessionIds` 引用，不写回 Session。
-- `POST /api/sessions` 每次创建 Session 时默认创建一个只含该 Session 的 Conversation；请求体的 `workspace` / `workspacePath` 会写入 Conversation 的工作区归属，`projectId` 缺省与该工作区相同。
+- `POST /api/sessions` 每次创建 Session 时默认创建一个只含该 Session 的 Conversation；请求体带 `conversationId` 时把 Session 追加到已有 Conversation。`workspace` / `workspacePath` 会写入 Conversation 的工作区归属，`projectId` 缺省与该工作区相同。
 - `GET /api/conversations` 返回 Conversation 投影：归属字段随 Conversation 返回，`sessions` 水合为 core Session 数组。
 - 旧的 `workspaces.json` 项目会话关联保留为兼容层，后续 WebUI 迁移到 Conversation 过滤后移除。
 - 向已有 Conversation 追加 Session 的入口（续聊）不在本期范围，`ConversationRecord.sessionIds` 已为追加预留。
