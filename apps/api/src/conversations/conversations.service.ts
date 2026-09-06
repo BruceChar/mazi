@@ -190,12 +190,21 @@ export class ConversationsService {
         this.runtime.stripLegacyProjectSessionIds();
     }
 
-    /** API 会话列表：记录按 updatedAt 倒序，水合 core Session 后返回 */
-    async list(): Promise<Conversation[]> {
+    /** API 会话列表：按 updatedAt 倒序，水合 core Session 后返回；支持分页与标题筛选 */
+    async list(
+        options: { limit?: number; offset?: number; q?: string } = {},
+    ): Promise<Conversation[]> {
         await this.backfillLegacySessions();
-        const records = [...this.state.conversations].sort(
+        let records = [...this.state.conversations].sort(
             (a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt,
         );
+        if (options.q?.trim()) {
+            const key = options.q.trim().toLowerCase();
+            records = records.filter((record) => record.title.toLowerCase().includes(key));
+        }
+        const offset = Math.max(0, options.offset ?? 0);
+        const limit = options.limit;
+        records = records.slice(offset, limit === undefined ? undefined : offset + limit);
         const hydrated: Conversation[] = [];
         for (const record of records) {
             const sessions: Session[] = [];

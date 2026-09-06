@@ -121,6 +121,30 @@ describe('conversations（会话业务抽象列表）', () => {
         expect(conversation.sessions).toHaveLength(2);
     });
 
+    it('GET /api/conversations 支持 q 筛选与 limit 分页', async () => {
+        const marker = `分页标记 ${Date.now()}`;
+        await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: marker },
+        });
+
+        const filtered = (
+            await fastify.inject({
+                method: 'GET',
+                url: `/api/conversations?q=${encodeURIComponent(marker)}`,
+            })
+        ).json() as Array<{ title: string }>;
+        expect(filtered.length).toBeGreaterThan(0);
+        expect(filtered.every((item) => item.title.includes(marker))).toBe(true);
+
+        const paged = (
+            await fastify.inject({ method: 'GET', url: '/api/conversations?limit=1' })
+        ).json() as unknown[];
+        expect(paged.length).toBe(1);
+    });
+
     it('PATCH /api/conversations/:id 重命名并归档，DELETE 后级联移除 Session', async () => {
         const created = await fastify.inject({
             method: 'POST',

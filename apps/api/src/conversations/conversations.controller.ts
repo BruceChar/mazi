@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Body, Controller, Delete, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
 import type { Conversation } from './conversation.js';
 import { ConversationsService } from './conversations.service.js';
 
@@ -9,8 +9,16 @@ export class ConversationsController {
     constructor(private readonly conversations: ConversationsService) {}
 
     @Get()
-    list(): Promise<Conversation[]> {
-        return this.conversations.list();
+    list(
+        @Query('limit') limit?: string,
+        @Query('offset') offset?: string,
+        @Query('q') q?: string,
+    ): Promise<Conversation[]> {
+        return this.conversations.list({
+            limit: limit === undefined ? undefined : Number.parseInt(limit, 10),
+            offset: offset === undefined ? undefined : Number.parseInt(offset, 10),
+            q,
+        });
     }
 
     @Patch(':id')
