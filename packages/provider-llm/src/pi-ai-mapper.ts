@@ -4,6 +4,7 @@ import type {
     Context,
     Message,
     Tool,
+    ToolCall,
     ToolResultMessage,
     TSchema,
     Usage,
@@ -71,7 +72,23 @@ export function messagesToPi(
         }
         if (msg.role === 'assistant') {
             if (msg.toolCallId !== undefined || msg.name !== undefined) {
-                // 工具意图无 arguments 信息，依赖紧随其后的 tool 结果还原调用
+                const toolCall: ToolCall = {
+                    type: 'toolCall',
+                    id: msg.toolCallId ?? `call-${msg.name ?? 'tool'}`,
+                    name: sanitizeToolName(msg.name ?? 'tool'),
+                    arguments: msg.arguments ?? {},
+                };
+                const assistant: AssistantMessage = {
+                    role: 'assistant',
+                    content: [toolCall],
+                    api: meta.api,
+                    provider: meta.provider,
+                    model: meta.model,
+                    usage: EMPTY_USAGE(),
+                    stopReason: 'toolUse',
+                    timestamp: now(),
+                };
+                result.push(assistant);
                 continue;
             }
             const assistant: AssistantMessage = {

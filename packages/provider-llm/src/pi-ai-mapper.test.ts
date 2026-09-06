@@ -26,23 +26,44 @@ function usage(): Usage {
 }
 
 describe('pi-ai mapper（离线，ProviderAdapter 设计 PA-A2）', () => {
-    it('messagesToPi：user/assistant/tool 映射；assistant 工具意图跳过；system 过滤', () => {
+    it('messagesToPi：user/assistant/tool 映射；assistant 工具意图还原为 toolCall；system 过滤', () => {
         const msgs = [
             { role: 'system' as const, content: '你是助手' },
             { role: 'user' as const, content: '你好' },
             { role: 'assistant' as const, content: '在思考' },
-            { role: 'assistant' as const, content: '', name: 'fs.read', toolCallId: 'c1' },
+            {
+                role: 'assistant' as const,
+                content: '',
+                name: 'fs.read',
+                toolCallId: 'c1',
+                arguments: { path: '/tmp/x' },
+            },
             { role: 'tool' as const, content: '内容', name: 'fs.read', toolCallId: 'c1' },
             { role: 'tool' as const, content: '[error] 失败', name: 'fs.read', toolCallId: 'c2' },
         ];
         const out = messagesToPi(msgs, meta, () => 123);
-        expect(out).toHaveLength(4);
+        expect(out).toHaveLength(5);
         expect(out[0]).toMatchObject({ role: 'user', content: '你好', timestamp: 123 });
         expect(out[1]).toMatchObject({
             role: 'assistant',
             provider: 'openai',
             model: 'gpt-4o-mini',
         });
+        const toolIntent = out[2] as {
+            role: 'assistant';
+            content: { type: 'toolCall'; id: string; name: string; arguments: unknown }[];
+            stopReason: string;
+        };
+        expect(toolIntent.role).toBe('assistant');
+        expect(toolIntent.stopReason).toBe('toolUse');
+        expect(toolIntent.content).toEqual([
+            {
+                type: 'toolCall',
+                id: 'c1',
+                name: 'fs_read',
+                arguments: { path: '/tmp/x' },
+            },
+        ]);
         const toolResults = out.filter((m) => m.role === 'toolResult') as {
             role: 'toolResult';
             toolName: string;

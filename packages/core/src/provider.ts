@@ -153,6 +153,8 @@ export interface LLMMessage {
     content: string;
     name?: string;
     toolCallId?: string;
+    /** assistant 工具意图的入参；重建历史 tool_calls 消息时透传 */
+    arguments?: Record<string, unknown>;
 }
 
 /** 与 pi-ai Context 对齐的统一上下文 */

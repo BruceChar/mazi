@@ -23,12 +23,17 @@ export function buildContextMessages(steps: Step[]): LLMMessage[] {
                 break;
             }
             case 'tool_call': {
-                const p = step.payload as { toolName: string; callId?: string };
+                const p = step.payload as {
+                    toolName: string;
+                    callId?: string;
+                    arguments?: Record<string, unknown>;
+                };
                 messages.push({
                     role: 'assistant',
                     content: '',
                     name: p.toolName,
                     toolCallId: p.callId,
+                    arguments: p.arguments,
                 });
                 break;
             }
