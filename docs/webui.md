@@ -334,20 +334,22 @@
 
 ```
 ┌─ Trajectory View ─────────────────────────────────────────┐
-│  Turn 1 · 计划分解                                        │
-│  ├─ Step 1  thinking  · 1,240 tok · 2.3s · deepseek-v4  │
-│  ├─ Step 2  tool_call  fs.read  ·  340 tok · 0.4s        │
-│  ├─ Step 3  observation       ·  120 tok · 0.1s          │
-│  └─ Step 4  thinking  ·  890 tok · 1.8s · deepseek-v4    │
+│  Session #1 · 读取文件并修复 bug                            │
 │                                                           │
-│  Turn 2 · 并行审计（6 个子代理）                          │
-│  ├─ SubAgent #1  scripts/     · running · 45%            │
-│  ├─ SubAgent #2  _data/       · done    · $0.02          │
-│  └─ ...                                                   │
+│  ├─ Turn 1 · 计划分解                                      │
+│  │  ├─ Step #0 thinking   · 1,240 tok · 2.3s · deepseek-v4 │
+│  │  ├─ Step #1 tool_call  fs.read · 340 tok · 0.4s        │
+│  │  ├─ Step #2 observation         · 120 tok · 0.1s       │
+│  │  └─ Step #3 thinking   · 890 tok · 1.8s · deepseek-v4  │
+│  └─ Turn 2 · 验证修复                                       │
+│     ├─ Step #4 tool_call  fs.write · 220 tok · 0.2s       │
+│     └─ Step #5 thinking   · 430 tok · 0.9s · deepseek-v4  │
 └───────────────────────────────────────────────────────────┘
 ```
 
-- 树形结构，可折叠 Turn
+- 树形结构：一个 Conversation 内按顺序列出 Session #N；Session 可折叠
+- Session 内部按子任务列出 Turn，Turn 可折叠
+- Turn 内部的实际执行单元 Step 为叶子节点
 - 点击 Step 展开右侧抽屉显示详细审计信息
 
 ---

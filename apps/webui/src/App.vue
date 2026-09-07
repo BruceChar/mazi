@@ -68,6 +68,7 @@ const profile = ref(null);
 const feedbackSent = ref(false);
 const openSteps = ref({});
 const collapsedTurns = ref({});
+const collapsedSessions = ref({});
 const trajFilter = ref('all');
 const selectedModel = ref('');
 const accountOpen = ref(false);
@@ -180,6 +181,14 @@ function isTurnOpen(turnId) {
 
 function toggleTurn(turnId) {
     collapsedTurns.value[turnId] = !isTurnOpen(turnId);
+}
+
+function isSessionOpen(sessionId) {
+    return collapsedSessions.value[sessionId] !== false;
+}
+
+function toggleSession(sessionId) {
+    collapsedSessions.value[sessionId] = !isSessionOpen(sessionId);
 }
 
 function stepTitle(row) {
@@ -799,38 +808,66 @@ onBeforeUnmount(() => {
                                 {{ f }}
                             </button>
                         </div>
-                        <template v-for="session in flowSessions" :key="session.sessionId">
-                            <div
-                                v-for="(turn, tIndex) in session.turns || []"
-                                :key="turn.turnId"
-                                class="traj-turn"
-                            >
-                                <div class="traj-turn-head" @click="toggleTurn(turn.turnId)">
-                                    <LineIcon class="chevron" :name="isTurnOpen(turn.turnId) ? 'chevronDown' : 'chevronRight'" size="14" />
-                                    <span>Turn {{ tIndex + 1 }} · {{ (turn.contract && turn.contract.statement) || turn.turnId }}</span>
-                                    <span class="muted-inline">{{ turn.status }} · {{ session.outcome || session.state }}</span>
+                        <template v-for="(session, sIndex) in flowSessions" :key="session.sessionId">
+                            <div class="traj-session">
+                                <div
+                                    class="traj-session-head"
+                                    @click="toggleSession(session.sessionId)"
+                                >
+                                    <LineIcon
+                                        class="chevron"
+                                        :name="isSessionOpen(session.sessionId) ? 'chevronDown' : 'chevronRight'"
+                                        size="14"
+                                    />
+                                    <span class="traj-session-id">Session #{{ sIndex + 1 }}</span>
+                                    <span class="traj-session-intent">{{ session.rawIntent || session.sessionId }}</span>
+                                    <span class="muted-inline">
+                                        {{ session.outcome || session.state || 'pending' }} ·
+                                        {{ (session.turns || []).length }} 个子任务
+                                    </span>
                                 </div>
-                                <div v-if="isTurnOpen(turn.turnId)" class="traj-tree">
-                                    <div
-                                        v-for="step in (turn.steps || []).filter((s) => trajFilter === 'all' || s.kind === trajFilter)"
-                                        :key="step.stepId"
-                                        class="traj-step"
-                                        @click="openAuditFromStep(turn, step)"
-                                    >
-                                        <span class="msg-icon"><LineIcon :name="icon(step.kind)" size="14" /></span>
-                                        <span class="traj-title">{{ short(stepTitle({ turn, step }), 72) }}</span>
-                                        <span class="muted-inline">#{{ step.seq }} {{ step.status }}</span>
-                                        <span v-if="step.model" class="muted-inline">{{ step.model.modelId }}</span>
-                                        <span v-if="step.usage" class="muted-inline">{{ fmtTokens(step.usage.vendor.inputTokens + step.usage.vendor.outputTokens) }} tok</span>
+                                <template
+                                    v-if="(session.turns || []).length && isSessionOpen(session.sessionId)"
+                                >
+                                    <div class="traj-session-body">
+                                        <div
+                                            v-for="(turn, tIndex) in session.turns"
+                                            :key="turn.turnId"
+                                            class="traj-turn"
+                                        >
+                                            <div class="traj-turn-head" @click="toggleTurn(turn.turnId)">
+                                                <LineIcon
+                                                    class="chevron"
+                                                    :name="isTurnOpen(turn.turnId) ? 'chevronDown' : 'chevronRight'"
+                                                    size="13"
+                                                />
+                                                <span>Turn {{ tIndex + 1 }} · {{ (turn.contract && turn.contract.statement) || turn.turnId }}</span>
+                                                <span class="muted-inline">{{ turn.status }}</span>
+                                            </div>
+                                            <div v-if="isTurnOpen(turn.turnId)" class="traj-tree">
+                                                <div
+                                                    v-for="step in (turn.steps || []).filter((s) => trajFilter === 'all' || s.kind === trajFilter)"
+                                                    :key="step.stepId"
+                                                    class="traj-step"
+                                                    @click="openAuditFromStep(turn, step)"
+                                                >
+                                                    <span class="msg-icon"><LineIcon :name="icon(step.kind)" size="14" /></span>
+                                                    <span class="traj-title">{{ short(stepTitle({ turn, step }), 72) }}</span>
+                                                    <span class="muted-inline">#{{ step.seq }} {{ step.status }}</span>
+                                                    <span v-if="step.model" class="muted-inline">{{ step.model.modelId }}</span>
+                                                    <span v-if="step.usage" class="muted-inline">{{ fmtTokens(step.usage.vendor.inputTokens + step.usage.vendor.outputTokens) }} tok</span>
+                                                </div>
+                                                <div v-if="!turn.steps.length" class="empty-hint">无步骤</div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div v-if="!turn.steps.length" class="empty-hint">无步骤</div>
+                                </template>
+                                <div
+                                    v-else-if="!(session.turns || []).length"
+                                    class="traj-session-empty"
+                                >
+                                    {{ session.outcome ? `${session.outcome} · ` : '' }}暂无轨迹
                                 </div>
-                            </div>
-                            <div
-                                v-if="!(session.turns || []).length"
-                                class="traj-session-empty"
-                            >
-                                {{ session.outcome ? `${session.outcome} · ` : '' }}暂无轨迹
                             </div>
                         </template>
                         <div v-if="!flowSessions.length" class="empty-hint">暂无轨迹</div>

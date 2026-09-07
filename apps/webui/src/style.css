@@ -747,11 +747,56 @@ pre {
     border-color: var(--accent);
 }
 
+.traj-session {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+
+.traj-session-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 12px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.traj-session-head:hover {
+    background: var(--bg-hover);
+}
+
+.traj-session-id {
+    flex: 0 0 auto;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.traj-session-intent {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.traj-session-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-top: 1px solid var(--border);
+    padding: 8px;
+    background: var(--bg-chat);
+}
+
 .traj-turn {
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--bg);
-    margin-bottom: 8px;
+    margin-bottom: 0;
 }
 
 .traj-turn-head {
