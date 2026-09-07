@@ -8,13 +8,13 @@
 
 ## 1. 决策
 
-| # | 决策 | 说明 |
-| - | ---- | ---- |
-| PA-1 | 目标包：**`@earendil-works/pi-ai`（0.85.x）** | 用户指定的真实目标包（Unified LLM API：provider collections/自动 auth 解析/token 成本统计/多厂商）。注：初稿曾误选同源旧包 `@mariozechner/pi-ai`，已纠正并移除依赖；npm 无 scope 的 `pi-ai` 为占位包。 |
-| PA-2 | 凭据注入：**优先按 provider 默认 env 读取**（openai→OPENAI_API_KEY、deepseek→DEEPSEEK_API_KEY、anthropic→ANTHROPIC_API_KEY、google→GEMINI_API_KEY、openrouter→OPENROUTER_API_KEY 等）；可用 `driver.apiKeyEnv` 覆盖 | 不把密钥写入配置/仓库。显式配置 `apiKeyEnv` 或命中默认映射但缺失 → 首次调用抛出清晰错误；未命中映射的 provider（faux/无鉴权自定义端点）不校验。CLI 提供 `pnpm mazi config` 交互向导，生成的 `providers.json` 通常省略 `apiKeyEnv`（默认映射生效）。 |
-| PA-3 | 注册形态：**`DefaultDriverRegistry`** 仅分派 `pi-ai` | 缺失或未知 `driver.type` 立即失败。 |
-| PA-4 | 驱动配置字段：`{ type: 'pi-ai', api?: string, model: string, apiKeyEnv?: string }` | `api` 默认 `'openai'`（pi-ai 支持的厂商标识，如 openai/anthropic/google/deepseek/openrouter…）；`model` 为厂商模型名。 |
-| PA-5 | baseUrl/自定义端点等 pi-ai 高级配置（OpenAI 兼容网关、代理）本期不重复建模，由 pi-ai 自身的模型注册/env 机制提供 | 文档标注，后续按需透传。 |
+| #    | 决策                                                                                                                                                                                                                             | 说明                                                                                                                                                                                                                                                        |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PA-1 | 目标包：**`@earendil-works/pi-ai`（0.85.x）**                                                                                                                                                                            | 用户指定的真实目标包（Unified LLM API：provider collections/自动 auth 解析/token 成本统计/多厂商）。注：初稿曾误选同源旧包`@mariozechner/pi-ai`，已纠正并移除依赖；npm 无 scope 的 `pi-ai` 为占位包。                                                   |
+| PA-2 | 凭据注入：**优先按 provider 默认 env 读取**（openai→OPENAI_API_KEY、deepseek→DEEPSEEK_API_KEY、anthropic→ANTHROPIC_API_KEY、google→GEMINI_API_KEY、openrouter→OPENROUTER_API_KEY 等）；可用 `driver.apiKeyEnv` 覆盖 | 不把密钥写入配置/仓库。显式配置`apiKeyEnv` 或命中默认映射但缺失 → 首次调用抛出清晰错误；未命中映射的 provider（faux/无鉴权自定义端点）不校验。CLI 提供 `pnpm mazi config` 交互向导，生成的 `providers.json` 通常省略 `apiKeyEnv`（默认映射生效）。 |
+| PA-3 | 注册形态：**`DefaultDriverRegistry`** 仅分派 `pi-ai`                                                                                                                                                                   | 缺失或未知`driver.type` 立即失败。                                                                                                                                                                                                                        |
+| PA-4 | 驱动配置字段：`{ type: 'pi-ai', api?: string, model: string, apiKeyEnv?: string }`                                                                                                                                             | `api` 默认 `'openai'`（pi-ai 支持的厂商标识，如 openai/anthropic/google/deepseek/openrouter…）；`model` 为厂商模型名。                                                                                                                               |
+| PA-5 | baseUrl/自定义端点等 pi-ai 高级配置（OpenAI 兼容网关、代理）本期不重复建模，由 pi-ai 自身的模型注册/env 机制提供                                                                                                                 | 文档标注，后续按需透传。                                                                                                                                                                                                                                    |
 
 ---
 
@@ -22,26 +22,26 @@
 
 ### 2.1 请求方向（我们的契约 → pi-ai）
 
-| 我们的字段 | pi-ai 字段 | 处理 |
-| ---------- | ---------- | ---- |
-| `LLMContext.systemPrompt` | `Context.systemPrompt` | 直接赋值 |
-| `LLMMessage role='user'` | `UserMessage{role:'user', content, timestamp}` | 直接 |
-| `LLMMessage role='assistant'` | `AssistantMessage` | content → `[{type:'text',text}]`；需补齐 `api/provider/model/usage(零)/stopReason/timestamp`（用当前驱动选中的厂商/模型元信息） |
-| `LLMMessage role='assistant' 且携带 toolCallId`（工具意图） | 跳过 | 历史中紧随其后的 tool 结果已含 `toolName/toolCallId/content/isError`；工具意图条目内容为空、对真实多轮无增量（详见 2.3 风险） |
-| `LLMMessage role='tool'` | `ToolResultMessage{role:'toolResult', toolCallId, toolName, content:[{type:'text',text}], isError}` | content 以 `[error] ` 前缀判定 isError（现有 context-builder 编码） |
-| `LLMContext.tools: ToolSpec[]` | `Context.tools: Tool[]` | ToolSpec.parameters（JSON-schema 子集对象）按 `unknown as TSchema` 透传；pi-ai 转各厂商 function/tool schema |
-| 模型选择 | `getModel(api, modelId)` | 惰性解析并缓存；模型名非法 → pi-ai 抛错透出 |
+| 我们的字段                                                    | pi-ai 字段                                                                                            | 处理                                                                                                                                |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `LLMContext.systemPrompt`                                   | `Context.systemPrompt`                                                                              | 直接赋值                                                                                                                            |
+| `LLMMessage role='user'`                                    | `UserMessage{role:'user', content, timestamp}`                                                      | 直接                                                                                                                                |
+| `LLMMessage role='assistant'`                               | `AssistantMessage`                                                                                  | content →`[{type:'text',text}]`；需补齐 `api/provider/model/usage(零)/stopReason/timestamp`（用当前驱动选中的厂商/模型元信息） |
+| `LLMMessage role='assistant' 且携带 toolCallId`（工具意图） | 跳过                                                                                                  | 历史中紧随其后的 tool 结果已含`toolName/toolCallId/content/isError`；工具意图条目内容为空、对真实多轮无增量（详见 2.3 风险）      |
+| `LLMMessage role='tool'`                                    | `ToolResultMessage{role:'toolResult', toolCallId, toolName, content:[{type:'text',text}], isError}` | content 以`[error] ` 前缀判定 isError（现有 context-builder 编码）                                                                |
+| `LLMContext.tools: ToolSpec[]`                              | `Context.tools: Tool[]`                                                                             | ToolSpec.parameters（JSON-schema 子集对象）按`unknown as TSchema` 透传；pi-ai 转各厂商 function/tool schema                       |
+| 模型选择                                                      | `getModel(api, modelId)`                                                                            | 惰性解析并缓存；模型名非法 → pi-ai 抛错透出                                                                                        |
 
 ### 2.2 响应方向（pi-ai 事件 → `LLMStreamEvent`）
 
-| pi-ai 事件 | 产出 |
-| ---------- | ---- |
-| `start` / `text_start` / `text_end` / `thinking_start` / `thinking_end` | 忽略（文本/推理由 delta 累积） |
-| `text_delta` | `{type:'text-delta', delta}` |
-| `thinking_delta` | `{type:'reasoning-delta', delta}` |
-| `toolcall_end` | `{type:'tool-call', callId, toolName, arguments}` |
-| `done` | 先 `{type:'usage', usage: VendorUsage}`（input/output/cacheRead/cacheWrite/reasoning，reasoning 透传 pi-ai 值，厂商未细分时为 undefined），再 `{type:'end', finishReason}`（stop→stop / length→length / toolUse→tool_calls） |
-| `error` | 抛 `Error`（含 `errorMessage`）——harness 按 driver-error 故障转移/重试 |
+| pi-ai 事件                                                                        | 产出                                                                                                                                                                                                                               |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `start` / `text_start` / `text_end` / `thinking_start` / `thinking_end` | 忽略（文本/推理由 delta 累积）                                                                                                                                                                                                     |
+| `text_delta`                                                                    | `{type:'text-delta', delta}`                                                                                                                                                                                                     |
+| `thinking_delta`                                                                | `{type:'reasoning-delta', delta}`                                                                                                                                                                                                |
+| `toolcall_end`                                                                  | `{type:'tool-call', callId, toolName, arguments}`                                                                                                                                                                                |
+| `done`                                                                          | 先`{type:'usage', usage: VendorUsage}`（input/output/cacheRead/cacheWrite/reasoning，reasoning 透传 pi-ai 值，厂商未细分时为 undefined），再 `{type:'end', finishReason}`（stop→stop / length→length / toolUse→tool_calls） |
+| `error`                                                                         | 抛`Error`（含 `errorMessage`）——harness 按 driver-error 故障转移/重试                                                                                                                                                        |
 
 `Usage` 映射：`input→inputTokens`、`output→outputTokens`、`cacheRead→cacheReadInputTokens`、`cacheWrite→cacheCreationInputTokens`、`reasoning→reasoningOutputTokens`（`@earendil-works/pi-ai` 的 `Usage.reasoning` 为可选字段、是 `output` 的子集；厂商未提供时为 undefined，直接省略）＋ `reportedByVendor=true`。
 `complete(req)`：按 `stream` 消费并聚合文本 + 首个 usage（无工具轮次）。
@@ -62,14 +62,14 @@
 - `packages/provider-llm/src/pi-ai-mapper.ts`：纯映射（LLMRequest/Context ⇄ pi-ai Context/Tool/Message；事件翻译）
 - `packages/provider-llm/src/default-registry.ts`：`DefaultDriverRegistry`（type=pi-ai）
 - 测试：pi-ai **faux provider**（`fauxProvider()` + `createModels()`）离线端到端验证 stream/complete 映射，无需真实凭据
-- `packages/harness-runtime/src/runtime.ts`：装配点改用 `DefaultDriverRegistry`
+- `packages/runtime/src/runtime.ts`：装配点改用 `DefaultDriverRegistry`
 
 ## 4. 验收（对应 MVP 文档 §6 扩展）
 
-| # | 验收项 | 标准 |
-| - | ------ | ---- |
-| PA-A1 | 契约不变 | planner/executor/strategy 无源码改动（防腐层）；provider-llm 仍是唯一含外部 LLM 依赖的包（A13） |
-| PA-A2 | 映射正确 | 纯函数映射测试覆盖请求/响应/Usage/finishReason（fixture 驱动，离线） |
-| PA-A3 | 凭据失败语义 | `apiKeyEnv` 配置但缺失 → 首次调用抛含变量名的错误；未配置不阻塞（本地端点） |
-| PA-A4 | 注册分派 | `DefaultDriverRegistry`：type=pi-ai 建 PiAiDriver；缺失或未知 type 抛错 |
-| PA-A5 | 运行时可切换 | harness-runtime 装配使用 DefaultDriverRegistry，真实厂商配置回归 |
+| #     | 验收项       | 标准                                                                                            |
+| ----- | ------------ | ----------------------------------------------------------------------------------------------- |
+| PA-A1 | 契约不变     | planner/executor/strategy 无源码改动（防腐层）；provider-llm 仍是唯一含外部 LLM 依赖的包（A13） |
+| PA-A2 | 映射正确     | 纯函数映射测试覆盖请求/响应/Usage/finishReason（fixture 驱动，离线）                            |
+| PA-A3 | 凭据失败语义 | `apiKeyEnv` 配置但缺失 → 首次调用抛含变量名的错误；未配置不阻塞（本地端点）                  |
+| PA-A4 | 注册分派     | `DefaultDriverRegistry`：type=pi-ai 建 PiAiDriver；缺失或未知 type 抛错                       |
+| PA-A5 | 运行时可切换 | runtime 装配使用 DefaultDriverRegistry，真实厂商配置回归                                        |

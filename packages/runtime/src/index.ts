@@ -1,5 +1,4 @@
 /** @mazi/runtime —— 收敛后的执行实现聚合包（core 契约 / provider 接入之外所有运行期实现）。 */
-// 运行时入口（原 harness-runtime）
 export type { ProviderConfig, RuntimeConfig, ToolConfig, ToolSpecLike } from './config.js';
 export type { FileRuntimeConfig } from './config-io.js';
 export { configOverview, loadRuntimeConfig, toRuntimeConfig } from './config-io.js';

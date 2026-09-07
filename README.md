@@ -102,6 +102,7 @@ pnpm mazi run "读取 README.md 并汇报" \
 ```
 
 > 说明：
+>
 > - pi-ai 只包含支持工具调用的模型；模型名须在 pi-ai 目录内（不匹配会给出明确报错）。
 > - **默认读取环境变量**：provider=openai → `OPENAI_API_KEY`；provider=deepseek → `DEEPSEEK_API_KEY`；
 >   anthropic → `ANTHROPIC_API_KEY` 等。`driver.apiKeyEnv` 可覆盖为其它变量名。
@@ -129,12 +130,13 @@ pnpm exec vitest run packages/<pkg>/src   # 单包测试
 - `packages/core`：全部契约类型（零运行时依赖，唯一运行时工具 `ulid()`）
 - L1：observability / flags / provider-llm（含 pi-ai 真实厂商 Driver）/ usage / policy / memory
 - L2：planner / executor / recovery / user-profile
-- L3：strategy-full-loop → harness-runtime（装配）→ apps/cli
+- L3：strategy-full-loop → runtime（装配）→ apps/cli
 
 ## 验收对照
 
-- MVP 验收 A1–A15：见 `docs/MVP设计文档v1.0.md` §6，端到端测试在 `packages/harness-runtime/src/harness-runtime.test.ts`。
+- MVP 验收 A1–A15：见 `docs/MVP设计文档v1.0.md` §6，端到端测试在 `packages/runtime/src/runtime.test.ts`。
 - Provider Adapter 验收 PA-A1~A5：见 `docs/ProviderAdapter设计.md` §4。
+
 ---
 
 ## WebUI（科技简洁风，参照 DeepSeek Harness Web 观感）
