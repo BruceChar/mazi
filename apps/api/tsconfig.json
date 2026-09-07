@@ -11,8 +11,7 @@
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"],
   "references": [
-    { "path": "../../packages/harness-runtime" },
-    { "path": "../../packages/observability" },
-    { "path": "../../packages/core" }
+    { "path": "../../packages/core" },
+    { "path": "../../packages/runtime" }
   ]
 }

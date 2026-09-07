@@ -1,5 +1,5 @@
-import type { FileRuntimeConfig, RuntimeConfig } from '@mazi/harness-runtime';
-import { loadRuntimeConfig, toRuntimeConfig } from '@mazi/harness-runtime';
+import type { FileRuntimeConfig, RuntimeConfig } from '@mazi/runtime';
+import { loadRuntimeConfig, toRuntimeConfig } from '@mazi/runtime';
 
 /**
  * 从 MAZI_HOME（或显式目录）加载 providers/tools/flags，

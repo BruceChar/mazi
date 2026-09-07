@@ -9,8 +9,7 @@
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"],
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/provider" },
-    { "path": "../../packages/runtime" }
+    { "path": "../core" },
+    { "path": "../provider" }
   ]
 }

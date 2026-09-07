@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import type { RunResult } from '@mazi/harness-runtime';
+import type { RunResult } from '@mazi/runtime';
 import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { SessionsService } from './sessions.service.js';
 

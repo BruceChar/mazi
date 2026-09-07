@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import type { UserInteractionRecord } from '@mazi/core';
-import type { CreateSessionOptions, RunResult, SessionGoalOverrides } from '@mazi/harness-runtime';
-import { DefaultEventBus, newHarnessEvent } from '@mazi/observability';
+import type { CreateSessionOptions, RunResult, SessionGoalOverrides } from '@mazi/runtime';
+import { DefaultEventBus, newHarnessEvent } from '@mazi/runtime';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
@@ -27,7 +27,7 @@ export type SessionDetail = Record<string, unknown>;
 
 /**
  * SessionsService：会话创建/执行/查询投影/反馈采集（docs v0.2 §10.4 契约矩阵）。
- * 领域与存储复用 @mazi/harness-runtime / @mazi/memory，本层仅做编排与投影映射。
+ * 领域与存储复用 @mazi/runtime，本层仅做编排与投影映射。
  */
 @Injectable()
 export class SessionsService {

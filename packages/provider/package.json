@@ -1,5 +1,5 @@
 {
-  "name": "@mazi/cli",
+  "name": "@mazi/provider",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -18,11 +18,7 @@
     "build": "tsc -b tsconfig.json"
   },
   "dependencies": {
-    "@mazi/core": "workspace:*",
-    "@mazi/provider": "workspace:*",
-    "@mazi/runtime": "workspace:*"
-  },
-  "bin": {
-    "mazi": "./dist/cli.js"
+    "@earendil-works/pi-ai": "0.85.0",
+    "@mazi/core": "workspace:*"
   }
 }

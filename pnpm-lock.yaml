@@ -35,12 +35,9 @@ importers:
       '@mazi/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@mazi/harness-runtime':
+      '@mazi/runtime':
         specifier: workspace:*
-        version: link:../../packages/harness-runtime
-      '@mazi/observability':
-        specifier: workspace:*
-        version: link:../../packages/observability
+        version: link:../../packages/runtime
       '@nestjs/common':
         specifier: ^12
         version: 12.0.1(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -69,14 +66,14 @@ importers:
       '@mazi/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@mazi/harness-runtime':
+      '@mazi/provider':
         specifier: workspace:*
-        version: link:../../packages/harness-runtime
-      '@mazi/provider-llm':
+        version: link:../../packages/provider
+      '@mazi/runtime':
         specifier: workspace:*
-        version: link:../../packages/provider-llm
+        version: link:../../packages/runtime
 
-  apps/web:
+  apps/webui:
     dependencies:
       vue:
         specifier: ^3.5.13
@@ -91,94 +88,7 @@ importers:
 
   packages/core: {}
 
-  packages/executor:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../core
-      '@mazi/observability':
-        specifier: workspace:*
-        version: link:../observability
-      '@mazi/usage':
-        specifier: workspace:*
-        version: link:../usage
-
-  packages/flags:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../core
-
-  packages/harness-runtime:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../core
-      '@mazi/executor':
-        specifier: workspace:*
-        version: link:../executor
-      '@mazi/flags':
-        specifier: workspace:*
-        version: link:../flags
-      '@mazi/memory':
-        specifier: workspace:*
-        version: link:../memory
-      '@mazi/observability':
-        specifier: workspace:*
-        version: link:../observability
-      '@mazi/planner':
-        specifier: workspace:*
-        version: link:../planner
-      '@mazi/policy':
-        specifier: workspace:*
-        version: link:../policy
-      '@mazi/provider-llm':
-        specifier: workspace:*
-        version: link:../provider-llm
-      '@mazi/recovery':
-        specifier: workspace:*
-        version: link:../recovery
-      '@mazi/strategy-full-loop':
-        specifier: workspace:*
-        version: link:../strategy-full-loop
-      '@mazi/usage':
-        specifier: workspace:*
-        version: link:../usage
-      '@mazi/user-profile':
-        specifier: workspace:*
-        version: link:../user-profile
-
-  packages/memory:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../core
-
-  packages/observability:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../core
-
-  packages/planner:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../core
-      '@mazi/observability':
-        specifier: workspace:*
-        version: link:../observability
-      '@mazi/provider-llm':
-        specifier: workspace:*
-        version: link:../provider-llm
-
-  packages/policy:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../core
-
-  packages/provider-llm:
+  packages/provider:
     dependencies:
       '@earendil-works/pi-ai':
         specifier: 0.85.0
@@ -187,41 +97,14 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/recovery:
+  packages/runtime:
     dependencies:
       '@mazi/core':
         specifier: workspace:*
         version: link:../core
-      '@mazi/executor':
+      '@mazi/provider':
         specifier: workspace:*
-        version: link:../executor
-
-  packages/strategy-full-loop:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../core
-      '@mazi/executor':
-        specifier: workspace:*
-        version: link:../executor
-      '@mazi/observability':
-        specifier: workspace:*
-        version: link:../observability
-
-  packages/usage:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../core
-
-  packages/user-profile:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../core
-      '@mazi/observability':
-        specifier: workspace:*
-        version: link:../observability
+        version: link:../provider
 
 packages:
 
@@ -1595,7 +1478,7 @@ snapshots:
       '@aws-sdk/types': 3.974.5
       '@smithy/core': 3.33.3
       '@smithy/fetch-http-handler': 5.8.0
-      '@smithy/node-http-handler': 4.7.3
+      '@smithy/node-http-handler': 4.12.1
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 

@@ -1,21 +1,21 @@
 import 'reflect-metadata';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { MaziPaths, RuntimeConfig } from '@mazi/harness-runtime';
+import type { MaziPaths, RuntimeConfig } from '@mazi/runtime';
 import {
     configOverview,
     ensureMaziDirs,
     HarnessRuntime,
     loadRuntimeConfig,
     toRuntimeConfig,
-} from '@mazi/harness-runtime';
+} from '@mazi/runtime';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ApiError } from './api-error.js';
 
 /**
  * ApiRuntimeService：API 侧组合根（docs/后端与存储设计.md v0.2 §10.2）。
  * 惰性装配 {@link HarnessRuntime}（领域/存储零改动），持有与旧实现一致的进程内串行执行锁，
- * 并在应用停机时关闭运行时。依赖单向：controller/service → 本服务 → @mazi/harness-runtime。
+ * 并在应用停机时关闭运行时。依赖单向：controller/service → 本服务 → @mazi/runtime。
  */
 @Injectable()
 export class ApiRuntimeService implements OnApplicationShutdown {

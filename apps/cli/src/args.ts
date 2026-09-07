@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { defaultConfigDir } from '@mazi/harness-runtime';
+import { defaultConfigDir } from '@mazi/runtime';
 
 export interface CliOptions {
     command: 'run' | 'config';

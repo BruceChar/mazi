@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline';
-import type { RuntimeConfig } from '@mazi/harness-runtime';
-import { HarnessRuntime } from '@mazi/harness-runtime';
+import type { RuntimeConfig } from '@mazi/runtime';
+import { HarnessRuntime } from '@mazi/runtime';
 import { parseCli } from './args.js';
 import { loadConfig } from './config.js';
 import { runConfigure } from './configure.js';

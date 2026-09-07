@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import type { ProviderConfig } from '@mazi/harness-runtime';
-import { discoverModels } from '@mazi/provider-llm';
+import { discoverModels } from '@mazi/provider';
+import type { ProviderConfig } from '@mazi/runtime';
 
 /** 预设：pi-ai 真实厂商（含默认 key 环境变量） */
 export interface ProviderPreset {

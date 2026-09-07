@@ -1,5 +1,5 @@
 {
-  "name": "@mazi/cli",
+  "name": "@mazi/runtime",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -19,10 +19,6 @@
   },
   "dependencies": {
     "@mazi/core": "workspace:*",
-    "@mazi/provider": "workspace:*",
-    "@mazi/runtime": "workspace:*"
-  },
-  "bin": {
-    "mazi": "./dist/cli.js"
+    "@mazi/provider": "workspace:*"
   }
 }
