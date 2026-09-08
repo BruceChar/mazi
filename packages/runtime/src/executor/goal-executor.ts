@@ -27,6 +27,7 @@ export interface TaskOutcome {
     ok: boolean;
     reason: 'final-answer' | 'driver-error';
     finalMessage?: string;
+    errorMessage?: string;
 }
 
 /** 把 Task 的 Goal 陈述作为 user 输入构建一条 Block 消息（复用新 provider 消息模型） */
@@ -49,8 +50,14 @@ export async function executeTask(
             ...(deps.systemPrompt ? { systemPrompt: deps.systemPrompt } : {}),
             tools: deps.tools ?? [],
         });
-    } catch {
-        return { task, steps: [], ok: false, reason: 'driver-error' };
+    } catch (error) {
+        return {
+            task,
+            steps: [],
+            ok: false,
+            reason: 'driver-error',
+            ...(error instanceof Error ? { errorMessage: error.message } : {}),
+        };
     }
 
     const text = round.text.length > 0 ? round.text : round.reasoning;

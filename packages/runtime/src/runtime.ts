@@ -22,16 +22,19 @@ import { ulid } from '@mazi/core';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { PricingSchedule, RoundOutcome } from '@mazi/provider-runtime';
 import { RoundExecutor } from '@mazi/provider-runtime';
+import type { Goal } from '../../core/src/goal-coordinate.js';
 import type { RuntimeConfig } from './config.js';
 import type { ExecutorRoundContext, RoundResult } from './executor/executor.js';
 import { Executor } from './executor/index.js';
 import { createFlagSnapshot, DEFAULT_FLAGS } from './flags/index.js';
 import { buildGoal } from './goal-factory.js';
+import { type GoalStore, SqliteGoalStore } from './memory/goal-store.js';
 import { SqliteMemoryStore } from './memory/index.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/index.js';
 import { MvpPlanner } from './planner/index.js';
 import type { PlannerRouterSelection } from './planner/planner.js';
 import { PolicyEngineImpl } from './policy/index.js';
+import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
 import { FullLoopStrategy } from './strategy/index.js';
 import { ContextMeter, CostCalculator } from './usage/index.js';
 import { getRecordBySession, UserProfileRecorder } from './user-profile/index.js';
@@ -157,10 +160,12 @@ function defaultNoImpl(
 function buildLlmProviders(config: RuntimeConfig, options: RunOptions): Map<string, LLMProvider> {
     const map = new Map<string, LLMProvider>();
     const overrides = options.llmProviders ?? {};
+    // override 独立于 config.providers 注册（测试/宿主注入 provider 不必出现在配置列表）
+    for (const [id, provider] of Object.entries(overrides)) {
+        map.set(id, provider);
+    }
     for (const provider of config.providers) {
-        const override = overrides[provider.id];
-        if (override) {
-            map.set(provider.id, override);
+        if (map.has(provider.id)) {
             continue;
         }
         if (provider.driver.provider === DEEPSEEK_ADAPTER_ID) {
@@ -268,6 +273,7 @@ const DEFAULT_CHAT_SYSTEM_PROMPT =
 export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
     private readonly memory: SqliteMemoryStore;
+    private readonly goalStore: GoalStore;
     private readonly tools: { registry: ToolRegistry; invoker: ToolInvoker };
     /** providerId → LLMProvider（override 优先；deepseek 经 deepseekAdapter 装配） */
     private readonly llmProviders: Map<string, LLMProvider>;
@@ -283,6 +289,7 @@ export class HarnessRuntime {
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
         this.memory = new SqliteMemoryStore(config.dbPath);
+        this.goalStore = new SqliteGoalStore(config.dbPath ?? ':memory:');
         this.tools = buildTools(config, options.workspaceRoot);
         this.llmProviders = buildLlmProviders(config, options);
         this.roundExecutor = new RoundExecutor();
@@ -308,6 +315,82 @@ export class HarnessRuntime {
     async close(): Promise<void> {
         this.recorder.stop();
         this.memory.close();
+        this.goalStore.close();
+    }
+
+    /** 创建 Goal 会话（intake 根 + 单 work；单意图快速路径，裁决 D4 快速路径）并持久化 */
+    async createGoalSession(
+        input: string,
+        _opts: RunOptions = {},
+    ): Promise<{ rootGoalId: string; goalId: string }> {
+        const rootGoalId = ulid();
+        const goalId = ulid();
+        const ceiling = this.config.goal?.permissionCeiling ?? 'read-only';
+        const intake: Goal = {
+            goalId: rootGoalId,
+            rootGoalId,
+            origin: { kind: 'human' },
+            kind: 'intake',
+            statement: input,
+            contract: {
+                successConditions: [{ id: 'intake-complete', checkType: 'deterministic' }],
+                failureConditions: [],
+                forbiddenResources: [],
+                budget: {},
+                terminationPolicy: {},
+                riskProfile: {
+                    hasIrreversibleActions: false,
+                    touchesNetwork: false,
+                    touchesExternalApi: false,
+                },
+            },
+            permissionCeiling: ceiling,
+            budget: {},
+            status: 'active',
+            createdAt: Date.now(),
+        };
+        const work: Goal = {
+            goalId,
+            rootGoalId,
+            parent: { type: 'split', goalId: rootGoalId },
+            kind: 'work',
+            statement: input,
+            contract: {
+                successConditions: [{ id: 'input-satisfied', checkType: 'deterministic' }],
+                failureConditions: [],
+                forbiddenResources: [],
+                budget: {},
+                terminationPolicy: {},
+                riskProfile: {
+                    hasIrreversibleActions: false,
+                    touchesNetwork: false,
+                    touchesExternalApi: false,
+                },
+            },
+            permissionCeiling: ceiling,
+            budget: {},
+            status: 'active',
+            createdAt: Date.now(),
+        };
+        await this.goalStore.saveGoal(intake);
+        await this.goalStore.saveGoal(work);
+        return { rootGoalId, goalId };
+    }
+
+    /** 执行 Goal 树（plan → 逐 Task；事实全部经 goalStore 留痕） */
+    async executeGoalTree(rootGoalId: string): Promise<GoalRunResult> {
+        const goals = await this.goalStore.listGoalsByRoot(rootGoalId);
+        if (goals.length === 0) {
+            throw new Error(`Goal 树不存在：${rootGoalId}`);
+        }
+        return runGoalTree(
+            {
+                store: this.goalStore,
+                requestRound: (ctx) => this.requestRound(ctx),
+                systemPrompt: DEFAULT_AGENT_SYSTEM_PROMPT,
+            },
+            goals,
+        );
     }
 
     /** 用户对会话结果的反馈（CLI 交互 / 调用方显式给出） */
