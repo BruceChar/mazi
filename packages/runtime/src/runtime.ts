@@ -283,6 +283,29 @@ function toRoundResult(outcome: RoundOutcome): {
     };
 }
 
+/** Step payload → 简短流式摘要（≤240 字符） */
+function stepSummary(step: Step): string {
+    const payload = step.payload;
+    const text =
+        step.kind === 'thinking'
+            ? String((payload as { content?: string }).content ?? '')
+            : step.kind === 'tool_call'
+              ? `${(payload as { toolName?: string }).toolName ?? ''} ${JSON.stringify(
+                    (payload as { arguments?: unknown }).arguments ?? {},
+                )}`
+              : (() => {
+                    const obs = payload as {
+                        toolName?: string;
+                        content?: string;
+                        isError?: boolean;
+                    };
+                    return `${obs.toolName ? `[${obs.toolName}] ` : ''}${obs.content ?? ''}${
+                        obs.isError ? ' [error]' : ''
+                    }`;
+                })();
+    return text.length > 240 ? `${text.slice(0, 240)}…` : text;
+}
+
 const DEFAULT_AGENT_SYSTEM_PROMPT =
     'You are a helpful agent. Answer conversational questions directly. Only call tools when the user explicitly asks you to read, inspect, modify files, or work with the current workspace.';
 
@@ -425,6 +448,7 @@ export class HarnessRuntime {
                 tools: exec.tools,
                 invoker: exec.invoker,
                 allowedTools: exec.allowedTools,
+                onStep: (step) => this.emitStep(rootGoalId, step),
             },
             goals,
         );
@@ -476,6 +500,24 @@ export class HarnessRuntime {
         }
         const { snapshotGoalTree } = await import('./observability/goal-snapshot.js');
         return snapshotGoalTree(rootGoalId, goals, tasks, steps);
+    }
+
+    /** Step 落库即时事件：经事件总线实时推送（SSE/UI 流式展示） */
+    private emitStep(rootGoalId: string, step: Step): void {
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'step.ended',
+                sessionId: rootGoalId,
+                stepId: step.stepId,
+                payload: {
+                    kind: step.kind,
+                    status: step.status,
+                    goalId: step.goalId,
+                    taskId: step.taskId,
+                    content: stepSummary(step),
+                },
+            }),
+        );
     }
 
     /** 用户对会话结果的反馈（CLI/调用方显式给出；sessionId = rootGoalId） */

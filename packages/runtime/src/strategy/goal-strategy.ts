@@ -20,6 +20,8 @@ export interface GoalRunDeps {
     invoker?: GoalToolInvoker;
     /** Task 允许的工具白名单（undefined = 不限） */
     allowedTools?: string[];
+    /** Step 流式回调（透传 executeTask.onStep） */
+    onStep?: GoalExecutorDeps['onStep'];
 }
 
 export interface GoalRunResult {
@@ -53,6 +55,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                 ...(deps.model !== undefined ? { model: deps.model } : {}),
                 ...(deps.invoker !== undefined ? { invoker: deps.invoker } : {}),
                 ...(deps.allowedTools !== undefined ? { allowedTools: deps.allowedTools } : {}),
+                ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
             },
             task,
             goal,

@@ -252,6 +252,29 @@ const logSteps = computed(() => {
 
 const logRoundCount = computed(() => logSteps.value.filter((s) => s.kind === 'thinking').length);
 
+/** 实时（流式）步骤：来自 SSE step.ended，尚未进入最终快照（运行中可见） */
+const liveStepRows = computed(() => {
+    const snapshotIds = new Set(logSteps.value.map((s) => s.key));
+    const rows = [];
+    for (const ev of events.list) {
+        if (ev.type !== 'step.ended' || !ev.stepId || snapshotIds.has(ev.stepId)) continue;
+        const p = ev.payload || {};
+        rows.push({
+            key: 'ev-' + ev.eventId,
+            at: ev.timestamp ?? 0,
+            time: fmtClock(ev.timestamp),
+            kind: p.kind || 'step',
+            kindLabel: kindLabel(p.kind),
+            status: p.status || 'ok',
+            statusLabel: statusLabel(p.status || 'ok'),
+            id: short(ev.stepId, 34),
+            text: p.content ? short(p.content, 140) : '',
+        });
+    }
+    rows.sort((a, b) => a.at - b.at);
+    return rows;
+});
+
 function runLabel(run) {
     return short(run.input, 48) || run.rootGoalId;
 }
@@ -801,6 +824,16 @@ onBeforeUnmount(() => {
                         </div>
                         <div v-else class="empty-hint">尚未执行（点“执行/重跑”）</div>
 
+                        <template v-if="busy && liveStepRows.length">
+                            <div class="log-head">实时（流式）</div>
+                            <div v-for="line in liveStepRows" :key="line.key" class="log-row">
+                                <span class="log-time">{{ line.time }}</span>
+                                <span class="log-kind" :class="line.kind">{{ line.kindLabel }}</span>
+                                <span class="log-status" :class="line.status">{{ line.statusLabel }}</span>
+                                <span class="log-id">{{ line.id }}</span>
+                                <div v-if="line.text" class="log-detail" :title="line.text">{{ line.text }}</div>
+                            </div>
+                        </template>
                         <div v-if="logSteps.length" class="log-head">步骤执行（LLM 轮次 {{ logRoundCount }}，Step {{ logSteps.length }}）</div>
                         <div v-for="line in logSteps" :key="line.key" class="log-row">
                             <span class="log-time">{{ line.time }}</span>

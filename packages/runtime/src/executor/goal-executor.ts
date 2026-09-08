@@ -32,6 +32,8 @@ export interface GoalExecutorDeps {
     allowedTools?: string[];
     maxSteps?: number;
     now?: () => number;
+    /** Step 落库后即时回调（流式上报：思考/工具/观察），供事件总线实时推送给 UI */
+    onStep?: (step: Step) => void;
 }
 
 export type TaskStopReason = 'final-answer' | 'max-steps' | 'driver-error' | 'blocked-tool';
@@ -93,6 +95,7 @@ export async function executeTask(
             };
             steps.push(thinking);
             await deps.store.saveStep(thinking);
+            deps.onStep?.(thinking);
 
             if (round.toolCalls.length === 0) {
                 task.status = 'succeeded';
@@ -155,6 +158,7 @@ export async function executeTask(
                 };
                 steps.push(callStep);
                 await deps.store.saveStep(callStep);
+                deps.onStep?.(callStep);
                 task.status = 'failed';
                 await deps.store.saveTask(task);
                 return {
@@ -185,6 +189,7 @@ export async function executeTask(
                 };
                 steps.push(toolStep);
                 await deps.store.saveStep(toolStep);
+                deps.onStep?.(toolStep);
 
                 const res = await invoker.invoke(call.toolName, call.arguments);
                 outputs.push({
@@ -209,6 +214,7 @@ export async function executeTask(
                 };
                 steps.push(obs);
                 await deps.store.saveStep(obs);
+                deps.onStep?.(obs);
             }
             // 回注：assistant toolCalls + tool 结果消息；模型本轮文本一并回注（截断防爆上下文），
             // 避免模型在后续轮次“失忆”而重复发起相同工具调用

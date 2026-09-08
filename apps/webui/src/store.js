@@ -2,8 +2,13 @@ import { reactive, ref } from 'vue';
 import { api, API_BASE } from './api.js';
 
 const THEME_KEY = 'mazi.web.theme';
-/** Goal 会话事件（C5：goal 路径暂发 session.started/ended/user.feedback.captured；C3e/OBS 词汇收敛后扩展） */
-const LIVE_EVENT_TYPES = ['session.started', 'session.ended', 'user.feedback.captured'];
+/** Goal 会话事件 + Step 流式事件（step.ended：思考/工具/观察实时推送） */
+const LIVE_EVENT_TYPES = [
+    'session.started',
+    'session.ended',
+    'user.feedback.captured',
+    'step.ended',
+];
 const REFRESH_EVENT_TYPES = new Set(['session.ended']);
 
 function systemPrefersDark() {
