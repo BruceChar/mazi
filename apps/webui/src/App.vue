@@ -175,6 +175,7 @@ async function submitNew(exec) {
         : pendingWorkspace.value || workspaceRoot.value || undefined;
     pendingWorkspace.value = '';
     noWorkspaceNew.value = false;
+    // “新会话”弹窗恒建新 Conversation（归属 ws 指定工作区或普通区），不续接当前打开的会话
     await createAndRunGoal(
         {
             statement: draft.value.statement,
@@ -185,7 +186,7 @@ async function submitNew(exec) {
             loopMode: draft.value.loopMode,
         },
         ws,
-        currentConversation.value || undefined,
+        undefined,
         exec,
     );
     draft.value.statement = '';

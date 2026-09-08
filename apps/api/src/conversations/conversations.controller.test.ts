@@ -219,4 +219,44 @@ describe('conversations（Goal run 会话业务抽象列表）', () => {
         });
         expect(detail.statusCode).toBe(200);
     });
+
+    it('旧版 conversations.json（sessionIds 结构）不拖垮列表，且可正常新建会话', async () => {
+        writeFileSync(
+            join(handle.home, 'conversations.json'),
+            JSON.stringify({
+                conversations: [
+                    {
+                        conversationId: 'legacy-1',
+                        title: '旧版会话',
+                        userId: 'old',
+                        sessionIds: ['old-session-1'],
+                        workspace: undefined,
+                        projectId: undefined,
+                        createdAt: 1000,
+                        updatedAt: 2000,
+                    },
+                ],
+            }),
+        );
+        const list = await fastify.inject({ method: 'GET', url: '/api/conversations' });
+        expect(list.statusCode).toBe(200);
+        const before = list.json();
+        const legacy = before.find((item) => item.conversationId === 'legacy-1');
+        expect(legacy).toBeDefined();
+        expect(legacy.runs).toEqual([]);
+        expect(legacy.title).toBe('旧版会话');
+
+        const created = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '新任务' },
+        });
+        expect(created.statusCode).toBe(200);
+        expect(typeof created.json().sessionId).toBe('string');
+
+        const after = await fastify.inject({ method: 'GET', url: '/api/conversations' });
+        expect(after.statusCode).toBe(200);
+        expect(after.json().length).toBeGreaterThan(0);
+    });
 });
