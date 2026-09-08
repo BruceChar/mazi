@@ -37,3 +37,22 @@
 
 - 法律校验纯函数零 mock（goal-coordinate.test 已覆盖链/环/预算/越权）
 - 每次提交保持受影响包 tsc 0 错误；C5 前旧包仅共存（build 不删导出）
+## 5. C5 依赖墙与推荐顺序（round 10 实测）
+
+**不能直接删**：legacy 模块被当前运行路径引用，直接删除即破坏 51 文件/248 用例的全绿基线：
+- core：session.ts / turn-contract.ts / capacity.ts / goal.ts(旧) / planner.ts / policy.ts / tool.ts —— 旧
+  HarnessRuntime 路径（runtime.ts 的 Session 方法、executor、planner、usage、api sessions 等）仍依赖；
+- runtime：executor/planner/full-loop 旧路径、sqlite-store 旧表、user-profile recorder、usage cost。
+
+**推荐顺序（保持每步全绿）**：
+1. goal 执行补全：executeTask 接入工具循环 + Policy（复用旧 Executor 的 policy/tools 加工），使 Goal 路径
+   具备真实工具闭环能力；
+2. HarnessRuntime 双轨数据源：api/cli 默认切换 runGoalSession；旧 Session 方法仅留兼容（标记 deprecated）；
+3. 存储迁移：legacy sessions/turns/steps 旧表 → goal_nodes/goal_tasks/goal_steps 数据搬运脚本 + 断旧读；
+4. core 删除：session.ts/turn-contract.ts/capacity.ts/旧 goal.ts 等（先清 core index 引用），goal-coordinate
+   公共导出放开；
+5. runtime 删除旧 executor/planner/sqlite 旧表/user-profile 旧事件；api conversations 视图改 goal 树；
+6. 全仓 pnpm check 恢复全绿（目标验收）。
+
+**验收对照**：C5 完成 = @mazi/core 不再有 Session/Turn/TurnContract/Capacity 导出；goal-coordinate 经 index 公共导出；
+全仓 build + vitest + biome 全绿。
