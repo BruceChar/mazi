@@ -77,25 +77,25 @@ export class MemoryGoalStore implements GoalStore {
 
 function createGoalTables(db: DatabaseSync): void {
     db.exec(`
-        CREATE TABLE IF NOT EXISTS goals (
+        CREATE TABLE IF NOT EXISTS goal_nodes (
             goal_id TEXT PRIMARY KEY,
             root_goal_id TEXT NOT NULL,
             json TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_goals_root ON goals(root_goal_id);
-        CREATE TABLE IF NOT EXISTS tasks (
+        CREATE INDEX IF NOT EXISTS idx_goal_nodes_root ON goal_nodes(root_goal_id);
+        CREATE TABLE IF NOT EXISTS goal_tasks (
             task_id TEXT PRIMARY KEY,
             goal_id TEXT NOT NULL,
             json TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_tasks_goal ON tasks(goal_id);
-        CREATE TABLE IF NOT EXISTS steps (
+        CREATE INDEX IF NOT EXISTS idx_goal_tasks_goal ON goal_tasks(goal_id);
+        CREATE TABLE IF NOT EXISTS goal_steps (
             step_id TEXT PRIMARY KEY,
             task_id TEXT NOT NULL,
             goal_id TEXT NOT NULL,
             json TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_steps_task ON steps(task_id);
+        CREATE INDEX IF NOT EXISTS idx_goal_steps_task ON goal_steps(task_id);
     `);
 }
 
@@ -110,54 +110,56 @@ export class SqliteGoalStore implements GoalStore {
 
     async saveGoal(goal: Goal): Promise<void> {
         this.db
-            .prepare('INSERT OR REPLACE INTO goals (goal_id, root_goal_id, json) VALUES (?, ?, ?)')
+            .prepare(
+                'INSERT OR REPLACE INTO goal_nodes (goal_id, root_goal_id, json) VALUES (?, ?, ?)',
+            )
             .run(goal.goalId, goal.rootGoalId, toJson(goal));
     }
     async loadGoal(goalId: string): Promise<Goal | undefined> {
-        const row = this.db.prepare('SELECT json FROM goals WHERE goal_id = ?').get(goalId) as
+        const row = this.db.prepare('SELECT json FROM goal_nodes WHERE goal_id = ?').get(goalId) as
             | Row
             | undefined;
         return row ? fromJson<Goal>(row.json) : undefined;
     }
     async listGoalsByRoot(rootGoalId: string): Promise<Goal[]> {
         const rows = this.db
-            .prepare('SELECT json FROM goals WHERE root_goal_id = ?')
+            .prepare('SELECT json FROM goal_nodes WHERE root_goal_id = ?')
             .all(rootGoalId) as Row[];
         return rows.map((r) => fromJson<Goal>(r.json)).filter((g): g is Goal => g !== undefined);
     }
     async saveTask(task: Task): Promise<void> {
         this.db
-            .prepare('INSERT OR REPLACE INTO tasks (task_id, goal_id, json) VALUES (?, ?, ?)')
+            .prepare('INSERT OR REPLACE INTO goal_tasks (task_id, goal_id, json) VALUES (?, ?, ?)')
             .run(task.taskId, task.goalId, toJson(task));
     }
     async loadTask(taskId: string): Promise<Task | undefined> {
-        const row = this.db.prepare('SELECT json FROM tasks WHERE task_id = ?').get(taskId) as
+        const row = this.db.prepare('SELECT json FROM goal_tasks WHERE task_id = ?').get(taskId) as
             | Row
             | undefined;
         return row ? fromJson<Task>(row.json) : undefined;
     }
     async listTasks(goalId: string): Promise<Task[]> {
         const rows = this.db
-            .prepare('SELECT json FROM tasks WHERE goal_id = ?')
+            .prepare('SELECT json FROM goal_tasks WHERE goal_id = ?')
             .all(goalId) as Row[];
         return rows.map((r) => fromJson<Task>(r.json)).filter((t): t is Task => t !== undefined);
     }
     async saveStep(step: Step): Promise<void> {
         this.db
             .prepare(
-                'INSERT OR REPLACE INTO steps (step_id, task_id, goal_id, json) VALUES (?, ?, ?, ?)',
+                'INSERT OR REPLACE INTO goal_steps (step_id, task_id, goal_id, json) VALUES (?, ?, ?, ?)',
             )
             .run(step.stepId, step.taskId, step.goalId, toJson(step));
     }
     async loadStep(stepId: string): Promise<Step | undefined> {
-        const row = this.db.prepare('SELECT json FROM steps WHERE step_id = ?').get(stepId) as
+        const row = this.db.prepare('SELECT json FROM goal_steps WHERE step_id = ?').get(stepId) as
             | Row
             | undefined;
         return row ? fromJson<Step>(row.json) : undefined;
     }
     async listSteps(taskId: string): Promise<Step[]> {
         const rows = this.db
-            .prepare('SELECT json FROM steps WHERE task_id = ?')
+            .prepare('SELECT json FROM goal_steps WHERE task_id = ?')
             .all(taskId) as Row[];
         return rows.map((r) => fromJson<Step>(r.json)).filter((s): s is Step => s !== undefined);
     }

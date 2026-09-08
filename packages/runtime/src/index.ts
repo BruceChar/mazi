@@ -3,9 +3,17 @@ export type { ProviderConfig, RuntimeConfig, ToolConfig, ToolSpecLike } from './
 export type { FileRuntimeConfig } from './config-io.js';
 export { configOverview, loadRuntimeConfig, toRuntimeConfig } from './config-io.js';
 export { buildGoal } from './goal-factory.js';
+export type { GoalStore } from './memory/goal-store.js';
 // 观测层（原 @mazi/observability，apps 直接消费）
 export type { EventBusOptions, NewEventInput } from './observability/event-bus.js';
 export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/event-bus.js';
+// Goal/Task/Step 坐标路径（C3-C4 迁移面）
+export type {
+    GoalNodeView,
+    GoalTreeSnapshot,
+    StepView,
+    TaskNodeView,
+} from './observability/goal-snapshot.js';
 export type { MaziPaths } from './paths.js';
 export {
     defaultConfigDir,
@@ -22,3 +30,4 @@ export type {
     SessionGoalOverrides,
 } from './runtime.js';
 export { HarnessRuntime } from './runtime.js';
+export type { GoalRunResult } from './strategy/goal-strategy.js';

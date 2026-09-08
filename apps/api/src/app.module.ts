@@ -6,6 +6,8 @@ import { RuntimeModule } from './common/runtime.module.js';
 import { ConversationsController } from './conversations/conversations.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
 import { EventsController } from './events/events.controller.js';
+import { GoalsController } from './goals/goals.controller.js';
+import { GoalsService } from './goals/goals.service.js';
 import { HealthController } from './health/health.controller.js';
 import { LedgerController } from './ledger/ledger.controller.js';
 import { LedgerService } from './ledger/ledger.service.js';
@@ -24,6 +26,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         LedgerController,
         RunsController,
         SessionsController,
+        GoalsController,
         ConversationsController,
         UsersController,
         EventsController,
@@ -32,6 +35,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
     providers: [
         { provide: APP_FILTER, useClass: ApiExceptionsFilter },
         SessionsService,
+        GoalsService,
         ConversationsService,
         LedgerService,
         UsersService,
