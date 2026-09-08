@@ -393,6 +393,39 @@ export class HarnessRuntime {
         );
     }
 
+    /** 一站式 Goal 会话：创建 + 执行 + 返回结果与树快照（apps/api 端点消费） */
+    async runGoalSession(
+        input: string,
+        opts: RunOptions = {},
+    ): Promise<{
+        rootGoalId: string;
+        result: GoalRunResult;
+        snapshot: import('./observability/goal-snapshot.js').GoalTreeSnapshot;
+    }> {
+        const created = await this.createGoalSession(input, opts);
+        const result = await this.executeGoalTree(created.rootGoalId);
+        const snapshot = await this.goalSnapshot(created.rootGoalId);
+        return { rootGoalId: created.rootGoalId, result, snapshot };
+    }
+
+    /** 重建 Goal 树四元组快照（审计/展示视图） */
+    async goalSnapshot(
+        rootGoalId: string,
+    ): Promise<import('./observability/goal-snapshot.js').GoalTreeSnapshot> {
+        const goals = await this.goalStore.listGoalsByRoot(rootGoalId);
+        const tasks: import('../../core/src/goal-coordinate.js').Task[] = [];
+        const steps: import('../../core/src/goal-coordinate.js').Step[] = [];
+        for (const goal of goals) {
+            const goalTasks = await this.goalStore.listTasks(goal.goalId);
+            tasks.push(...goalTasks);
+            for (const task of goalTasks) {
+                steps.push(...(await this.goalStore.listSteps(task.taskId)));
+            }
+        }
+        const { snapshotGoalTree } = await import('./observability/goal-snapshot.js');
+        return snapshotGoalTree(rootGoalId, goals, tasks, steps);
+    }
+
     /** 用户对会话结果的反馈（CLI 交互 / 调用方显式给出） */
     recordFeedback(sessionId: string, feedback: UserFeedback): void {
         this.bus.emit(

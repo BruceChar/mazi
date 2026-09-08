@@ -48,6 +48,13 @@ describe('HarnessRuntime Goal 路径（C3e，与旧 Session 路径共存）', ()
             expect(result.tasks).toHaveLength(1);
             expect(result.tasks[0]?.ok).toBe(true);
             expect(result.tasks[0]?.finalMessage).toContain('完成');
+            const snap = await rt.goalSnapshot(created.rootGoalId);
+            expect(snap.rootGoalId).toBe(created.rootGoalId);
+            expect(snap.taskCount).toBe(1);
+            expect(snap.stepCount).toBe(1);
+            expect(
+                snap.goals.find((g) => g.goalId === created.goalId)?.tasks[0]?.steps,
+            ).toHaveLength(1);
         } finally {
             await rt.close();
         }
