@@ -4,7 +4,7 @@
  * goal-executor 从旧 executor.ts 迁出后只依赖本模块。
  */
 
-import type { LLMMessage, ToolSchema, VendorUsage } from '@mazi/core';
+import type { LLMMessage, RuntimeContextBreakdown, ToolSchema, VendorUsage } from '@mazi/core';
 
 /** 单次 LLM 轮次请求（新 provider 契约 Block 消息；容量中的模型已选定） */
 export interface ExecutorRoundContext {
@@ -26,7 +26,10 @@ export interface RoundResult {
     text: string;
     reasoning: string;
     toolCalls: RoundToolCall[];
+    /** 厂商上报用量（provider response.usage 归一） */
     vendorUsage?: VendorUsage;
+    /** Runtime 上下文分段估算（C3e：system/history/tool/input/observation token） */
+    contextUsage?: RuntimeContextBreakdown;
     finishReason?: string;
     ttftMs: number;
     totalMs: number;

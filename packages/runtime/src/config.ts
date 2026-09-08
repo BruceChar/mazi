@@ -85,6 +85,8 @@ export interface RuntimeConfig {
         allowedTools?: string[];
     };
     systemPrompt?: string;
+    /** 模型上下文窗口（token），runtime 上下文计量与利用率用 */
+    contextWindow?: number;
     consoleEnabled?: boolean;
 }
 

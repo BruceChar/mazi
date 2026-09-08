@@ -93,6 +93,13 @@ export async function executeTask(
                 startedAt: now(),
                 endedAt: now(),
             };
+            // C3e：两维度 token 统计挂到模型轮 Step —— vendor（厂商上报）+ runtime（上下文估算）
+            if (round.vendorUsage !== undefined || round.contextUsage !== undefined) {
+                thinking.usage = {
+                    ...(round.vendorUsage !== undefined ? { vendor: round.vendorUsage } : {}),
+                    ...(round.contextUsage !== undefined ? { runtime: round.contextUsage } : {}),
+                };
+            }
             steps.push(thinking);
             await deps.store.saveStep(thinking);
             deps.onStep?.(thinking);

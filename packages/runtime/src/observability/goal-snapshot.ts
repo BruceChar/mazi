@@ -29,6 +29,61 @@ export interface StepView {
     startedAt: number;
     /** payload 摘要（≤240 字符）：思考内容 / 工具名+参数 / 观察内容（审计与日志用） */
     payloadText?: string;
+    /** 两维度 token 统计：vendor（厂商上报）+ runtime（上下文估算） */
+    usage?: {
+        vendor?: {
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadInputTokens?: number;
+            reasoningOutputTokens?: number;
+        };
+        runtime?: {
+            totalContextTokens: number;
+            systemPromptTokens: number;
+            historyTokens: number;
+            toolSchemaTokens: number;
+            newInputTokens: number;
+            observationTokens: number;
+            estimationDriftTokens?: number;
+        };
+    };
+}
+
+/** Step.usage（unknown）→ 视图（vendor/runtime 摘要） */
+function usageViewOf(step: Step): StepView['usage'] {
+    const usage = step.usage as
+        | { vendor?: Record<string, number>; runtime?: Record<string, number> }
+        | undefined;
+    if (!usage) {
+        return undefined;
+    }
+    const view: StepView['usage'] = {};
+    if (usage.vendor) {
+        view.vendor = {
+            inputTokens: usage.vendor.inputTokens ?? 0,
+            outputTokens: usage.vendor.outputTokens ?? 0,
+            ...(usage.vendor.cacheReadInputTokens !== undefined
+                ? { cacheReadInputTokens: usage.vendor.cacheReadInputTokens }
+                : {}),
+            ...(usage.vendor.reasoningOutputTokens !== undefined
+                ? { reasoningOutputTokens: usage.vendor.reasoningOutputTokens }
+                : {}),
+        };
+    }
+    if (usage.runtime) {
+        view.runtime = {
+            totalContextTokens: usage.runtime.totalContextTokens ?? 0,
+            systemPromptTokens: usage.runtime.systemPromptTokens ?? 0,
+            historyTokens: usage.runtime.historyTokens ?? 0,
+            toolSchemaTokens: usage.runtime.toolSchemaTokens ?? 0,
+            newInputTokens: usage.runtime.newInputTokens ?? 0,
+            observationTokens: usage.runtime.observationTokens ?? 0,
+            ...(usage.runtime.estimationDriftTokens !== undefined
+                ? { estimationDriftTokens: usage.runtime.estimationDriftTokens }
+                : {}),
+        };
+    }
+    return view.vendor !== undefined || view.runtime !== undefined ? view : undefined;
 }
 
 /** Step payload → 可读文本摘要（按 kind 投影；长内容截断） */
@@ -99,6 +154,7 @@ export function snapshotGoalTree(
                     ...(payloadTextOf(step) !== undefined
                         ? { payloadText: payloadTextOf(step) }
                         : {}),
+                    ...(usageViewOf(step) !== undefined ? { usage: usageViewOf(step) } : {}),
                 }));
             stepCount += stepViews.length;
             return {

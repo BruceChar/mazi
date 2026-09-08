@@ -243,11 +243,32 @@ const stepEventRows = computed(() => {
             statusLabel: statusLabel(p.status || 'ok'),
             id: short(ev.stepId, 34),
             text: p.content ? String(p.content) : '',
+            usageText: formatUsage(p.usage),
         });
     }
     rows.sort((a, b) => a.at - b.at);
     return rows;
 });
+
+/** 两维度 token 统计摘要文本 */
+function formatUsage(usage) {
+    if (!usage) return '';
+    const parts = [];
+    if (usage.vendor) {
+        const v = usage.vendor;
+        parts.push(`vendor in ${v.inputTokens} / out ${v.outputTokens}`);
+        if (v.cacheReadInputTokens) parts.push(`cache ${v.cacheReadInputTokens}`);
+        if (v.reasoningOutputTokens) parts.push(`reasoning ${v.reasoningOutputTokens}`);
+    }
+    if (usage.runtime) {
+        const r = usage.runtime;
+        parts.push(
+            `ctx ${r.totalContextTokens} (sys ${r.systemPromptTokens}, hist ${r.historyTokens}, tool ${r.toolSchemaTokens}, in ${r.newInputTokens}, obs ${r.observationTokens})`,
+        );
+        if (r.estimationDriftTokens !== undefined) parts.push(`drift ${r.estimationDriftTokens}`);
+    }
+    return parts.join(' · ');
+}
 
 function runLabel(run) {
     return short(run.input, 48) || run.rootGoalId;
@@ -807,6 +828,7 @@ onBeforeUnmount(() => {
                                     <span class="log-status" :class="line.status">{{ line.statusLabel }}</span>
                                     <span class="log-id">{{ line.id }}</span>
                                 </div>
+                                <div v-if="line.usageText" class="log-usage">{{ line.usageText }}</div>
                                 <pre v-if="line.text" class="log-code">{{ line.text }}</pre>
                             </div>
                         </template>
@@ -1211,5 +1233,11 @@ onBeforeUnmount(() => {
     word-break: break-word;
     overflow-y: auto;
     max-height: calc(1.5em * 10 + 12px); /* 约 10 行竖向滚动窗口 */
+}
+
+.log-usage {
+    color: var(--accent);
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
 }
 </style>

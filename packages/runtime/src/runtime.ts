@@ -2,13 +2,23 @@ import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
-import type { EventBus, Goal, LLMProvider, LLMRequest, Step, Task, ToolSchema } from '@mazi/core';
+import type {
+    EventBus,
+    Goal,
+    LLMProvider,
+    LLMRequest,
+    RuntimeContextBreakdown,
+    Step,
+    Task,
+    ToolSchema,
+} from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { PricingSchedule, RoundOutcome } from '@mazi/provider-runtime';
 import { RoundExecutor } from '@mazi/provider-runtime';
 import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './executor/goal-executor.js';
+import type { RoundResult } from './executor/round-types.js';
 import { type GoalStore, SqliteGoalStore } from './memory/goal-store.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/index.js';
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
@@ -239,6 +249,73 @@ async function runCliTool(
     }
 }
 
+/** 粗估文本 token（chars/4，与 provider-runtime estimateInputTokens 同口径） */
+function estTokens(text: string): number {
+    return Math.max(0, Math.ceil(text.length / 4));
+}
+
+/** 上下文分段计量（C3e runtime 维度）：system/history/tool/input/observation → RuntimeContextBreakdown */
+function measureContext(
+    ctx: {
+        messages: LLMRequest['messages'];
+        systemPrompt?: string;
+        tools: ToolSchema[];
+    },
+    prevTotal: number | undefined,
+    contextWindow: number,
+): RuntimeContextBreakdown {
+    const textOf = (content: readonly { type: string; text?: string }[]): string =>
+        content.map((block) => (block.type === 'text' ? (block.text ?? '') : '')).join('');
+    const messages = ctx.messages;
+    let newInputTokens = 0;
+    let observationTokens = 0;
+    let historyTokens = 0;
+    for (let i = 0; i < messages.length; i += 1) {
+        const message = messages[i];
+        if (message === undefined) continue;
+        if (message.role === 'user') {
+            if (i === messages.length - 1) {
+                newInputTokens = estTokens(textOf(message.content));
+            } else {
+                historyTokens += estTokens(textOf(message.content));
+            }
+        } else if (message.role === 'tool') {
+            for (const result of message.results) {
+                observationTokens += estTokens(
+                    typeof result.output === 'string'
+                        ? result.output
+                        : JSON.stringify(result.output),
+                );
+            }
+        } else if (message.role === 'assistant') {
+            historyTokens += estTokens(textOf(message.content));
+            for (const call of message.toolCalls ?? []) {
+                historyTokens += estTokens(JSON.stringify(call));
+            }
+        }
+    }
+    const systemPromptTokens = estTokens(ctx.systemPrompt ?? '');
+    const toolSchemaTokens = estTokens(JSON.stringify(ctx.tools ?? []));
+    const totalContextTokens =
+        systemPromptTokens + historyTokens + toolSchemaTokens + newInputTokens + observationTokens;
+    const contextWindowUtilization =
+        contextWindow > 0 ? Math.min(1, totalContextTokens / contextWindow) : 0;
+    return {
+        systemPromptTokens,
+        systemPromptRatio: totalContextTokens > 0 ? systemPromptTokens / totalContextTokens : 0,
+        historyTokens,
+        toolSchemaTokens,
+        newInputTokens,
+        observationTokens,
+        retrievedTokens: 0,
+        exampleTokens: 0,
+        totalContextTokens,
+        contextWindowUtilization,
+        contextDeltaFromPrev: prevTotal === undefined ? 0 : totalContextTokens - prevTotal,
+        strategyApplied: [],
+    };
+}
+
 /** provider-runtime RoundOutcome → RoundResult（Step 回注所需最小事实面） */
 function toRoundResult(outcome: RoundOutcome): {
     text: string;
@@ -324,6 +401,8 @@ function goalRunSummary(result: GoalRunResult): string {
 export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
     private readonly goalStoreDb: GoalStore;
+    /** 上一轮上下文总量（估算跨轮 delta 用） */
+    private lastContextTotal?: number;
     private readonly llmProviders: Map<string, LLMProvider>;
     private readonly roundExecutor: RoundExecutor;
     private readonly config: RuntimeConfig;
@@ -501,18 +580,47 @@ export class HarnessRuntime {
 
     /** Step 落库即时事件：经事件总线实时推送（SSE/UI 流式展示） */
     private emitStep(rootGoalId: string, step: Step): void {
+        const usage = step.usage as
+            | { vendor?: Record<string, number>; runtime?: Record<string, number> }
+            | undefined;
+        const payload: Record<string, unknown> = {
+            kind: step.kind,
+            status: step.status,
+            goalId: step.goalId,
+            taskId: step.taskId,
+            content: stepText(step),
+        };
+        if (usage?.vendor || usage?.runtime) {
+            payload.usage = {
+                vendor: {
+                    inputTokens: usage.vendor?.inputTokens ?? 0,
+                    outputTokens: usage.vendor?.outputTokens ?? 0,
+                    ...(usage.vendor?.cacheReadInputTokens !== undefined
+                        ? { cacheReadInputTokens: usage.vendor.cacheReadInputTokens }
+                        : {}),
+                    ...(usage.vendor?.reasoningOutputTokens !== undefined
+                        ? { reasoningOutputTokens: usage.vendor.reasoningOutputTokens }
+                        : {}),
+                },
+                runtime: {
+                    totalContextTokens: usage.runtime?.totalContextTokens ?? 0,
+                    systemPromptTokens: usage.runtime?.systemPromptTokens ?? 0,
+                    historyTokens: usage.runtime?.historyTokens ?? 0,
+                    toolSchemaTokens: usage.runtime?.toolSchemaTokens ?? 0,
+                    newInputTokens: usage.runtime?.newInputTokens ?? 0,
+                    observationTokens: usage.runtime?.observationTokens ?? 0,
+                    ...(usage.runtime?.estimationDriftTokens !== undefined
+                        ? { estimationDriftTokens: usage.runtime.estimationDriftTokens }
+                        : {}),
+                },
+            };
+        }
         this.bus.emit(
             newHarnessEvent({
                 type: 'step.ended',
                 sessionId: rootGoalId,
                 stepId: step.stepId,
-                payload: {
-                    kind: step.kind,
-                    status: step.status,
-                    goalId: step.goalId,
-                    taskId: step.taskId,
-                    content: stepText(step),
-                },
+                payload,
             }),
         );
     }
@@ -609,7 +717,7 @@ export class HarnessRuntime {
         systemPrompt?: string;
         tools: ToolSchema[];
         signal?: AbortSignal;
-    }): Promise<Awaited<ReturnType<typeof toRoundResult>>> {
+    }): Promise<RoundResult> {
         const orderedIds = [
             ctx.model.providerId,
             ...[...this.llmProviders.keys()].filter((id) => id !== ctx.model.providerId),
@@ -633,7 +741,22 @@ export class HarnessRuntime {
             messages: ctx.messages,
             ...(ctx.tools.length > 0 ? { tools: ctx.tools } : {}),
         };
+        // runtime 维度：请求发出前的上下文分段计量（跨轮累计 delta）
+        const contextUsage = measureContext(
+            ctx,
+            this.lastContextTotal,
+            this.config.contextWindow ?? 64000,
+        );
         const outcome = await this.roundExecutor.execute(request, candidates);
-        return toRoundResult(outcome);
+        const result: RoundResult = toRoundResult(outcome);
+        this.lastContextTotal = contextUsage.totalContextTokens;
+        // 估算漂移：|runtime total − vendor.inputTokens|（vendor 已上报时回填）
+        const vendorInput = result.vendorUsage?.inputTokens;
+        if (vendorInput !== undefined) {
+            contextUsage.estimationDriftTokens = Math.abs(
+                contextUsage.totalContextTokens - vendorInput,
+            );
+        }
+        return { ...result, contextUsage };
     }
 }
