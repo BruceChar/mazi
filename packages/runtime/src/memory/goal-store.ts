@@ -1,0 +1,167 @@
+/**
+ * goal-store —— Goal/Task/Step 归因坐标系存储（迁移并存，C1 默认裁决 ②）。
+ * 独立于旧 sessions/turns/steps 表；新表 goals/tasks/steps（root_goal_id 列便于按根投影），
+ * 全部消费方迁移后删除旧表。坐标契约：core/src/goal-coordinate.ts（core 未公共导出前相对引用）。
+ */
+
+import { DatabaseSync } from 'node:sqlite';
+import type { Goal, Step, Task } from '../../../core/src/goal-coordinate.js';
+
+export interface GoalStore {
+    saveGoal(goal: Goal): Promise<void>;
+    loadGoal(goalId: string): Promise<Goal | undefined>;
+    listGoalsByRoot(rootGoalId: string): Promise<Goal[]>;
+    saveTask(task: Task): Promise<void>;
+    loadTask(taskId: string): Promise<Task | undefined>;
+    listTasks(goalId: string): Promise<Task[]>;
+    saveStep(step: Step): Promise<void>;
+    loadStep(stepId: string): Promise<Step | undefined>;
+    listSteps(taskId: string): Promise<Step[]>;
+    close(): void;
+}
+
+type Row = Record<string, unknown>;
+function toJson(value: unknown): string | null {
+    return value === undefined ? null : JSON.stringify(value);
+}
+function fromJson<T>(raw: unknown): T | undefined {
+    return typeof raw === 'string' ? (JSON.parse(raw) as T) : undefined;
+}
+
+/** 内存实现（测试/轻量运行） */
+export class MemoryGoalStore implements GoalStore {
+    private readonly goals = new Map<string, Goal>();
+    private readonly tasks = new Map<string, Task>();
+    private readonly steps = new Map<string, Step>();
+
+    async saveGoal(goal: Goal): Promise<void> {
+        this.goals.set(goal.goalId, structuredClone(goal));
+    }
+    async loadGoal(goalId: string): Promise<Goal | undefined> {
+        return structuredClone(this.goals.get(goalId));
+    }
+    async listGoalsByRoot(rootGoalId: string): Promise<Goal[]> {
+        return [...this.goals.values()]
+            .filter((g) => g.rootGoalId === rootGoalId)
+            .map((g) => structuredClone(g));
+    }
+    async saveTask(task: Task): Promise<void> {
+        this.tasks.set(task.taskId, structuredClone(task));
+    }
+    async loadTask(taskId: string): Promise<Task | undefined> {
+        return structuredClone(this.tasks.get(taskId));
+    }
+    async listTasks(goalId: string): Promise<Task[]> {
+        return [...this.tasks.values()]
+            .filter((t) => t.goalId === goalId)
+            .map((t) => structuredClone(t));
+    }
+    async saveStep(step: Step): Promise<void> {
+        this.steps.set(step.stepId, structuredClone(step));
+    }
+    async loadStep(stepId: string): Promise<Step | undefined> {
+        return structuredClone(this.steps.get(stepId));
+    }
+    async listSteps(taskId: string): Promise<Step[]> {
+        return [...this.steps.values()]
+            .filter((s) => s.taskId === taskId)
+            .sort((a, b) => a.startedAt - b.startedAt)
+            .map((s) => structuredClone(s));
+    }
+    close(): void {
+        this.goals.clear();
+        this.tasks.clear();
+        this.steps.clear();
+    }
+}
+
+function createGoalTables(db: DatabaseSync): void {
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS goals (
+            goal_id TEXT PRIMARY KEY,
+            root_goal_id TEXT NOT NULL,
+            json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_goals_root ON goals(root_goal_id);
+        CREATE TABLE IF NOT EXISTS tasks (
+            task_id TEXT PRIMARY KEY,
+            goal_id TEXT NOT NULL,
+            json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_tasks_goal ON tasks(goal_id);
+        CREATE TABLE IF NOT EXISTS steps (
+            step_id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            goal_id TEXT NOT NULL,
+            json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_steps_task ON steps(task_id);
+    `);
+}
+
+/** node:sqlite 落地实现（独立 db 连接；表结构 createGoalTables 懒建） */
+export class SqliteGoalStore implements GoalStore {
+    private readonly db: DatabaseSync;
+
+    constructor(dbPath: string) {
+        this.db = new DatabaseSync(dbPath);
+        createGoalTables(this.db);
+    }
+
+    async saveGoal(goal: Goal): Promise<void> {
+        this.db
+            .prepare('INSERT OR REPLACE INTO goals (goal_id, root_goal_id, json) VALUES (?, ?, ?)')
+            .run(goal.goalId, goal.rootGoalId, toJson(goal));
+    }
+    async loadGoal(goalId: string): Promise<Goal | undefined> {
+        const row = this.db.prepare('SELECT json FROM goals WHERE goal_id = ?').get(goalId) as
+            | Row
+            | undefined;
+        return row ? fromJson<Goal>(row.json) : undefined;
+    }
+    async listGoalsByRoot(rootGoalId: string): Promise<Goal[]> {
+        const rows = this.db
+            .prepare('SELECT json FROM goals WHERE root_goal_id = ?')
+            .all(rootGoalId) as Row[];
+        return rows.map((r) => fromJson<Goal>(r.json)).filter((g): g is Goal => g !== undefined);
+    }
+    async saveTask(task: Task): Promise<void> {
+        this.db
+            .prepare('INSERT OR REPLACE INTO tasks (task_id, goal_id, json) VALUES (?, ?, ?)')
+            .run(task.taskId, task.goalId, toJson(task));
+    }
+    async loadTask(taskId: string): Promise<Task | undefined> {
+        const row = this.db.prepare('SELECT json FROM tasks WHERE task_id = ?').get(taskId) as
+            | Row
+            | undefined;
+        return row ? fromJson<Task>(row.json) : undefined;
+    }
+    async listTasks(goalId: string): Promise<Task[]> {
+        const rows = this.db
+            .prepare('SELECT json FROM tasks WHERE goal_id = ?')
+            .all(goalId) as Row[];
+        return rows.map((r) => fromJson<Task>(r.json)).filter((t): t is Task => t !== undefined);
+    }
+    async saveStep(step: Step): Promise<void> {
+        this.db
+            .prepare(
+                'INSERT OR REPLACE INTO steps (step_id, task_id, goal_id, json) VALUES (?, ?, ?, ?)',
+            )
+            .run(step.stepId, step.taskId, step.goalId, toJson(step));
+    }
+    async loadStep(stepId: string): Promise<Step | undefined> {
+        const row = this.db.prepare('SELECT json FROM steps WHERE step_id = ?').get(stepId) as
+            | Row
+            | undefined;
+        return row ? fromJson<Step>(row.json) : undefined;
+    }
+    async listSteps(taskId: string): Promise<Step[]> {
+        const rows = this.db
+            .prepare('SELECT json FROM steps WHERE task_id = ?')
+            .all(taskId) as Row[];
+        return rows.map((r) => fromJson<Step>(r.json)).filter((s): s is Step => s !== undefined);
+    }
+    close(): void {
+        this.db.close();
+    }
+}
