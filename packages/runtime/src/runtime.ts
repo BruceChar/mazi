@@ -1,15 +1,18 @@
+import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
+import { promisify } from 'node:util';
 import type { EventBus, Goal, LLMProvider, LLMRequest, Step, Task, ToolSchema } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { PricingSchedule, RoundOutcome } from '@mazi/provider-runtime';
 import { RoundExecutor } from '@mazi/provider-runtime';
-import type { RuntimeConfig } from './config.js';
+import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './executor/goal-executor.js';
 import { type GoalStore, SqliteGoalStore } from './memory/goal-store.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/index.js';
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
+import { BUILTIN_TOOL_PRESET } from './tools/preset.js';
 
 /** 用户反馈载荷（core 旧 UserInteractionRecord 已删；事件契约只取展示字段） */
 export interface FeedbackInput {
@@ -89,6 +92,65 @@ function buildLlmProviders(config: RuntimeConfig, options: RunOptions): Map<stri
         }
     }
     return map;
+}
+
+/** CLI 工具执行：workspace 内以 argv 运行（不经 shell），输出截断防爆 */
+async function runCliTool(
+    spec: CliCommandSpec,
+    args: Record<string, unknown>,
+    workspaceRoot?: string,
+): Promise<{ ok: boolean; content?: string; error?: string }> {
+    const rootAbs = resolve(workspaceRoot ?? process.cwd());
+    const argv: string[] = [];
+    for (const token of spec.args) {
+        const required = token.match(/^\{(\w+)\}$/);
+        const optional = token.match(/^\{(\w+)\?\}$/);
+        if (required !== null || optional !== null) {
+            const key = (required ?? optional)?.[1] ?? '';
+            const value = args[key];
+            if (value === undefined || value === null || value === '') {
+                if (required !== null) {
+                    return { ok: false, error: `缺少参数：${key}` };
+                }
+                continue;
+            }
+            if (key === 'path') {
+                // 路径必须落在工作区内（防越界读写）
+                const target = resolve(rootAbs, String(value));
+                const inside = target === rootAbs || target.startsWith(rootAbs + sep);
+                if (!inside) {
+                    return { ok: false, error: `path 超出当前工作区权限范围：${String(value)}` };
+                }
+            }
+            argv.push(String(value));
+            continue;
+        }
+        argv.push(token);
+    }
+    const maxChars = spec.maxOutputChars ?? 40_000;
+    try {
+        const { stdout } = await promisify(execFile)(spec.bin, argv, {
+            cwd: rootAbs,
+            timeout: spec.timeoutMs ?? 30_000,
+            maxBuffer: 1_048_576,
+            encoding: 'utf8',
+        });
+        const text = String(stdout ?? '').trim();
+        if (text.length > maxChars) {
+            return { ok: true, content: `${text.slice(0, maxChars)}\n…（输出已截断）` };
+        }
+        return { ok: true, content: text };
+    } catch (error) {
+        const err = error as { code?: string; stderr?: string; message?: string };
+        if (err.code === 'ENOENT') {
+            return {
+                ok: false,
+                error: `命令未找到：${spec.bin}（请先安装该工具，如 brew install ${spec.bin}）`,
+            };
+        }
+        const stderr = String(err.stderr ?? '').trim();
+        return { ok: false, error: stderr || String(err.message ?? error) };
+    }
 }
 
 /** provider-runtime RoundOutcome → RoundResult（Step 回注所需最小事实面） */
@@ -343,15 +405,25 @@ export class HarnessRuntime {
         return this.bus.flush();
     }
 
-    /** Goal 执行的工具面：config.tools → ToolSchema 清单 + GoalToolInvoker + 白名单。
-     *  白名单缺省 = 放行全部已配置工具；显式空数组 = 纯对话（不注入任何工具 schema）。 */
+    /** Goal 执行的工具面：内置 CLI 预设 + config.tools → ToolSchema/执行器/白名单。
+     *  白名单缺省 = 放行全部工具；显式空数组 = 纯对话（不注入工具 schema）。 */
     private goalExecutionConfig(): {
         tools: ToolSchema[];
         invoker: GoalToolInvoker;
         allowedTools: string[];
     } {
+        // 预设与配置同名合并：配置覆盖预设；其余内置 CLI 工具自动可用
+        const merged: ToolConfig[] = [...BUILTIN_TOOL_PRESET];
+        for (const tool of this.config.tools) {
+            const idx = merged.findIndex((t) => t.name === tool.name);
+            if (idx >= 0) {
+                merged[idx] = tool;
+            } else {
+                merged.push(tool);
+            }
+        }
         const allowed = this.config.goal?.allowedTools;
-        const tools: ToolSchema[] = this.config.tools.map((t) => ({
+        const tools: ToolSchema[] = merged.map((t) => ({
             name: t.name,
             description: t.description,
             parameters: (t.parameters ?? undefined) as ToolSchema['parameters'],
@@ -359,13 +431,20 @@ export class HarnessRuntime {
         const names = allowed === undefined ? tools.map((t) => t.name) : allowed;
         const selected = tools.filter((t) => names.includes(t.name));
         const invoke: GoalToolInvoker['invoke'] = async (toolName, args) => {
+            const tool = merged.find((t) => t.name === toolName);
             if (toolName === 'fs.read') {
                 const res = await fsReadToolImpl(args, this.workspaceRoot);
                 return res.ok
                     ? { ok: true, content: String(res.content ?? '') }
                     : { ok: false, content: '', error: res.error ?? 'tool failed' };
             }
-            const impl = this.config.tools.find((t) => t.name === toolName)?.impl;
+            if (tool?.command) {
+                const res = await runCliTool(tool.command, args, this.workspaceRoot);
+                return res.ok
+                    ? { ok: true, content: res.content ?? '' }
+                    : { ok: false, content: '', error: res.error ?? 'tool failed' };
+            }
+            const impl = tool?.impl;
             if (!impl) {
                 return { ok: false, content: '', error: `工具未实现：${toolName}` };
             }

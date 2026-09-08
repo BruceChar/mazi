@@ -9,7 +9,19 @@ export interface ToolCallResult {
     retryable?: boolean;
 }
 
-/** 工具配置：spec（schema/白名单）+ 可选实现（缺省时仅内置 fs.read 可用） */
+/** CLI 命令工具规格：由运行时在 workspace 内以 argv 执行（不经 shell，防注入） */
+export interface CliCommandSpec {
+    /** 可执行名（PATH 内，如 rg/fd/bat/eza/dua/difft/xh/sd/sg） */
+    bin: string;
+    /** argv 模板：字面 flag 原样；占位符 key 取自模型 args。 */
+    args: string[];
+    /** 超时（默认 30s） */
+    timeoutMs?: number;
+    /** 输出上限字符（默认 40000，超出截断） */
+    maxOutputChars?: number;
+}
+
+/** 工具配置：spec（schema/白名单）+ 可选实现 */
 export interface ToolConfig {
     name: string;
     description: string;
@@ -19,6 +31,8 @@ export interface ToolConfig {
     sideEffects: SideEffectScope[];
     /** 缺省实现：仅内置 fs.read（只读 utf8）；其余缺实现 → 调用返回 ok:false */
     impl?: (args: Record<string, unknown>) => Promise<ToolCallResult>;
+    /** CLI 命令工具（内置通用执行器在 workspace 内运行；提供该字段则无需 impl） */
+    command?: CliCommandSpec;
 }
 
 /**
