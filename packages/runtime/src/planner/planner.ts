@@ -13,7 +13,6 @@ import type {
     TurnContract,
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
-import type { SimpleRouter } from '@mazi/provider';
 import { newHarnessEvent } from '../observability/index.js';
 import { equalBudgetSlices, validateBudgetConservation } from './budget.js';
 import {
@@ -24,11 +23,22 @@ import {
 } from './tool-resolver.js';
 
 /** planner 装配依赖 */
+/** 路由选择结果（结构对齐旧 RouteCandidate 的 model/provider 视图） */
+export interface PlannerRouterSelection {
+    model: { providerId: string; vendor?: string; modelId: string };
+    provider: { id: string };
+}
+
+/** 模型选择器：由 tags 选出本 Turn 的默认 provider/model（执行层另经 provider-runtime 候选做 failover） */
+export interface PlannerRouter {
+    select(tags: string[]): PlannerRouterSelection;
+}
+
 export interface PlannerDeps {
     /** 工具注册表：Goal 工具域 → ToolSpec */
     toolRegistry: ToolRegistry;
-    /** 简单路由器（读 turn.contract.tags，能力+成本，MVP simple 模式） */
-    router: SimpleRouter;
+    /** 模型选择器（读 turn.contract.tags；由运行时以 provider-runtime supply/覆盖注入适配） */
+    router: PlannerRouter;
     /** 事件总线（emit 永不阻塞） */
     bus: EventBus;
     /** Session 级 Flag 快照（缺省用空快照） */
@@ -221,7 +231,11 @@ export class MvpPlanner {
             payload: { turnId: turn.turnId, model: candidate.model },
         });
         const capacity: Capacity = {
-            model: candidate.model,
+            model: {
+                providerId: candidate.model.providerId,
+                vendor: candidate.model.vendor ?? '',
+                modelId: candidate.model.modelId,
+            },
             tools: resolution.tools,
             permission: permission as PermissionLevel,
             budget: contract.budget,

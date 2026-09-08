@@ -4,7 +4,8 @@ import type {
     EventBus,
     FeatureFlagDefinition,
     GoalContract,
-    LLMDriver,
+    LLMProvider,
+    LLMRequest,
     MemoryStore,
     Planner,
     PolicyEngine,
@@ -18,19 +19,18 @@ import type {
     UserInteractionRecord,
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
-import {
-    collectLLMRound,
-    DefaultDriverRegistry,
-    normalizeProvider,
-    SimpleRouter,
-} from '@mazi/provider';
+import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
+import type { PricingSchedule, RoundOutcome } from '@mazi/provider-runtime';
+import { RoundExecutor } from '@mazi/provider-runtime';
 import type { RuntimeConfig } from './config.js';
+import type { ExecutorRoundContext, RoundResult } from './executor/executor.js';
 import { Executor } from './executor/index.js';
 import { createFlagSnapshot, DEFAULT_FLAGS } from './flags/index.js';
 import { buildGoal } from './goal-factory.js';
 import { SqliteMemoryStore } from './memory/index.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/index.js';
 import { MvpPlanner } from './planner/index.js';
+import type { PlannerRouterSelection } from './planner/planner.js';
 import { PolicyEngineImpl } from './policy/index.js';
 import { FullLoopStrategy } from './strategy/index.js';
 import { ContextMeter, CostCalculator } from './usage/index.js';
@@ -50,6 +50,8 @@ export interface RunOptions {
     userId?: string;
     /** 工作区根路径；文件工具只允许读取该目录内文件 */
     workspaceRoot?: string;
+    /** providerId → LLMProvider 覆盖（离线测试注入；优先生效） */
+    llmProviders?: Record<string, LLMProvider>;
 }
 
 /** createSession 可覆盖的 Goal 项（webui 新建会话配置） */
@@ -151,6 +153,87 @@ function defaultNoImpl(
     return () => Promise.resolve({ ok: false, error: `未注册实现：${name}`, retryable: false });
 }
 
+/** 装配 LLMProvider 池：override 优先；deepseek 经 pi-ai 目录适配（目录不匹配/无 key 在调用期报错，装配期跳过并告警） */
+function buildLlmProviders(config: RuntimeConfig, options: RunOptions): Map<string, LLMProvider> {
+    const map = new Map<string, LLMProvider>();
+    const overrides = options.llmProviders ?? {};
+    for (const provider of config.providers) {
+        const override = overrides[provider.id];
+        if (override) {
+            map.set(provider.id, override);
+            continue;
+        }
+        if (provider.driver.provider === DEEPSEEK_ADAPTER_ID) {
+            try {
+                const modelIds = provider.models?.length
+                    ? provider.models.map((m) => ({ id: m.id }))
+                    : [{ id: provider.driver.model }];
+                map.set(
+                    provider.id,
+                    deepseekAdapter(
+                        {
+                            id: provider.id,
+                            adapter: DEEPSEEK_ADAPTER_ID,
+                            apiKeyEnv: provider.driver.apiKeyEnv,
+                            models: modelIds,
+                        },
+                        { env: process.env },
+                    ),
+                );
+            } catch (error) {
+                console.warn(
+                    `[runtime] skip provider '${provider.id}': ${(error as Error).message}`,
+                );
+            }
+        }
+    }
+    return map;
+}
+
+const ZERO_PRICING: PricingSchedule = {
+    currency: 'USD',
+    base: { inputPerMTok: 0, outputPerMTok: 0 },
+    tiers: [],
+    effectiveAt: 0,
+    version: '0.0.0-missing',
+};
+
+/** provider-runtime RoundOutcome → executor RoundResult（旧 Step 回注所需最小事实面） */
+function toRoundResult(outcome: RoundOutcome): RoundResult {
+    let text = '';
+    let reasoning = '';
+    for (const block of outcome.response.content) {
+        if (block.type === 'text') text += block.text;
+        else if (block.type === 'reasoning') reasoning += block.text;
+    }
+    const toolCalls = (outcome.response.toolCalls ?? []).map((toolCall) => ({
+        callId: toolCall.callId,
+        toolName: toolCall.name,
+        arguments: toolCall.arguments,
+    }));
+    const usage = outcome.response.usage;
+    const vendorUsage =
+        usage === undefined
+            ? undefined
+            : {
+                  inputTokens: usage.inputTokens ?? 0,
+                  outputTokens: usage.outputTokens ?? 0,
+                  cacheReadInputTokens: usage.cachedInputTokens,
+                  cacheCreationInputTokens: undefined,
+                  reasoningOutputTokens: usage.reasoningTokens,
+                  reportedByVendor: true,
+              };
+    return {
+        text,
+        reasoning,
+        toolCalls,
+        ...(vendorUsage ? { vendorUsage } : {}),
+        finishReason: outcome.response.finishReason,
+        ttftMs: outcome.metrics.ttftMs ?? 0,
+        totalMs: outcome.metrics.totalMs,
+    };
+}
+
 function mergeFlags(config: RuntimeConfig): FeatureFlagDefinition[] {
     const byKey = new Map(DEFAULT_FLAGS.map((f) => [f.key, f]));
     for (const extra of config.flags ?? []) {
@@ -186,28 +269,23 @@ export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
     private readonly memory: SqliteMemoryStore;
     private readonly tools: { registry: ToolRegistry; invoker: ToolInvoker };
-    private readonly providers: ReturnType<typeof normalizeProvider>[];
-    private readonly router: SimpleRouter;
-    private readonly drivers: Map<string, LLMDriver>;
+    /** providerId → LLMProvider（override 优先；deepseek 经 deepseekAdapter 装配） */
+    private readonly llmProviders: Map<string, LLMProvider>;
+    private readonly roundExecutor: RoundExecutor;
     private readonly flags: FeatureFlagDefinition[];
     private readonly config: RuntimeConfig;
     private readonly workspaceRoot?: string;
     private readonly recorder: UserProfileRecorder;
     private activeSnapshot?: ReturnType<typeof createFlagSnapshot>;
 
-    constructor(config: RuntimeConfig, options: { workspaceRoot?: string } = {}) {
+    constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
         this.memory = new SqliteMemoryStore(config.dbPath);
         this.tools = buildTools(config, options.workspaceRoot);
-        this.providers = config.providers.map((p) => normalizeProvider(p));
-        this.router = new SimpleRouter(this.providers);
-        const driverRegistry = new DefaultDriverRegistry();
-        this.drivers = new Map();
-        for (const [i, p] of config.providers.entries()) {
-            this.drivers.set(p.id, driverRegistry.build(this.providers[i], p));
-        }
+        this.llmProviders = buildLlmProviders(config, options);
+        this.roundExecutor = new RoundExecutor();
         this.flags = mergeFlags(config);
         this.recorder = new UserProfileRecorder(this.bus, this.memory, {
             enabled: () => this.activeSnapshot?.isEnabled('user-profile.enabled') ?? true,
@@ -315,7 +393,7 @@ export class HarnessRuntime {
 
         const plannerImpl = new MvpPlanner({
             toolRegistry: this.tools.registry,
-            router: this.router,
+            router: { select: () => this.defaultSelection() },
             bus: this.bus,
             flagSnapshot: snapshot,
             sandboxEnabled: true,
@@ -331,17 +409,7 @@ export class HarnessRuntime {
             accumulatedCostUsd: 0,
         });
         const executor = new Executor({
-            driverFor: (providerId) => {
-                const driver = this.drivers.get(providerId);
-                if (!driver) {
-                    throw new Error(`无驱动：provider ${providerId}`);
-                }
-                return driver;
-            },
-            fallbackModels: () =>
-                this.router.candidates(session.turns[0]?.contract.tags ?? ['general']).map((c) => ({
-                    model: c.model,
-                })),
+            requestRound: (ctx) => this.requestRound(ctx),
             policy,
             memory: this.memory,
             bus: this.bus,
@@ -349,21 +417,9 @@ export class HarnessRuntime {
             meter: new ContextMeter(),
             costs: new CostCalculator(),
             contextWindow: this.config.contextWindow ?? 64000,
-            pricing: (model) => {
-                const provider = this.providers.find((p) => p.id === model.providerId);
-                return (
-                    provider?.pricing ?? {
-                        currency: 'USD',
-                        base: { inputPerMTok: 0, outputPerMTok: 0 },
-                        tiers: [],
-                        effectiveAt: 0,
-                        version: '0.0.0-missing',
-                    }
-                );
-            },
+            pricing: (model) => this.pricingOf(model.providerId) ?? ZERO_PRICING,
             systemPrompt: this.systemPromptFor(goal),
             promptVersion: '0.1.0',
-            roundCollector: collectLLMRound,
         });
         const strategy = new FullLoopStrategy();
         const strategyCtx: StrategyContext = {
@@ -371,9 +427,7 @@ export class HarnessRuntime {
             planner: plannerAdapter,
             executor: executor as unknown as StrategyContext['executor'],
             memory: this.memory,
-            driver: this.providers[0]
-                ? (this.drivers.get(this.providers[0].id) as LLMDriver)
-                : ({} as LLMDriver),
+            driver: this.firstProvider() ?? ({} as LLMProvider),
             flags: snapshot,
             emit: (event) => this.bus.emit(event),
         };
@@ -444,6 +498,65 @@ export class HarnessRuntime {
 
     get currentWorkspaceRoot(): string | undefined {
         return this.workspaceRoot;
+    }
+
+    /** 默认模型选择（planner 路由；按配置顺序取第一个可用 provider 的 driver.model/首模型） */
+    private defaultSelection(): PlannerRouterSelection {
+        const entry = this.config.providers.find((p) => this.llmProviders.has(p.id));
+        if (!entry) {
+            throw new Error(
+                'planner 路由：无可用 provider（需注入 llmProviders 或配置 deepseek adapter）',
+            );
+        }
+        const modelId = entry.driver.model || entry.models?.[0]?.id || '';
+        return {
+            model: { providerId: entry.id, vendor: entry.vendor, modelId },
+            provider: { id: entry.id },
+        };
+    }
+
+    private defaultModelOf(providerId: string): string {
+        const entry = this.config.providers.find((p) => p.id === providerId);
+        return entry?.driver.model || entry?.models?.[0]?.id || '';
+    }
+
+    private pricingOf(providerId: string): PricingSchedule | undefined {
+        return this.config.providers.find((p) => p.id === providerId)?.pricing;
+    }
+
+    private firstProvider(): LLMProvider | undefined {
+        return this.llmProviders.values().next().value;
+    }
+
+    /** 单次 LLM 轮次：经 provider-runtime RoundExecutor（重试/failover 在 provider-runtime 内） */
+    private async requestRound(ctx: ExecutorRoundContext): Promise<RoundResult> {
+        const orderedIds = [
+            ctx.model.providerId,
+            ...[...this.llmProviders.keys()].filter((id) => id !== ctx.model.providerId),
+        ];
+        const candidates = orderedIds
+            .map((id) => ({ id, provider: this.llmProviders.get(id) }))
+            .filter((x): x is { id: string; provider: LLMProvider } => x.provider !== undefined)
+            .map(({ id, provider }) => ({
+                providerId: id,
+                provider,
+                modelId:
+                    id === ctx.model.providerId && ctx.model.modelId
+                        ? ctx.model.modelId
+                        : this.defaultModelOf(id),
+                pricing: this.pricingOf(id),
+            }));
+        if (candidates.length === 0) {
+            throw new Error(`没有可用 provider：${ctx.model.providerId}`);
+        }
+        const request: LLMRequest = {
+            ...(ctx.systemPrompt ? { system: ctx.systemPrompt } : {}),
+            messages: ctx.messages,
+            ...(ctx.tools.length > 0 ? { tools: ctx.tools } : {}),
+            model: ctx.model.modelId,
+        };
+        const outcome = await this.roundExecutor.execute(request, candidates);
+        return toRoundResult(outcome);
     }
 
     /** 按 Session Goal 选择提示词：普通会话（显式清空工具）= 对话式；其余按任务式 */

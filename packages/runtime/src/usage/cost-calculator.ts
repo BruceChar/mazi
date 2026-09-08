@@ -1,4 +1,5 @@
-import type { CostBreakdown, PricingSchedule, VendorUsage } from '@mazi/core';
+import type { CostBreakdown, VendorUsage } from '@mazi/core';
+import type { PricingSchedule } from '@mazi/provider-runtime';
 
 const TOKENS_PER_MILLION = 1_000_000;
 

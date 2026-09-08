@@ -2,9 +2,7 @@ import type {
     Capacity,
     EventBus,
     HarnessError,
-    LLMDriver,
-    LLMRound,
-    LLMStreamEvent,
+    LLMMessage,
     MemoryStore,
     Observer,
     PolicyEngine,
@@ -12,6 +10,7 @@ import type {
     TokenTotals,
     ToolExecutionResult,
     ToolInvoker,
+    ToolSchema,
     Turn,
     Usage,
     VendorUsage,
@@ -20,7 +19,7 @@ import { ulid } from '@mazi/core';
 import { compactContextText, DefaultObserver, newHarnessEvent } from '../observability/index.js';
 import type { ContextMeter, CostCalculator } from '../usage/index.js';
 import { backfillDrift, emptyTokenTotals, isDriftExcessive } from '../usage/index.js';
-import { buildContext } from './context-builder.js';
+import { buildContext, type RoundContextRequest } from './context-builder.js';
 
 export type TurnStopReason =
     | 'final-answer'
@@ -42,10 +41,8 @@ export interface TurnExecutionOutcome {
 }
 
 export interface ExecutorDeps {
-    /** 按 providerId 取驱动（故障转移时切换 capacity.model 后取对应驱动） */
-    driverFor: (providerId: string) => LLMDriver;
-    /** 本 Turn 可用候选模型（路由 selectAll 顺序）；首个为 capacity.model */
-    fallbackModels: () => ExecutorDepsFallbackModel[];
+    /** 单次 LLM 轮次执行（runtime 注入：provider-runtime RoundExecutor / 测试 fake） */
+    requestRound: (ctx: ExecutorRoundContext) => Promise<RoundResult>;
     policy: PolicyEngine;
     memory: MemoryStore;
     bus: EventBus;
@@ -60,66 +57,34 @@ export interface ExecutorDeps {
     /** Step 级决策上下文快照（审计用） */
     promptVersion?: string;
     now?: () => number;
-    /** Provider 层注入的轮次归一函数；缺省使用本地 fallback */
-    roundCollector?: RoundCollector;
     /** 观察层；缺省使用结构化 DefaultObserver */
     observer?: Observer;
 }
 
-/** 故障转移候选模型（与 provider.selected 顺序一致） */
-export interface ExecutorDepsFallbackModel {
-    model: Capacity['model'];
+/** 单次 LLM 轮次请求（新 provider 契约 Block 消息；容量中的模型已选定） */
+export interface ExecutorRoundContext {
+    model: { providerId: string; modelId: string };
+    messages: LLMMessage[];
+    systemPrompt?: string;
+    tools: ToolSchema[];
+    signal?: AbortSignal;
 }
 
-type RoundResult = LLMRound;
+/** 一轮执行结果（旧 Step 回注所需的最小事实面；provider-runtime 或测试 fake 映射后注入） */
+export interface RoundResult {
+    text: string;
+    reasoning: string;
+    toolCalls: RoundToolCall[];
+    vendorUsage?: VendorUsage;
+    finishReason?: string;
+    ttftMs: number;
+    totalMs: number;
+}
 
-export type RoundCollector = (
-    events: Iterable<LLMStreamEvent>,
-    startedAt: number,
-    now: () => number,
-) => LLMRound;
-
-/** 缺省轮次归一（供测试/未注入 collector 的场合使用；生产由 Provider 层注入） */
-export function localRoundCollector(
-    events: Iterable<LLMStreamEvent>,
-    startedAt: number,
-    now: () => number,
-): LLMRound {
-    const text: string[] = [];
-    const reasoning: string[] = [];
-    const toolCalls: LLMRound['toolCalls'] = [];
-    let vendorUsage: LLMRound['vendorUsage'];
-    let finishReason: string | undefined;
-    let firstTextAt: number | undefined;
-    for (const event of events) {
-        switch (event.type) {
-            case 'text-delta':
-                if (firstTextAt === undefined) firstTextAt = now();
-                text.push(event.delta);
-                break;
-            case 'reasoning-delta':
-                reasoning.push(event.delta);
-                break;
-            case 'tool-call':
-                toolCalls.push(event);
-                break;
-            case 'usage':
-                vendorUsage = event.usage;
-                break;
-            case 'end':
-                finishReason = event.finishReason;
-                break;
-        }
-    }
-    return {
-        text: text.join(''),
-        reasoning: reasoning.join(''),
-        toolCalls,
-        vendorUsage,
-        finishReason,
-        ttftMs: firstTextAt === undefined ? 0 : firstTextAt - startedAt,
-        totalMs: now() - startedAt,
-    };
+export interface RoundToolCall {
+    callId: string;
+    toolName: string;
+    arguments: Record<string, unknown>;
 }
 
 function baseEvent(
@@ -430,62 +395,33 @@ export class Executor {
         });
     }
 
-    /** 依次尝试候选 Provider；成功返回 round，全部失败返回 undefined（已 emit provider.fallback） */
+    /** 单次 LLM 轮次：注入的 requestRound（provider-runtime 内部完成重试/failover）；失败 emit 后返回 undefined */
     private async callWithFallback(
         capacity: Capacity,
         sessionId: string,
         turnId: string,
-        context: Parameters<LLMDriver['stream']>[0]['context'],
+        context: RoundContextRequest,
         at: number,
     ): Promise<RoundResult | undefined> {
-        const candidates = this.deps.fallbackModels();
-        const tried = new Set<string>();
-        let lastError: Error | undefined;
-        for (const candidate of candidates) {
-            const providerId = candidate.model.providerId;
-            if (tried.has(providerId)) {
-                continue;
-            }
-            tried.add(providerId);
-            if (capacity.model.providerId !== providerId) {
-                // 故障转移：切换模型后重试本轮
-                capacity.model = candidate.model;
-                this.deps.bus.emit({
-                    ...baseEvent('provider.fallback', sessionId, turnId),
-                    attributes: {
-                        'gen_ai.request.model': candidate.model.modelId,
-                        'gen_ai.provider.name': providerId,
-                    },
-                    payload: { turnId, model: candidate.model },
-                });
-            }
-            try {
-                return await this.runRound(capacity, context, at);
-            } catch (driverError) {
-                lastError = driverError as Error;
-                this.deps.bus.emit({
-                    ...baseEvent('llm.response', sessionId, turnId),
-                    attributes: { 'gen_ai.request.model': candidate.model.modelId },
-                    payload: { error: (driverError as Error).message, retryable: true },
-                });
-            }
+        try {
+            return await this.deps.requestRound({
+                model: {
+                    providerId: capacity.model.providerId,
+                    modelId: capacity.model.modelId,
+                },
+                messages: context.messages,
+                systemPrompt: context.systemPrompt,
+                tools: context.tools,
+            });
+        } catch (driverError) {
+            this.deps.bus.emit({
+                ...baseEvent('llm.response', sessionId, turnId),
+                attributes: { 'gen_ai.request.model': capacity.model.modelId },
+                payload: { error: (driverError as Error).message, retryable: true },
+            });
+            void at;
+            return undefined;
         }
-        void lastError;
-        return undefined;
-    }
-
-    private async runRound(
-        capacity: Capacity,
-        context: Parameters<LLMDriver['stream']>[0]['context'],
-        at: number,
-    ): Promise<RoundResult> {
-        const events: LLMStreamEvent[] = [];
-        for await (const e of this.deps
-            .driverFor(capacity.model.providerId)
-            .stream({ model: capacity.model, context })) {
-            events.push(e);
-        }
-        return (this.deps.roundCollector ?? localRoundCollector)(events, at, () => this.now());
     }
 
     private step(

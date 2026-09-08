@@ -4,7 +4,7 @@ import type {
     SideEffectScope,
     ToolExecutionResult,
 } from '@mazi/core';
-import type { ProviderJson } from '@mazi/provider';
+import type { PricingSchedule } from '@mazi/provider-runtime';
 
 /** 工具配置：spec（写库/白名单）+ 可选实现（缺省时仅内置 fs.read 可用） */
 export interface ToolConfig {
@@ -18,8 +18,36 @@ export interface ToolConfig {
     impl?: (args: Record<string, unknown>) => Promise<ToolExecutionResult>;
 }
 
-/** providers.json 条目：core Provider 的 JSON 输入 */
-export type ProviderConfig = ProviderJson;
+/**
+ * providers.json 条目（legacy 形态：driver 段为旧 pi-ai 声明）。
+ * P2-3 起由运行时装配层翻译为新 provider-runtime §9.1 ProviderConfig；字段兼容旧配置文件。
+ */
+export interface ProviderConfig {
+    id: string;
+    vendor?: string;
+    tags?: string[];
+    models?: Array<{
+        id: string;
+        name?: string;
+        contextWindow?: number;
+        maxTokens?: number;
+        supportsTools?: boolean;
+        supportsThinking?: boolean;
+        supportsVision?: boolean;
+    }>;
+    driver: {
+        type: 'pi-ai';
+        provider: string;
+        model: string;
+        apiKeyEnv?: string;
+        baseUrl?: string;
+    };
+    pricing: PricingSchedule;
+    health?: { score: number; lastErrorAt?: number };
+    limits?: { rpm?: number; tpm?: number; concurrency?: number };
+    specialties?: string[];
+    costWeight?: number;
+}
 
 export interface RuntimeConfig {
     /** Provider JSON（driver.type=pi-ai，由 @mazi/provider 解释） */
