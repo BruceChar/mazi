@@ -16,8 +16,8 @@
     "prepare": "husky",
     "mazi": "node apps/cli/dist/cli.js",
     "api": "node apps/api/dist/main.js",
-    "ui:dev": "pnpm --filter @mazi/webui dev",
-    "dev": "pnpm api & pnpm ui:dev"
+    "ui": "pnpm --filter @mazi/webui dev",
+    "dev": "pnpm api & pnpm ui"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
