@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Goal } from '../../../core/src/goal-coordinate.js';
-import type { RoundResult } from '../executor/executor.js';
+import type { RoundResult } from '../executor/round-types.js';
 import { MemoryGoalStore } from '../memory/goal-store.js';
 import { runGoalTree } from './goal-strategy.js';
 

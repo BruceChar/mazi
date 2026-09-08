@@ -2,7 +2,6 @@ import type {
     Capacity,
     EventBus,
     HarnessError,
-    LLMMessage,
     MemoryStore,
     Observer,
     PolicyEngine,
@@ -10,7 +9,6 @@ import type {
     TokenTotals,
     ToolExecutionResult,
     ToolInvoker,
-    ToolSchema,
     Turn,
     Usage,
     VendorUsage,
@@ -20,6 +18,9 @@ import { compactContextText, DefaultObserver, newHarnessEvent } from '../observa
 import type { ContextMeter, CostCalculator } from '../usage/index.js';
 import { backfillDrift, emptyTokenTotals, isDriftExcessive } from '../usage/index.js';
 import { buildContext, type RoundContextRequest } from './context-builder.js';
+import type { ExecutorRoundContext, RoundResult, RoundToolCall } from './round-types.js';
+
+export type { ExecutorRoundContext, RoundResult, RoundToolCall } from './round-types.js';
 
 export type TurnStopReason =
     | 'final-answer'
@@ -59,32 +60,6 @@ export interface ExecutorDeps {
     now?: () => number;
     /** 观察层；缺省使用结构化 DefaultObserver */
     observer?: Observer;
-}
-
-/** 单次 LLM 轮次请求（新 provider 契约 Block 消息；容量中的模型已选定） */
-export interface ExecutorRoundContext {
-    model: { providerId: string; modelId: string };
-    messages: LLMMessage[];
-    systemPrompt?: string;
-    tools: ToolSchema[];
-    signal?: AbortSignal;
-}
-
-/** 一轮执行结果（旧 Step 回注所需的最小事实面；provider-runtime 或测试 fake 映射后注入） */
-export interface RoundResult {
-    text: string;
-    reasoning: string;
-    toolCalls: RoundToolCall[];
-    vendorUsage?: VendorUsage;
-    finishReason?: string;
-    ttftMs: number;
-    totalMs: number;
-}
-
-export interface RoundToolCall {
-    callId: string;
-    toolName: string;
-    arguments: Record<string, unknown>;
 }
 
 function baseEvent(

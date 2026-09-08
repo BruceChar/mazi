@@ -6,8 +6,8 @@
 
 import type { LLMMessage, ToolSchema } from '@mazi/core';
 import type { Goal, Step, Task } from '../../../core/src/goal-coordinate.js';
-import type { ExecutorRoundContext, RoundResult } from '../executor/executor.js';
 import type { GoalStore } from '../memory/goal-store.js';
+import type { ExecutorRoundContext, RoundResult } from './round-types.js';
 
 export interface GoalToolInvoker {
     invoke(

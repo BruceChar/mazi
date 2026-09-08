@@ -14,6 +14,7 @@ import type {
     ToolExecutionResult,
     ToolInvoker,
     ToolRegistry,
+    ToolSchema,
     Turn,
     UserFeedback,
     UserInteractionRecord,
@@ -25,6 +26,7 @@ import { RoundExecutor } from '@mazi/provider-runtime';
 import type { Goal } from '../../core/src/goal-coordinate.js';
 import type { RuntimeConfig } from './config.js';
 import type { ExecutorRoundContext, RoundResult } from './executor/executor.js';
+import type { GoalToolInvoker } from './executor/goal-executor.js';
 import { Executor } from './executor/index.js';
 import { createFlagSnapshot, DEFAULT_FLAGS } from './flags/index.js';
 import { buildGoal } from './goal-factory.js';
@@ -239,6 +241,16 @@ function toRoundResult(outcome: RoundOutcome): RoundResult {
     };
 }
 
+/** GoalRunResult → session.ended summary（截断 2000 字符） */
+function goalRunSummary(result: import('./strategy/goal-strategy.js').GoalRunResult): string {
+    const last = result.tasks[result.tasks.length - 1];
+    if (result.rejected && result.rejected.length > 0) {
+        return result.rejected.join('；').slice(0, 2000);
+    }
+    const summary = last?.finalMessage ?? last?.errorMessage;
+    return summary && summary.length > 0 ? summary.slice(0, 2000) : '';
+}
+
 function mergeFlags(config: RuntimeConfig): FeatureFlagDefinition[] {
     const byKey = new Map(DEFAULT_FLAGS.map((f) => [f.key, f]));
     for (const extra of config.flags ?? []) {
@@ -273,7 +285,7 @@ const DEFAULT_CHAT_SYSTEM_PROMPT =
 export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
     private readonly memory: SqliteMemoryStore;
-    private readonly goalStore: GoalStore;
+    private readonly goalStoreDb: GoalStore;
     private readonly tools: { registry: ToolRegistry; invoker: ToolInvoker };
     /** providerId → LLMProvider（override 优先；deepseek 经 deepseekAdapter 装配） */
     private readonly llmProviders: Map<string, LLMProvider>;
@@ -289,7 +301,7 @@ export class HarnessRuntime {
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
         this.memory = new SqliteMemoryStore(config.dbPath);
-        this.goalStore = new SqliteGoalStore(config.dbPath ?? ':memory:');
+        this.goalStoreDb = new SqliteGoalStore(config.dbPath ?? ':memory:');
         this.tools = buildTools(config, options.workspaceRoot);
         this.llmProviders = buildLlmProviders(config, options);
         this.roundExecutor = new RoundExecutor();
@@ -312,10 +324,15 @@ export class HarnessRuntime {
         return this.memory;
     }
 
+    /** Goal/Task/Step 存储（Goal 会话审计/级联删除） */
+    get goalStore(): GoalStore {
+        return this.goalStoreDb;
+    }
+
     async close(): Promise<void> {
         this.recorder.stop();
         this.memory.close();
-        this.goalStore.close();
+        this.goalStoreDb.close();
     }
 
     /** 创建 Goal 会话（intake 根 + 单 work；单意图快速路径，裁决 D4 快速路径）并持久化 */
@@ -372,25 +389,57 @@ export class HarnessRuntime {
             status: 'active',
             createdAt: Date.now(),
         };
-        await this.goalStore.saveGoal(intake);
-        await this.goalStore.saveGoal(work);
+        await this.goalStoreDb.saveGoal(intake);
+        await this.goalStoreDb.saveGoal(work);
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'session.started',
+                sessionId: rootGoalId,
+                attributes: {},
+                payload: {
+                    rawInput: input,
+                    inputTimestamp: Date.now(),
+                    userId: _opts.userId ?? undefined,
+                },
+            }),
+        );
+        await this.bus.flush();
         return { rootGoalId, goalId };
     }
 
     /** 执行 Goal 树（plan → 逐 Task；事实全部经 goalStore 留痕） */
     async executeGoalTree(rootGoalId: string): Promise<GoalRunResult> {
-        const goals = await this.goalStore.listGoalsByRoot(rootGoalId);
+        const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
         if (goals.length === 0) {
             throw new Error(`Goal 树不存在：${rootGoalId}`);
         }
-        return runGoalTree(
+        const exec = this.goalExecutionConfig();
+        const result = await runGoalTree(
             {
-                store: this.goalStore,
+                store: this.goalStoreDb,
                 requestRound: (ctx) => this.requestRound(ctx),
-                systemPrompt: DEFAULT_AGENT_SYSTEM_PROMPT,
+                systemPrompt: this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT,
+                tools: exec.tools,
+                invoker: exec.invoker,
+                allowedTools: exec.allowedTools,
             },
             goals,
         );
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'session.ended',
+                sessionId: rootGoalId,
+                payload: {
+                    outcome: {
+                        status: result.ok ? 'success' : 'failed',
+                        summary: goalRunSummary(result),
+                    },
+                    error: result.rejected?.join('；'),
+                },
+            }),
+        );
+        await this.bus.flush();
+        return result;
     }
 
     /** 一站式 Goal 会话：创建 + 执行 + 返回结果与树快照（apps/api 端点消费） */
@@ -412,14 +461,14 @@ export class HarnessRuntime {
     async goalSnapshot(
         rootGoalId: string,
     ): Promise<import('./observability/goal-snapshot.js').GoalTreeSnapshot> {
-        const goals = await this.goalStore.listGoalsByRoot(rootGoalId);
+        const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
         const tasks: import('../../core/src/goal-coordinate.js').Task[] = [];
         const steps: import('../../core/src/goal-coordinate.js').Step[] = [];
         for (const goal of goals) {
-            const goalTasks = await this.goalStore.listTasks(goal.goalId);
+            const goalTasks = await this.goalStoreDb.listTasks(goal.goalId);
             tasks.push(...goalTasks);
             for (const task of goalTasks) {
-                steps.push(...(await this.goalStore.listSteps(task.taskId)));
+                steps.push(...(await this.goalStoreDb.listSteps(task.taskId)));
             }
         }
         const { snapshotGoalTree } = await import('./observability/goal-snapshot.js');
@@ -645,6 +694,40 @@ export class HarnessRuntime {
 
     private firstProvider(): LLMProvider | undefined {
         return this.llmProviders.values().next().value;
+    }
+
+    /** Goal 执行的工具面：config.tools → ToolSchema 清单 + GoalToolInvoker + 白名单。
+     *  白名单缺省 = 放行全部已配置工具；显式空数组 = 纯对话（不注入任何工具 schema）。 */
+    private goalExecutionConfig(): {
+        tools: ToolSchema[];
+        invoker: GoalToolInvoker;
+        allowedTools: string[];
+    } {
+        const allowed = this.config.goal?.allowedTools;
+        const tools = this.config.tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+        }));
+        const names = allowed === undefined ? tools.map((t) => t.name) : allowed;
+        const selected = tools.filter((t) => names.includes(t.name));
+        const invoke: GoalToolInvoker['invoke'] = async (toolName, args) => {
+            if (toolName === 'fs.read') {
+                const res = await fsReadToolImpl(args, this.workspaceRoot);
+                return res.ok
+                    ? { ok: true, content: String(res.content ?? '') }
+                    : { ok: false, error: res.error ?? 'tool failed' };
+            }
+            const impl = this.config.tools.find((t) => t.name === toolName)?.impl;
+            if (!impl) {
+                return { ok: false, error: `工具未实现：${toolName}` };
+            }
+            const res = await impl(args);
+            return res.ok
+                ? { ok: true, content: String(res.content ?? '') }
+                : { ok: false, error: res.error ?? 'tool failed' };
+        };
+        return { tools: selected, invoker: { invoke }, allowedTools: names };
     }
 
     /** 单次 LLM 轮次：经 provider-runtime RoundExecutor（重试/failover 在 provider-runtime 内） */

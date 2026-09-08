@@ -47,6 +47,30 @@ function step(id: string, taskId: string, goalId: string): Step {
 
 describe('GoalStore（并存存储，C3a）', () => {
     for (const make of [() => new MemoryGoalStore(), () => new SqliteGoalStore(':memory:')]) {
+        it(`deleteGoalTree 级联删除 goals/tasks/steps（${make().constructor.name}）`, async () => {
+            const store = make();
+            try {
+                const root = goal('root');
+                const child = goal('w', 'root');
+                const other = goal('other');
+                await store.saveGoal(root);
+                await store.saveGoal(child);
+                await store.saveGoal(other);
+                await store.saveTask(task('t1', 'w'));
+                await store.saveTask(task('t2', 'other'));
+                await store.saveStep(step('s1', 't1', 'w'));
+                await store.saveStep(step('s2', 't2', 'other'));
+                await store.deleteGoalTree('root');
+                expect(await store.listGoalsByRoot('root')).toEqual([]);
+                expect((await store.loadGoal('other'))?.goalId).toBe('other');
+                expect(await store.listTasks('w')).toEqual([]);
+                expect(await store.listSteps('t1')).toEqual([]);
+                expect((await store.loadStep('s2'))?.stepId).toBe('s2');
+            } finally {
+                store.close();
+            }
+        });
+
         it(`round-trip + 按 root/goal/task 投影（${make().constructor.name}）`, async () => {
             const store = make();
             try {

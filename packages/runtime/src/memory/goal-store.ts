@@ -17,6 +17,8 @@ export interface GoalStore {
     saveStep(step: Step): Promise<void>;
     loadStep(stepId: string): Promise<Step | undefined>;
     listSteps(taskId: string): Promise<Step[]>;
+    /** 级联删除一棵 Goal 树（goals + 其 tasks + 其 steps）；Conversation 删除用 */
+    deleteGoalTree(rootGoalId: string): Promise<void>;
     close(): void;
 }
 
@@ -67,6 +69,23 @@ export class MemoryGoalStore implements GoalStore {
             .filter((s) => s.taskId === taskId)
             .sort((a, b) => a.startedAt - b.startedAt)
             .map((s) => structuredClone(s));
+    }
+    async deleteGoalTree(rootGoalId: string): Promise<void> {
+        const roots = [...this.goals.values()].filter((g) => g.rootGoalId === rootGoalId);
+        const goalIds = new Set(roots.map((g) => g.goalId));
+        for (const g of roots) {
+            this.goals.delete(g.goalId);
+        }
+        const tasks = [...this.tasks.values()].filter((t) => goalIds.has(t.goalId));
+        const taskIds = new Set(tasks.map((t) => t.taskId));
+        for (const t of tasks) {
+            this.tasks.delete(t.taskId);
+        }
+        for (const s of [...this.steps.values()]) {
+            if (taskIds.has(s.taskId)) {
+                this.steps.delete(s.stepId);
+            }
+        }
     }
     close(): void {
         this.goals.clear();
@@ -162,6 +181,22 @@ export class SqliteGoalStore implements GoalStore {
             .prepare('SELECT json FROM goal_steps WHERE task_id = ?')
             .all(taskId) as Row[];
         return rows.map((r) => fromJson<Step>(r.json)).filter((s): s is Step => s !== undefined);
+    }
+    async deleteGoalTree(rootGoalId: string): Promise<void> {
+        const goalRows = this.db
+            .prepare('SELECT goal_id FROM goal_nodes WHERE root_goal_id = ?')
+            .all(rootGoalId) as Row[];
+        for (const row of goalRows) {
+            const goalId = String(row.goal_id);
+            const taskRows = this.db
+                .prepare('SELECT task_id FROM goal_tasks WHERE goal_id = ?')
+                .all(goalId) as Row[];
+            for (const t of taskRows) {
+                this.db.prepare('DELETE FROM goal_steps WHERE task_id = ?').run(String(t.task_id));
+            }
+            this.db.prepare('DELETE FROM goal_tasks WHERE goal_id = ?').run(goalId);
+            this.db.prepare('DELETE FROM goal_nodes WHERE goal_id = ?').run(goalId);
+        }
     }
     close(): void {
         this.db.close();

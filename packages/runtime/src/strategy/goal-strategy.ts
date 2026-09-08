@@ -5,7 +5,7 @@
  */
 
 import type { Goal } from '../../../core/src/goal-coordinate.js';
-import type { GoalExecutorDeps, TaskOutcome } from '../executor/goal-executor.js';
+import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../executor/goal-executor.js';
 import { executeTask } from '../executor/goal-executor.js';
 import type { GoalStore } from '../memory/goal-store.js';
 import { planGoalTree } from '../planner/goal-planner.js';
@@ -16,6 +16,10 @@ export interface GoalRunDeps {
     systemPrompt?: string;
     tools?: GoalExecutorDeps['tools'];
     model?: GoalExecutorDeps['model'];
+    /** 工具执行器；未装配时 executeTask 拒绝一切 toolCall */
+    invoker?: GoalToolInvoker;
+    /** Task 允许的工具白名单（undefined = 不限） */
+    allowedTools?: string[];
 }
 
 export interface GoalRunResult {
@@ -47,6 +51,8 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                 ...(deps.systemPrompt !== undefined ? { systemPrompt: deps.systemPrompt } : {}),
                 ...(deps.tools !== undefined ? { tools: deps.tools } : {}),
                 ...(deps.model !== undefined ? { model: deps.model } : {}),
+                ...(deps.invoker !== undefined ? { invoker: deps.invoker } : {}),
+                ...(deps.allowedTools !== undefined ? { allowedTools: deps.allowedTools } : {}),
             },
             task,
             goal,
