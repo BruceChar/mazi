@@ -1,11 +1,10 @@
 /**
  * BUILTIN_TOOL_PRESET - built-in CLI tool preset.
  *
- * Replaces the former "fs.read only" situation so the model can inspect a project
- * structure and contents efficiently (rg/fd/bat/eza/dua/difft/xh/sd/sg).
+ * Lets the model inspect project structure and file contents efficiently.
  * Every CLI tool runs inside the workspace as argv (no shell) via the generic
- * command runner; a missing binary is auto-installed (see CliCommandSpec.installPackage)
- * and the call is retried once. Config-layer tools with the same name override these.
+ * command runner; a missing binary is auto-installed and the call retried once.
+ * Config-layer tools with the same name override these.
  */
 import type { ToolConfig } from '../config.js';
 
@@ -13,7 +12,7 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'fs.read',
         description:
-            'Read a single file inside the workspace (utf8). Use when you need the exact file body; for discovery/search prefer rg/fd/bat first.',
+            'Read a single text file inside the workspace (utf8). Use when you need the exact full content of one file.',
         parameters: {
             type: 'object',
             properties: {
@@ -30,11 +29,11 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'rg',
         description:
-            'Search file contents with ripgrep (regex, ~5-20x faster than grep; skips .gitignore and binary files; outputs JSON). Use to locate references/definitions/symbols while analyzing a project instead of reading files one by one.',
+            'Search file contents in the workspace with a regex pattern. Use to find where something is referenced or defined. If unsure about flags or syntax, run `rg --help` first.',
         parameters: {
             type: 'object',
             properties: {
-                pattern: { type: 'string', description: 'Regex search pattern' },
+                pattern: { type: 'string', description: 'Regex pattern to search for' },
                 path: {
                     type: 'string',
                     description:
@@ -54,13 +53,13 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'fd',
         description:
-            'Find files/directories with fd (regex/glob, ~2-8x faster than find; ignores hidden and gitignored entries by default; outputs JSON). Use to map the project structure and file names.',
+            'Find files and directories in the workspace by name. Use to explore the project structure and locate files. If unsure about flags, run `fd --help` first.',
         parameters: {
             type: 'object',
             properties: {
                 pattern: {
                     type: 'string',
-                    description: 'Filename glob or regex (omit to list everything)',
+                    description: 'File name glob or regex (omit to list everything)',
                 },
                 path: {
                     type: 'string',
@@ -76,7 +75,7 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'bat',
         description:
-            'View a single file with line numbers and syntax highlighting (plain output here). Use instead of cat to read one file precisely.',
+            'Print a single file with line numbers. Use to read one file precisely. If unsure about flags, run `bat --help` first.',
         parameters: {
             type: 'object',
             properties: {
@@ -95,7 +94,7 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'eza',
         description:
-            'Modern directory listing (ls replacement) with file/dir separation; pass a directory to list it. Use to quickly inspect a directory structure.',
+            'List the contents of a directory (files and subdirectories). Use to see what a directory contains. If unsure about flags, run `eza --help` first.',
         parameters: {
             type: 'object',
             properties: {
@@ -117,7 +116,7 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'dua',
         description:
-            'Disk usage analyzer (dua-cli). Interactive in a TTY; when run non-interactively it may error out - use it to find big directories, or prefer fd/eza for structure.',
+            'Show how much disk space directories use. Use when you need to know which directories are large. If unsure about flags, run `dua --help` first.',
         parameters: {
             type: 'object',
             properties: {
@@ -135,7 +134,7 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'difft',
         description:
-            'Semantic/AST diff between two files (understands code moves, not just text). Use to compare two versions of a file.',
+            'Compare two files and show their differences (semantic, understands code moves). Use to see what changed between two versions of a file. If unsure about flags, run `difft --help` first.',
         parameters: {
             type: 'object',
             properties: {
@@ -155,7 +154,7 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'xh',
         description:
-            'Modern HTTP client (GET/POST with clean JSON output). NOTE: performs real network requests; use only when the task requires remote data.',
+            'Send an HTTP request and show the response. Use when the task needs data from the network (real requests are sent). If unsure about flags, run `xh --help` first.',
         parameters: {
             type: 'object',
             properties: {
@@ -174,12 +173,12 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'sd',
         description:
-            'Simple string/regex replacement in files (WRITES files). Read the file first to confirm before editing.',
+            'Replace text in a file (this tool WRITES the file). Use to apply a string/regex substitution to one file. Read the file first to confirm before editing. If unsure about flags, run `sd --help` first.',
         parameters: {
             type: 'object',
             properties: {
-                pattern: { type: 'string', description: 'Pattern to find (literal or regex)' },
-                replacement: { type: 'string', description: 'Replacement string' },
+                pattern: { type: 'string', description: 'Text to find (literal or regex)' },
+                replacement: { type: 'string', description: 'Replacement text' },
                 path: {
                     type: 'string',
                     description: 'Target file path (must be inside the workspace)',
@@ -199,7 +198,7 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'sg',
         description:
-            'ast-grep (sg): search/rewrite code by syntax tree (JSON output) - understands real structure, not just strings. Use to find/refactor code patterns.',
+            'Search code by syntax-tree pattern (ast-grep) to find code structures such as functions or method calls. Use when searching by structure, not by raw text. If unsure about flags, run `sg --help` first.',
         parameters: {
             type: 'object',
             properties: {
