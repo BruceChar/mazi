@@ -1,4 +1,4 @@
-import type { PermissionLevel } from './capacity.js';
+import type { PermissionLevel } from './authorization.js';
 import type { StepKind } from './session.js';
 import type { TaskTag } from './turn-contract.js';
 

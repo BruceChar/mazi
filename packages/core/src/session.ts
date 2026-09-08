@@ -1,7 +1,6 @@
-import type { Capacity } from './capacity.js';
+import type { Capacity, ModelRef } from './capacity.js';
 import type { FlagSnapshot } from './flags.js';
 import type { GoalContract } from './goal.js';
-import type { ModelRef } from './provider.js';
 import type { TurnContract } from './turn-contract.js';
 import type { Usage } from './usage.js';
 

@@ -99,9 +99,8 @@ import type {
     RejectCode,
     SideEffectScope,
 } from './authorization.js';
-import type { SandboxSpec } from './capacity.js';
+import type { JSONSchemaSpec, SandboxSpec } from './capacity.js';
 import type { TraceIdentifiers } from './observability.js';
-import type { JSONSchemaSpec } from './provider.js';
 
 // ============================================================
 // §1 工具注册契约（V5 注册点）

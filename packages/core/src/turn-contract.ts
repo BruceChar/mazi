@@ -1,6 +1,5 @@
-import type { PermissionLevel, SideEffectScope } from './capacity.js';
+import type { CapabilityTag, PermissionLevel, SideEffectScope, SpecialtyTag } from './capacity.js';
 import type { AcceptanceSpec, RollbackStrategy, TerminationSpec } from './goal.js';
-import type { CapabilityTag, SpecialtyTag } from './provider.js';
 
 /** 子任务回滚规格 */
 export interface RollbackSpec {

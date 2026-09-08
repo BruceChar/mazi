@@ -3,7 +3,7 @@ import type { AcceptanceSpec, GoalContract } from './goal.js';
 import type { MemoryStore } from './memory.js';
 import type { HarnessEvent } from './observability.js';
 import type { Planner } from './planner.js';
-import type { LLMDriver } from './provider.js';
+import type { LLMProvider } from './provider.js';
 import type { ObservationPayload, Session } from './session.js';
 import type { ToolExecutionResult } from './tool.js';
 
@@ -84,7 +84,8 @@ export interface StrategyContext {
     observer?: Observer;
     reflector?: Reflector;
     memory: MemoryStore;
-    driver: LLMDriver;
+    /** LLM Provider（迁移期由 executor 注入实际 provider；FullLoop 不使用则后续移除） */
+    driver: LLMProvider;
     flags: FlagSnapshot;
     emit: (event: HarnessEvent) => void;
 }

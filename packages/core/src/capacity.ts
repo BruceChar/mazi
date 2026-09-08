@@ -1,10 +1,30 @@
 import type { PermissionLevel, SideEffectScope } from './authorization.js';
 import type { FlagSnapshot } from './flags.js';
-import type { ModelRef } from './provider.js';
 
 // PermissionLevel / SideEffectScope 的唯一规范来源是 authorization.ts（授权族词汇表），
 // 本模块只消费并转发（保持既有 '@mazi/core' 公开导出面不变，避免同名类型双份）。
 export type { PermissionLevel, SideEffectScope };
+
+// ============================================================
+// 迁移期 legacy 类型（随 provider 契约切换保留，供旧 Session/Turn/Step 层引用；
+// harness 执行层迁移到 LLMProvider 后移除）。规范类型见 provider.ts。
+// ============================================================
+
+/** 模型引用（legacy：旧执行层模型归属标记；provider-core 以 modelId 字符串表达） */
+export interface ModelRef {
+    providerId: string;
+    vendor: string;
+    modelId: string;
+}
+
+/** 工具参数 JSON-Schema（legacy 形态；provider-core 用 ToolSchema.parameters 表达） */
+export type JSONSchemaSpec = Record<string, unknown>;
+
+/** 硬能力路由标签（legacy：随 planner 路由迁移到 provider-runtime 后移除） */
+export type CapabilityTag = 'tools' | 'vision' | 'thinking' | 'long-context';
+
+/** 业务专长路由标签（legacy：同 CapabilityTag） */
+export type SpecialtyTag = 'code-refactoring' | 'data-analysis' | 'summarization' | (string & {});
 
 /** 沙箱执行配置 */
 export interface SandboxSpec {
