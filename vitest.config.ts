@@ -6,6 +6,7 @@ export default defineConfig({
     alias: {
       '@mazi/core': path.resolve(__dirname, 'packages/core/src'),
       '@mazi/provider': path.resolve(__dirname, 'packages/provider/src'),
+      '@mazi/provider-runtime': path.resolve(__dirname, 'packages/provider-runtime/src'),
       '@mazi/runtime': path.resolve(__dirname, 'packages/runtime/src'),
     },
   },

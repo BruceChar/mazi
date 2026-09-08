@@ -111,6 +111,9 @@ importers:
       '@mazi/provider':
         specifier: workspace:*
         version: link:../provider
+      '@mazi/provider-runtime':
+        specifier: workspace:*
+        version: link:../provider-runtime
 
 packages:
 
