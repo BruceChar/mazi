@@ -1,16 +1,20 @@
 import 'reflect-metadata';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Patch, Post } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
+import { ConversationsService } from '../conversations/conversations.service.js';
 
 const execFileAsync = promisify(execFile);
 
 /** /api/workspaces：选择当前工作区，文件权限默认限定在所选目录 */
 @Controller('workspaces')
 export class WorkspacesController {
-    constructor(private readonly runtime: ApiRuntimeService) {}
+    constructor(
+        private readonly runtime: ApiRuntimeService,
+        private readonly conversations: ConversationsService,
+    ) {}
 
     @Post('current')
     selectCurrent(@Body() body: Record<string, unknown>): { path?: string } {
@@ -39,6 +43,17 @@ export class WorkspacesController {
         const path = typeof body.path === 'string' ? body.path : '';
         const title = typeof body.title === 'string' ? body.title : '';
         this.runtime.renameProject(path, title);
+        return { projects: this.runtime.projects() };
+    }
+
+    /** 删除工作区项目配置（仅配置；对话记录解除归属后保留） */
+    @Delete('project')
+    removeProject(@Body() body: Record<string, unknown>): {
+        projects: { title: string; path: string }[];
+    } {
+        const path = typeof body.path === 'string' ? body.path : '';
+        this.runtime.removeProjectConfig(path);
+        this.conversations.detachWorkspace(path);
         return { projects: this.runtime.projects() };
     }
 

@@ -8,6 +8,7 @@ import {
     conversations,
     createRun,
     current,
+    deleteWorkspaceProject,
     currentConversation,
     deleteConversationById,
     detail,
@@ -325,6 +326,19 @@ async function renameProjectById(project) {
     }
 }
 
+async function removeProjectById(project) {
+    if (
+        !window.confirm(
+            `删除项目「${project.title}」的配置？仅删除配置，对话记录保留并移入“会话”区。`,
+        )
+    ) {
+        return;
+    }
+    await deleteWorkspaceProject(project.path);
+    // 若当前选中的会话属于该项目，解除归属后仍在“会话”区显示，刷新列表保持打开
+    await loadConversations();
+}
+
 function openRate() {
     const outcome = rootOutcome.value;
     feedbackRating.value = outcome?.ok ? 5 : 3;
@@ -455,11 +469,20 @@ onBeforeUnmount(() => {
                             <LineIcon name="rename" size="13" />
                         </button>
                         <button
+                            v-if="projectMenuFor === project.path"
                             class="head-icon project-add"
                             title="添加项目会话"
                             @click.stop="startProjectConversation(project)"
                         >
                             <LineIcon name="plus" size="13" />
+                        </button>
+                        <button
+                            v-if="projectMenuFor === project.path"
+                            class="head-icon project-remove"
+                            title="删除项目配置"
+                            @click.stop="removeProjectById(project)"
+                        >
+                            <LineIcon name="trash" size="13" />
                         </button>
                     </div>
                     <ul class="session-list">
@@ -927,4 +950,14 @@ onBeforeUnmount(() => {
 .stat.fail {
     color: var(--error);
 }
+
+/* 会话区头部 ＋ 与编辑一致：hover 才显示 */
+.sidebar .group-head .head-icons {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+.sidebar .group-head:hover .head-icons {
+    opacity: 1;
+}
+
 </style>

@@ -179,4 +179,44 @@ describe('conversations（Goal run 会话业务抽象列表）', () => {
         expect(res.statusCode).toBe(200);
         expect(res.json().projects).toEqual([{ title: 'new-name', path: '/ws/project' }]);
     });
+    it('DELETE /api/workspaces/project 仅删配置；对话记录保留并解除归属', async () => {
+        const workspacePath = join(handle.home, 'project-del');
+        mkdirSync(workspacePath, { recursive: true });
+        const created = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: {
+                input: '项目内任务',
+                workspace: workspacePath,
+                projectId: 'project-del',
+            },
+        });
+        expect(created.statusCode).toBe(200);
+        const sessionId = created.json().sessionId;
+
+        const del = await fastify.inject({
+            method: 'DELETE',
+            url: '/api/workspaces/project',
+            headers: { 'content-type': 'application/json' },
+            payload: { path: workspacePath },
+        });
+        expect(del.statusCode).toBe(200);
+        expect(del.json().projects.some((p) => p.path === workspacePath)).toBe(false);
+
+        const body = await fastify.inject({ method: 'GET', url: '/api/conversations' });
+        const list = body.json();
+        const conversation = list.find((item) => {
+            const runs = item.runs || [];
+            return runs.some((run) => run.rootGoalId === sessionId);
+        });
+        expect(conversation).toBeDefined();
+        expect(conversation.workspace).toBeUndefined();
+        expect(conversation.projectId).toBeUndefined();
+        const detail = await fastify.inject({
+            method: 'GET',
+            url: '/api/sessions/' + sessionId + '/timeline',
+        });
+        expect(detail.statusCode).toBe(200);
+    });
 });

@@ -114,6 +114,17 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.writeWorkspacesState();
     }
 
+    /** 删除工作区项目配置（仅 workspaces.json；对话记录由调用方另行解除归属） */
+    removeProjectConfig(path: string): void {
+        const projects = this.readWorkspacesState();
+        const project = projects.find((item) => item.path === path);
+        if (!project) {
+            throw new ApiError(404, 'project not found');
+        }
+        this.workspacesState.projects = projects.filter((item) => item.path !== path);
+        this.writeWorkspacesState();
+    }
+
     get selectedWorkspaceRoot(): string | undefined {
         return this.workspaceRoot;
     }

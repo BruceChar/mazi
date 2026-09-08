@@ -137,6 +137,23 @@ export class ConversationsService {
         this.write();
     }
 
+    /** 删除工作区项目后：解除该项目下 Conversation 的归属（记录保留，回到普通会话区） */
+    detachWorkspace(workspace: string): void {
+        this.read();
+        let changed = false;
+        for (const conversation of this.state.conversations) {
+            if (conversation.workspace === workspace) {
+                conversation.workspace = undefined;
+                conversation.projectId = undefined;
+                conversation.updatedAt = Date.now();
+                changed = true;
+            }
+        }
+        if (changed) {
+            this.write();
+        }
+    }
+
     /** 删除 Conversation，并级联删除其包含的 Goal 树（goal-store） */
     async remove(conversationId: string): Promise<void> {
         this.read();

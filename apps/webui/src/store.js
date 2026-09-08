@@ -211,6 +211,19 @@ export async function renameProject(path, title) {
     }
 }
 
+/** 删除工作区项目配置（仅配置；对话记录解除归属后保留） */
+export async function deleteWorkspaceProject(path) {
+    const state = await api('/api/workspaces/project', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path }),
+    });
+    await Promise.all([loadWorkspace(), loadConversations()]);
+    if (Array.isArray(state.projects)) {
+        projects.value = state.projects;
+    }
+}
+
 /** Conversation 最新一条 Goal run（按 createdAt） */
 export function latestRun(conversation) {
     const runs = conversation?.runs || [];
