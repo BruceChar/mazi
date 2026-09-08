@@ -55,7 +55,8 @@ export async function executeTask(
     goal: Goal,
 ): Promise<TaskOutcome> {
     const now = deps.now ?? Date.now;
-    const maxSteps = deps.maxSteps ?? 20;
+    // 真实模型对项目类任务往往需要多轮工具调用后才收敛，默认上限放宽到 50
+    const maxSteps = deps.maxSteps ?? 50;
     const invoker = deps.invoker;
     const allowed = new Set(deps.allowedTools ?? []);
     const messages: LLMMessage[] = [toUserMessage(goal.statement)];
@@ -68,6 +69,10 @@ export async function executeTask(
             ...(deps.systemPrompt ? { systemPrompt: deps.systemPrompt } : {}),
             tools: deps.tools ?? [],
         });
+
+    // 死循环护栏：连续相同工具调用达 3 轮视为未收敛（不烧完剩余轮次）
+    let prevCallKey: string | undefined;
+    let repeatCount = 0;
 
     try {
         for (let roundIndex = 0; roundIndex < maxSteps; roundIndex += 1) {
@@ -111,6 +116,26 @@ export async function executeTask(
                     reason: 'blocked-tool',
                     errorMessage: '未装配工具执行器（invoker 缺省拒绝所有工具）',
                 };
+            }
+
+            // 防死循环：连续相同工具调用未收敛则中止（含调用签名一致判定）
+            if (round.toolCalls.length > 0) {
+                const callKey = round.toolCalls
+                    .map((c) => `${c.toolName}:${JSON.stringify(c.arguments)}`)
+                    .join('|');
+                repeatCount = callKey === prevCallKey ? repeatCount + 1 : 0;
+                prevCallKey = callKey;
+                if (repeatCount >= 3) {
+                    task.status = 'failed';
+                    await deps.store.saveTask(task);
+                    return {
+                        task,
+                        steps,
+                        ok: false,
+                        reason: 'max-steps',
+                        errorMessage: `工具调用未收敛：连续 3 轮相同调用 ${round.toolCalls[0]?.toolName}`,
+                    };
+                }
             }
 
             // 白名单检查：违规工具整轮拒绝（先拦后停，policy 语义）

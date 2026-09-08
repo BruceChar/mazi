@@ -160,4 +160,36 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(outcome.reason).toBe('blocked-tool');
         expect(invoked).toBe(false);
     });
+
+    it('连续相同工具调用 → 未收敛中止（防死循环，不烧完 maxSteps）', async () => {
+        const store = new MemoryGoalStore();
+        let calls = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['fs.read'],
+                invoker: {
+                    invoke: async () => {
+                        calls += 1;
+                        return { ok: true, content: 'SAME' };
+                    },
+                },
+                requestRound: async () => ({
+                    text: '',
+                    reasoning: '',
+                    toolCalls: [{ callId: 'c', toolName: 'fs.read', arguments: { path: 'a' } }],
+                    finishReason: 'tool_calls',
+                    ttftMs: 0,
+                    totalMs: 1,
+                }),
+                maxSteps: 50,
+            },
+            task(),
+            goal(),
+        );
+        expect(outcome.ok).toBe(false);
+        expect(outcome.reason).toBe('max-steps');
+        expect(outcome.errorMessage).toContain('未收敛');
+        expect(calls).toBeLessThan(10);
+    });
 });

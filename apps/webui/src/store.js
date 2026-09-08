@@ -383,9 +383,12 @@ export async function executeRun(rootGoalId) {
         });
         const tasks = Array.isArray(result.tasks) ? result.tasks : [];
         const last = tasks[tasks.length - 1];
+        const rejected = Array.isArray(result.rejected) ? result.rejected.join('；') : '';
         runOutcomes[rootGoalId] = {
             ok: Boolean(result.ok),
-            finalMessage: last?.finalMessage || last?.errorMessage || '',
+            finalMessage: last?.finalMessage || '',
+            errorMessage: last?.errorMessage || rejected || (result.ok ? '' : '任务失败'),
+            reason: last?.reason || (result.ok ? 'final-answer' : ''),
             taskCount: tasks.length,
         };
         await loadConversations();

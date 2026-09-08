@@ -40,6 +40,7 @@ import {
 
 const prompt = ref('');
 const q = ref('');
+const drawerTab = ref('log');
 const searchOpen = ref(false);
 const projectCollapsed = ref({});
 const projectMenuFor = ref('');
@@ -215,6 +216,37 @@ function kindGlyph(kind) {
     if (kind === 'observation') return '👁';
     return '•';
 }
+
+function kindLabel(kind) {
+    if (kind === 'thinking') return '思考';
+    if (kind === 'tool_call') return '工具';
+    if (kind === 'observation') return '观察';
+    return kind || '-';
+}
+
+const logSteps = computed(() => {
+    const rows = [];
+    for (const goal of activeGoals.value) {
+        for (const task of goal.tasks || []) {
+            for (const step of task.steps || []) {
+                rows.push({
+                    key: step.stepId,
+                    at: step.startedAt ?? 0,
+                    time: fmtClock(step.startedAt),
+                    kind: step.kind,
+                    kindLabel: kindLabel(step.kind),
+                    status: step.status,
+                    statusLabel: statusLabel(step.status),
+                    id: short(step.stepId, 34),
+                });
+            }
+        }
+    }
+    rows.sort((a, b) => a.at - b.at);
+    return rows;
+});
+
+const logRoundCount = computed(() => logSteps.value.filter((s) => s.kind === 'thinking').length);
 
 function runLabel(run) {
     return short(run.input, 48) || run.rootGoalId;
@@ -582,9 +614,16 @@ onBeforeUnmount(() => {
 
                 <div class="chat-scroll">
                     <template v-if="activeConversation && detail">
-                        <div v-if="rootOutcome?.finalMessage" class="goal-bubble">
-                            <div class="goal-bubble-head">最终回答</div>
-                            <pre class="goal-final">{{ rootOutcome.finalMessage }}</pre>
+                        <div
+                            v-if="rootOutcome && (rootOutcome.finalMessage || rootOutcome.errorMessage)"
+                            class="goal-bubble"
+                            :class="{ fail: !rootOutcome.ok }"
+                        >
+                            <div class="goal-bubble-head">
+                                {{ rootOutcome.ok ? '最终回答' : '执行失败' }}
+                                <template v-if="rootOutcome.reason"> · {{ rootOutcome.reason }}</template>
+                            </div>
+                            <pre class="goal-final">{{ rootOutcome.ok ? rootOutcome.finalMessage : rootOutcome.errorMessage }}</pre>
                         </div>
                         <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
                         <div v-for="goal in activeGoals" :key="goal.goalId" class="goal-card">
@@ -709,13 +748,38 @@ onBeforeUnmount(() => {
             <div class="right-panel-inner">
                 <div class="drawer-head">
                     <div class="drawer-tabs">
-                        <button :class="{ on: true }">事件</button>
+                        <button :class="{ on: drawerTab === 'log' }" @click="drawerTab = 'log'">日志</button>
+                        <button :class="{ on: drawerTab === 'events' }" @click="drawerTab = 'events'">事件</button>
                     </div>
                     <button class="icon-btn" title="收起" @click="ui.rightOpen = false">
                         <LineIcon name="close" size="15" />
                     </button>
                 </div>
-                <div class="drawer-body">
+
+                <div v-if="drawerTab === 'log'" class="drawer-body">
+                    <div v-if="current" class="exec-log">
+                        <div v-if="rootOutcome" class="log-result" :class="rootOutcome.ok ? 'ok' : 'fail'">
+                            <div class="log-line">
+                                <span class="log-tag">{{ rootOutcome.ok ? '成功' : '失败' }}</span>
+                                <span class="log-reason">reason: {{ rootOutcome.reason || '-' }}</span>
+                                <span class="log-msg">{{ rootOutcome.ok ? rootOutcome.finalMessage : rootOutcome.errorMessage }}</span>
+                            </div>
+                        </div>
+                        <div v-else class="empty-hint">尚未执行（点“执行/重跑”）</div>
+
+                        <div v-if="logSteps.length" class="log-head">步骤执行（LLM 轮次 {{ logRoundCount }}，Step {{ logSteps.length }}）</div>
+                        <div v-for="line in logSteps" :key="line.key" class="log-row">
+                            <span class="log-time">{{ line.time }}</span>
+                            <span class="log-kind" :class="line.kind">{{ line.kindLabel }}</span>
+                            <span class="log-status" :class="line.status">{{ line.statusLabel }}</span>
+                            <span class="log-id">{{ line.id }}</span>
+                        </div>
+                        <div v-if="!logSteps.length && rootOutcome" class="empty-hint">Task 无 Step（早期失败）</div>
+                    </div>
+                    <div v-else class="empty-hint">选择一个 Goal run 后在此查看执行日志</div>
+                </div>
+
+                <div v-else class="drawer-body">
                     <div class="drawer-tabs sub">
                         <select v-model="ui.eventTypes" title="事件类型">
                             <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
@@ -961,4 +1025,101 @@ onBeforeUnmount(() => {
     opacity: 1;
 }
 
+
+.exec-log {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+}
+.log-result {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.log-result.ok {
+    border-color: var(--ok);
+}
+.log-result.fail {
+    border-color: var(--error);
+}
+.log-line {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.log-tag {
+    font-weight: 600;
+    color: var(--fg);
+}
+.log-result.ok .log-tag {
+    color: var(--ok);
+}
+.log-result.fail .log-tag {
+    color: var(--error);
+}
+.log-reason {
+    color: var(--fg-secondary);
+}
+.log-msg {
+    color: var(--fg);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.log-head {
+    color: var(--fg-secondary);
+    text-transform: uppercase;
+    font-size: 11px;
+    margin: 6px 0 2px;
+}
+.log-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    border-bottom: 1px dashed var(--border);
+    padding: 2px 0;
+}
+.log-time {
+    color: var(--trace-text);
+    font-size: 11px;
+}
+.log-kind {
+    min-width: 34px;
+}
+.log-kind.thinking {
+    color: var(--accent);
+}
+.log-kind.tool_call {
+    color: var(--warn);
+}
+.log-kind.observation {
+    color: var(--ok);
+}
+.log-status.ok,
+.log-status.succeeded {
+    color: var(--ok);
+}
+.log-status.failed,
+.log-status.error,
+.log-status.blocked {
+    color: var(--error);
+}
+.log-id {
+    color: var(--fg-secondary);
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 130px;
+}
+
+.goal-bubble.fail {
+    border-color: var(--error);
+}
 </style>
