@@ -1,22 +1,3 @@
-export { DefaultDriverRegistry } from './default-registry.js';
-export type { ModelDiscoveryDeps, ModelDiscoveryResult } from './model-discovery.js';
-export { discoverModels } from './model-discovery.js';
-export type { PiAiDriverConfig, PiAiDriverDeps } from './pi-ai-driver.js';
-export { PiAiDriver } from './pi-ai-driver.js';
-export type { PiModelMeta } from './pi-ai-mapper.js';
-export {
-    buildPiContext,
-    mapFinishReason,
-    messagesToPi,
-    toolsToPi,
-    toVendorUsage,
-    translatePiEvent,
-} from './pi-ai-mapper.js';
-export type {
-    DriverRegistry,
-    ProviderJson,
-} from './registry.js';
-export { normalizeProvider } from './registry.js';
-export { collectLLMRound } from './round.js';
-export type { RouteCandidate } from './router.js';
-export { CAPABILITY_TAGS, SimpleRouter } from './router.js';
+export * from './client.js';
+export * from './deepseek.js';
+export * from './pi-ai-adapter.js';

@@ -191,7 +191,7 @@ export type ToolHandler = (
 export interface ToolRegistration {
     name: string;
     description: string;
-    /** TypeBox 产物形状兼容（与 provider-llm 桥接），core 不导入 pi-ai */
+    /** TypeBox 产物形状兼容（与 @mazi/provider 桥接），core 不导入 pi-ai */
     parameters: JSONSchemaSpec;
 
     /** 派单锚点：tier 分派（④）、审计主类、升权判定的主 effectClass */
