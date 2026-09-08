@@ -79,3 +79,27 @@ core tsc/lint 绿；runtime/apps 仍引用已删类型 → 全仓 build 红（vi
    runtime.ts 收口为 Goal 方法；index 导出同步收口；config 去除旧 goal 覆盖字段与 flags 依赖。
 5. webui 适配 goal 树 JSON（timeline=goal/task/step、事件类型收敛、去掉 profile/ledger 视图）。
 6. 全仓 pnpm build + vitest + biome 全绿并更新本文件验收。
+
+## 7. C5 落地状态（round 11 已执行，提交 98caf0f→181c0d6）
+
+- [x] 1 runtime Goal 路径强化（62a1312）：round 类型独立化（executor/round-types.ts）、工具白名单/执行器接入
+      （executeGoalTree/runGoalSession 可跑通 fs.read 工具闭环）、Goal 会话事件（session.started/ended，sessionId=rootGoalId）、
+      GoalStore.deleteGoalTree 级联删除；
+- [x] 2 apps/api 迁移（db88011）：sessions/conversations/events/feedback/runs 全部走 Goal 坐标系
+      （POST /api/sessions → createGoalSession；/:id/run → executeGoalTree；detail/timeline → goal 树快照；
+      Conversation 持久化 goal run 引用数组；删除级联走 goal-store）；删除 users 画像与 ledger 账目端点及旧表消费
+      （文档注明待 C3e/OBS 按新事件四元组重建）；events SSE 经 rootGoalId 回放 + follow 不变；
+- [x] 3 apps/cli（6dff438）：mazi run → runGoalSession；评分/退出码按 GoalRunResult；token/cost 展示随 C3e 计量落地；
+- [x] 4 runtime 删除旧路径（181c0d6，−7600 行）：executor/planner/strategy(full-loop/reflector)/memory sqlite-store 旧表/
+      observability observer/user-profile/usage/policy/flags/recovery/goal-factory 及其测试全部删除；
+      runtime.ts 收口 Goal 方法；index 只导出 Goal 面；config 去除 flags 与旧 goal 覆盖字段（flags.json 停止读取）；
+      @mazi/core 无 Session/Turn/Capacity 导出；runtime tsc 恢复 0 error；
+- [ ] 5 webui 适配 goal 树 JSON：Conversation 列表/侧栏摘要/对话流/时间线按 rootGoalId + goal 快照渲染；
+      store.js 由 conversation.sessions[] 改 runs[].rootGoalId 拉 /api/sessions/:id/timeline；去掉 profile/ledger 页；
+      事件类型收敛到 goal 会话事件（live/refresh 白名单随 C3e 词汇落地前仅 session.started/ended/user.feedback.captured）；
+      flow/sidebar 纯函数与测试按新形状改造；
+- [x] 6 全仓绿：pnpm build 7/7 成功（core/provider/provider-runtime/runtime/api/cli/webui）；pnpm test 157 用例全绿；
+      pnpm lint 0 error（7 条历史 warning）；pnpm check 退出码 0。
+
+**当前已知欠账（C3e/OBS 卷与 C4c/d）**：goal 路径尚无 usage 计量/账目与 user 归属（token/cost 字段不产出）；
+事件词汇仍沿用旧 session/turn/step 名（观察/账目卷随 OBS v1.0 收敛为 goal/task/step 四元组后再重建 users/ledger 与实时指标）。
