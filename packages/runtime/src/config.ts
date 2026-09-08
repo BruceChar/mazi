@@ -19,6 +19,10 @@ export interface CliCommandSpec {
     timeoutMs?: number;
     /** 输出上限字符（默认 40000，超出截断） */
     maxOutputChars?: number;
+    /** 包管理器包名（命令缺失时自动安装用；如 rg→ripgrep、dua→dua-cli、sg→ast-grep） */
+    installPackage?: string;
+    /** 指定包管理器（缺省按平台探测：macOS brew / Linux apt-get|dnf|apk） */
+    installManager?: 'brew' | 'apt' | 'dnf' | 'apk';
 }
 
 /** 工具配置：spec（schema/白名单）+ 可选实现 */

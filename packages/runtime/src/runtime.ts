@@ -94,7 +94,53 @@ function buildLlmProviders(config: RuntimeConfig, options: RunOptions): Map<stri
     return map;
 }
 
+/** 探测可用包管理器（macOS brew；Linux 依序 apt-get/dnf/apk） */
+async function detectPackageManager(): Promise<string | undefined> {
+    if (process.platform === 'darwin') {
+        return 'brew';
+    }
+    for (const candidate of ['apt-get', 'dnf', 'apk']) {
+        try {
+            await promisify(execFile)('which', [candidate], { timeout: 5_000 });
+            return candidate;
+        } catch {
+            // try next
+        }
+    }
+    return undefined;
+}
+
+/** 自动安装缺失命令（brew/apt/dnf/apk），返回是否成功 */
+async function installCliTool(spec: CliCommandSpec): Promise<{ ok: boolean; error?: string }> {
+    const manager = spec.installManager ?? (await detectPackageManager());
+    if (!manager) {
+        return { ok: false, error: 'no package manager found (brew/apt-get/dnf/apk)' };
+    }
+    const pkg = spec.installPackage ?? spec.bin;
+    const args =
+        manager === 'brew'
+            ? ['install', '-q', pkg]
+            : manager === 'apt-get'
+              ? ['install', '-y', pkg]
+              : manager === 'dnf'
+                ? ['install', '-y', pkg]
+                : ['add', pkg];
+    try {
+        await promisify(execFile)(manager, args, { timeout: 300_000 });
+        return { ok: true };
+    } catch (error) {
+        const err = error as { stderr?: string; message?: string };
+        return {
+            ok: false,
+            error: `${manager} install ${pkg} failed: ${String(err.stderr ?? err.message ?? error)
+                .trim()
+                .slice(0, 300)}`,
+        };
+    }
+}
+
 /** CLI 工具执行：workspace 内以 argv 运行（不经 shell），输出截断防爆 */
+
 async function runCliTool(
     spec: CliCommandSpec,
     args: Record<string, unknown>,
@@ -143,10 +189,40 @@ async function runCliTool(
     } catch (error) {
         const err = error as { code?: string; stderr?: string; message?: string };
         if (err.code === 'ENOENT') {
-            return {
-                ok: false,
-                error: `命令未找到：${spec.bin}（请先安装该工具，如 brew install ${spec.bin}）`,
-            };
+            // 自动安装缺失命令后重试一次
+            const installed = await installCliTool(spec);
+            if (!installed.ok) {
+                return {
+                    ok: false,
+                    error: `${spec.bin} is missing and auto-install failed: ${installed.error}`,
+                };
+            }
+            try {
+                const { stdout } = await promisify(execFile)(spec.bin, argv, {
+                    cwd: rootAbs,
+                    timeout: spec.timeoutMs ?? 30_000,
+                    maxBuffer: 1_048_576,
+                    encoding: 'utf8',
+                });
+                const text = String(stdout ?? '').trim();
+                return {
+                    ok: true,
+                    content:
+                        text.length > maxChars
+                            ? `${text.slice(0, maxChars)}\n…（output truncated）`
+                            : text,
+                };
+            } catch (retryError) {
+                const retryErr = retryError as { code?: string; stderr?: string; message?: string };
+                if (retryErr.code === 'ENOENT') {
+                    return {
+                        ok: false,
+                        error: `${spec.bin} still missing after install (${spec.installPackage ?? spec.bin})`,
+                    };
+                }
+                const stderr = String(retryErr.stderr ?? '').trim();
+                return { ok: false, error: stderr || String(retryErr.message ?? retryError) };
+            }
         }
         const stderr = String(err.stderr ?? '').trim();
         return { ok: false, error: stderr || String(err.message ?? error) };
