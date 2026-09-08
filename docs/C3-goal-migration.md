@@ -24,14 +24,15 @@
 ## 3. 执行顺序（每阶段独立提交，保持每包 build 0 错误）
 
 - [x] C2：goal-coordinate.ts 契约 + 法律校验纯函数（9661701）
-- [ ] C3a runtime memory/sqlite：goals/tasks/steps 表 + 读写（rootGoalId/parent 投影）
-- [ ] C3b runtime planner：plan(Goal) → Task[]（intake 切分最小实现 + 兄弟校验）
-- [ ] C3c runtime executor：executeTask(task, goal)（Step 归属 taskId/goalId；requestRound 复用）
-- [ ] C3d runtime strategy/full-loop + HarnessRuntime：Goal 树驱动（react-only/多 Task）
-- [ ] C3e usage/observability/recorder 适配（rootGoalId/goalId 事件四元组收敛见 OBS v1.0）
-- [ ] C3f runtime 测试迁移（goal-coordinate/内存/plan/executor/harness）
-- [ ] C4 apps/cli/api/webui：Conversation 保存 goal 树；展示 goal/task/step 层级
-- [ ] C5 删除 session.ts/turn-contract.ts/capacity.ts 与旧列/旧事件；pnpm check 全绿
+- [x] C3a runtime memory：goals/tasks/steps 并存存储（goal-store.ts，787e925）
+- [x] C3b runtime planner：goal-planner：plan(Goal) → Task[]（fea77dd）
+- [x] C3c runtime executor：goal-executor：executeTask（f0aaa4a）
+- [x] C3d runtime strategy：goal-strategy：Goal 树顺序驱动（eefeee05）
+- [x] C3e runtime：HarnessRuntime Goal 路径 createGoalSession/executeGoalTree（967dfbf）+ runGoalSession/goalSnapshot（6bde724）
+- [x] C3f runtime 测试：goal-store/goal-planner/goal-executor/goal-strategy/goal-snapshot/goal-path 用例
+- [x] C4a/b runtime+api：Goal 一站式 API 面 + /api/goals 端点（a9b5614）
+- [ ] C4c/d apps 全量迁移：Conversation 保存 goal 树；webui 展示 goal/task/step 层级 —— 由 §6 计划承接
+- [ ] C5 删除旧执行路径与旧列/旧事件；pnpm check 全绿 —— 由 §6 计划承接
 
 ## 4. 校验/回归
 
@@ -56,3 +57,25 @@
 
 **验收对照**：C5 完成 = @mazi/core 不再有 Session/Turn/TurnContract/Capacity 导出；goal-coordinate 经 index 公共导出；
 全仓 build + vitest + biome 全绿。
+
+## 6. C5 续行计划（round 11 起，基于全仓盘点）
+
+**现状**：core 旧契约已按指示删除（e2357bd；1a6efd8 恢复 observability/tool-gateway/usage 等非执行契约并收口 index），
+core tsc/lint 绿；runtime/apps 仍引用已删类型 → 全仓 build 红（vitest 250 用例因不做类型检查仍绿）。
+
+**目标终点（保持每步可提交、受影响包 tsc 0 错误）**：
+1. runtime 强化 Goal 路径（纯新增，不改旧路径）：executor round 类型（ExecutorRoundContext/RoundResult/RoundToolCall）
+   从旧 executor.ts 抽到独立模块供 goal-executor 复用；executeGoalTree/runGoalSession 接上 config 工具/白名单/系统提示，
+   使 Goal 会话具备真实工具执行；createGoalSession/executeGoalTree 向 DefaultEventBus 发 goal 会话事件
+   （sessionId 槽 = rootGoalId，事件词汇收敛属 C3e/OBS，暂沿用现有类型名）。
+2. api 迁移：sessions/conversations/events/feedback/runs 改走 Goal 坐标系（会话 id = rootGoalId；时间线 = goal 树快照）；
+   删除用户画像/失败账目端点（users、ledger）——二者依赖旧 user_interactions/failure_ledger 记录，Goal 世界暂无可等价
+   数据源（userId/账目未入 goal 契约），随旧表删除，待 C3e 观测/账目卷随 OBS v1.0 落地后按新事件四元组重建；
+   Conversation 由 sessionId 数组改为 goal 根 id 数组，级联删除走 goal-store。
+3. cli：mazi run 改 runGoalSession 路径，输出按 GoalRunResult 映射（usage 计量属 C3e，暂不展示 token/cost）。
+4. runtime 删除旧路径：executor(旧 Executor/context-builder)/planner(旧 MvpPlanner/budget/tool-resolver)/strategy
+   (full-loop/reflector)/memory sqlite-store 旧表/schema/user-profile(recorder/query/anonymizer)/observability observer/
+   usage(aggregate/context-meter/cost-calculator/tokenizer-registry)/policy/flags/recovery/goal-factory 及对应测试；
+   runtime.ts 收口为 Goal 方法；index 导出同步收口；config 去除旧 goal 覆盖字段与 flags 依赖。
+5. webui 适配 goal 树 JSON（timeline=goal/task/step、事件类型收敛、去掉 profile/ledger 视图）。
+6. 全仓 pnpm build + vitest + biome 全绿并更新本文件验收。
