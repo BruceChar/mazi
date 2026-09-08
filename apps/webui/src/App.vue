@@ -41,6 +41,9 @@ import {
 const prompt = ref('');
 const q = ref('');
 const drawerTab = ref('log');
+const rightWidth = ref(320);
+const MIN_PANEL_W = 240;
+const MAX_PANEL_W = 640;
 const searchOpen = ref(false);
 const projectCollapsed = ref({});
 const projectMenuFor = ref('');
@@ -396,6 +399,26 @@ function openSettings() {
     ui.view = 'system-settings';
 }
 
+function startResize(e) {
+    e.preventDefault();
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    window.addEventListener('pointermove', onResize);
+    window.addEventListener('pointerup', endResize);
+}
+
+function onResize(e) {
+    const width = Math.min(MAX_PANEL_W, Math.max(MIN_PANEL_W, window.innerWidth - e.clientX));
+    rightWidth.value = width;
+}
+
+function endResize() {
+    window.removeEventListener('pointermove', onResize);
+    window.removeEventListener('pointerup', endResize);
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+}
+
 const filteredEvents = computed(() => {
     const key = ui.eventTypes === 'all' ? null : ui.eventTypes;
     const list = key ? events.list.filter((e) => e.type === key) : events.list;
@@ -745,7 +768,17 @@ onBeforeUnmount(() => {
             </footer>
         </main>
 
-        <aside class="right-panel" :class="{ open: ui.rightOpen }">
+        <div
+            v-if="rightOpen"
+            class="panel-resizer"
+            title="拖拽调整宽度"
+            @pointerdown="startResize"
+        ></div>
+        <aside
+            class="right-panel"
+            :class="{ open: ui.rightOpen }"
+            :style="{ width: rightWidth + 'px', minWidth: rightWidth + 'px' }"
+        >
             <div class="right-panel-inner">
                 <div class="drawer-head">
                     <div class="drawer-tabs">
@@ -1135,5 +1168,18 @@ onBeforeUnmount(() => {
 
 .goal-bubble.fail {
     border-color: var(--error);
+}
+/* 右侧栏拖拽调宽手柄 */
+.panel-resizer {
+    width: 5px;
+    flex: 0 0 5px;
+    cursor: col-resize;
+    background: var(--border);
+    opacity: 0.35;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+.panel-resizer:hover {
+    opacity: 1;
+    background: var(--accent);
 }
 </style>

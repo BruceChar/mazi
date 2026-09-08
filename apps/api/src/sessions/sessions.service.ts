@@ -4,6 +4,11 @@ import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 
+/** 运行日志（stdout，风格与 main.ts 一致） */
+function logRun(line: string): void {
+    process.stdout.write(`${line}\n`);
+}
+
 /**
  * SessionsService：Goal 会话（= 一棵 Goal 树）的创建/执行/详情/反馈编排。
  * C5 迁移后本层全部走 HarnessRuntime Goal 坐标系：sessionId 语义 = rootGoalId；
@@ -53,6 +58,9 @@ export class SessionsService {
         const userId =
             (typeof body.userId === 'string' ? body.userId : undefined) ?? targetContext?.userId;
         const created = await this.runtime.harness().createGoalSession(input, { userId });
+        logRun(
+            `[run] create goal-session ${created.rootGoalId} input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'}`,
+        );
         const projectId =
             targetContext?.projectId ??
             (typeof body.projectId === 'string' && body.projectId.trim()
@@ -81,14 +89,29 @@ export class SessionsService {
 
     /** POST /api/run：一站式创建 + 执行（Goal 树），进程内串行 */
     async runOnce(input: string, userId?: string) {
-        return this.runtime.runExclusive(() =>
+        logRun(`[run] start goal-run input=${JSON.stringify(input.slice(0, 80))}`);
+        const started = Date.now();
+        const result = await this.runtime.runExclusive(() =>
             this.runtime.harness().runGoalSession(input, { userId }),
         );
+        logRun(
+            `[run] done goal-run ${result.rootGoalId} ms=${Date.now() - started} ok=${result.result.ok} tasks=${result.result.tasks.length}`,
+        );
+        return result;
     }
 
     /** POST /api/sessions/:id/run：执行已创建 Goal 会话（进程内串行，busy → 409） */
     async executeSession(sessionId: string) {
-        return this.runtime.runExclusive(() => this.runtime.harness().executeGoalTree(sessionId));
+        logRun(`[run] start execute ${sessionId}`);
+        const started = Date.now();
+        const result = await this.runtime.runExclusive(() =>
+            this.runtime.harness().executeGoalTree(sessionId),
+        );
+        const last = result.tasks[result.tasks.length - 1];
+        logRun(
+            `[run] done execute ${sessionId} ms=${Date.now() - started} ok=${result.ok} tasks=${result.tasks.length} reason=${last?.reason ?? '-'} error=${JSON.stringify((last?.errorMessage ?? '').slice(0, 160))}`,
+        );
+        return result;
     }
 
     /** GET /api/sessions/:id（含 /:id/timeline）：Goal 树快照（goals/tasks/steps 四元组） */
