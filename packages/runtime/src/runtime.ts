@@ -442,13 +442,15 @@ export class HarnessRuntime {
         return getRecordBySession(this.memory, sessionId);
     }
 
-    /** 创建并执行（向后兼容：等效 createSession + executeSession） */
+    /** @deprecated C5 迁移：新代码用 runGoalSession（Goal/Task/Step 坐标系）；本方法保留兼容旧 Session 路径。
+     *  创建并执行（向后兼容：等效 createSession + executeSession） */
     async run(input: string, opts: RunOptions = {}): Promise<RunResult> {
         const created = await this.createSession(input, opts);
         return this.executeSession(created.sessionId);
     }
 
-    /** 创建会话：构建 Goal/Flag 快照并持久化（不执行），记录即时为 recording（webui 会话列表可先出现空会话） */
+    /** @deprecated C5 迁移：新代码用 createGoalSession（Goal 坐标系）。保留兼容旧 Session 路径：
+     *  创建会话：构建 Goal/Flag 快照并持久化（不执行），记录即时为 recording（webui 会话列表可先出现空会话） */
     async createSession(
         input: string,
         opts: CreateSessionOptions = {},
@@ -494,7 +496,8 @@ export class HarnessRuntime {
         return { sessionId };
     }
 
-    /** 执行已创建会话：加载现场（Session+flagSnapshot），复用既有编排管线直至 session.ended */
+    /** @deprecated C5 迁移：新代码用 executeGoalTree（Goal 坐标系）。保留兼容旧 Session 路径：
+     *  执行已创建会话：加载现场（Session+flagSnapshot），复用既有编排管线直至 session.ended */
     async executeSession(sessionId: string): Promise<RunResult> {
         const session = await this.memory.loadSession(sessionId);
         if (!session) {
