@@ -283,27 +283,24 @@ function toRoundResult(outcome: RoundOutcome): {
     };
 }
 
-/** Step payload → 简短流式摘要（≤240 字符） */
-function stepSummary(step: Step): string {
+/** Step payload → 完整文本（大上限 60k；长内容由 UI 滚动窗口承载） */
+function stepText(step: Step): string {
     const payload = step.payload;
-    const text =
-        step.kind === 'thinking'
-            ? String((payload as { content?: string }).content ?? '')
-            : step.kind === 'tool_call'
-              ? `${(payload as { toolName?: string }).toolName ?? ''} ${JSON.stringify(
-                    (payload as { arguments?: unknown }).arguments ?? {},
-                )}`
-              : (() => {
-                    const obs = payload as {
-                        toolName?: string;
-                        content?: string;
-                        isError?: boolean;
-                    };
-                    return `${obs.toolName ? `[${obs.toolName}] ` : ''}${obs.content ?? ''}${
-                        obs.isError ? ' [error]' : ''
-                    }`;
-                })();
-    return text.length > 240 ? `${text.slice(0, 240)}…` : text;
+    let text: string;
+    if (step.kind === 'thinking') {
+        text = String((payload as { content?: string }).content ?? '');
+    } else if (step.kind === 'tool_call') {
+        const call = payload as { toolName?: string; arguments?: unknown; callId?: string };
+        text = `${call.toolName ?? ''} ${JSON.stringify(call.arguments ?? {})}`;
+    } else {
+        const obs = payload as { toolName?: string; content?: string; isError?: boolean };
+        text = `${obs.toolName ? `[${obs.toolName}] ` : ''}${obs.content ?? ''}${
+            obs.isError ? '\n[error]' : ''
+        }`;
+    }
+    return text.length > 60_000
+        ? `${text.slice(0, 60_000)}\n…（content truncated at 60k chars）`
+        : text;
 }
 
 const DEFAULT_AGENT_SYSTEM_PROMPT =
@@ -514,7 +511,7 @@ export class HarnessRuntime {
                     status: step.status,
                     goalId: step.goalId,
                     taskId: step.taskId,
-                    content: stepSummary(step),
+                    content: stepText(step),
                 },
             }),
         );

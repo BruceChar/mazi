@@ -227,37 +227,11 @@ function kindLabel(kind) {
     return kind || '-';
 }
 
-const logSteps = computed(() => {
-    const rows = [];
-    for (const goal of activeGoals.value) {
-        for (const task of goal.tasks || []) {
-            for (const step of task.steps || []) {
-                rows.push({
-                    key: step.stepId,
-                    at: step.startedAt ?? 0,
-                    time: fmtClock(step.startedAt),
-                    kind: step.kind,
-                    kindLabel: kindLabel(step.kind),
-                    status: step.status,
-                    statusLabel: statusLabel(step.status),
-                    id: short(step.stepId, 34),
-                    text: step.payloadText ? short(step.payloadText, 140) : '',
-                });
-            }
-        }
-    }
-    rows.sort((a, b) => a.at - b.at);
-    return rows;
-});
-
-const logRoundCount = computed(() => logSteps.value.filter((s) => s.kind === 'thinking').length);
-
-/** 实时（流式）步骤：来自 SSE step.ended，尚未进入最终快照（运行中可见） */
-const liveStepRows = computed(() => {
-    const snapshotIds = new Set(logSteps.value.map((s) => s.key));
+/** 步骤流：来自 SSE/事件回放中的 step.ended（思考/工具/观察），内容完整 */
+const stepEventRows = computed(() => {
     const rows = [];
     for (const ev of events.list) {
-        if (ev.type !== 'step.ended' || !ev.stepId || snapshotIds.has(ev.stepId)) continue;
+        if (ev.type !== 'step.ended' || !ev.stepId) continue;
         const p = ev.payload || {};
         rows.push({
             key: 'ev-' + ev.eventId,
@@ -268,7 +242,7 @@ const liveStepRows = computed(() => {
             status: p.status || 'ok',
             statusLabel: statusLabel(p.status || 'ok'),
             id: short(ev.stepId, 34),
-            text: p.content ? short(p.content, 140) : '',
+            text: p.content ? String(p.content) : '',
         });
     }
     rows.sort((a, b) => a.at - b.at);
@@ -822,27 +796,21 @@ onBeforeUnmount(() => {
                                 <span class="log-msg">{{ rootOutcome.ok ? rootOutcome.finalMessage : rootOutcome.errorMessage }}</span>
                             </div>
                         </div>
-                        <div v-else class="empty-hint">尚未执行（点“执行/重跑”）</div>
+                        <div v-if="busy && !rootOutcome" class="empty-hint">执行中…（流式步骤实时到达）</div>
 
-                        <template v-if="busy && liveStepRows.length">
-                            <div class="log-head">实时（流式）</div>
-                            <div v-for="line in liveStepRows" :key="line.key" class="log-row">
-                                <span class="log-time">{{ line.time }}</span>
-                                <span class="log-kind" :class="line.kind">{{ line.kindLabel }}</span>
-                                <span class="log-status" :class="line.status">{{ line.statusLabel }}</span>
-                                <span class="log-id">{{ line.id }}</span>
-                                <div v-if="line.text" class="log-detail" :title="line.text">{{ line.text }}</div>
+                        <template v-if="stepEventRows.length">
+                            <div class="log-head">步骤（{{ stepEventRows.length }}）</div>
+                            <div v-for="line in stepEventRows" :key="line.key" class="log-row">
+                                <div class="log-row-head">
+                                    <span class="log-time">{{ line.time }}</span>
+                                    <span class="log-kind" :class="line.kind">{{ line.kindLabel }}</span>
+                                    <span class="log-status" :class="line.status">{{ line.statusLabel }}</span>
+                                    <span class="log-id">{{ line.id }}</span>
+                                </div>
+                                <pre v-if="line.text" class="log-code">{{ line.text }}</pre>
                             </div>
                         </template>
-                        <div v-if="logSteps.length" class="log-head">步骤执行（LLM 轮次 {{ logRoundCount }}，Step {{ logSteps.length }}）</div>
-                        <div v-for="line in logSteps" :key="line.key" class="log-row">
-                            <span class="log-time">{{ line.time }}</span>
-                            <span class="log-kind" :class="line.kind">{{ line.kindLabel }}</span>
-                            <span class="log-status" :class="line.status">{{ line.statusLabel }}</span>
-                            <span class="log-id">{{ line.id }}</span>
-                            <div v-if="line.text" class="log-detail" :title="line.text">{{ line.text }}</div>
-                        </div>
-                        <div v-if="!logSteps.length && rootOutcome" class="empty-hint">Task 无 Step（早期失败）</div>
+                        <div v-else-if="!busy" class="empty-hint">暂无步骤事件</div>
                     </div>
                     <div v-else class="empty-hint">选择一个 Goal run 后在此查看执行日志</div>
                 </div>
@@ -1214,5 +1182,34 @@ onBeforeUnmount(() => {
 .panel-resizer:hover {
     opacity: 1;
     background: var(--accent);
+}
+
+/* 步骤行：头部 + 代码块内容 */
+.exec-log .log-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+    padding: 6px 2px;
+    border-bottom: 1px dashed var(--border);
+}
+.log-row-head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.log-code {
+    margin: 0;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-y: auto;
+    max-height: calc(1.5em * 10 + 12px); /* 约 10 行竖向滚动窗口 */
 }
 </style>
