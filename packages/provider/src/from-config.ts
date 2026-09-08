@@ -79,3 +79,13 @@ export function deepseekAdapter(
         ...(apiKey && apiKey.length > 0 ? { apiKey } : {}),
     });
 }
+
+/** 内置 adapter 目录（provider-runtime AdapterCatalog 可直接注入；faux 仅供测试装配 allowFaux:true）。 */
+export const providerCatalog: Readonly<
+    Record<string, (config: AdapterProviderConfigLike) => LLMProvider>
+> = {
+    [DEEPSEEK_ADAPTER_ID]: deepseekAdapter,
+};
+
+/** 已支持 adapter id 列表（装配/向导校验用） */
+export const SUPPORTED_ADAPTERS: readonly string[] = [DEEPSEEK_ADAPTER_ID];
