@@ -1,0 +1,81 @@
+/**
+ * from-config —— 真实厂商 adapter 目录（provider-runtime §9.4 的注入端）。
+ *
+ * 把 provider-runtime 形态的 ProviderConfig（§9.1）实例化为 LLMProvider：
+ *   adapter: 'deepseek' → pi-ai deepseek catalog（deepseek-v4-flash / -vision-exp / -pro）。
+ * 本文件在 packages/provider（厂商侧），provider-runtime 不 import 厂商 SDK（依赖倒置 §11）；
+ * 为保持解耦，这里只接受与 §9.1 对齐的结构化子集类型，不引入 provider-runtime 包。
+ */
+
+import { createModels } from '@earendil-works/pi-ai';
+import { deepseekProvider } from '@earendil-works/pi-ai/providers/deepseek';
+import type { LLMProvider } from '@mazi/core';
+import { createPiProvider } from './pi-ai-adapter.js';
+
+export const DEEPSEEK_ADAPTER_ID = 'deepseek';
+
+export interface AdapterModelLike {
+    id: string;
+}
+
+/** 与 provider-runtime §9.1 ProviderConfig 对齐的结构化子集（避免 provider→provider-runtime 依赖）。 */
+export interface AdapterProviderConfigLike {
+    id: string;
+    adapter: string;
+    apiKeyEnv?: string;
+    baseUrl?: string;
+    models: AdapterModelLike[];
+}
+
+export interface AdapterFactoryOptions {
+    env?: Record<string, string | undefined>;
+}
+
+/** 由 ModelApi 目录解析出的 deepseek 模型（离线，pi-ai 内置目录）。 */
+export function knownDeepseekModels(): string[] {
+    const models = createModels();
+    models.setProvider(deepseekProvider());
+    return models
+        .getModels('deepseek')
+        .map((model) => model.id)
+        .sort();
+}
+
+/**
+ * 创建 deepseek adapter（同步工厂，供 ProviderRegistry 注入）。
+ * 校验：config.models 的每个 id 必须存在于 pi-ai deepseek 目录；apiKey 从
+ * config.apiKeyEnv ?? 'DEEPSEEK_API_KEY' 读取（不落配置文件）。
+ */
+export function deepseekAdapter(
+    config: AdapterProviderConfigLike,
+    options: AdapterFactoryOptions = {},
+): LLMProvider {
+    if (config.adapter !== DEEPSEEK_ADAPTER_ID) {
+        throw new Error(
+            `deepseekAdapter: adapter must be '${DEEPSEEK_ADAPTER_ID}', got '${config.adapter}'`,
+        );
+    }
+    const env = options.env ?? process.env;
+    const catalog = new Set(knownDeepseekModels());
+    for (const model of config.models) {
+        if (!catalog.has(model.id)) {
+            throw new Error(
+                `deepseekAdapter: model '${model.id}' not in pi-ai deepseek catalog (known: ${[...catalog].join(', ')})`,
+            );
+        }
+    }
+    const defaultModel = config.models[0]?.id;
+    if (defaultModel === undefined) {
+        throw new Error('deepseekAdapter: at least one model required');
+    }
+    const apiKey = config.apiKeyEnv ? env[config.apiKeyEnv] : env.DEEPSEEK_API_KEY;
+
+    const models = createModels();
+    models.setProvider(deepseekProvider());
+    return createPiProvider({
+        models,
+        providerId: 'deepseek',
+        defaultModel,
+        ...(apiKey && apiKey.length > 0 ? { apiKey } : {}),
+    });
+}
