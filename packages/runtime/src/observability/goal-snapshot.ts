@@ -27,6 +27,31 @@ export interface StepView {
     kind: Step['kind'];
     status: Step['status'];
     startedAt: number;
+    /** payload 摘要（≤240 字符）：思考内容 / 工具名+参数 / 观察内容（审计与日志用） */
+    payloadText?: string;
+}
+
+/** Step payload → 可读文本摘要（按 kind 投影；长内容截断） */
+function payloadTextOf(step: Step): string | undefined {
+    const payload = step.payload;
+    const text =
+        step.kind === 'thinking'
+            ? ((payload as { content?: string }).content ?? '')
+            : step.kind === 'tool_call'
+              ? `${(payload as { toolName?: string }).toolName ?? ''} ${JSON.stringify(
+                    (payload as { arguments?: unknown }).arguments ?? {},
+                )}`
+              : (() => {
+                    const obs = payload as {
+                        toolName?: string;
+                        content?: string;
+                        isError?: boolean;
+                    };
+                    return `${obs.toolName ? `[${obs.toolName}] ` : ''}${obs.content ?? ''}${
+                        obs.isError ? ' ⚠' : ''
+                    }`;
+                })();
+    return text.length > 240 ? `${text.slice(0, 240)}…` : text;
 }
 
 export interface GoalTreeSnapshot {
@@ -71,6 +96,9 @@ export function snapshotGoalTree(
                     kind: step.kind,
                     status: step.status,
                     startedAt: step.startedAt,
+                    ...(payloadTextOf(step) !== undefined
+                        ? { payloadText: payloadTextOf(step) }
+                        : {}),
                 }));
             stepCount += stepViews.length;
             return {

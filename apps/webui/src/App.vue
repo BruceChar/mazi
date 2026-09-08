@@ -238,6 +238,7 @@ const logSteps = computed(() => {
                     status: step.status,
                     statusLabel: statusLabel(step.status),
                     id: short(step.stepId, 34),
+                    text: step.payloadText ? short(step.payloadText, 140) : '',
                 });
             }
         }
@@ -773,6 +774,7 @@ onBeforeUnmount(() => {
                             <span class="log-kind" :class="line.kind">{{ line.kindLabel }}</span>
                             <span class="log-status" :class="line.status">{{ line.statusLabel }}</span>
                             <span class="log-id">{{ line.id }}</span>
+                            <div v-if="line.text" class="log-detail" :title="line.text">{{ line.text }}</div>
                         </div>
                         <div v-if="!logSteps.length && rootOutcome" class="empty-hint">Task 无 Step（早期失败）</div>
                     </div>
@@ -1117,6 +1119,18 @@ onBeforeUnmount(() => {
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 130px;
+}
+.log-row {
+    flex-wrap: wrap;
+}
+.log-detail {
+    flex-basis: 100%;
+    color: var(--fg-secondary);
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding-left: 4px;
 }
 
 .goal-bubble.fail {

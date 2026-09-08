@@ -210,10 +210,11 @@ export async function executeTask(
                 steps.push(obs);
                 await deps.store.saveStep(obs);
             }
-            // 回注：assistant toolCalls + tool 结果消息
+            // 回注：assistant toolCalls + tool 结果消息；模型本轮文本一并回注（截断防爆上下文），
+            // 避免模型在后续轮次“失忆”而重复发起相同工具调用
             messages.push({
                 role: 'assistant',
-                content: [],
+                content: text.length > 0 ? [{ type: 'text', text: text.slice(0, 4000) }] : [],
                 toolCalls: round.toolCalls.map((c) => ({
                     callId: c.callId,
                     name: c.toolName,
