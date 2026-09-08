@@ -1,17 +1,12 @@
-export type * from './capacity.js';
-export type * from './failure.js';
-export type * from './flags.js';
-export type * from './goal.js';
-export { ulid } from './id.js';
-export type * from './memory.js';
-export type * from './observability.js';
-export type * from './planner.js';
-export type * from './policy.js';
-export type * from './provider.js';
+/**
+ * @mazi/core —— AHF 契约层（清理后：不再含 Session/Turn/Step/Capacity 等旧执行模型）。
+ * 保留：provider-core（LLM 契约）/ authorization+approval（权限契约）/ goal-coordinate
+ * （Goal-Task-Step 归因坐标系）/ id(ulid)。
+ */
+
 export { ProviderError } from './provider.js';
-export type * from './session.js';
-export type * from './strategy.js';
-export type { ToolExecutionResult, ToolInvoker, ToolRegistry, ToolResolution } from './tool.js';
-export type * from './turn-contract.js';
-export type * from './usage.js';
-export type * from './user-interaction.js';
+export type * from './provider.js';
+export type * from './authorization.js';
+export type * from './approval.js';
+export type * from './goal-coordinate.js';
+export { ulid } from './id.js';
