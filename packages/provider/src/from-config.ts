@@ -89,3 +89,25 @@ export const providerCatalog: Readonly<
 
 /** 已支持 adapter id 列表（装配/向导校验用） */
 export const SUPPORTED_ADAPTERS: readonly string[] = [DEEPSEEK_ADAPTER_ID];
+
+export interface ModelDiscoveryResult {
+    /** 目录模型 id（本地 pi-ai 目录；未联网拉取） */
+    models: string[];
+    refreshed: boolean;
+    warning?: string;
+}
+
+/** 模型发现（pi-ai 本地目录；deepseek 为内置目录，其余 provider 回退预设模型并提示） */
+export async function discoverModels(
+    providerId: string,
+    _options?: { apiKeyEnv?: string },
+): Promise<ModelDiscoveryResult> {
+    if (providerId === DEEPSEEK_ADAPTER_ID) {
+        return { models: knownDeepseekModels(), refreshed: true };
+    }
+    return {
+        models: [],
+        refreshed: false,
+        warning: `provider '${providerId}' 暂无本地目录，使用向导预设模型`,
+    };
+}
