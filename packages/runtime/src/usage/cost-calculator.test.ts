@@ -1,4 +1,5 @@
-import type { PricingSchedule, VendorUsage } from '@mazi/core';
+import type { VendorUsage } from '@mazi/core';
+import type { PricingSchedule } from '@mazi/provider-runtime';
 import { describe, expect, it } from 'vitest';
 import { CostCalculator } from './cost-calculator.js';
 

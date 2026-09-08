@@ -3,10 +3,6 @@ import type {
     EventBus,
     FlagSnapshot,
     HarnessEvent,
-    LLMDriver,
-    LLMRequest,
-    LLMResponse,
-    LLMStreamEvent,
     MemoryStore,
     ModelRef,
     Session,
@@ -20,8 +16,35 @@ import { ulid } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import { PolicyEngineImpl } from '../policy/index.js';
 import { ContextMeter, CostCalculator } from '../usage/index.js';
-import type { ExecutorRoundContext, RoundResult } from './executor.js';
+import type { ExecutorDeps, ExecutorRoundContext, RoundResult } from './executor.js';
 import { Executor } from './executor.js';
+
+// ---- 测试内旧脚本驱动类型（core 已迁到 LLMProvider；此处仅类型层保留事件形状） ----
+interface LLMRequest {
+    model?: unknown;
+    context: {
+        systemPrompt?: string;
+        messages: Array<{ role: string; [key: string]: unknown }>;
+        tools?: unknown[];
+    };
+}
+interface LLMResponse {
+    content: unknown;
+    usage?: { inputTokens: number; outputTokens: number; reportedByVendor: boolean };
+}
+type LLMStreamEvent =
+    | { type: 'text-delta'; delta: string }
+    | { type: 'reasoning-delta'; delta: string }
+    | { type: 'tool-call'; callId: string; toolName: string; arguments: unknown }
+    | {
+          type: 'usage';
+          usage: { inputTokens: number; outputTokens: number; reportedByVendor: boolean };
+      }
+    | { type: 'end'; finishReason: string };
+interface LLMDriver {
+    stream(req: LLMRequest): AsyncIterable<LLMStreamEvent>;
+    complete?(req?: LLMRequest): Promise<LLMResponse>;
+}
 
 function stubFlag(): FlagSnapshot {
     return {
@@ -247,7 +270,11 @@ function roundCollect(events: LLMStreamEvent[]): RoundResult {
                 reasoning.push(event.delta);
                 break;
             case 'tool-call':
-                toolCalls.push(event);
+                toolCalls.push({
+                    callId: event.callId,
+                    toolName: event.toolName,
+                    arguments: (event.arguments ?? {}) as Record<string, unknown>,
+                });
                 break;
             case 'usage':
                 vendorUsage = event.usage;
@@ -285,11 +312,11 @@ function driverRequestRound(driver: { stream(req: unknown): AsyncIterable<LLMStr
     };
 }
 
-function baseDeps(over: Record<string, unknown> = {}) {
+function baseDeps(over: Partial<ExecutorDeps> = {}): ExecutorDeps {
     return {
-        requestRound: async () => {
+        requestRound: (async () => {
             throw new Error('no requestRound');
-        },
+        }) as ExecutorDeps['requestRound'],
         policy: new PolicyEngineImpl({}),
         memory: new MemoryStub(),
         bus: busStub().bus,
@@ -330,10 +357,14 @@ describe('Executor（MVP v1.0 §8 F10）', () => {
         expect(invocations).toEqual(['fs.read']);
         expect(outcome.steps.length).toBeGreaterThanOrEqual(4);
         const observation = outcome.steps.find((s) => s.kind === 'observation');
-        expect(observation?.payload.structured).toMatchObject({ ok: true, toolName: 'fs.read' });
-        expect(observation?.payload.contextContent).toBe('FILE CONTENT');
+        const obsPayload = observation?.payload as
+            | { structured?: { ok?: boolean; toolName?: string }; contextContent?: string }
+            | undefined;
+        expect(obsPayload?.structured).toMatchObject({ ok: true, toolName: 'fs.read' });
+        expect(obsPayload?.contextContent).toBe('FILE CONTENT');
         const thinking = outcome.steps.find((s) => s.kind === 'thinking');
-        expect(typeof thinking?.payload.contextContent).toBe('string');
+        const thinkPayload = thinking?.payload as { contextContent?: string } | undefined;
+        expect(typeof thinkPayload?.contextContent).toBe('string');
         const llmSteps = outcome.steps.filter((s) => s.usage !== undefined);
         expect(llmSteps.length).toBeGreaterThanOrEqual(2);
         for (const s of llmSteps) {

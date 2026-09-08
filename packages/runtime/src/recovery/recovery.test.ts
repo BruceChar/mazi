@@ -1,14 +1,4 @@
-import type {
-    Capacity,
-    FlagSnapshot,
-    LLMDriver,
-    LLMRequest,
-    LLMResponse,
-    LLMStreamEvent,
-    Session,
-    Step,
-    Turn,
-} from '@mazi/core';
+import type { Capacity, FlagSnapshot, Session, Step, Turn } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import type { ExecutorRoundContext, RoundResult } from '../executor/executor.js';
@@ -17,6 +7,32 @@ import { SqliteMemoryStore } from '../memory/index.js';
 import { PolicyEngineImpl } from '../policy/index.js';
 import { ContextMeter, CostCalculator } from '../usage/index.js';
 import { SessionResumer } from './recovery.js';
+
+// ---- 测试内旧脚本驱动类型（core 已迁到 LLMProvider；此处仅类型层保留事件形状） ----
+interface LLMRequest {
+    model?: unknown;
+    context: {
+        systemPrompt?: string;
+        messages: Array<{ role: string; [key: string]: unknown }>;
+        tools?: unknown[];
+    };
+}
+interface LLMResponse {
+    content: unknown;
+    usage?: { inputTokens: number; outputTokens: number; reportedByVendor: boolean };
+}
+type LLMStreamEvent =
+    | { type: 'text-delta'; delta: string }
+    | { type: 'tool-call'; callId: string; toolName: string; arguments: unknown }
+    | {
+          type: 'usage';
+          usage: { inputTokens: number; outputTokens: number; reportedByVendor: boolean };
+      }
+    | { type: 'end'; finishReason: string };
+interface LLMDriver {
+    stream(req: LLMRequest): AsyncIterable<LLMStreamEvent>;
+    complete?(req?: LLMRequest): Promise<LLMResponse>;
+}
 
 function stubFlag(): FlagSnapshot {
     return {
@@ -119,7 +135,11 @@ function roundCollect(events: LLMStreamEvent[]): RoundResult {
                 text.push(event.delta);
                 break;
             case 'tool-call':
-                toolCalls.push(event);
+                toolCalls.push({
+                    callId: event.callId,
+                    toolName: event.toolName,
+                    arguments: (event.arguments ?? {}) as Record<string, unknown>,
+                });
                 break;
             case 'usage':
                 vendorUsage = event.usage;
