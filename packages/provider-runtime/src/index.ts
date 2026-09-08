@@ -1,4 +1,5 @@
 export * from './aggregate.js';
+export * from './assemble.js';
 export * from './config.js';
 export * from './health.js';
 export * from './limiter.js';
