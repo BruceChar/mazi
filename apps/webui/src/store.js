@@ -41,7 +41,7 @@ export function setTheme(value) {
 applyTheme(theme.value);
 
 export const ui = reactive({
-    view: 'runs',
+    view: 'chat',
     rightOpen: false,
     showNew: false,
     sidebar: true,
@@ -321,13 +321,16 @@ export async function openConversation(conversationId) {
  * 新建 Goal 会话：POST /api/sessions（create）→ 可选立即 POST run。
  * returns rootGoalId
  */
-export async function createRun({ input, userId, workspacePath, conversationId, exec = true }) {
+export async function createRun({ input, userId, workspacePath, conversationId, exec = true, goal }) {
     const text = String(input ?? '').trim();
     if (!text) return null;
     busy.value = true;
     ui.err = null;
     try {
         const body = { input: text, userId, workspacePath };
+        if (goal && typeof goal === 'object') {
+            body.goal = goal;
+        }
         if (conversationId) {
             body.conversationId = conversationId;
         }
