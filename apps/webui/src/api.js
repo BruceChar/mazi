@@ -1,7 +1,7 @@
 const query = new URLSearchParams(location.search);
 
 export const API_BASE = (
-    query.get('api') || (location.port === '5174' ? 'http://127.0.0.1:4317' : '')
+    query.get('api') || ''
 ).replace(/\/$/, '');
 
 /** 统一 REST 请求：错误统一抛 Error，API 状态写到顶栏小字（后端不可用时无 UI 崩溃） */
