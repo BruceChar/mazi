@@ -1,9 +1,8 @@
 import 'reflect-metadata';
-import type { RunResult } from '@mazi/runtime';
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
 import { SessionsService } from './sessions.service.js';
 
-/** /api/sessions*：创建/列表/详情/执行/反馈（契约对齐 docs v0.2 §10.4；POST 均 200） */
+/** /api/sessions*：Goal 会话（sessionId = rootGoalId）创建/执行/详情/反馈（POST 均 200） */
 @Controller('sessions')
 export class SessionsController {
     constructor(private readonly sessions: SessionsService) {}
@@ -14,14 +13,9 @@ export class SessionsController {
         return this.sessions.createSession(body);
     }
 
-    @Get()
-    list(@Query('limit') limit?: string) {
-        return this.sessions.listSessions(Number.parseInt(limit ?? '50', 10));
-    }
-
     @Post(':id/run')
     @HttpCode(200)
-    execute(@Param('id') sessionId: string): Promise<RunResult> {
+    execute(@Param('id') sessionId: string) {
         return this.sessions.executeSession(sessionId);
     }
 

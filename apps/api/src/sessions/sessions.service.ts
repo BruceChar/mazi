@@ -1,32 +1,12 @@
 import 'reflect-metadata';
-import type { UserInteractionRecord } from '@mazi/core';
-import type { CreateSessionOptions, RunResult, SessionGoalOverrides } from '@mazi/runtime';
-import { DefaultEventBus, newHarnessEvent } from '@mazi/runtime';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 
-/** 会话列表投影行（GET /api/sessions 响应元素，契约对齐旧实现） */
-export interface SessionListItem {
-    sessionId: string;
-    userId?: string;
-    title: string;
-    input: string;
-    outcome?: string;
-    summary?: string;
-    updatedAt?: number;
-    createdAt: number;
-    tokens?: number;
-    costUsd?: number;
-    turns?: number;
-}
-
-/** 会话详情：session + turns（每 turn 挂 steps 树，webui timeline 使用） */
-export type SessionDetail = Record<string, unknown>;
-
 /**
- * SessionsService：会话创建/执行/查询投影/反馈采集（docs v0.2 §10.4 契约矩阵）。
+ * SessionsService：Goal 会话（= 一棵 Goal 树）的创建/执行/详情/反馈编排。
+ * C5 迁移后本层全部走 HarnessRuntime Goal 坐标系：sessionId 语义 = rootGoalId；
  * 领域与存储复用 @mazi/runtime，本层仅做编排与投影映射。
  */
 @Injectable()
@@ -36,7 +16,10 @@ export class SessionsService {
         private readonly conversations: ConversationsService,
     ) {}
 
-    /** POST /api/sessions：创建会话（不执行）；body.input 必填，body.goal 透传（运行时语义同旧实现） */
+    /**
+     * POST /api/sessions：创建 Goal 会话（intake + work，不执行）。
+     * 返回 { sessionId(=rootGoalId), state, conversationId }，兼容既有 REST 形状。
+     */
     async createSession(
         body: Record<string, unknown>,
     ): Promise<{ sessionId: string; state: string; conversationId: string }> {
@@ -67,95 +50,59 @@ export class SessionsService {
         }
         const workspace =
             targetContext?.workspace ?? bodyWorkspace ?? this.runtime.selectedWorkspaceRoot;
-        const workspaceMode = Boolean(workspace?.trim());
-        const goal =
-            typeof body.goal === 'object' && body.goal
-                ? (body.goal as SessionGoalOverrides)
-                : undefined;
-        // 普通会话（无工作区归属）与 react-only = 纯对话：不注入文件工具
-        const directChat = !workspaceMode || goal?.loopMode === 'react-only';
-        const sessionGoal: CreateSessionOptions['goal'] = directChat
-            ? { ...(goal ?? {}), allowedTools: [], requiredTools: [] }
-            : goal;
-        const options: CreateSessionOptions = {
-            userId:
-                (typeof body.userId === 'string' ? body.userId : undefined) ??
-                targetContext?.userId,
-            goal: sessionGoal,
-        };
-        const created = await this.runtime.harness().createSession(input, options);
+        const userId =
+            (typeof body.userId === 'string' ? body.userId : undefined) ?? targetContext?.userId;
+        const created = await this.runtime.harness().createGoalSession(input, { userId });
         const projectId =
             targetContext?.projectId ??
             (typeof body.projectId === 'string' && body.projectId.trim()
                 ? body.projectId.trim()
                 : workspace);
-        const sessionInput = {
-            sessionId: created.sessionId,
-            title: input.slice(0, 80),
-            userId: options.userId,
+        const run = {
+            rootGoalId: created.rootGoalId,
+            input,
+            userId,
             workspace,
             projectId,
         };
         let createdConversationId: string;
         if (conversationId) {
-            this.conversations.appendSession(conversationId, sessionInput);
+            this.conversations.appendRun(conversationId, run);
             createdConversationId = conversationId;
         } else {
-            createdConversationId = this.conversations.recordNewSession(sessionInput);
+            createdConversationId = this.conversations.recordNewRun(run);
         }
         return {
-            sessionId: created.sessionId,
-            state: 'running',
+            sessionId: created.rootGoalId,
+            state: 'active',
             conversationId: createdConversationId,
         };
     }
 
-    /** POST /api/run 与 POST /api/sessions/:id/run：进程内串行执行（busy → 409） */
-    async run(input: string, userId?: string): Promise<RunResult> {
-        return this.runtime.runExclusive(() => this.runtime.harness().run(input, { userId }));
+    /** POST /api/run：一站式创建 + 执行（Goal 树），进程内串行 */
+    async runOnce(input: string, userId?: string) {
+        return this.runtime.runExclusive(() =>
+            this.runtime.harness().runGoalSession(input, { userId }),
+        );
     }
 
-    async executeSession(sessionId: string): Promise<RunResult> {
-        return this.runtime.runExclusive(() => this.runtime.harness().executeSession(sessionId));
+    /** POST /api/sessions/:id/run：执行已创建 Goal 会话（进程内串行，busy → 409） */
+    async executeSession(sessionId: string) {
+        return this.runtime.runExclusive(() => this.runtime.harness().executeGoalTree(sessionId));
     }
 
-    /** GET /api/sessions：最近交互记录投影（分页参数兼容：?limit=） */
-    async listSessions(limit: number): Promise<SessionListItem[]> {
-        const records = (await this.runtime
-            .harness()
-            .store.listUserInteractionRecords({ limit })) as UserInteractionRecord[];
-        return records.map((r) => ({
-            sessionId: r.sessionId,
-            userId: r.userId,
-            title: r.rawInput.slice(0, 80),
-            input: r.rawInput,
-            outcome: r.outcome?.status,
-            summary: r.outcome?.summary,
-            updatedAt: r.updatedAt,
-            createdAt: r.inputTimestamp,
-            tokens: r.metrics.totalTokens,
-            costUsd: r.metrics.totalCostUsd,
-            turns: r.metrics.turnCount,
-        }));
-    }
-
-    /** GET /api/sessions/:id（含 /:id/timeline）：session + turns.steps 详情树 */
-    async sessionDetail(sessionId: string): Promise<SessionDetail> {
-        const store = this.runtime.harness().store;
-        const session = await store.loadSession(sessionId);
-        if (!session) {
+    /** GET /api/sessions/:id（含 /:id/timeline）：Goal 树快照（goals/tasks/steps 四元组） */
+    async sessionDetail(sessionId: string) {
+        const snapshot = await this.runtime.harness().goalSnapshot(sessionId);
+        if (snapshot.goals.length === 0) {
             throw new ApiError(404, 'session not found');
         }
-        const turns = [];
-        for (const turn of session.turns) {
-            turns.push({ ...turn, steps: await store.listSteps(turn.turnId) });
-        }
-        return { ...session, turns };
+        return { sessionId, ...snapshot };
     }
 
     /**
      * POST /api/sessions/:id/feedback：采集用户反馈，经 HarnessRuntime 同一事件总线
-     * emit + flush（JSONL 双写完成后再应答，SSE 订阅者实时可见；契约对齐旧实现）。
+     * emit + flush（JSONL 双写完成后再应答，SSE 订阅者实时可见）。
      */
     async recordFeedback(
         sessionId: string,
@@ -173,11 +120,7 @@ export class SessionsService {
             content: typeof body.content === 'string' ? body.content : undefined,
             rating: typeof body.rating === 'number' ? body.rating : undefined,
         };
-        const bus = this.runtime.harness().eventBus as DefaultEventBus;
-        bus.emit(
-            newHarnessEvent({ type: 'user.feedback.captured', sessionId, payload: { feedback } }),
-        );
-        await bus.flush();
+        await this.runtime.harness().recordFeedback(sessionId, feedback);
         return { ok: true };
     }
 }

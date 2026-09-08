@@ -1,14 +1,22 @@
-import type { Session } from '@mazi/core';
-
 /**
  * 会话业务抽象（apps/api 层，不属于 core 领域契约）。
- * 普通会话与工作区会话共用同一结构；`sessions` 由 core Session 组装。
+ * C5 迁移后：一次输入 = 一棵 Goal 树（run），Conversation 持有 run 引用（rootGoalId 数组），
+ * 详情/时间线经 /api/sessions/:rootGoalId 的 Goal 树快照读取；本模块不再依赖 core Session。
  */
+
+/** Conversation 内的单次 Goal 会话（= 一棵 Goal 树）引用 */
+export interface GoalRunRef {
+    rootGoalId: string;
+    /** intake Goal 的 statement（原始输入） */
+    input: string;
+    createdAt: number;
+}
+
 export interface Conversation {
     conversationId: string;
     title: string;
     userId?: string;
-    sessions: Session[];
+    runs: GoalRunRef[];
     /** 工作区标识/根路径；与 projectId 成对出现 */
     workspace?: string;
     /** 工作区内项目标识；与 workspace 成对出现 */
@@ -19,12 +27,12 @@ export interface Conversation {
     archived?: boolean;
 }
 
-/** Conversation 持久化形态：仅持有 Session 引用，投影时再水合为 Session[] */
+/** Conversation 持久化形态：仅持有 Goal run 引用（rootGoalId），展示时再取树快照 */
 export interface ConversationRecord {
     conversationId: string;
     title: string;
     userId?: string;
-    sessionIds: string[];
+    runs: GoalRunRef[];
     workspace?: string;
     projectId?: string;
     createdAt: number;
@@ -32,16 +40,13 @@ export interface ConversationRecord {
     archived?: boolean;
 }
 
-/** 持久化记录 → API 会话对象 */
-export function conversationFromRecord(
-    record: ConversationRecord,
-    sessions: Session[],
-): Conversation {
+/** 持久化记录 → API 会话对象（run 引用即返回，水合交由 /api/sessions/:rootGoalId） */
+export function conversationFromRecord(record: ConversationRecord): Conversation {
     return {
         conversationId: record.conversationId,
         title: record.title,
         userId: record.userId,
-        sessions,
+        runs: record.runs.map((run) => ({ ...run })),
         workspace: record.workspace,
         projectId: record.projectId,
         createdAt: record.createdAt,

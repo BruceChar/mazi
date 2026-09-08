@@ -1,4 +1,3 @@
-import type { Session } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import {
     type Conversation,
@@ -7,36 +6,18 @@ import {
     projectConversations,
 } from './conversation.js';
 
-function session(id: string): Session {
-    return {
-        sessionId: id,
-        rawIntent: `输入 ${id}`,
-        strategyId: 'full-loop',
-        state: 'running',
-        turns: [],
-        flagSnapshot: {
-            values: {},
-            trace: [],
-            isEnabled: () => false,
-            getNumber: () => undefined,
-            getString: () => undefined,
-        },
-        createdAt: 0,
-    } as Session;
-}
-
 function conversation(conversationId: string, overrides: Partial<Conversation> = {}): Conversation {
     return {
         conversationId,
         title: `会话 ${conversationId}`,
-        sessions: [session('s1')],
+        runs: [{ rootGoalId: 'r1', input: '输入 r1', createdAt: 0 }],
         createdAt: 0,
         updatedAt: 0,
         ...overrides,
     };
 }
 
-describe('Conversation API 抽象', () => {
+describe('Conversation API 抽象（Goal run 视图）', () => {
     it('workspace 与 projectId 必须成对才算工作区会话', () => {
         expect(hasWorkspaceContext(conversation('c1', { workspace: '/w' }))).toBe(false);
         expect(hasWorkspaceContext(conversation('c2', { projectId: 'p' }))).toBe(false);
@@ -62,5 +43,10 @@ describe('Conversation API 抽象', () => {
         expect(
             projectConversations(conversations, '/w', 'p1').map((c) => c.conversationId),
         ).toEqual(['p1']);
+    });
+
+    it('Conversation 暴露 Goal run 引用（rootGoalId/input/createdAt），不依赖 core Session', () => {
+        const c = conversation('c4');
+        expect(c.runs).toEqual([{ rootGoalId: 'r1', input: '输入 r1', createdAt: 0 }]);
     });
 });

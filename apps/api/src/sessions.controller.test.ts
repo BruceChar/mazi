@@ -14,37 +14,32 @@ function makeHome(): { home: string; cleanup: () => void } {
     const home = mkdtempSync(join(base, 'home-'));
     writeFileSync(
         join(home, 'providers.json'),
-        JSON.stringify(
-            {
-                providers: [
-                    {
-                        id: 'faux',
-                        vendor: 'faux',
-                        tags: ['tools'],
-                        models: [
-                            {
-                                id: 'faux-model',
-                                contextWindow: 64000,
-                                supportsTools: true,
-                                supportsThinking: true,
-                                supportsVision: false,
-                            },
-                        ],
-                        driver: { type: 'pi-ai', provider: 'faux', model: 'faux-model' },
-                    },
-                ],
-            },
-            null,
-            2,
-        ),
+        JSON.stringify({
+            providers: [
+                {
+                    id: 'faux',
+                    vendor: 'faux',
+                    tags: ['tools'],
+                    models: [
+                        {
+                            id: 'faux-model',
+                            contextWindow: 64000,
+                            supportsTools: true,
+                            supportsThinking: true,
+                            supportsVision: false,
+                        },
+                    ],
+                    driver: { type: 'pi-ai', provider: 'faux', model: 'faux-model' },
+                },
+            ],
+        }),
     );
-    for (const file of ['tools.json', 'flags.json']) {
-        writeFileSync(join(home, file), file === 'tools.json' ? '{"tools":[]}' : '{"flags":[]}');
-    }
+    writeFileSync(join(home, 'tools.json'), '{"tools":[]}');
+    writeFileSync(join(home, 'flags.json'), '{"flags":[]}');
     return { home, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 
-describe('sessions（NG-2 契约对齐旧 node:http）', () => {
+describe('sessions（Goal 坐标系：sessionId = rootGoalId）', () => {
     let app: NestFastifyApplication;
     let fastify: FastifyInstance;
     let cleanup: () => void;
@@ -77,7 +72,7 @@ describe('sessions（NG-2 契约对齐旧 node:http）', () => {
         expect(res.json()).toEqual({ error: '缺少 input' });
     });
 
-    it('POST /api/sessions + GET 列表 + GET 详情/时间线（契约闭环）', async () => {
+    it('POST /api/sessions + GET 详情/时间线（Goal 树快照闭环）', async () => {
         const created = await fastify.inject({
             method: 'POST',
             url: '/api/sessions',
@@ -87,23 +82,15 @@ describe('sessions（NG-2 契约对齐旧 node:http）', () => {
         expect(created.statusCode).toBe(200);
         const { sessionId, state } = created.json();
         expect(typeof sessionId).toBe('string');
-        expect(state).toBe('running');
-
-        const list = await fastify.inject({ method: 'GET', url: '/api/sessions?limit=100' });
-        expect(list.statusCode).toBe(200);
-        const items = list.json();
-        expect(Array.isArray(items)).toBe(true);
-        expect(items.some((i: { sessionId: string }) => i.sessionId === sessionId)).toBe(true);
-        const item = items.find((i: { sessionId: string }) => i.sessionId === sessionId);
-        expect(item.title).toBe('读取 README.md 并汇报');
-        expect(item.input).toBe('读取 README.md 并汇报');
+        expect(state).toBe('active');
 
         for (const url of [`/api/sessions/${sessionId}`, `/api/sessions/${sessionId}/timeline`]) {
             const detail = await fastify.inject({ method: 'GET', url });
             expect(detail.statusCode).toBe(200);
             const body = detail.json();
             expect(body.sessionId).toBe(sessionId);
-            expect(Array.isArray(body.turns)).toBe(true);
+            expect(body.rootGoalId).toBe(sessionId);
+            expect(Array.isArray(body.goals)).toBe(true);
         }
     });
 
@@ -116,7 +103,7 @@ describe('sessions（NG-2 契约对齐旧 node:http）', () => {
         expect(res.json()).toEqual({ error: 'session not found' });
     });
 
-    it('POST /api/sessions/:id/run → 200 执行结果（真实厂商驱动请求链路）', async () => {
+    it('POST /api/sessions/:id/run → 200 执行 Goal 树（返回 rootGoalId/tasks/ok）', async () => {
         const created = await fastify.inject({
             method: 'POST',
             url: '/api/sessions',
@@ -132,11 +119,12 @@ describe('sessions（NG-2 契约对齐旧 node:http）', () => {
         });
         expect(res.statusCode).toBe(200);
         const body = res.json();
-        expect(body.sessionId).toBe(sessionId);
-        expect(typeof body.sessionId).toBe('string');
+        expect(body.rootGoalId).toBe(sessionId);
+        expect(typeof body.ok).toBe('boolean');
+        expect(Array.isArray(body.tasks)).toBe(true);
     });
 
-    it('POST /api/run 缺 input → 400；带 input → 200', async () => {
+    it('POST /api/run 缺 input → 400；带 input → 200（runGoalSession 一站式）', async () => {
         const missing = await fastify.inject({
             method: 'POST',
             url: '/api/run',
@@ -153,6 +141,9 @@ describe('sessions（NG-2 契约对齐旧 node:http）', () => {
             payload: { input: '读取 README.md 并汇报' },
         });
         expect(ok.statusCode).toBe(200);
-        expect(typeof ok.json().sessionId).toBe('string');
+        const body = ok.json();
+        expect(typeof body.rootGoalId).toBe('string');
+        expect(typeof body.result).toBe('object');
+        expect(typeof body.snapshot).toBe('object');
     });
 });

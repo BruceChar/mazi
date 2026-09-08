@@ -101,20 +101,6 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return this.readWorkspacesState().map(({ title, path }) => ({ title, path }));
     }
 
-    /** 迁移期读取：保留可能存在的旧 sessionIds 供 Conversation 回填 */
-    legacyProjects(): { title: string; path: string; sessionIds?: string[] }[] {
-        return this.readWorkspacesState();
-    }
-
-    /** 迁移完成：从 workspaces.json 中移除旧 sessionIds */
-    stripLegacyProjectSessionIds(): void {
-        const projects = this.readWorkspacesState();
-        if (projects.some((project) => project.sessionIds !== undefined)) {
-            this.workspacesState.projects = projects.map(({ title, path }) => ({ title, path }));
-            this.writeWorkspacesState();
-        }
-    }
-
     renameProject(path: string, title: string): void {
         if (!title.trim()) {
             throw new ApiError(400, '缺少 title');

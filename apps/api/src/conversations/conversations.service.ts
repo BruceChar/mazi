@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Session } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
@@ -16,9 +15,10 @@ interface ConversationsFile {
     conversations: ConversationRecord[];
 }
 
-export interface NewConversationSession {
-    sessionId: string;
-    title: string;
+/** recordNewSession / appendSession 入参（一次 Goal 会话的引用信息） */
+export interface NewConversationRun {
+    rootGoalId: string;
+    input: string;
     userId?: string;
     workspace?: string;
     projectId?: string;
@@ -26,7 +26,8 @@ export interface NewConversationSession {
 
 /**
  * Conversation 业务仓储（apps/api 层）：JSON 持久化会话分组与工作区归属。
- * core Session 与 API Conversation 互相无反向引用，归属仅由本服务维护。
+ * Goal 坐标系：Conversation 仅保存 run 引用（rootGoalId + intake 输入 + 时间），
+ * Goal 树本体与执行事实由 runtime goal-store 持久化；删除级联走 goalStore.deleteGoalTree。
  */
 @Injectable()
 export class ConversationsService {
@@ -51,16 +52,16 @@ export class ConversationsService {
         writeFileSync(this.file, JSON.stringify(this.state, null, 2));
     }
 
-    /** 新 Session 默认创建一个只含该 Session 的 Conversation，返回 conversationId */
-    recordNewSession(input: NewConversationSession): string {
+    /** 新 Goal run 默认创建一个只含该 run 的 Conversation，返回 conversationId */
+    recordNewRun(input: NewConversationRun): string {
         this.read();
         const conversationId = ulid();
         const now = Date.now();
         this.state.conversations.push({
             conversationId,
-            title: input.title,
+            title: input.input.slice(0, 80),
             userId: input.userId,
-            sessionIds: [input.sessionId],
+            runs: [{ rootGoalId: input.rootGoalId, input: input.input, createdAt: now }],
             workspace: input.workspace,
             projectId: input.projectId,
             createdAt: now,
@@ -70,8 +71,8 @@ export class ConversationsService {
         return conversationId;
     }
 
-    /** 把 Session 追加到已有 Conversation（同 conversation 内续聊） */
-    appendSession(conversationId: string, input: NewConversationSession): void {
+    /** 把 Goal run 追加到已有 Conversation（同 conversation 内续聊） */
+    appendRun(conversationId: string, input: NewConversationRun): void {
         this.read();
         const conversation = this.state.conversations.find(
             (item) => item.conversationId === conversationId,
@@ -79,8 +80,12 @@ export class ConversationsService {
         if (!conversation) {
             throw new ApiError(404, 'conversation not found');
         }
-        if (!conversation.sessionIds.includes(input.sessionId)) {
-            conversation.sessionIds.push(input.sessionId);
+        if (!conversation.runs.some((run) => run.rootGoalId === input.rootGoalId)) {
+            conversation.runs.push({
+                rootGoalId: input.rootGoalId,
+                input: input.input,
+                createdAt: Date.now(),
+            });
         }
         if (conversation.userId === undefined && input.userId !== undefined) {
             conversation.userId = input.userId;
@@ -89,7 +94,7 @@ export class ConversationsService {
         this.write();
     }
 
-    /** 查找 Conversation 的归属上下文（供创建追加 Session 时使用） */
+    /** 查找 Conversation 的归属上下文（供创建追加 Goal run 时使用） */
     context(conversationId: string): {
         userId?: string;
         workspace?: string;
@@ -132,7 +137,7 @@ export class ConversationsService {
         this.write();
     }
 
-    /** 删除 Conversation，并级联删除其包含的 core Session 数据 */
+    /** 删除 Conversation，并级联删除其包含的 Goal 树（goal-store） */
     async remove(conversationId: string): Promise<void> {
         this.read();
         const conversation = this.state.conversations.find(
@@ -145,77 +150,29 @@ export class ConversationsService {
             (item) => item.conversationId !== conversationId,
         );
         this.write();
-        for (const sessionId of conversation.sessionIds) {
-            await this.runtime.harness().store.deleteSession(sessionId);
+        for (const run of conversation.runs) {
+            await this.runtime.harness().goalStore.deleteGoalTree(run.rootGoalId);
         }
     }
 
-    /** 迁移历史数据：旧 workspaces.json 里的 sessionIds 回填为 Conversation 记录 */
-    private async backfillLegacySessions(): Promise<void> {
-        this.read();
-        const knownSessionIds = new Set(
-            this.state.conversations.flatMap((conversation) => conversation.sessionIds),
-        );
-        const legacyBySession = new Map<string, { workspace?: string; projectId?: string }>();
-        for (const project of this.runtime.legacyProjects()) {
-            for (const sessionId of project.sessionIds ?? []) {
-                legacyBySession.set(sessionId, {
-                    workspace: project.path,
-                    projectId: project.path,
-                });
-            }
-        }
-        const records = await this.runtime.harness().store.listUserInteractionRecords();
-        let added = false;
-        for (const record of records) {
-            if (knownSessionIds.has(record.sessionId)) {
-                continue;
-            }
-            const legacy = legacyBySession.get(record.sessionId) ?? {};
-            this.state.conversations.push({
-                conversationId: ulid(),
-                title: record.rawInput.slice(0, 80),
-                userId: record.userId,
-                sessionIds: [record.sessionId],
-                workspace: legacy.workspace,
-                projectId: legacy.projectId,
-                createdAt: record.inputTimestamp,
-                updatedAt: record.updatedAt,
-            });
-            added = true;
-        }
-        if (added) {
-            this.write();
-        }
-        this.runtime.stripLegacyProjectSessionIds();
-    }
-
-    /** API 会话列表：按 updatedAt 倒序，水合 core Session 后返回；支持分页与标题筛选 */
+    /** API 会话列表：按 updatedAt 倒序返回 run 引用（含最新 run）；支持分页与标题筛选 */
     async list(
         options: { limit?: number; offset?: number; q?: string } = {},
     ): Promise<Conversation[]> {
-        await this.backfillLegacySessions();
         let records = [...this.state.conversations].sort(
             (a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt,
         );
         if (options.q?.trim()) {
             const key = options.q.trim().toLowerCase();
-            records = records.filter((record) => record.title.toLowerCase().includes(key));
+            records = records.filter(
+                (record) =>
+                    record.title.toLowerCase().includes(key) ||
+                    record.runs.some((run) => run.input.toLowerCase().includes(key)),
+            );
         }
         const offset = Math.max(0, options.offset ?? 0);
         const limit = options.limit;
         records = records.slice(offset, limit === undefined ? undefined : offset + limit);
-        const hydrated: Conversation[] = [];
-        for (const record of records) {
-            const sessions: Session[] = [];
-            for (const sessionId of record.sessionIds) {
-                const session = await this.runtime.harness().store.loadSession(sessionId);
-                if (session) {
-                    sessions.push(session);
-                }
-            }
-            hydrated.push(conversationFromRecord(record, sessions));
-        }
-        return hydrated;
+        return records.map(conversationFromRecord);
     }
 }
