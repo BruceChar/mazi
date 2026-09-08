@@ -1,571 +1,212 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import LineIcon from './LineIcon.vue';
-import { assistantParagraphs, flattenConversationFlow } from './flow.ts';
-import { activeConversations, defaultConversations, projectConversations } from './sidebar.ts';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import {
-    badge,
+    activeConversations,
+    defaultConversations,
+    projectConversations,
+} from './sidebar.js';
+import {
     busy,
     cfg,
-    createAndRun,
+    conversations,
+    createRun,
     current,
     currentConversation,
     deleteConversationById,
     detail,
     events,
-    flowSessions,
+    executeRun,
     fmtClock,
-    fmtDuration,
-    fmtTokens,
-    fmtUsd,
-    icon,
     loadConfig,
-    loadConversationFlow,
     loadConversations,
-    loadLedger,
-    loadProfile,
-    metrics,
+    loadWorkspace,
+    openConversation,
+    openRun,
+    pickWorkspace,
+    projects,
     relTime,
-    saveUserPreferences,
-    runCurrent,
-    select,
-    openSession,
+    renameProject,
+    runOutcomes,
     sendFeedback,
     setTheme,
     short,
-    stepLabel,
+    statusLabel,
     stopEvents,
     theme,
     ui,
-    userPreferences,
-    workspaceRoot,
-    projects,
-    selectWorkspace,
-    loadWorkspace,
-    pickWorkspace,
-    conversations,
-    renameProject,
     updateConversation,
-    ledger,
+    workspaceRoot,
 } from './store.js';
 
-const prompt = ref('');
-const q = ref('');
-const draft = ref({
-    statement: '',
-    permission: 'read-only',
-    budgetUsd: 0.5,
-    maxSteps: 8,
-    userId: '',
-    loopMode: 'goal-plan-execute-reflect',
-});
-const LOOP_MODE_OPTIONS = [
-    { value: 'goal-plan-execute-reflect', label: 'GPER · 默认' },
-    { value: 'goal-plan-execute', label: 'Plan-Execute' },
-    { value: 'react-only', label: 'React Only' },
-];
-const profile = ref(null);
-const feedbackSent = ref(false);
-const openSteps = ref({});
-const collapsedTurns = ref({});
-const collapsedSessions = ref({});
-const trajFilter = ref('all');
-const selectedModel = ref('');
-const accountOpen = ref(false);
-const searchOpen = ref(false);
-const projectCollapsed = ref({});
-const projectMenuFor = ref('');
-const preferences = ref({ ...userPreferences });
-const activeUserId = computed(() => userPreferences.displayName || 'me');
+const search = ref('');
+const newText = ref('');
+const newUser = ref('');
+const showSettings = ref(false);
+const settingsTab = ref('config');
+const renameDraft = reactive({ title: '' });
+const feedback = reactive({ open: false, rating: 0, content: '' });
+const rightOpen = ref(false);
+const composerEl = ref(null);
 
-const modelOptions = computed(() => {
-    const list = cfg.value?.providers || [];
-    return list.map((id) => ({
-        id,
-        label: id === 'deepseek' ? 'DeepSeek-V4-Flash High' : id,
-    }));
-});
-
-const hasToolActivity = computed(() =>
-    flowSessions.value.some((session) =>
-        (session.turns || []).some((turn) =>
-            (turn.steps || []).some((step) => step.kind === 'tool_call'),
-        ),
-    ),
-);
-
-const workedFor = computed(() => {
-    const d = detail.value;
-    if (!d) return '';
-    const end = d.endedAt ?? Date.now();
-    const start = d.createdAt ?? end;
-    const ms = Math.max(0, end - start);
-    const minutes = Math.floor(ms / 60000);
-    const seconds = Math.round((ms % 60000) / 1000);
-    if (minutes > 0) {
-        return `${minutes}m ${seconds}s`;
-    }
-    return `${seconds}s`;
-});
-
-watch(
-    modelOptions,
-    (options) => {
-        if (!options.some((option) => option.id === selectedModel.value)) {
-            selectedModel.value = options[0]?.id || '';
-        }
-    },
-    { immediate: true },
-);
-
-const filteredConversations = computed(() => {
-    const base = activeConversations(conversations.value);
-    const key = q.value.trim().toLowerCase();
-    if (!key) return base;
-    return base.filter((conversation) => {
-        const title = String(conversation.title || '').toLowerCase().includes(key);
-        const sessionHit = (conversation.sessions || []).some((session) =>
-            String(session.rawIntent || '').toLowerCase().includes(key),
-        );
-        return title || sessionHit;
-    });
-});
-
-const generalConversations = computed(() => defaultConversations(filteredConversations.value));
-const archivedConversations = computed(() =>
-    conversations.value.filter((conversation) => conversation.archived),
-);
-const conversationFlow = computed(() => flattenConversationFlow(flowSessions.value));
-
-const canRun = computed(
-    () => !!(detail.value && detail.value.outcome === undefined && detail.value.state === 'running'),
-);
-
-const budgetPct = computed(() => {
-    const max = metrics.budget;
-    if (!max) return null;
-    return Math.min(100, Math.round((metrics.cost / max) * 100));
-});
-
-const avgTtft = computed(() =>
-    metrics.steps && metrics.ttftSum ? Math.round(metrics.ttftSum / metrics.steps) : 0,
-);
-
-const tokRate = computed(() =>
-    metrics.llmMs > 0 ? Math.round((metrics.tokens / metrics.llmMs) * 1000) : 0,
-);
-
-const eventTypes = computed(() => [
-    'all',
-    ...new Set(events.list.map((e) => e.type)),
-]);
-
-const filteredEvents = computed(() =>
-    events.list
-        .filter((e) => ui.eventTypes === 'all' || e.type === ui.eventTypes)
-        .slice(-300)
-        .reverse(),
-);
-
-function isOpenStep(stepId) {
-    return openSteps.value[stepId] ?? false;
-}
-
-function toggleOpenStep(stepId) {
-    openSteps.value[stepId] = !(openSteps.value[stepId] ?? false);
-}
-
-function isTurnOpen(turnId) {
-    return collapsedTurns.value[turnId] !== false;
-}
-
-function toggleTurn(turnId) {
-    collapsedTurns.value[turnId] = !isTurnOpen(turnId);
-}
-
-function isSessionOpen(sessionId) {
-    return collapsedSessions.value[sessionId] !== false;
-}
-
-function toggleSession(sessionId) {
-    collapsedSessions.value[sessionId] = !isSessionOpen(sessionId);
-}
-
-function stepTitle(row) {
-    const s = row.step;
-    const p = s.payload || {};
-    if (s.kind === 'thinking') return short(p.content, 80);
-    if (s.kind === 'tool_call') {
-        const args = short(JSON.stringify(p.arguments || {}), 70);
-        return `${p.toolName} ${args}`;
-    }
-    if (s.kind === 'observation') return short(p.content, 110);
-    return s.stepId;
-}
-
-function traceIcon(item) {
-    const p = item.step.payload || {};
-    const tool = p.toolName || '';
-    if (item.step.kind === 'thinking') return '💭';
-    if (tool.includes('search') || tool.includes('find')) return '🔍';
-    if (tool.includes('write') || tool.includes('edit') || tool.includes('patch')) return '✏️';
-    if (tool.includes('run') || tool.includes('exec') || tool.includes('shell')) return '▶️';
-    if (tool === 'fs.read') return '📖';
-    return item.step.kind === 'observation' ? '📋' : '🔧';
-}
-
-function traceTitle(item) {
-    const p = item.step.payload || {};
-    if (item.step.kind === 'tool_call') {
-        const path = p.arguments?.path;
-        return path ? `Read ${path}` : (p.toolName || 'tool');
-    }
-    return stepTitle(item);
-}
-
-function traceContent(item) {
-    const text = stepBody(item).text || '';
-    const limit = item.step.kind === 'observation' ? 240 : 900;
-    return text.length > limit ? `${text.slice(0, limit)}…` : text;
-}
-
-function traceLabel(item) {
-    if (item.step.kind === 'thinking') return '思考';
-    if (item.step.kind === 'tool_call') return (item.step.payload || {}).toolName === 'fs.read' ? 'Read' : 'Run';
-    if (item.step.kind === 'observation') return 'Result';
-    return stepLabel(item.step.kind);
-}
-
-function stepBody(row) {
-    const p = row.step.payload || {};
-    if (row.step.kind === 'tool_call') {
-        return {
-            title: `${p.toolName || 'tool'}`,
-            json: JSON.stringify(p.arguments || {}, null, 2),
-        };
-    }
-    return { title: '', text: p.content || '' };
-}
-
-function rowDuration(row) {
-    return fmtDuration(row.step.usage?.timing?.totalMs);
-}
-
-function rowTokens(row) {
-    const v = row.step.usage?.vendor;
-    return fmtTokens((v?.inputTokens || 0) + (v?.outputTokens || 0));
-}
-
-function rowModel(row) {
-    return row.step.model?.modelId || row.turn.capacity?.model?.modelId || '-';
-}
-
-function auditTitle() {
-    const audit = ui.audit;
-    if (!audit?.step) return '';
-    return `Step #${audit.step.seq} · ${stepLabel(audit.step.kind)}`;
-}
-
-function openAudit(row) {
-    ui.audit = { turn: row.turn, step: row.step };
-    ui.auditSub = 'actual';
-    ui.drawerTab = 'audit';
-    ui.rightOpen = true;
-}
-
-function openAuditFromStep(turn, step) {
-    ui.audit = { turn, step };
-    ui.auditSub = 'actual';
-    ui.drawerTab = 'audit';
-    ui.rightOpen = true;
-}
-
-function closeDrawer() {
-    ui.rightOpen = false;
-}
-
-function auditJson() {
-    const audit = ui.audit;
-    if (!audit) return '';
-    if (ui.auditSub === 'declared') {
-        return JSON.stringify(audit.turn?.contract || {}, null, 2);
-    }
-    if (ui.auditSub === 'authorized') {
-        return JSON.stringify(audit.turn?.capacity || {}, null, 2);
-    }
-    const s = audit.step;
-    return JSON.stringify(
-        {
-            sessionId: s.sessionId,
-            turnId: s.turnId,
-            stepId: s.stepId,
-            seq: s.seq,
-            kind: s.kind,
-            status: s.status,
-            payload: s.payload,
-            model: s.model,
-            usage: s.usage,
-            contract: audit.turn?.contract || null,
-            capacity: audit.turn?.capacity || null,
-        },
-        null,
-        2,
-    );
-}
-
-function usageSegs() {
-    const usage = ui.audit?.step?.usage;
-    if (!usage) return { segs: [], total: 0 };
-    const r = usage.runtime || {};
-    const raw = [
-        ['sys', 'System', r.systemPromptTokens, '#60a5fa'],
-        ['hist', 'History', r.historyTokens, '#a78bfa'],
-        ['tool', 'Tool schema', r.toolSchemaTokens, '#34d399'],
-        ['in', 'New input', r.newInputTokens, '#fbbf24'],
-        ['obs', 'Observation', r.observationTokens, '#f472b6'],
-    ].filter(([, , v]) => Number(v) > 0);
-    const total = raw.reduce((acc, [, , v]) => acc + Number(v), 0) || 1;
-    const segs = raw.map(([key, label, value, color]) => ({
-        key,
-        label,
-        value,
-        color,
-        width: Math.max(2, Math.round((Number(value) / total) * 100)),
-    }));
-    return { segs, total };
-}
-
-function vendorText() {
-    const usage = ui.audit?.step?.usage;
-    if (!usage) return null;
-    const v = usage.vendor || {};
-    const c = usage.cost || {};
-    const t = usage.timing || {};
-    return {
-        input: v.inputTokens || 0,
-        output: v.outputTokens || 0,
-        cacheRead: v.cacheReadInputTokens || 0,
-        cacheWrite: v.cacheCreationInputTokens || 0,
-        reasoning: v.reasoningOutputTokens || 0,
-        totalCost: c.totalCostUsd || 0,
-        tier: c.priceTierApplied || '-',
-        version: c.pricingVersion || '-',
-        ttft: t.ttftMs || 0,
-        totalMs: t.totalMs || 0,
-    };
-}
-
-function eventLine(event) {
-    const ids = [event.sessionId, event.turnId, event.stepId].filter(Boolean).join('/');
-    return ids ? `${event.type}  ·  ${ids}` : event.type;
-}
-
-function copyText(text) {
-    if (navigator.clipboard) {
-        void navigator.clipboard.writeText(text);
-    }
-}
-
-function copyRow(row) {
-    copyText(
-        JSON.stringify(
-            {
-                sessionId: row.step.sessionId,
-                turnId: row.step.turnId,
-                stepId: row.step.stepId,
-                kind: row.step.kind,
-                payload: row.step.payload,
-                usage: row.step.usage,
-            },
-            null,
-            2,
-        ),
-    );
-}
-
-async function rate(row, rating) {
-    feedbackSent.value = true;
-    try {
-        await sendFeedback(row.step.sessionId, rating, `step ${row.step.stepId}`);
-    } catch (error) {
-        ui.err = String(error);
-    }
-}
-
-async function submitPrompt() {
-    const text = prompt.value.trim();
-    if (!text) {
-        if (current.value && canRun.value) {
-            await runCurrent(current.value);
-        }
-        return;
-    }
-    prompt.value = '';
-    await createAndRun(true, {
-        statement: text,
-        permissionCeiling: draft.value.permission,
-        maxCostUsd: draft.value.budgetUsd,
-        maxSteps: draft.value.maxSteps,
-        userId: draft.value.userId || undefined,
-        loopMode: draft.value.loopMode,
-    }, workspaceRoot.value, currentConversation.value || undefined);
-}
-
-async function submitNew(exec) {
-    await createAndRun(exec, {
-        statement: draft.value.statement,
-        permissionCeiling: draft.value.permission,
-        maxCostUsd: draft.value.budgetUsd,
-        maxSteps: draft.value.maxSteps,
-        userId: draft.value.userId || undefined,
-        loopMode: draft.value.loopMode,
-    }, workspaceRoot.value);
-}
-
-async function switchView(name) {
-    ui.view = name;
-    if (name === 'profile') {
-        profile.value = await loadProfile(activeUserId.value);
-    }
-    if (name === 'ledger') {
-        await loadLedger();
-    }
-    accountOpen.value = false;
-}
-
-function backToChat() {
-    ui.view = 'chat';
-}
-
-function openWorkspaceModal() {
-    void openSystemPicker();
-}
-
-function toggleProject(path) {
-    projectCollapsed.value[path] = !projectCollapsed.value[path];
-}
-
-function isProjectOpen(path) {
-    return projectCollapsed.value[path] !== true;
-}
-
-function startProjectSession(path) {
-    ui.showNew = true;
-}
-
-async function renameConversationById(conversation) {
-    const title = window.prompt('重命名会话', conversationTitle(conversation));
-    if (title?.trim()) {
-        await updateConversation(conversation.conversationId, { title: title.trim() });
-    }
-}
-
-async function setConversationArchived(conversation, archived) {
-    await updateConversation(conversation.conversationId, { archived });
-}
-
-async function removeConversation(conversation) {
-    if (!window.confirm(`删除会话「${conversationTitle(conversation)}」？此操作同时删除其 Session 数据。`)) {
-        return;
-    }
-    await deleteConversationById(conversation.conversationId);
-}
-
-async function renameProjectById(project) {
-    const title = window.prompt('重命名项目', project.title);
-    if (title?.trim()) {
-        await renameProject(project.path, title.trim());
-    }
-}
-
-async function openSystemPicker() {
-    try {
-        await pickWorkspace();
-    } catch (error) {
-        ui.err = String(error);
-    }
-}
-
-function toggleAccount() {
-    accountOpen.value = !accountOpen.value;
-}
+const THEME_CYCLE = ['light', 'dark', 'system'];
 
 function cycleTheme() {
-    setTheme(theme.value === 'dark' ? 'light' : 'dark');
+    const next = THEME_CYCLE[(THEME_CYCLE.indexOf(theme.value) + 1) % THEME_CYCLE.length];
+    setTheme(next);
 }
 
-function conversationLatestSession(conversation) {
-    const sessions = conversation?.sessions || [];
-    return sessions.length > 0 ? sessions[sessions.length - 1] : null;
-}
-
-function conversationTitle(conversation) {
-    return conversation?.title || conversationLatestSession(conversation)?.rawIntent || '';
-}
-
-function conversationOutcome(conversation) {
-    const session = conversationLatestSession(conversation);
-    return session?.outcome || 'recording';
-}
-
-function conversationTurns(conversation) {
-    return (conversation?.sessions || []).reduce(
-        (total, session) => total + (session.aggregate?.totalTurns ?? session.turns?.length ?? 0),
-        0,
-    );
-}
-
-function conversationCostUsd(conversation) {
-    return (conversation?.sessions || []).reduce(
-        (total, session) => total + (session.aggregate?.totalCostUsd ?? 0),
-        0,
-    );
-}
-
-function isConversationActive(conversation) {
-    return (
-        currentConversation.value === conversation?.conversationId ||
-        (conversation?.sessions || []).some((session) => session.sessionId === current.value)
-    );
-}
-
-function projectConversationItems(project) {
-    return projectConversations(filteredConversations.value, project.path, project.path);
-}
-
-async function openConversation(conversation) {
-    currentConversation.value = conversation.conversationId;
-    const session = conversationLatestSession(conversation);
-    if (session) {
-        await openSession(session.sessionId);
+const filteredConversations = computed(() => {
+    const key = search.value.trim().toLowerCase();
+    if (!key) {
+        return conversations.value;
     }
-    await loadConversationFlow();
-    feedbackSent.value = false;
+    return conversations.value.filter(
+        (c) =>
+            c.title.toLowerCase().includes(key) ||
+            (c.runs || []).some((r) => r.input.toLowerCase().includes(key)),
+    );
+});
+
+const defaultList = computed(() => defaultConversations(filteredConversations.value));
+const archivedList = computed(() => filteredConversations.value.filter((c) => c.archived === true));
+
+const projectList = computed(() =>
+    projects.value
+        .map((p) => ({
+            title: p.title,
+            path: p.path,
+            items: projectConversations(filteredConversations.value, p.path, p.path),
+        }))
+        .filter((group) => group.items.length > 0),
+);
+
+const activeConversation = computed(() =>
+    conversations.value.find((c) => c.conversationId === currentConversation.value),
+);
+
+const runs = computed(() => activeConversation.value?.runs || []);
+const activeGoals = computed(() => detail.value?.goals || []);
+const taskCount = computed(() => detail.value?.taskCount ?? 0);
+const stepCount = computed(() => detail.value?.stepCount ?? 0);
+const rootOutcome = computed(() => (current.value ? runOutcomes[current.value] : null));
+
+function runTitle(run) {
+    return short(run.input, 60) || run.rootGoalId;
 }
 
-function savePreferences() {
-    saveUserPreferences(preferences.value);
-    backToChat();
+function statusClass(status) {
+    if (['succeeded', 'ok'].includes(status)) return 'succeeded';
+    if (['failed', 'error', 'blocked', 'aborted', 'timeout', 'rolled_back'].includes(status)) {
+        return 'failed';
+    }
+    if (['active', 'pending', 'running'].includes(status)) return status;
+    return '';
+}
+
+function kindGlyph(kind) {
+    if (kind === 'thinking') return '💭';
+    if (kind === 'tool_call') return '🔧';
+    if (kind === 'observation') return '👁';
+    return '•';
+}
+
+async function chooseConversation(c) {
+    await openConversation(c.conversationId);
+}
+
+function startNew() {
+    currentConversation.value = null;
+    current.value = null;
+    detail.value = null;
+    stopEvents();
+    newText.value = '';
+    newUser.value = '';
+    appendNew();
+}
+
+async function appendNew() {
+    ui.showNew = true;
+    await nextTick();
+    composerEl.value?.focus();
+}
+
+async function submitNewRun() {
+    const input = newText.value.trim();
+    if (!input || busy.value) return;
+    newText.value = '';
+    await createRun({
+        input,
+        userId: newUser.value || undefined,
+        workspacePath: workspaceRoot.value || undefined,
+        conversationId: currentConversation.value ?? undefined,
+        exec: true,
+    });
+}
+
+async function rerunActive() {
+    await executeRun(current.value);
+}
+
+async function saveTitle() {
+    const title = renameDraft.title.trim();
+    if (title && activeConversation.value) {
+        await updateConversation(activeConversation.value.conversationId, { title });
+    }
+    renameDraft.title = '';
+}
+
+async function toggleArchive() {
+    if (!activeConversation.value) return;
+    await updateConversation(activeConversation.value.conversationId, {
+        archived: activeConversation.value.archived ? false : true,
+    });
+}
+
+async function removeConversation() {
+    if (!activeConversation.value) return;
+    if (!window.confirm('删除该会话（含其 Goal 树）？')) return;
+    await deleteConversationById(activeConversation.value.conversationId);
+}
+
+async function promptRenameProject(group) {
+    const title = window.prompt('项目名', group.title);
+    if (title && title.trim()) {
+        await renameProject(group.path, title.trim());
+    }
+}
+
+function startFeedback() {
+    const outcome = rootOutcome.value;
+    feedback.open = true;
+    feedback.rating = outcome?.ok ? 5 : 3;
+    feedback.content = '';
+}
+
+async function submitFeedback() {
+    if (!current.value) return;
+    await sendFeedback(current.value, feedback.rating, feedback.content);
+    feedback.open = false;
+}
+
+const visibleEvents = computed(() => {
+    const key = events.types === 'all' ? null : events.types;
+    return key ? events.list.filter((e) => e.type === key) : events.list;
+});
+const eventTypesAvailable = computed(() => [...new Set(events.list.map((e) => e.type))]);
+
+function eventTypeClass(type) {
+    if (type === 'session.started' || type === 'session.ended') return 'succeeded';
+    if (type === 'user.feedback.captured') return 'warn';
+    return '';
 }
 
 onMounted(async () => {
-    document.addEventListener('click', () => {
-        accountOpen.value = false;
-        searchOpen.value = false;
-    });
-    try {
-        await loadConfig();
-        await loadConversations();
-        await loadWorkspace();
-        const firstConversation = activeConversations(conversations.value)[0];
-        const firstSession = conversationLatestSession(firstConversation);
-        if (firstSession) {
-            currentConversation.value = firstConversation.conversationId;
-            await select(firstSession.sessionId);
-            await loadConversationFlow();
-        }
-    } catch (error) {
-        ui.err = String(error);
+    await Promise.all([loadConfig(), loadConversations(), loadWorkspace()]);
+    const first = activeConversations(conversations.value).sort(
+        (a, b) => b.updatedAt - a.updatedAt,
+    )[0];
+    if (first) {
+        await openConversation(first.conversationId);
     }
 });
 
@@ -575,504 +216,675 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <header class="topbar">
-        <div class="topbar-left">
-            <button class="icon-btn sidebar-toggle" title="折叠/展开侧边栏" @click="ui.sidebar = !ui.sidebar"><LineIcon name="menu" /></button>
-            <span class="brand">mazi</span>
-            <span class="slogan">Be water, my friend</span>
-        </div>
-        <div v-if="workedFor" class="work-time">
-            Worked for {{ workedFor }}
-            <LineIcon name="chevronDown" size="12" />
-        </div>
-        <div class="topbar-right">
-            <button class="ghost right-toggle" :title="ui.rightOpen ? '收起审计栏' : '展开审计栏'" @click="ui.rightOpen = !ui.rightOpen"><LineIcon name="panel" /></button>
-            <button class="icon-btn" :title="theme === 'dark' ? '切换到浅色' : '切换到深色'" @click="cycleTheme">
-                <LineIcon :name="theme === 'dark' ? 'sun' : 'moon'" />
-            </button>
-            <div class="account-root">
-                <button class="icon-btn account-btn" title="个人中心" @click.stop="toggleAccount">
-                    <LineIcon name="user" />
-                </button>
-                <div v-if="accountOpen" class="account-drawer" @click.stop>
-                    <div class="account-title">个人中心</div>
-                    <button @click="switchView('profile')">
-                        <LineIcon name="userMessage" size="15" />
-                        <span>画像</span>
-                    </button>
-                    <button @click="switchView('ledger')">
-                        <LineIcon name="observation" size="15" />
-                        <span>账本</span>
-                    </button>
-                    <button @click="switchView('settings')">
-                        <LineIcon name="settings" size="15" />
-                        <span>设置</span>
-                    </button>
-                </div>
+    <div class="shell">
+        <aside class="sidebar" :class="{ hidden: !ui.sidebar }">
+            <div class="brand">
+                <strong>mazi</strong><span>Goal/Task/Step</span>
             </div>
-        </div>
-    </header>
+            <button class="newbtn" @click="startNew()">＋ 新会话</button>
+            <input v-model="search" class="search" placeholder="搜索会话 / 输入…" />
 
-    <div class="app-shell">
-        <aside class="sidebar" :class="{ show: ui.sidebar }">
-            <div class="sidebar-new">
-                <button class="primary new-session" @click="ui.showNew = true">
-                    <LineIcon name="plus" size="15" />
-                    新会话
-                </button>
-            </div>
-            <div class="workspace-head">
-                <span>工作区</span>
-                <span class="head-icons">
-                    <button class="head-icon" title="搜索" @click.stop="searchOpen = !searchOpen">
-                        <LineIcon name="search" size="14" />
-                    </button>
-                    <button class="head-icon" title="打开工作区路径" @click="openWorkspaceModal">
-                        <LineIcon name="plus" size="14" />
-                    </button>
-                </span>
-            </div>
-            <div v-if="searchOpen" class="search-box">
-                <input v-model="q" placeholder="搜索会话…" />
-            </div>
-            <div class="sidebar-scroll">
-                <div v-for="project in projects" :key="project.path" class="group">
-                    <div
-                        class="group-head project-head"
-                        :title="project.path"
-                        @mouseenter="projectMenuFor = project.path"
-                        @mouseleave="projectMenuFor = ''"
+            <div class="groups">
+                <div v-for="group in projectList" :key="group.path" class="group">
+                    <div class="group-head">
+                        <span>📁 {{ group.title }}</span>
+                        <button class="mini" :title="group.path" @click="promptRenameProject(group)">✎</button>
+                    </div>
+                    <button
+                        v-for="c in group.items"
+                        :key="c.conversationId"
+                        class="conv"
+                        :class="{ on: c.conversationId === currentConversation }"
+                        @click="chooseConversation(c)"
                     >
-                        <button class="head-icon project-fold" :title="isProjectOpen(project.path) ? '折叠' : '展开'" @click.stop="toggleProject(project.path)">
-                            <LineIcon :name="isProjectOpen(project.path) ? 'chevronDown' : 'chevronRight'" size="13" />
-                        </button>
-                        <span class="project-title">{{ project.title }}</span>
-                        <button v-if="projectMenuFor === project.path" class="head-icon" title="重命名项目" @click.stop="renameProjectById(project)">
-                            <LineIcon name="rename" size="13" />
-                        </button>
-                        <button v-if="projectMenuFor === project.path" class="head-icon project-add" title="添加项目内会话" @click.stop="startProjectSession(project.path)">
-                            <LineIcon name="plus" size="13" />
-                        </button>
-                    </div>
-                    <ul class="session-list">
-                        <template v-if="isProjectOpen(project.path)">
-                            <li
-                                v-for="c in projectConversationItems(project)"
-                                :key="c.conversationId"
-                                :class="{ active: isConversationActive(c) }"
-                                @click="openConversation(c)"
-                            >
-                                <div class="session-title">{{ conversationTitle(c) }}</div>
-                                <div class="session-actions">
-                                    <button title="重命名会话" @click.stop="renameConversationById(c)"><LineIcon name="rename" size="13" /></button>
-                                    <button title="归档会话" @click.stop="setConversationArchived(c, true)"><LineIcon name="archive" size="13" /></button>
-                                    <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
-                                </div>
-                                <div class="session-meta">
-                                    <span class="badge" :class="badge(conversationOutcome(c))">{{ conversationOutcome(c) }}</span>
-                                    <span class="time">{{ relTime(c.updatedAt || c.createdAt) }}</span>
-                                </div>
-                            </li>
-                            <li v-if="!projectConversationItems(project).length" class="empty-sidebar">
-                                暂无项目会话
-                            </li>
-                        </template>
-                    </ul>
+                        <span class="ctitle">{{ c.title }}</span>
+                        <span class="csub">{{ (c.runs || []).length }} 次 · {{ relTime(c.updatedAt) }}</span>
+                    </button>
                 </div>
-                <div class="group">
-                    <div class="group-head">会话 · {{ generalConversations.length }}</div>
-                    <ul class="session-list">
-                        <li
-                            v-for="c in generalConversations"
-                            :key="c.conversationId"
-                            :class="{ active: isConversationActive(c) }"
-                            @click="openConversation(c)"
-                        >
-                            <div class="session-title">{{ conversationTitle(c) }}</div>
-                            <div class="session-actions">
-                                <button title="重命名会话" @click.stop="renameConversationById(c)"><LineIcon name="rename" size="13" /></button>
-                                <button title="归档会话" @click.stop="setConversationArchived(c, true)"><LineIcon name="archive" size="13" /></button>
-                                <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
-                            </div>
-                            <div class="session-meta">
-                                <span class="badge" :class="badge(conversationOutcome(c))">{{ conversationOutcome(c) }}</span>
-                                <span>{{ conversationTurns(c) }} turns</span>
-                                <span>{{ fmtUsd(conversationCostUsd(c)) }}</span>
-                                <span class="time">{{ relTime(c.updatedAt || c.createdAt) }}</span>
-                            </div>
-                        </li>
-                        <li v-if="!generalConversations.length" class="empty-sidebar">暂无会话</li>
-                    </ul>
+
+                <div v-if="defaultList.length" class="group">
+                    <div class="group-head"><span>会话</span></div>
+                    <button
+                        v-for="c in defaultList"
+                        :key="c.conversationId"
+                        class="conv"
+                        :class="{ on: c.conversationId === currentConversation }"
+                        @click="chooseConversation(c)"
+                    >
+                        <span class="ctitle">{{ c.title }}</span>
+                        <span class="csub">{{ (c.runs || []).length }} 次 · {{ relTime(c.updatedAt) }}</span>
+                    </button>
                 </div>
-                <div class="group">
-                    <div class="group-head">已归档 · {{ archivedConversations.length }}</div>
-                    <ul class="session-list">
-                        <li
-                            v-for="c in archivedConversations"
-                            :key="c.conversationId"
-                            :class="{ active: isConversationActive(c) }"
-                            @click="openConversation(c)"
-                        >
-                            <div class="session-title">{{ conversationTitle(c) }}</div>
-                            <div class="session-actions">
-                                <button title="重命名会话" @click.stop="renameConversationById(c)"><LineIcon name="rename" size="13" /></button>
-                                <button title="恢复会话" @click.stop="setConversationArchived(c, false)"><LineIcon name="restore" size="13" /></button>
-                                <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
-                            </div>
-                            <div class="session-meta">
-                                <span class="time">{{ relTime(c.updatedAt || c.createdAt) }}</span>
-                            </div>
-                        </li>
-                        <li v-if="!archivedConversations.length" class="empty-sidebar">暂无归档</li>
-                    </ul>
+
+                <div v-if="archivedList.length" class="group">
+                    <div class="group-head"><span>已归档</span></div>
+                    <button
+                        v-for="c in archivedList"
+                        :key="c.conversationId"
+                        class="conv"
+                        @click="chooseConversation(c)"
+                    >
+                        <span class="ctitle">{{ c.title }}</span>
+                        <span class="csub">{{ relTime(c.updatedAt) }}</span>
+                    </button>
                 </div>
-            </div>
-            <div class="sidebar-settings">
-                <button class="settings-btn" @click="switchView('system-settings')">
-                    <LineIcon name="settings" size="15" />
-                    系统设置
-                </button>
             </div>
         </aside>
 
-        <main class="workspace">
-            <template v-if="ui.view === 'chat'">
-                <div class="main-tabs">
-                    <button :class="{ on: ui.mainTab === 'chat' }" @click="ui.mainTab = 'chat'">对话</button>
-                    <button :class="{ on: ui.mainTab === 'traj' }" @click="ui.mainTab = 'traj'">轨迹</button>
+        <section class="main">
+            <header class="topbar">
+                <button @click="ui.sidebar = !ui.sidebar">☰</button>
+                <div class="crumb">
+                    <template v-if="activeConversation">
+                        <span class="title">{{ activeConversation.title }}</span>
+                        <span v-if="current" class="runid" :title="current">{{ short(current, 18) }}</span>
+                    </template>
+                    <span v-else class="title">新会话</span>
+                </div>
+                <div class="tools">
+                    <button :title="'主题: ' + theme" @click="cycleTheme()">◐</button>
+                    <button :class="{ on: rightOpen }" @click="rightOpen = !rightOpen">事件</button>
+                    <button @click="showSettings = !showSettings">设置</button>
+                </div>
+            </header>
+
+            <div v-if="ui.err" class="errbar">{{ ui.err }}</div>
+
+            <div v-if="activeConversation" class="body">
+                <div class="manage-row">
+                    <input v-model="renameDraft.title" class="title-input" :placeholder="activeConversation.title" />
+                    <button class="mini" @click="saveTitle()">改名</button>
+                    <button class="mini" @click="toggleArchive()">
+                        {{ activeConversation.archived ? '恢复' : '归档' }}
+                    </button>
+                    <button class="mini danger" @click="removeConversation()">删除</button>
                 </div>
 
-                <div class="chat-scroll">
-                    <div v-if="ui.err && conversations.length" class="error-banner">{{ ui.err }}</div>
-
-                    <template v-if="ui.mainTab === 'chat'">
-                        <template v-for="item in conversationFlow" :key="item.key">
-                            <div v-if="item.type === 'user'" class="user-message">
-                                <div class="msg-text">{{ item.text }}</div>
-                                <div class="user-meta">
-                                    <span>{{ item.session.userId || activeUserId }}</span>
-                                    <span>{{ fmtClock(item.createdAt) }}</span>
-                                </div>
-                            </div>
-                            <div
-                                v-else-if="item.type === 'assistant'"
-                                class="assistant-message"
-                            >
-                                <div class="assistant-body">
-                                    <template v-for="(paragraph, index) in assistantParagraphs(item.text)" :key="index">
-                                        <div
-                                            v-if="paragraph.text"
-                                            class="assistant-line"
-                                            :class="{ bullet: paragraph.bullet }"
-                                        >
-                                            {{ paragraph.text }}
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                            <div v-else class="trace-step">
-                                <div class="trace-gutter"><span class="trace-emoji">{{ traceIcon(item) }}</span></div>
-                                <div class="trace-main">
-                                    <button class="trace-head" @click="toggleOpenStep(item.step.stepId)">
-                                        <span class="trace-label">{{ traceLabel(item) }}</span>
-                                        <span class="trace-title">{{ traceTitle(item) }}</span>
-                                        <span class="trace-meta">{{ rowModel(item) }}</span>
-                                        <span class="trace-chevron"><LineIcon :name="isOpenStep(item.step.stepId) ? 'chevronDown' : 'chevronRight'" size="11" /></span>
-                                    </button>
-                                    <div v-if="isOpenStep(item.step.stepId)" class="trace-body">
-                                        <template v-if="item.step.kind === 'tool_call'">
-                                            <span class="trace-tool">{{ stepBody(item).title }}</span>
-                                            <pre class="trace-json">{{ stepBody(item).json }}</pre>
-                                        </template>
-                                        <div v-else class="trace-text">{{ traceContent(item) }}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                        <div v-if="!detail" class="empty-hint">暂无会话，点击「新会话」开始</div>
-                        <div v-else-if="!conversationFlow.length" class="empty-hint">
-                            Be Water My Friend
-                        </div>
-                        <div v-if="feedbackSent && detail && detail.outcome" class="ok-banner">反馈已记录</div>
-                    </template>
-
-                    <template v-else>
-                        <div class="toolbar">
-                            <button
-                                v-for="f in ['all', 'thinking', 'tool_call', 'observation']"
-                                :key="f"
-                                class="chip"
-                                :class="{ on: trajFilter === f }"
-                                @click="trajFilter = f"
-                            >
-                                {{ f }}
-                            </button>
-                        </div>
-                        <template v-for="(session, sIndex) in flowSessions" :key="session.sessionId">
-                            <div class="traj-session">
-                                <div
-                                    class="traj-session-head"
-                                    @click="toggleSession(session.sessionId)"
-                                >
-                                    <LineIcon
-                                        class="chevron"
-                                        :name="isSessionOpen(session.sessionId) ? 'chevronDown' : 'chevronRight'"
-                                        size="14"
-                                    />
-                                    <span class="traj-session-id">Session #{{ sIndex + 1 }}</span>
-                                    <span class="traj-session-intent">{{ session.rawIntent || session.sessionId }}</span>
-                                    <span class="muted-inline">
-                                        {{ session.outcome || session.state || 'pending' }} ·
-                                        {{ (session.turns || []).length }} 个子任务
-                                    </span>
-                                </div>
-                                <template
-                                    v-if="(session.turns || []).length && isSessionOpen(session.sessionId)"
-                                >
-                                    <div class="traj-session-body">
-                                        <div
-                                            v-for="(turn, tIndex) in session.turns"
-                                            :key="turn.turnId"
-                                            class="traj-turn"
-                                        >
-                                            <div class="traj-turn-head" @click="toggleTurn(turn.turnId)">
-                                                <LineIcon
-                                                    class="chevron"
-                                                    :name="isTurnOpen(turn.turnId) ? 'chevronDown' : 'chevronRight'"
-                                                    size="13"
-                                                />
-                                                <span>Turn {{ tIndex + 1 }} · {{ (turn.contract && turn.contract.statement) || turn.turnId }}</span>
-                                                <span class="muted-inline">{{ turn.status }}</span>
-                                            </div>
-                                            <div v-if="isTurnOpen(turn.turnId)" class="traj-tree">
-                                                <div
-                                                    v-for="step in (turn.steps || []).filter((s) => trajFilter === 'all' || s.kind === trajFilter)"
-                                                    :key="step.stepId"
-                                                    class="traj-step"
-                                                    @click="openAuditFromStep(turn, step)"
-                                                >
-                                                    <span class="msg-icon"><LineIcon :name="icon(step.kind)" size="14" /></span>
-                                                    <span class="traj-title">{{ short(stepTitle({ turn, step }), 72) }}</span>
-                                                    <span class="muted-inline">#{{ step.seq }} {{ step.status }}</span>
-                                                    <span v-if="step.model" class="muted-inline">{{ step.model.modelId }}</span>
-                                                    <span v-if="step.usage" class="muted-inline">{{ fmtTokens(step.usage.vendor.inputTokens + step.usage.vendor.outputTokens) }} tok</span>
-                                                </div>
-                                                <div v-if="!turn.steps.length" class="empty-hint">无步骤</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </template>
-                                <div
-                                    v-else-if="!(session.turns || []).length"
-                                    class="traj-session-empty"
-                                >
-                                    {{ session.outcome ? `${session.outcome} · ` : '' }}暂无轨迹
-                                </div>
-                            </div>
-                        </template>
-                        <div v-if="!flowSessions.length" class="empty-hint">暂无轨迹</div>
-                    </template>
+                <div class="runsbar">
+                    <span class="runs-label">Goal runs</span>
+                    <button
+                        v-for="(run, i) in runs"
+                        :key="run.rootGoalId"
+                        class="chip"
+                        :class="{ on: run.rootGoalId === current }"
+                        @click="openRun(run.rootGoalId)"
+                    >
+                        <span class="chip-main">{{ i + 1 }} · {{ runTitle(run) }}</span>
+                        <span class="chip-sub">
+                            {{ fmtClock(run.createdAt) }}
+                            <template v-if="runOutcomes[run.rootGoalId]">
+                                · {{ runOutcomes[run.rootGoalId].ok ? '成功' : '失败' }}
+                            </template>
+                        </span>
+                    </button>
+                    <button class="chip add" @click="appendNew()">＋ 追加</button>
                 </div>
 
-                <div class="input-area">
-                        <button class="icon-btn add-btn" title="通过路径选择工作区"><LineIcon name="plus" size="17" /></button>
+                <div v-if="detail" class="content">
+                    <div class="summary">
+                        <span>Goal {{ activeGoals.length }} · Task {{ taskCount }} · Step {{ stepCount }}</span>
+                        <span v-if="rootOutcome" class="outcome" :class="rootOutcome.ok ? 'ok' : 'fail'">
+                            {{ rootOutcome.ok ? '成功' : '失败' }}
+                        </span>
+                    </div>
+
+                    <div v-if="rootOutcome?.finalMessage" class="bubble">
+                        <div class="bubble-head">最终回答</div>
+                        <pre class="final">{{ rootOutcome.finalMessage }}</pre>
+                    </div>
+
+                    <div v-for="goal in activeGoals" :key="goal.goalId" class="goal-card">
+                        <div class="goal-head">
+                            <span class="pill" :class="goal.kind">{{ goal.kind }}</span>
+                            <span class="pill" :class="statusClass(goal.status)">{{ statusLabel(goal.status) }}</span>
+                            <span class="statement">{{ goal.statement }}</span>
+                        </div>
+                        <div v-for="task in goal.tasks" :key="task.taskId" class="task">
+                            <div class="task-head">
+                                <span class="pill taskid" :title="task.taskId">{{ short(task.taskId, 26) }}</span>
+                                <span class="pill" :class="statusClass(task.status)">{{ statusLabel(task.status) }}</span>
+                                <span class="task-title">{{ task.title }}</span>
+                            </div>
+                            <ul v-if="task.steps.length" class="steps">
+                                <li v-for="step in task.steps" :key="step.stepId">
+                                    <span class="glyph">{{ kindGlyph(step.kind) }}</span>
+                                    <span class="step-kind">{{ statusLabel(step.kind) }}</span>
+                                    <span class="pill" :class="statusClass(step.status)">{{ statusLabel(step.status) }}</span>
+                                    <span class="step-id" :title="step.stepId">{{ short(step.stepId, 34) }}</span>
+                                    <span class="when">{{ fmtClock(step.startedAt) }}</span>
+                                </li>
+                            </ul>
+                            <div v-else class="empty">（该 Task 尚无 Step）</div>
+                        </div>
+                    </div>
+                </div>
+                <div v-else class="empty-state">没有可展示的 Goal 树（run 不存在或已被删除）。</div>
+
+                <div class="composer">
                     <textarea
-                        v-model="prompt"
-                        rows="1"
-                        placeholder="输入任务…（Enter 发送，Shift+Enter 换行）"
-                        @keydown.enter.exact.prevent="submitPrompt"
+                        ref="composerEl"
+                        v-model="newText"
+                        rows="2"
+                        placeholder="输入新的任务/问题，Enter 运行；Shift+Enter 换行"
+                        @keydown.enter.exact.prevent="submitNewRun()"
                     ></textarea>
-                    <div class="input-actions">
-                        <select v-model="selectedModel" title="模型">
-                            <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
-                        </select>
-                        <select v-model="draft.loopMode" class="mode-select" title="Loop 模式">
-                            <option v-for="m in LOOP_MODE_OPTIONS" :key="m.value" :value="m.value">
-                                {{ m.label }}
-                            </option>
-                        </select>
-                        <button
-                            class="approve"
-                            :disabled="!hasToolActivity"
-                            title="审批 Agent 的工具/代码变更（审批通道后续接入）"
-                            @click="ui.err = '审批通道尚未接入，当前仅展示样式入口'"
-                        >
-                            Approve for me
+                    <div class="composer-row">
+                        <input v-model="newUser" class="user" placeholder="userId（可选）" />
+                        <button :disabled="busy || !newText.trim()" @click="submitNewRun()">
+                            {{ busy ? '运行中…' : '运行' }}
                         </button>
-                        <button class="ghost" title="刷新状态" @click="runCurrent(current)"><LineIcon name="refresh" size="15" /></button>
-                        <button class="send" :disabled="busy" title="发送" @click="submitPrompt"><LineIcon name="send" size="16" /></button>
-                    </div>
-                </div>
-            </template>
-
-            <template v-else-if="ui.view === 'system-settings'">
-                <div class="page-card">
-                    <div class="page-heading">
-                        <button class="icon-btn back-btn" title="返回会话" @click="backToChat">
-                            <LineIcon name="chevronRight" size="16" />
+                        <button v-if="current" :disabled="busy" @click="rerunActive()">重跑当前</button>
+                        <button v-if="current && !rootOutcome" :disabled="busy" @click="executeRun(current)">
+                            执行
                         </button>
-                        <h1>系统设置</h1>
-                    </div>
-                    <div class="field-row"><label>数据目录</label><input :value="cfg ? cfg.home : ''" readonly /></div>
-                    <div class="field-row"><label>存储</label><input :value="cfg ? `${cfg.storage.driver} · ${cfg.storage.db}` : ''" readonly /></div>
-                    <div class="field-row"><label>Provider</label><div class="value-text">{{ cfg ? cfg.providers.join(', ') : '-' }}</div></div>
-                    <div class="field-row"><label>主题</label><select :value="theme" @change="setTheme($event.target.value)"><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></div>
-                    <div class="muted-block">配置保存在 ~/.mazi（providers/tools/flags.json）。修改后重启 server。</div>
-                </div>
-            </template>
-
-            <template v-else-if="ui.view === 'settings'">
-                <div class="page-card">
-                    <div class="page-heading">
-                        <button class="icon-btn back-btn" title="返回会话" @click="backToChat">
-                            <LineIcon name="chevronRight" size="16" />
-                        </button>
-                        <h1>个人设置</h1>
-                    </div>
-                    <div class="field-row"><label>用户名</label><input v-model="preferences.displayName" /></div>
-                    <div class="field-row"><label>常用工具 / 喜好</label><input v-model="preferences.favoriteTools" placeholder="例如：Vue、TypeScript、终端工作流" /></div>
-                    <div class="field-row"><label>代码风格</label><textarea v-model="preferences.codeStyle" rows="3" /></div>
-                    <div class="field-row"><label>模型回答风格</label><textarea v-model="preferences.responseStyle" rows="3" /></div>
-                    <div class="page-actions">
-                        <button class="ghost" @click="backToChat">取消</button>
-                        <button class="primary" @click="savePreferences">保存</button>
-                    </div>
-                </div>
-            </template>
-
-            <template v-else-if="ui.view === 'profile'">
-                <div class="page-card">
-                    <div class="page-heading">
-                        <button class="icon-btn back-btn" title="返回会话" @click="backToChat">
-                            <LineIcon name="chevronRight" size="16" />
-                        </button>
-                        <h1>用户画像</h1>
-                    </div>
-                    <pre>{{ profile ? JSON.stringify(profile, null, 2) : '暂无数据（带 userId 运行会话后可见）' }}</pre>
-                </div>
-            </template>
-
-            <template v-else>
-                <div class="page-card">
-                    <div class="page-heading">
-                        <button class="icon-btn back-btn" title="返回会话" @click="backToChat">
-                            <LineIcon name="chevronRight" size="16" />
-                        </button>
-                        <h1>失败分类账</h1>
-                    </div>
-                    <div v-if="!ledger.length" class="empty-hint">暂无失败记录</div>
-                    <div v-for="item in ledger" :key="item.recordId" class="ledger-item">
-                        <div class="ledger-main">
-                            <span class="badge" :class="badge(item.failureKind)">{{ item.failureKind }}</span>
-                            <span class="mono-text">{{ item.sessionId }}</span>
-                            <span v-if="item.summary" class="muted-inline">{{ item.summary }}</span>
-                        </div>
-                        <div class="ledger-meta">
-                            <span v-if="item.providerId">{{ item.providerId }}</span>
-                            <span v-if="item.costUsd !== undefined">{{ fmtUsd(item.costUsd) }}</span>
-                            <span>{{ fmtClock(item.createdAt) }}</span>
-                        </div>
-                    </div>
-                </div>
-            </template>
-            <footer class="statusbar">
-                <span class="stat"><b>{{ metrics.turns }}</b> 轮</span>
-                <span class="stat"><b>{{ metrics.steps }}</b> 步</span>
-                <span class="stat">LLM <b>{{ fmtDuration(metrics.llmMs) }}</b></span>
-                <span class="stat">工具 <b>{{ metrics.toolCalls }}</b> 次</span>
-                <span class="stat">TTFT <b>{{ avgTtft }}ms</b></span>
-                <span class="stat"><b>{{ tokRate }}</b> tok/s</span>
-                <span class="stat">tokens <b>{{ fmtTokens(metrics.tokens) }}</b></span>
-                <span class="stat">cost <b>{{ fmtUsd(metrics.cost) }}</b></span>
-                <span class="stat model-stat">{{ metrics.provider }} / {{ metrics.model }}</span>
-                <span v-if="budgetPct !== null" class="stat budget-stat">预算 {{ budgetPct }}%</span>
-            </footer>
-        </main>
-
-        <aside class="right-panel" :class="{ open: ui.rightOpen }">
-            <div class="right-panel-inner">
-                <div class="drawer-head">
-                    <div class="drawer-tabs">
-                        <button :class="{ on: ui.drawerTab === 'audit' }" @click="ui.drawerTab = 'audit'">审计</button>
-                        <button :class="{ on: ui.drawerTab === 'events' }" @click="ui.drawerTab = 'events'">事件</button>
-                    </div>
-                    <button class="icon-btn" title="收起" @click="closeDrawer"><LineIcon name="close" size="15" /></button>
-                </div>
-
-                <div v-if="ui.drawerTab === 'audit'" class="drawer-body">
-                    <div class="drawer-title">{{ auditTitle() }}</div>
-                    <div class="drawer-tabs sub">
-                        <button
-                            v-for="v in ['declared', 'authorized', 'actual', 'usage']"
-                            :key="v"
-                            :class="{ on: ui.auditSub === v }"
-                            @click="ui.auditSub = v"
-                        >
-                            {{ { declared: '声明', authorized: '授权', actual: '实际', usage: '用量' }[v] }}
-                        </button>
-                    </div>
-                    <div v-if="ui.audit && ui.audit.step">
-                        <pre v-if="ui.auditSub !== 'usage'" class="audit-json">{{ auditJson() }}</pre>
-                        <template v-else>
-                            <div v-for="seg in usageSegs().segs" :key="seg.key" class="usage-row">
-                                <span>{{ seg.label }}</span><span>{{ seg.value }}</span>
-                            </div>
-                            <div class="usage-bar"><i v-for="seg in usageSegs().segs" :key="seg.key" :style="{ width: seg.width + '%', background: seg.color }"></i></div>
-                            <div v-if="vendorText()" class="audit-note">
-                                Vendor: in {{ vendorText().input }} / out {{ vendorText().output }}
-                                <span v-if="vendorText().reasoning"> / reasoning {{ vendorText().reasoning }}</span><br />
-                                Cache: read {{ vendorText().cacheRead }} · write {{ vendorText().cacheWrite }}<br />
-                                Timing: TTFT {{ vendorText().ttft }}ms · total {{ vendorText().totalMs }}ms<br />
-                                Cost: {{ fmtUsd(vendorText().totalCost) }} · tier {{ vendorText().tier }} · {{ vendorText().version }}
-                            </div>
-                        </template>
-                    </div>
-                    <div v-else class="empty-hint">点击消息或轨迹 Step 查看声明/授权/实际/用量</div>
-                </div>
-
-                <div v-else class="drawer-body">
-                    <div class="drawer-tabs sub">
-                        <select v-model="ui.eventTypes" title="事件类型">
-                            <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
-                        </select>
-                    </div>
-                    <div class="event-log">
-                        <div v-for="e in filteredEvents" :key="e.eventId" class="event-row">
-                            <span class="event-time">{{ fmtClock(e.timestamp) }}</span>
-                            <span class="event-type" :class="e.type.startsWith('tool') || e.type.startsWith('policy') ? 'warn' : ''">{{ e.type }}</span>
-                            <span class="event-ids">{{ [e.turnId, e.stepId].filter(Boolean).join('/') || 'session' }}</span>
-                        </div>
-                        <div v-if="!filteredEvents.length" class="empty-hint">暂无事件</div>
+                        <button v-if="rootOutcome" @click="startFeedback()">评分</button>
                     </div>
                 </div>
             </div>
+
+            <div v-else class="body empty-new">
+                <div class="hero">
+                    <h1>mazi · Goal/Task/Step</h1>
+                    <p>输入一个任务，运行一次 Goal 会话：intake + work Goal → 规划 → 逐 Task 执行 → 树快照留痕。</p>
+                    <textarea
+                        ref="composerEl"
+                        v-model="newText"
+                        rows="3"
+                        class="hero-input"
+                        placeholder="例如：读取 README.md 并汇报"
+                        @keydown.enter.exact.prevent="submitNewRun()"
+                    ></textarea>
+                    <button :disabled="busy || !newText.trim()" @click="submitNewRun()">
+                        {{ busy ? '运行中…' : '运行新会话' }}
+                    </button>
+                    <p class="hint">
+                        当前工作区：{{ workspaceRoot || '（未选择）' }}
+                        <button class="mini" @click="pickWorkspace()">选择…</button>
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <aside v-if="rightOpen" class="right">
+            <div class="right-head">
+                <span>事件流</span>
+                <select v-model="events.types">
+                    <option value="all">全部类型</option>
+                    <option v-for="t in eventTypesAvailable" :key="t" :value="t">{{ t }}</option>
+                </select>
+            </div>
+            <ul class="evlist">
+                <li v-for="e in visibleEvents" :key="e.eventId">
+                    <span class="pill" :class="eventTypeClass(e.type)">{{ e.type }}</span>
+                    <span class="evmeta">{{ fmtClock(e.timestamp) }} · {{ short(e.sessionId, 18) }}</span>
+                </li>
+                <li v-if="!visibleEvents.length" class="muted">（无事件）</li>
+            </ul>
         </aside>
-    </div>
 
-    <div v-if="ui.showNew" class="modal-mask" @click.self="ui.showNew = false">
-        <div class="modal">
-            <h1>新建会话 · GoalContract</h1>
-            <div class="field-row"><label>任务</label><textarea v-model="draft.statement" rows="3" placeholder="目标陈述，例如：读取 README.md 并汇报"></textarea></div>
-            <div class="grid2">
-                <div class="field-row"><label>权限上限</label><select v-model="draft.permission"><option v-for="p in ['text', 'read-only', 'draft', 'approved', 'autonomous']" :key="p" :value="p">{{ p }}</option></select></div>
-                <div class="field-row"><label>预算（USD）</label><input v-model.number="draft.budgetUsd" type="number" step="0.1" /></div>
-                <div class="field-row"><label>最大步数</label><input v-model.number="draft.maxSteps" type="number" /></div>
-                <div class="field-row"><label>UserId（可选）</label><input v-model="draft.userId" placeholder="me" /></div>
-                <div class="field-row">
-                    <label>Loop 模式</label>
-                    <select v-model="draft.loopMode">
-                        <option v-for="m in LOOP_MODE_OPTIONS" :key="m.value" :value="m.value">
-                            {{ m.label }}
-                        </option>
-                    </select>
+        <div v-if="feedback.open" class="modal">
+            <div class="modal-card">
+                <h3>反馈 · {{ short(current, 24) }}</h3>
+                <p class="hint">评分 {{ feedback.rating }} / 5</p>
+                <div class="stars">
+                    <button v-for="n in 5" :key="n" :class="{ on: n <= feedback.rating }" @click="feedback.rating = n">
+                        {{ n }}
+                    </button>
+                </div>
+                <textarea v-model="feedback.content" rows="3" placeholder="补充说明（可选）"></textarea>
+                <div class="row">
+                    <button @click="feedback.open = false">取消</button>
+                    <button @click="submitFeedback()">提交</button>
                 </div>
             </div>
-            <div class="modal-actions">
-                <button class="ghost" @click="ui.showNew = false">取消</button>
-                <button @click="submitNew(false)">仅创建</button>
-                <button class="primary" :disabled="busy" @click="submitNew(true)">创建并运行</button>
+        </div>
+
+        <div v-if="showSettings" class="modal">
+            <div class="modal-card wide">
+                <div class="tabs">
+                    <button :class="{ on: settingsTab === 'config' }" @click="settingsTab = 'config'">配置</button>
+                    <button :class="{ on: settingsTab === 'prefs' }" @click="settingsTab = 'prefs'">偏好</button>
+                </div>
+                <pre v-if="settingsTab === 'config'" class="json">{{ JSON.stringify(cfg, null, 2) }}</pre>
+                <div v-else class="prefs">
+                    <p>主题：{{ theme }}（顶栏 ◐ 切换 light / dark / system）</p>
+                    <p>
+                        Profile / Ledger 面板随旧 user_interactions / failure_ledger 记录删除，待 C3e/OBS
+                        观测账目卷落地后按新事件重建。
+                    </p>
+                </div>
+                <div class="row">
+                    <button @click="showSettings = false">关闭</button>
+                </div>
             </div>
         </div>
     </div>
-
 </template>
+
+<style scoped>
+.shell {
+    display: flex;
+    height: 100vh;
+}
+.sidebar {
+    width: 264px;
+    min-width: 264px;
+    border-right: 1px solid var(--border);
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    overflow-y: auto;
+}
+.sidebar.hidden {
+    display: none;
+}
+.brand span {
+    color: var(--fg-secondary);
+    margin-left: 6px;
+    font-size: 13px;
+}
+.newbtn {
+    width: 100%;
+}
+.search {
+    width: 100%;
+}
+.groups {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.group-head {
+    display: flex;
+    justify-content: space-between;
+    color: var(--fg-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+    align-items: center;
+}
+.conv {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    text-align: left;
+    margin: 2px 0;
+}
+.conv.on {
+    background: var(--bg-active);
+    border-color: var(--accent);
+}
+.ctitle {
+    font-weight: 500;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.csub {
+    color: var(--fg-secondary);
+    font-size: 12px;
+}
+.main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--bg-chat);
+}
+.topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel);
+}
+.crumb {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    overflow: hidden;
+}
+.title {
+    font-weight: 600;
+}
+.runid {
+    color: var(--fg-secondary);
+    font-size: 12px;
+}
+.tools {
+    display: flex;
+    gap: 6px;
+}
+.tools .on {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.errbar {
+    background: color-mix(in srgb, var(--error) 15%, transparent);
+    color: var(--error);
+    padding: 6px 12px;
+    font-size: 13px;
+}
+.body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.manage-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.title-input {
+    flex: 1;
+    max-width: 420px;
+}
+.danger {
+    color: var(--error);
+}
+.runsbar {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.runs-label {
+    color: var(--fg-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+}
+.chip {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: 240px;
+    overflow: hidden;
+}
+.chip.on {
+    background: var(--bg-active);
+    border-color: var(--accent);
+}
+.chip-main {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.chip-sub {
+    color: var(--fg-secondary);
+    font-size: 11px;
+}
+.content {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.summary {
+    color: var(--fg-secondary);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.outcome.ok {
+    color: var(--ok);
+}
+.outcome.fail {
+    color: var(--error);
+}
+.bubble {
+    background: var(--user-bubble);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+.bubble-head {
+    color: var(--fg-secondary);
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+.final {
+    white-space: pre-wrap;
+    margin: 0;
+    font-family: inherit;
+}
+.goal-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-panel);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.goal-head,
+.task-head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.statement {
+    flex: 1;
+    min-width: 0;
+}
+.task-title {
+    color: var(--fg-secondary);
+}
+.pill {
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    background: var(--status-bg);
+    white-space: nowrap;
+}
+.pill.active,
+.pill.pending,
+.pill.running {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.pill.succeeded,
+.pill.ok,
+.pill.succeeded {
+    border-color: var(--ok);
+    color: var(--ok);
+}
+.pill.failed,
+.pill.error,
+.pill.blocked {
+    border-color: var(--error);
+    color: var(--error);
+}
+.pill.intake {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.pill.work {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.pill.warn {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.pill.taskid {
+    font-family: ui-monospace, monospace;
+}
+.steps {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0 0 0 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.steps li {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 13px;
+}
+.glyph {
+    width: 18px;
+}
+.step-kind {
+    color: var(--fg);
+    width: 90px;
+}
+.step-id {
+    color: var(--fg-secondary);
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+}
+.when {
+    color: var(--trace-text);
+    font-size: 11px;
+    margin-left: auto;
+}
+.empty,
+.muted {
+    color: var(--fg-secondary);
+    font-size: 13px;
+}
+.empty-state {
+    color: var(--fg-secondary);
+    text-align: center;
+    padding: 40px 0;
+}
+.composer {
+    border-top: 1px solid var(--border);
+    background: var(--bg-panel);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.composer textarea {
+    width: 100%;
+}
+.composer-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.user {
+    width: 180px;
+}
+.empty-new {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+.hero h1 {
+    margin: 0 0 6px;
+}
+.hero-input {
+    width: min(560px, 90vw);
+}
+.hero .hint {
+    color: var(--fg-secondary);
+    font-size: 13px;
+}
+.hint {
+    color: var(--fg-secondary);
+    font-size: 13px;
+}
+.right {
+    width: 300px;
+    min-width: 300px;
+    border-left: 1px solid var(--border);
+    background: var(--bg-panel);
+    overflow-y: auto;
+    padding: 10px;
+}
+.right-head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+}
+.evlist {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.evmeta {
+    color: var(--fg-secondary);
+    font-size: 11px;
+}
+.modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+}
+.modal-card {
+    width: 440px;
+    max-width: 92vw;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.modal-card.wide {
+    width: 640px;
+}
+.modal-card textarea {
+    width: 100%;
+}
+.row {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+.stars {
+    display: flex;
+    gap: 6px;
+}
+.stars button.on {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.tabs {
+    display: flex;
+    gap: 6px;
+}
+.tabs .on {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.json {
+    white-space: pre-wrap;
+    max-height: 60vh;
+    overflow: auto;
+    background: var(--bg-code);
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 12px;
+}
+.mini {
+    padding: 2px 8px;
+    font-size: 12px;
+}
+.prefs p {
+    color: var(--fg-secondary);
+}
+</style>

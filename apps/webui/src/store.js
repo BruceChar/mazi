@@ -2,36 +2,9 @@ import { reactive, ref } from 'vue';
 import { api, API_BASE } from './api.js';
 
 const THEME_KEY = 'mazi.web.theme';
-const LIVE_EVENT_TYPES = [
-    'session.started',
-    'session.ended',
-    'turn.started',
-    'turn.ended',
-    'step.started',
-    'step.ended',
-    'llm.request',
-    'llm.response',
-    'tool.invoke',
-    'tool.result',
-    'tool.blocked',
-    'policy.check',
-    'policy.denied',
-    'provider.selected',
-    'provider.fallback',
-    'plan.created',
-    'plan.invalid',
-    'capacity.assembled',
-    'budget.exceeded',
-    'user.feedback.captured',
-];
-const REFRESH_EVENT_TYPES = new Set([
-    'step.ended',
-    'turn.ended',
-    'session.ended',
-    'llm.response',
-    'budget.exceeded',
-    'provider.fallback',
-]);
+/** Goal 会话事件（C5：goal 路径暂发 session.started/ended/user.feedback.captured；C3e/OBS 词汇收敛后扩展） */
+const LIVE_EVENT_TYPES = ['session.started', 'session.ended', 'user.feedback.captured'];
+const REFRESH_EVENT_TYPES = new Set(['session.ended']);
 
 function systemPrefersDark() {
     return (
@@ -68,12 +41,8 @@ export function setTheme(value) {
 applyTheme(theme.value);
 
 export const ui = reactive({
-    view: 'chat',
-    mainTab: 'chat',
+    view: 'runs',
     rightOpen: false,
-    drawerTab: 'audit',
-    auditSub: 'actual',
-    audit: null,
     showNew: false,
     sidebar: true,
     eventTypes: 'all',
@@ -111,29 +80,20 @@ export function saveUserPreferences(next) {
     }
 }
 
+/** 会话列表（conversations.json；每条含 Goal run 引用 runs[]） */
 export const conversations = ref([]);
-export const flowSessions = ref([]);
-export const current = ref(null);
-export const currentConversation = ref(null);
-export const detail = ref(null);
 export const cfg = ref(null);
 export const workspaceRoot = ref('');
 export const projects = ref([]);
 export const busy = ref(false);
-export const metrics = reactive({
-    turns: 0,
-    steps: 0,
-    tokens: 0,
-    cost: 0,
-    budget: null,
-    llmMs: 0,
-    ttftSum: 0,
-    toolCalls: 0,
-    model: '-',
-    provider: '-',
-});
+/** 当前打开的 Goal run（rootGoalId） */
+export const current = ref(null);
+export const currentConversation = ref(null);
+/** 当前 run 的 Goal 树快照（GET /api/sessions/:id/timeline） */
+export const detail = ref(null);
+/** 本会话内存中的 run 结果（POST run 响应 tasks 摘要；不持久化） */
+export const runOutcomes = reactive({});
 export const events = reactive({ list: [], types: 'all' });
-export const ledger = ref([]);
 
 export const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -143,25 +103,22 @@ export const esc = (s) =>
 export const short = (s, n = 120) =>
     s && s.length > n ? `${s.slice(0, n)}…` : s || '';
 
-export const icon = (kind) => {
-    if (kind === 'thinking') return 'thinking';
-    if (kind === 'tool_call') return 'tool';
-    if (kind === 'observation') return 'observation';
-    return 'userMessage';
-};
-
-export const stepLabel = (kind) => {
-    if (kind === 'thinking') return '思考';
-    if (kind === 'tool_call') return '工具调用';
-    if (kind === 'observation') return '上下文/观察';
-    return kind || 'step';
-};
-
-export const badge = (outcome) => {
-    if (outcome === 'success') return 'success';
-    if (outcome) return 'failed';
-    return 'other';
-};
+export function statusLabel(status) {
+    const map = {
+        active: '进行中',
+        succeeded: '成功',
+        failed: '失败',
+        aborted: '中止',
+        timeout: '超时',
+        ok: '成功',
+        error: '出错',
+        blocked: '拦截',
+        running: '运行中',
+        pending: '待执行',
+        rolled_back: '已回滚',
+    };
+    return map[status] ?? status ?? '—';
+}
 
 export function fmtUsd(value) {
     const n = Number(value ?? 0);
@@ -170,23 +127,6 @@ export function fmtUsd(value) {
         currency: 'USD',
         maximumFractionDigits: 6,
     }).format(n);
-}
-
-export function fmtTokens(value) {
-    const n = Number(value ?? 0);
-    if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
-    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
-    return String(n);
-}
-
-export function fmtDuration(ms) {
-    const n = Number(ms ?? 0);
-    if (!n) return '0s';
-    if (n < 1000) return `${Math.round(n)}ms`;
-    if (n < 60_000) return `${(n / 1000).toFixed(1)}s`;
-    const m = Math.floor(n / 60_000);
-    const s = Math.round((n % 60_000) / 1000);
-    return `${m}分${s}秒`;
 }
 
 export function fmtClock(ts) {
@@ -260,48 +200,42 @@ export async function pickWorkspace() {
     return state?.path;
 }
 
+export async function renameProject(path, title) {
+    const state = await api('/api/workspaces/project', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path, title }),
+    });
+    if (Array.isArray(state.projects)) {
+        projects.value = state.projects;
+    }
+}
+
+/** Conversation 最新一条 Goal run（按 createdAt） */
+export function latestRun(conversation) {
+    const runs = conversation?.runs || [];
+    return runs.length > 0 ? runs[runs.length - 1] : null;
+}
+
 let eventSource = null;
 let refreshTimer = null;
 
-function refreshLater(sessionId) {
+function refreshLater(rootGoalId) {
     if (refreshTimer) {
         clearTimeout(refreshTimer);
     }
     refreshTimer = setTimeout(() => {
         refreshTimer = null;
-        void refreshDetail(sessionId);
+        void refreshDetail(rootGoalId);
     }, 250);
 }
 
-async function refreshDetail(sessionId) {
+async function refreshDetail(rootGoalId) {
     try {
-        detail.value = await api(`/api/sessions/${sessionId}/timeline`);
-        recompute();
+        detail.value = await api(`/api/sessions/${rootGoalId}/timeline`);
         await loadConversations();
-        await loadConversationFlow();
     } catch {
         // 会话被清理或后端临时不可用时保留旧快照
-    }
-}
-
-/** 加载当前 Conversation 全部 Session 的完整时间线（含 Steps），供连续对话流渲染 */
-export async function loadConversationFlow() {
-    const conversationId = currentConversation.value;
-    const conversation = conversations.value.find(
-        (item) => item.conversationId === conversationId,
-    );
-    if (!conversationId || !conversation) {
-        flowSessions.value = [];
-        return;
-    }
-    try {
-        const sessionIds = (conversation.sessions || []).map((s) => s.sessionId);
-        const details = await Promise.all(
-            sessionIds.map((sessionId) => api(`/api/sessions/${sessionId}/timeline`)),
-        );
-        flowSessions.value = details.filter(Boolean);
-    } catch {
-        flowSessions.value = [];
     }
 }
 
@@ -316,13 +250,13 @@ export function stopEvents() {
     }
 }
 
-export function watchEvents(sessionId) {
+export function watchEvents(rootGoalId) {
     stopEvents();
     if (typeof EventSource === 'undefined') {
         return;
     }
     const source = new EventSource(
-        `${API_BASE}/api/events/${encodeURIComponent(sessionId)}?follow=1`,
+        `${API_BASE}/api/events/${encodeURIComponent(rootGoalId)}?follow=1`,
     );
     const consume = (raw) => {
         try {
@@ -331,7 +265,7 @@ export function watchEvents(sessionId) {
                 events.list.push(event);
             }
             if (REFRESH_EVENT_TYPES.has(event.type)) {
-                refreshLater(sessionId);
+                refreshLater(rootGoalId);
             }
         } catch {
             // 忽略无法解析的帧
@@ -343,29 +277,17 @@ export function watchEvents(sessionId) {
     eventSource = source;
 }
 
-export async function loadEvents(sessionId) {
+export async function loadEvents(rootGoalId) {
     try {
-        events.list = await api(`/api/events/${sessionId}?limit=5000`);
+        events.list = await api(`/api/events/${rootGoalId}?limit=5000`);
     } catch {
         events.list = [];
     }
 }
 
-export async function select(sessionId) {
-    current.value = sessionId;
-    watchEvents(sessionId);
-    await Promise.all([loadDetail(sessionId), loadEvents(sessionId)]);
-}
-
-export async function openSession(sessionId) {
-    await select(sessionId);
-    ui.view = 'chat';
-}
-
-async function loadDetail(sessionId) {
+async function loadDetail(rootGoalId) {
     try {
-        detail.value = await api(`/api/sessions/${sessionId}/timeline`);
-        recompute();
+        detail.value = await api(`/api/sessions/${rootGoalId}/timeline`);
         ui.err = null;
     } catch (error) {
         detail.value = null;
@@ -373,63 +295,39 @@ async function loadDetail(sessionId) {
     }
 }
 
-export function recompute() {
-    const d = detail.value;
-    if (!d) return;
-    let steps = 0;
-    let tokens = 0;
-    let cost = 0;
-    let llmMs = 0;
-    let ttftSum = 0;
-    let toolCalls = 0;
-    for (const turn of d.turns || []) {
-        for (const step of turn.steps || []) {
-            steps += 1;
-            if (step.kind === 'tool_call') {
-                toolCalls += 1;
-            }
-            const usage = step.usage;
-            if (usage) {
-                tokens += (usage.vendor?.inputTokens || 0) + (usage.vendor?.outputTokens || 0);
-                cost += usage.cost?.totalCostUsd || 0;
-                llmMs += usage.timing?.totalMs || 0;
-                ttftSum += usage.timing?.ttftMs || 0;
-            }
-        }
-    }
-    const firstCapacity = (d.turns || []).map((t) => t.capacity).filter(Boolean)[0];
-    metrics.turns = (d.turns || []).length;
-    metrics.steps = steps;
-    metrics.tokens = tokens;
-    metrics.cost = cost;
-    metrics.budget = d.goal?.budget?.maxCostUsd ?? null;
-    metrics.llmMs = llmMs;
-    metrics.ttftSum = ttftSum;
-    metrics.toolCalls = toolCalls;
-    metrics.model = firstCapacity?.model?.modelId || '-';
-    metrics.provider = firstCapacity?.model?.providerId || '-';
+/** 打开一棵 Goal 树（run）：拉取时间线快照并订阅事件 */
+export async function openRun(rootGoalId) {
+    if (!rootGoalId) return;
+    current.value = rootGoalId;
+    watchEvents(rootGoalId);
+    await Promise.all([loadDetail(rootGoalId), loadEvents(rootGoalId)]);
 }
 
-export async function createAndRun(exec, goalOverrides, workspacePath, conversationId) {
-    const text = goalOverrides?.statement?.trim() || '';
+/** 打开 Conversation（默认选中最新一条 run） */
+export async function openConversation(conversationId) {
+    currentConversation.value = conversationId;
+    const conversation = conversations.value.find((item) => item.conversationId === conversationId);
+    const run = latestRun(conversation);
+    if (run) {
+        await openRun(run.rootGoalId);
+    } else {
+        current.value = null;
+        detail.value = null;
+        stopEvents();
+    }
+}
+
+/**
+ * 新建 Goal 会话：POST /api/sessions（create）→ 可选立即 POST run。
+ * returns rootGoalId
+ */
+export async function createRun({ input, userId, workspacePath, conversationId, exec = true }) {
+    const text = String(input ?? '').trim();
     if (!text) return null;
     busy.value = true;
     ui.err = null;
     try {
-        const goal = goalOverrides
-            ? {
-                  permissionCeiling: goalOverrides.permissionCeiling,
-                  maxCostUsd: goalOverrides.maxCostUsd || undefined,
-                  maxSteps: goalOverrides.maxSteps || undefined,
-                  loopMode: goalOverrides.loopMode,
-              }
-            : undefined;
-        const body = {
-            input: text,
-            userId: goalOverrides?.userId,
-            goal,
-            workspacePath,
-        };
+        const body = { input: text, userId, workspacePath };
         if (conversationId) {
             body.conversationId = conversationId;
         }
@@ -442,10 +340,9 @@ export async function createAndRun(exec, goalOverrides, workspacePath, conversat
             currentConversation.value = created.conversationId;
         }
         await loadConversations();
-        await select(created.sessionId);
-        await loadConversationFlow();
+        await openRun(created.sessionId);
         if (exec) {
-            await runCurrent(created.sessionId);
+            await executeRun(created.sessionId);
         }
         return created.sessionId;
     } catch (error) {
@@ -457,19 +354,26 @@ export async function createAndRun(exec, goalOverrides, workspacePath, conversat
     }
 }
 
-export async function runCurrent(sessionId) {
-    if (!sessionId) return;
+/** 执行当前 Goal run（POST /api/sessions/:id/run），并把 tasks 摘要记入内存 */
+export async function executeRun(rootGoalId) {
+    if (!rootGoalId) return;
     busy.value = true;
     ui.err = null;
     try {
-        await api(`/api/sessions/${sessionId}/run`, {
+        const result = await api(`/api/sessions/${rootGoalId}/run`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: '{}',
         });
+        const tasks = Array.isArray(result.tasks) ? result.tasks : [];
+        const last = tasks[tasks.length - 1];
+        runOutcomes[rootGoalId] = {
+            ok: Boolean(result.ok),
+            finalMessage: last?.finalMessage || last?.errorMessage || '',
+            taskCount: tasks.length,
+        };
         await loadConversations();
-        await select(sessionId);
-        await loadConversationFlow();
+        await loadDetail(rootGoalId);
     } catch (error) {
         ui.err = String(error);
     } finally {
@@ -491,45 +395,16 @@ export async function deleteConversationById(conversationId) {
         current.value = null;
         currentConversation.value = null;
         detail.value = null;
-        flowSessions.value = [];
         stopEvents();
     }
     await api(`/api/conversations/${conversationId}`, { method: 'DELETE' });
     await loadConversations();
 }
 
-export async function renameProject(path, title) {
-    const state = await api('/api/workspaces/project', {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ path, title }),
-    });
-    if (Array.isArray(state.projects)) {
-        projects.value = state.projects;
-    }
-}
-
-export async function sendFeedback(sessionId, rating, content) {
-    await api(`/api/sessions/${sessionId}/feedback`, {
+export async function sendFeedback(rootGoalId, rating, content) {
+    await api(`/api/sessions/${rootGoalId}/feedback`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ type: 'output_rating', rating, content }),
     });
-}
-
-export async function loadProfile(userId) {
-    try {
-        return await api(`/api/users/${encodeURIComponent(userId)}/profile`);
-    } catch {
-        return null;
-    }
-}
-
-export async function loadLedger() {
-    try {
-        ledger.value = await api('/api/ledger?limit=200');
-        ui.err = null;
-    } catch (error) {
-        ui.err = String(error);
-    }
 }
