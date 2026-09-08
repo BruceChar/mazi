@@ -59,6 +59,39 @@ export interface PiAiBridgeOptions {
     apiKey?: string;
 }
 
+/** 厂商侧工具名须匹配 ^[a-zA-Z0-9_-]+$（DeepSeek/OpenAI 系均校验）；点号等字符映射为下划线 */
+const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function sanitizeToolName(name: string): string {
+    if (TOOL_NAME_PATTERN.test(name)) return name;
+    const sanitized = name.replace(/[^a-zA-Z0-9_-]+/g, '_');
+    return sanitized.length > 0 ? sanitized : 'tool';
+}
+
+/** 由 request 建 wire(厂商) → canonical 名映射；同一名直连，已 sanitize 的 wire 回映到 canonical */
+function toolNameMap(request: LLMRequest): Map<string, string> {
+    const map = new Map<string, string>();
+    const add = (name: string): void => {
+        if (!name) return;
+        map.set(name, name);
+        const wire = sanitizeToolName(name);
+        if (wire !== name && !map.has(wire)) {
+            map.set(wire, name);
+        }
+    };
+    for (const tool of request.tools ?? []) add(tool.name);
+    for (const message of request.messages) {
+        if (message.role === 'assistant') {
+            for (const call of message.toolCalls ?? []) add(call.name);
+        }
+    }
+    return map;
+}
+
+function toCanonicalName(name: string, map: Map<string, string>): string {
+    return map.get(name) ?? map.get(sanitizeToolName(name)) ?? name;
+}
+
 /** 创建 pi-ai 桥接：返回实现 LLMProvider 契约的对象（工厂函数，无 class）。 */
 export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
     const providerId = options.providerId;
@@ -89,19 +122,21 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
         async ask(request: LLMRequest): Promise<LLMResponse> {
             const model = resolveModel(request);
             const context = toPiContext(request, model);
+            const names = toolNameMap(request);
             let message: PiAssistantMessage;
             try {
                 message = await options.models.complete(model, context, toPiOptions(request));
             } catch (error) {
                 throw toProviderErrorFromUnknown(error);
             }
-            return toResponse(message);
+            return toResponse(message, names);
         },
 
         /** 流式调用：pi-ai 事件流 → StreamCompletionEvent；错误以异常终止。 */
         async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
             const model = resolveModel(request);
             const context = toPiContext(request, model);
+            const names = toolNameMap(request);
             let stream: AssistantMessageEventStream;
             try {
                 stream = options.models.stream(model, context, toPiOptions(request));
@@ -127,7 +162,7 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
                                     type: 'tool_call_start',
                                     index: event.contentIndex,
                                     callId: call.id,
-                                    name: call.name,
+                                    name: toCanonicalName(call.name, names),
                                 };
                             }
                             break;
@@ -142,7 +177,7 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
                                     type: 'tool_call_start',
                                     index: event.contentIndex,
                                     callId: call.id,
-                                    name: call.name,
+                                    name: toCanonicalName(call.name, names),
                                 };
                             }
                             yield {
@@ -160,7 +195,7 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
                                     type: 'tool_call_start',
                                     index: event.contentIndex,
                                     callId: event.toolCall.id,
-                                    name: event.toolCall.name,
+                                    name: toCanonicalName(event.toolCall.name, names),
                                 };
                             }
                             yield { type: 'tool_call_stop', index: event.contentIndex };
@@ -220,7 +255,7 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
 
     /* ------------------------- 响应映射：pi AssistantMessage → LLMResponse ------------------------- */
 
-    function toResponse(message: PiAssistantMessage): LLMResponse {
+    function toResponse(message: PiAssistantMessage, names: Map<string, string>): LLMResponse {
         if (message.stopReason === 'error') {
             throw toProviderError(message.errorMessage ?? 'LLM request failed');
         }
@@ -234,7 +269,7 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
             } else if (block.type === 'toolCall') {
                 toolCalls.push({
                     callId: block.id,
-                    name: block.name,
+                    name: toCanonicalName(block.name, names),
                     arguments: block.arguments ?? {},
                 });
             }
@@ -346,12 +381,12 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
                     break; // 回放消息只关心 text / reasoning
             }
         }
-        // 工具调用是独立字段（契约），映射为 pi 的 toolCall 块
+        // 工具调用是独立字段（契约），映射为 pi 的 toolCall 块；名字需厂商合法（wire 形式）
         for (const call of message.toolCalls ?? []) {
             content.push({
                 type: 'toolCall',
                 id: call.callId,
-                name: call.name,
+                name: sanitizeToolName(call.name),
                 arguments: call.arguments,
             });
         }
@@ -373,7 +408,7 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
             results.push({
                 role: 'toolResult',
                 toolCallId: result.callId,
-                toolName: callNameById.get(result.callId) ?? message.name ?? '',
+                toolName: sanitizeToolName(callNameById.get(result.callId) ?? message.name ?? ''),
                 content: [{ type: 'text', text: stringify(result.output) }],
                 isError: result.isError ?? false,
                 timestamp: message.createdAt ?? 0,
@@ -386,7 +421,7 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
 
     function toPiTool(schema: ToolSchema): Tool {
         return {
-            name: schema.name,
+            name: sanitizeToolName(schema.name),
             description: schema.description,
             parameters: toTypeBoxSchema(schema.parameters ?? {}),
         };

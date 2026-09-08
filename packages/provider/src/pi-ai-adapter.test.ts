@@ -142,6 +142,48 @@ describe('pi-ai adapter（新契约：ask/askStream 双入口）', () => {
         );
     });
 
+    it('工具名安全化：canonical(fs.read) → wire(fs_read) 传给厂商（DeepSeek 命名规则）', async () => {
+        let wireName = '';
+        const { bridge } = setupBridge([
+            (context: { tools?: unknown[] }) => {
+                wireName = String(
+                    (context.tools?.[0] as { name?: string } | undefined)?.name ?? '',
+                );
+                return fauxAssistantMessage('done');
+            },
+        ]);
+        await bridge.ask(
+            req([userMsg('读文件')], {
+                tools: [
+                    {
+                        name: 'fs.read',
+                        description: '读文件',
+                        parameters: { type: 'object' },
+                    },
+                ],
+            }),
+        );
+        expect(wireName).toBe('fs_read');
+    });
+
+    it('工具名回映：厂商返回 wire(fs_read) → canonical(fs.read)', async () => {
+        const { bridge } = setupBridge([
+            fauxAssistantMessage(fauxToolCall('fs_read', { path: 'a' }), { stopReason: 'toolUse' }),
+        ]);
+        const res = await bridge.ask(
+            req([userMsg('读文件')], {
+                tools: [
+                    {
+                        name: 'fs.read',
+                        description: '读文件',
+                        parameters: { type: 'object' },
+                    },
+                ],
+            }),
+        );
+        expect(res.toolCalls?.[0]?.name).toBe('fs.read');
+    });
+
     it('client 包装：事件与 stats 在失败路径上工作', async () => {
         const { bridge } = setupBridge([
             fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'rate limit exceeded' }),
