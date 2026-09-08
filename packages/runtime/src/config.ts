@@ -1,12 +1,15 @@
-import type {
-    FeatureFlagDefinition,
-    PermissionLevel,
-    SideEffectScope,
-    ToolExecutionResult,
-} from '@mazi/core';
+import type { PermissionLevel, SideEffectScope } from '@mazi/core';
 import type { PricingSchedule } from '@mazi/provider-runtime';
 
-/** 工具配置：spec（写库/白名单）+ 可选实现（缺省时仅内置 fs.read 可用） */
+/** 工具实现结果（goal 路径执行器消费；与 core ToolExecutionResult 解耦） */
+export interface ToolCallResult {
+    ok: boolean;
+    content?: unknown;
+    error?: string;
+    retryable?: boolean;
+}
+
+/** 工具配置：spec（schema/白名单）+ 可选实现（缺省时仅内置 fs.read 可用） */
 export interface ToolConfig {
     name: string;
     description: string;
@@ -15,7 +18,7 @@ export interface ToolConfig {
     irreversible?: boolean;
     sideEffects: SideEffectScope[];
     /** 缺省实现：仅内置 fs.read（只读 utf8）；其余缺实现 → 调用返回 ok:false */
-    impl?: (args: Record<string, unknown>) => Promise<ToolExecutionResult>;
+    impl?: (args: Record<string, unknown>) => Promise<ToolCallResult>;
 }
 
 /**
@@ -53,24 +56,17 @@ export interface RuntimeConfig {
     /** Provider JSON（driver.type=pi-ai，由 @mazi/provider 解释） */
     providers: ProviderConfig[];
     tools: ToolConfig[];
-    /** 追加/覆盖默认 Flag（按 key） */
-    flags?: FeatureFlagDefinition[];
     /** 事件 JSONL 目录（默认 $EVENT_LOG_DIR 或 ./events） */
     eventDir?: string;
     /** SQLite 文件路径（缺省内存库） */
     dbPath?: string;
-    /** Goal 级选项 */
+    /** Goal 级选项（Goal 坐标系） */
     goal?: {
         permissionCeiling?: PermissionLevel;
+        /** Task 允许的工具白名单（缺省 = 放行全部已配置工具；空数组 = 纯对话） */
         allowedTools?: string[];
-        requiredTools?: { nameOrCapability: string; required: boolean }[];
-        maxSteps?: number;
-        maxCostUsd?: number;
-        successConditions?: string[];
-        loopMode?: 'goal-plan-execute-reflect' | 'goal-plan-execute' | 'react-only';
     };
     systemPrompt?: string;
-    contextWindow?: number;
     consoleEnabled?: boolean;
 }
 

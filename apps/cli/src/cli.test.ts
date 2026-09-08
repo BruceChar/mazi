@@ -39,18 +39,13 @@ describe('parseCli（MVP v1.0 §8 F15）', () => {
 });
 
 describe('loadConfig', () => {
-    it('读取 providers.json/tools.json/flags.json', () => {
+    it('读取 providers.json/tools.json（flags.json 已随旧执行模型停读）', () => {
         const dir = mkdtempSync(join(tmpdir(), 'mazi-cfg-'));
         writeFileSync(join(dir, 'providers.json'), JSON.stringify({ providers: [{ id: 'p1' }] }));
         writeFileSync(join(dir, 'tools.json'), JSON.stringify({ tools: [{ name: 'fs.read' }] }));
-        writeFileSync(
-            join(dir, 'flags.json'),
-            JSON.stringify({ flags: [{ key: 'a', type: 'boolean', defaultValue: true }] }),
-        );
         const cfg = loadConfig(dir);
         expect(cfg.providers).toHaveLength(1);
         expect(cfg.tools).toHaveLength(1);
-        expect(cfg.flags).toHaveLength(1);
         rmSync(dir, { recursive: true, force: true });
     });
     it('缺失文件返回空配置', () => {

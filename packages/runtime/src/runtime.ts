@@ -1,54 +1,22 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type {
-    EventBus,
-    FeatureFlagDefinition,
-    GoalContract,
-    LLMProvider,
-    LLMRequest,
-    MemoryStore,
-    Planner,
-    PolicyEngine,
-    Session,
-    StrategyContext,
-    ToolExecutionResult,
-    ToolInvoker,
-    ToolRegistry,
-    ToolSchema,
-    Turn,
-    UserFeedback,
-    UserInteractionRecord,
-} from '@mazi/core';
+import type { EventBus, Goal, LLMProvider, LLMRequest, Step, Task, ToolSchema } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { PricingSchedule, RoundOutcome } from '@mazi/provider-runtime';
 import { RoundExecutor } from '@mazi/provider-runtime';
-import type { Goal } from '../../core/src/goal-coordinate.js';
 import type { RuntimeConfig } from './config.js';
-import type { ExecutorRoundContext, RoundResult } from './executor/executor.js';
 import type { GoalToolInvoker } from './executor/goal-executor.js';
-import { Executor } from './executor/index.js';
-import { createFlagSnapshot, DEFAULT_FLAGS } from './flags/index.js';
-import { buildGoal } from './goal-factory.js';
 import { type GoalStore, SqliteGoalStore } from './memory/goal-store.js';
-import { SqliteMemoryStore } from './memory/index.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/index.js';
-import { MvpPlanner } from './planner/index.js';
-import type { PlannerRouterSelection } from './planner/planner.js';
-import { PolicyEngineImpl } from './policy/index.js';
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
-import { FullLoopStrategy } from './strategy/index.js';
-import { ContextMeter, CostCalculator } from './usage/index.js';
-import { getRecordBySession, UserProfileRecorder } from './user-profile/index.js';
 
-export interface RunResult {
-    sessionId: string;
-    outcome?: Session['outcome'];
-    summary?: string;
-    totalCostUsd: number;
-    totalTokens: number;
-    turnCount: number;
-    record?: UserInteractionRecord;
+/** 用户反馈载荷（core 旧 UserInteractionRecord 已删；事件契约只取展示字段） */
+export interface FeedbackInput {
+    type: string;
+    content?: string;
+    rating?: number;
+    timestamp: number;
 }
 
 export interface RunOptions {
@@ -59,18 +27,10 @@ export interface RunOptions {
     llmProviders?: Record<string, LLMProvider>;
 }
 
-/** createSession 可覆盖的 Goal 项（webui 新建会话配置） */
-export type SessionGoalOverrides = NonNullable<RuntimeConfig['goal']>;
-
-export interface CreateSessionOptions extends RunOptions {
-    /** GoalContract 生成时覆盖默认配置（permissionCeiling/budget/超时/约束等） */
-    goal?: SessionGoalOverrides;
-}
-
 function fsReadToolImpl(
     args: Record<string, unknown>,
     workspaceRoot?: string,
-): Promise<ToolExecutionResult> {
+): Promise<{ ok: boolean; content?: unknown; error?: string; retryable?: boolean }> {
     const path = typeof args.path === 'string' ? args.path : undefined;
     if (!path) {
         return Promise.resolve({ ok: false, error: '缺少 path 参数' });
@@ -89,73 +49,6 @@ function fsReadToolImpl(
     } catch (error) {
         return Promise.resolve({ ok: false, error: (error as Error).message, retryable: false });
     }
-}
-
-/** 由 ToolConfig 构建 ToolRegistry + ToolInvoker */
-function buildTools(
-    config: RuntimeConfig,
-    workspaceRoot?: string,
-): { registry: ToolRegistry; invoker: ToolInvoker } {
-    const specs = config.tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        parameters: t.parameters,
-        minPermission: t.minPermission,
-        irreversible: t.irreversible,
-        sideEffects: t.sideEffects,
-    }));
-    const impls = new Map<
-        string,
-        (args: Record<string, unknown>) => Promise<ToolExecutionResult>
-    >();
-    for (const t of config.tools) {
-        impls.set(
-            t.name,
-            t.name === 'fs.read'
-                ? (args) => fsReadToolImpl(args, workspaceRoot)
-                : (t.impl ?? defaultNoImpl(t.name)),
-        );
-    }
-    const registry: ToolRegistry = {
-        resolve(requirements) {
-            const byName = new Map(specs.map((s) => [s.name, s]));
-            const tools: typeof specs = [];
-            const missingRequired: string[] = [];
-            const missingOptional: string[] = [];
-            for (const req of requirements) {
-                const spec = byName.get(req.nameOrCapability);
-                if (spec) {
-                    if (!tools.some((t) => t.name === spec.name)) {
-                        tools.push(spec);
-                    }
-                } else if (req.required) {
-                    missingRequired.push(req.nameOrCapability);
-                } else {
-                    missingOptional.push(req.nameOrCapability);
-                }
-            }
-            return { tools, missingRequired, missingOptional };
-        },
-        list() {
-            return [...specs];
-        },
-    };
-    const invoker: ToolInvoker = {
-        async invoke(toolName, args) {
-            const impl = impls.get(toolName);
-            if (!impl) {
-                return { ok: false, error: `工具未实现：${toolName}`, retryable: false };
-            }
-            return impl(args);
-        },
-    };
-    return { registry, invoker };
-}
-
-function defaultNoImpl(
-    name: string,
-): (args: Record<string, unknown>) => Promise<ToolExecutionResult> {
-    return () => Promise.resolve({ ok: false, error: `未注册实现：${name}`, retryable: false });
 }
 
 /** 装配 LLMProvider 池：override 优先；deepseek 经 pi-ai 目录适配（目录不匹配/无 key 在调用期报错，装配期跳过并告警） */
@@ -188,6 +81,7 @@ function buildLlmProviders(config: RuntimeConfig, options: RunOptions): Map<stri
                     ),
                 );
             } catch (error) {
+                // biome-ignore lint/suspicious/noConsole: 装配期跳过告警（面向用户运行日志）
                 console.warn(
                     `[runtime] skip provider '${provider.id}': ${(error as Error).message}`,
                 );
@@ -197,16 +91,16 @@ function buildLlmProviders(config: RuntimeConfig, options: RunOptions): Map<stri
     return map;
 }
 
-const ZERO_PRICING: PricingSchedule = {
-    currency: 'USD',
-    base: { inputPerMTok: 0, outputPerMTok: 0 },
-    tiers: [],
-    effectiveAt: 0,
-    version: '0.0.0-missing',
-};
-
-/** provider-runtime RoundOutcome → executor RoundResult（旧 Step 回注所需最小事实面） */
-function toRoundResult(outcome: RoundOutcome): RoundResult {
+/** provider-runtime RoundOutcome → RoundResult（Step 回注所需最小事实面） */
+function toRoundResult(outcome: RoundOutcome): {
+    text: string;
+    reasoning: string;
+    toolCalls: Array<{ callId: string; toolName: string; arguments: Record<string, unknown> }>;
+    vendorUsage?: import('@mazi/core').VendorUsage;
+    finishReason?: string;
+    ttftMs: number;
+    totalMs: number;
+} {
     let text = '';
     let reasoning = '';
     for (const block of outcome.response.content) {
@@ -241,8 +135,11 @@ function toRoundResult(outcome: RoundOutcome): RoundResult {
     };
 }
 
+const DEFAULT_AGENT_SYSTEM_PROMPT =
+    'You are a helpful agent. Answer conversational questions directly. Only call tools when the user explicitly asks you to read, inspect, modify files, or work with the current workspace.';
+
 /** GoalRunResult → session.ended summary（截断 2000 字符） */
-function goalRunSummary(result: import('./strategy/goal-strategy.js').GoalRunResult): string {
+function goalRunSummary(result: GoalRunResult): string {
     const last = result.tasks[result.tasks.length - 1];
     if (result.rejected && result.rejected.length > 0) {
         return result.rejected.join('；').slice(0, 2000);
@@ -251,66 +148,26 @@ function goalRunSummary(result: import('./strategy/goal-strategy.js').GoalRunRes
     return summary && summary.length > 0 ? summary.slice(0, 2000) : '';
 }
 
-function mergeFlags(config: RuntimeConfig): FeatureFlagDefinition[] {
-    const byKey = new Map(DEFAULT_FLAGS.map((f) => [f.key, f]));
-    for (const extra of config.flags ?? []) {
-        byKey.set(extra.key, extra);
-    }
-    return [...byKey.values()];
-}
-
-function summarizeSession(
-    turns: { turn: Turn; steps: import('@mazi/core').Step[] }[],
-): string | undefined {
-    const last = turns[turns.length - 1];
-    if (!last) {
-        return undefined;
-    }
-    const finalSteps = last.steps.filter((s) => s.status === 'ok');
-    const lastThought = [...finalSteps].reverse().find((s) => s.kind === 'thinking');
-    const content = (lastThought?.payload as { content?: string } | undefined)?.content;
-    return content && content.length > 0 ? content.slice(0, 2000) : undefined;
-}
-
-const DEFAULT_AGENT_SYSTEM_PROMPT =
-    'You are a helpful agent. Answer conversational questions directly. Only call tools when the user explicitly asks you to read, inspect, modify files, or work with the current workspace.';
-const DEFAULT_CHAT_SYSTEM_PROMPT =
-    'You are a helpful assistant. Answer the latest user message directly and completely in the same language as the user. Do not call tools, do not ask for a plan, and do not ask "what do you need help with" unless the question is genuinely ambiguous.';
-
 /**
- * HarnessRuntime（feature F14，MVP 文档 §3.2/§8 F14）：
- * 装配全部模块后对外暴露 run(input)：Session → Goal → FullLoop → 结果；
- * 事件全部经 DefaultEventBus 落盘 JSONL；用户交互记录即时创建并在 session.ended 完成。
+ * HarnessRuntime —— Goal/Task/Step 坐标系运行器（C5 收口后为唯一执行面）。
+ * createGoalSession（intake+work 树落库）→ executeGoalTree（plan→逐 Task，事实经 GoalStore 留痕）；
+ * 事件全部经 DefaultEventBus 落盘 JSONL（sessionId 槽 = rootGoalId，词汇收敛属 C3e/OBS）。
  */
 export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
-    private readonly memory: SqliteMemoryStore;
     private readonly goalStoreDb: GoalStore;
-    private readonly tools: { registry: ToolRegistry; invoker: ToolInvoker };
-    /** providerId → LLMProvider（override 优先；deepseek 经 deepseekAdapter 装配） */
     private readonly llmProviders: Map<string, LLMProvider>;
     private readonly roundExecutor: RoundExecutor;
-    private readonly flags: FeatureFlagDefinition[];
     private readonly config: RuntimeConfig;
     private readonly workspaceRoot?: string;
-    private readonly recorder: UserProfileRecorder;
-    private activeSnapshot?: ReturnType<typeof createFlagSnapshot>;
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
-        this.memory = new SqliteMemoryStore(config.dbPath);
         this.goalStoreDb = new SqliteGoalStore(config.dbPath ?? ':memory:');
-        this.tools = buildTools(config, options.workspaceRoot);
         this.llmProviders = buildLlmProviders(config, options);
         this.roundExecutor = new RoundExecutor();
-        this.flags = mergeFlags(config);
-        this.recorder = new UserProfileRecorder(this.bus, this.memory, {
-            enabled: () => this.activeSnapshot?.isEnabled('user-profile.enabled') ?? true,
-            anonymize: () => this.activeSnapshot?.isEnabled('user-profile.anonymize') ?? false,
-        });
-        this.recorder.start();
         if (config.consoleEnabled ?? false) {
             this.bus.subscribe({}, new ConsoleSink());
         }
@@ -320,25 +177,23 @@ export class HarnessRuntime {
         return this.bus;
     }
 
-    get store(): MemoryStore {
-        return this.memory;
-    }
-
     /** Goal/Task/Step 存储（Goal 会话审计/级联删除） */
     get goalStore(): GoalStore {
         return this.goalStoreDb;
     }
 
+    get currentWorkspaceRoot(): string | undefined {
+        return this.workspaceRoot;
+    }
+
     async close(): Promise<void> {
-        this.recorder.stop();
-        this.memory.close();
         this.goalStoreDb.close();
     }
 
-    /** 创建 Goal 会话（intake 根 + 单 work；单意图快速路径，裁决 D4 快速路径）并持久化 */
+    /** 创建 Goal 会话（intake 根 + 单 work；单意图快速路径，裁决 D4 快速路径）并持久化；发 session.started */
     async createGoalSession(
         input: string,
-        _opts: RunOptions = {},
+        opts: RunOptions = {},
     ): Promise<{ rootGoalId: string; goalId: string }> {
         const rootGoalId = ulid();
         const goalId = ulid();
@@ -399,7 +254,7 @@ export class HarnessRuntime {
                 payload: {
                     rawInput: input,
                     inputTimestamp: Date.now(),
-                    userId: _opts.userId ?? undefined,
+                    userId: opts.userId ?? undefined,
                 },
             }),
         );
@@ -407,7 +262,7 @@ export class HarnessRuntime {
         return { rootGoalId, goalId };
     }
 
-    /** 执行 Goal 树（plan → 逐 Task；事实全部经 goalStore 留痕） */
+    /** 执行 Goal 树（plan → 逐 Task；事实全部经 goalStore 留痕）；发 session.ended */
     async executeGoalTree(rootGoalId: string): Promise<GoalRunResult> {
         const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
         if (goals.length === 0) {
@@ -462,8 +317,8 @@ export class HarnessRuntime {
         rootGoalId: string,
     ): Promise<import('./observability/goal-snapshot.js').GoalTreeSnapshot> {
         const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
-        const tasks: import('../../core/src/goal-coordinate.js').Task[] = [];
-        const steps: import('../../core/src/goal-coordinate.js').Step[] = [];
+        const tasks: Task[] = [];
+        const steps: Step[] = [];
         for (const goal of goals) {
             const goalTasks = await this.goalStoreDb.listTasks(goal.goalId);
             tasks.push(...goalTasks);
@@ -475,8 +330,8 @@ export class HarnessRuntime {
         return snapshotGoalTree(rootGoalId, goals, tasks, steps);
     }
 
-    /** 用户对会话结果的反馈（CLI 交互 / 调用方显式给出） */
-    recordFeedback(sessionId: string, feedback: UserFeedback): void {
+    /** 用户对会话结果的反馈（CLI/调用方显式给出；sessionId = rootGoalId） */
+    recordFeedback(sessionId: string, feedback: FeedbackInput): Promise<void> {
         this.bus.emit(
             newHarnessEvent({
                 type: 'user.feedback.captured',
@@ -485,202 +340,41 @@ export class HarnessRuntime {
                 payload: { feedback },
             }),
         );
+        return this.bus.flush();
     }
 
-    async getRecord(sessionId: string): Promise<UserInteractionRecord | undefined> {
-        return getRecordBySession(this.memory, sessionId);
-    }
-
-    /** @deprecated C5 迁移：新代码用 runGoalSession（Goal/Task/Step 坐标系）；本方法保留兼容旧 Session 路径。
-     *  创建并执行（向后兼容：等效 createSession + executeSession） */
-    async run(input: string, opts: RunOptions = {}): Promise<RunResult> {
-        const created = await this.createSession(input, opts);
-        return this.executeSession(created.sessionId);
-    }
-
-    /** @deprecated C5 迁移：新代码用 createGoalSession（Goal 坐标系）。保留兼容旧 Session 路径：
-     *  创建会话：构建 Goal/Flag 快照并持久化（不执行），记录即时为 recording（webui 会话列表可先出现空会话） */
-    async createSession(
-        input: string,
-        opts: CreateSessionOptions = {},
-    ): Promise<{ sessionId: string }> {
-        const sessionId = ulid();
-        const goal = buildGoal(sessionId, input, this.config, opts.goal);
-        if (this.workspaceRoot) {
-            goal.constraints.push({
-                kind: 'data-boundary',
-                rule: `workspace-root:${this.workspaceRoot}`,
-                description: '文件权限默认限制在当前工作区内',
-            });
-        }
-        const ctxFlags = { sessionId, userId: opts.userId, goalTags: goal.strategyHints };
-        const snapshot = createFlagSnapshot(this.flags, ctxFlags);
-        this.activeSnapshot = snapshot;
-        const session: Session = {
-            sessionId,
-            rawIntent: input,
-            goal,
-            strategyId: 'full-loop',
-            state: 'running',
-            turns: [],
-            flagSnapshot: snapshot,
-            createdAt: Date.now(),
-        };
-        await this.memory.saveSession(session);
-        this.bus.emit(
-            newHarnessEvent({
-                type: 'session.started',
-                sessionId,
-                attributes: {},
-                payload: {
-                    rawInput: input,
-                    inputTimestamp: Date.now(),
-                    userId: opts.userId,
-                    flagSnapshot: snapshot.values,
-                },
-            }),
-        );
-        await this.bus.flush();
-        await this.waitRecordStarted(sessionId);
-        return { sessionId };
-    }
-
-    /** @deprecated C5 迁移：新代码用 executeGoalTree（Goal 坐标系）。保留兼容旧 Session 路径：
-     *  执行已创建会话：加载现场（Session+flagSnapshot），复用既有编排管线直至 session.ended */
-    async executeSession(sessionId: string): Promise<RunResult> {
-        const session = await this.memory.loadSession(sessionId);
-        if (!session) {
-            throw new Error(`会话不存在：${sessionId}`);
-        }
-        if (session.endedAt !== undefined) {
-            throw new Error(`会话已结束：${sessionId} (outcome=${String(session.outcome)})`);
-        }
-        const goal = session.goal;
-        const snapshot = session.flagSnapshot;
-        this.activeSnapshot = snapshot;
-
-        const plannerImpl = new MvpPlanner({
-            toolRegistry: this.tools.registry,
-            router: { select: () => this.defaultSelection() },
-            bus: this.bus,
-            flagSnapshot: snapshot,
-            sandboxEnabled: true,
-        });
-        const plannerAdapter: Planner = {
-            plan: async (g: GoalContract) => plannerImpl.plan(g).contracts,
-            assembleCapacity: async (turn: Turn) => plannerImpl.assembleCapacity(turn, goal),
-        };
-        const policy: PolicyEngine = new PolicyEngineImpl({
-            goalConstraints: goal.constraints.filter(
-                (constraint) => constraint.kind !== 'data-boundary',
-            ),
-            accumulatedCostUsd: 0,
-        });
-        const executor = new Executor({
-            requestRound: (ctx) => this.requestRound(ctx),
-            policy,
-            memory: this.memory,
-            bus: this.bus,
-            tools: this.tools.invoker,
-            meter: new ContextMeter(),
-            costs: new CostCalculator(),
-            contextWindow: this.config.contextWindow ?? 64000,
-            pricing: (model) => this.pricingOf(model.providerId) ?? ZERO_PRICING,
-            systemPrompt: this.systemPromptFor(goal),
-            promptVersion: '0.1.0',
-        });
-        const strategy = new FullLoopStrategy();
-        const strategyCtx: StrategyContext = {
-            session,
-            planner: plannerAdapter,
-            executor: executor as unknown as StrategyContext['executor'],
-            memory: this.memory,
-            driver: this.firstProvider() ?? ({} as LLMProvider),
-            flags: snapshot,
-            emit: (event) => this.bus.emit(event),
-        };
-        let strategyError: Error | undefined;
-        try {
-            for await (const _event of strategy.run(strategyCtx)) {
-                // 事件已同步至 bus；此处仅消费生成器驱动执行
+    /** Goal 执行的工具面：config.tools → ToolSchema 清单 + GoalToolInvoker + 白名单。
+     *  白名单缺省 = 放行全部已配置工具；显式空数组 = 纯对话（不注入任何工具 schema）。 */
+    private goalExecutionConfig(): {
+        tools: ToolSchema[];
+        invoker: GoalToolInvoker;
+        allowedTools: string[];
+    } {
+        const allowed = this.config.goal?.allowedTools;
+        const tools: ToolSchema[] = this.config.tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            parameters: (t.parameters ?? undefined) as ToolSchema['parameters'],
+        }));
+        const names = allowed === undefined ? tools.map((t) => t.name) : allowed;
+        const selected = tools.filter((t) => names.includes(t.name));
+        const invoke: GoalToolInvoker['invoke'] = async (toolName, args) => {
+            if (toolName === 'fs.read') {
+                const res = await fsReadToolImpl(args, this.workspaceRoot);
+                return res.ok
+                    ? { ok: true, content: String(res.content ?? '') }
+                    : { ok: false, content: '', error: res.error ?? 'tool failed' };
             }
-        } catch (error) {
-            strategyError = error as Error;
-        }
-        const turnSteps: { turn: Turn; steps: import('@mazi/core').Step[] }[] = [];
-        for (const turn of session.turns) {
-            turnSteps.push({ turn, steps: await this.memory.listSteps(turn.turnId) });
-        }
-        const last = session.turns[session.turns.length - 1];
-        const outcome: Session['outcome'] = strategyError
-            ? 'failed'
-            : last
-              ? last.status === 'succeeded'
-                  ? 'success'
-                  : 'failed'
-              : 'failed';
-        session.state = outcome === 'success' ? 'succeeded' : 'failed';
-        session.outcome = outcome;
-        session.endedAt = Date.now();
-        const summary = strategyError
-            ? `执行异常：${strategyError.message}`
-            : summarizeSession(turnSteps);
-        const metrics = await this.sessionMetrics(session, turnSteps);
-        if (outcome !== 'success') {
-            const providerId = session.turns[0]?.capacity?.model?.providerId;
-            await this.memory.addFailureRecord({
-                recordId: ulid(),
-                sessionId,
-                failureKind: outcome,
-                costUsd: metrics.totalCostUsd,
-                providerId,
-                tags: [],
-                summary: (summary ?? '').slice(0, 240),
-                createdAt: session.endedAt,
-            });
-        }
-        await this.memory.saveSession(session);
-        this.bus.emit(
-            newHarnessEvent({
-                type: 'session.ended',
-                sessionId,
-                payload: {
-                    outcome: { status: outcome, summary },
-                    metrics,
-                    error: strategyError?.message,
-                },
-            }),
-        );
-        await this.bus.flush();
-        await this.waitRecordCompleted(sessionId);
-        return {
-            sessionId,
-            outcome,
-            summary,
-            totalCostUsd: metrics.totalCostUsd,
-            totalTokens: metrics.totalTokens,
-            turnCount: metrics.turnCount,
-            record: await this.getRecord(sessionId),
+            const impl = this.config.tools.find((t) => t.name === toolName)?.impl;
+            if (!impl) {
+                return { ok: false, content: '', error: `工具未实现：${toolName}` };
+            }
+            const res = await impl(args);
+            return res.ok
+                ? { ok: true, content: String(res.content ?? '') }
+                : { ok: false, content: '', error: res.error ?? 'tool failed' };
         };
-    }
-
-    get currentWorkspaceRoot(): string | undefined {
-        return this.workspaceRoot;
-    }
-
-    /** 默认模型选择（planner 路由；按配置顺序取第一个可用 provider 的 driver.model/首模型） */
-    private defaultSelection(): PlannerRouterSelection {
-        const entry = this.config.providers.find((p) => this.llmProviders.has(p.id));
-        if (!entry) {
-            throw new Error(
-                'planner 路由：无可用 provider（需注入 llmProviders 或配置 deepseek adapter）',
-            );
-        }
-        const modelId = entry.driver.model || entry.models?.[0]?.id || '';
-        return {
-            model: { providerId: entry.id, vendor: entry.vendor, modelId },
-            provider: { id: entry.id },
-        };
+        return { tools: selected, invoker: { invoke }, allowedTools: names };
     }
 
     private defaultModelOf(providerId: string): string {
@@ -692,46 +386,14 @@ export class HarnessRuntime {
         return this.config.providers.find((p) => p.id === providerId)?.pricing;
     }
 
-    private firstProvider(): LLMProvider | undefined {
-        return this.llmProviders.values().next().value;
-    }
-
-    /** Goal 执行的工具面：config.tools → ToolSchema 清单 + GoalToolInvoker + 白名单。
-     *  白名单缺省 = 放行全部已配置工具；显式空数组 = 纯对话（不注入任何工具 schema）。 */
-    private goalExecutionConfig(): {
-        tools: ToolSchema[];
-        invoker: GoalToolInvoker;
-        allowedTools: string[];
-    } {
-        const allowed = this.config.goal?.allowedTools;
-        const tools = this.config.tools.map((t) => ({
-            name: t.name,
-            description: t.description,
-            parameters: t.parameters,
-        }));
-        const names = allowed === undefined ? tools.map((t) => t.name) : allowed;
-        const selected = tools.filter((t) => names.includes(t.name));
-        const invoke: GoalToolInvoker['invoke'] = async (toolName, args) => {
-            if (toolName === 'fs.read') {
-                const res = await fsReadToolImpl(args, this.workspaceRoot);
-                return res.ok
-                    ? { ok: true, content: String(res.content ?? '') }
-                    : { ok: false, error: res.error ?? 'tool failed' };
-            }
-            const impl = this.config.tools.find((t) => t.name === toolName)?.impl;
-            if (!impl) {
-                return { ok: false, error: `工具未实现：${toolName}` };
-            }
-            const res = await impl(args);
-            return res.ok
-                ? { ok: true, content: String(res.content ?? '') }
-                : { ok: false, error: res.error ?? 'tool failed' };
-        };
-        return { tools: selected, invoker: { invoke }, allowedTools: names };
-    }
-
     /** 单次 LLM 轮次：经 provider-runtime RoundExecutor（重试/failover 在 provider-runtime 内） */
-    private async requestRound(ctx: ExecutorRoundContext): Promise<RoundResult> {
+    private async requestRound(ctx: {
+        model: { providerId: string; modelId: string };
+        messages: LLMRequest['messages'];
+        systemPrompt?: string;
+        tools: ToolSchema[];
+        signal?: AbortSignal;
+    }): Promise<Awaited<ReturnType<typeof toRoundResult>>> {
         const orderedIds = [
             ctx.model.providerId,
             ...[...this.llmProviders.keys()].filter((id) => id !== ctx.model.providerId),
@@ -759,60 +421,5 @@ export class HarnessRuntime {
         };
         const outcome = await this.roundExecutor.execute(request, candidates);
         return toRoundResult(outcome);
-    }
-
-    /** 按 Session Goal 选择提示词：普通会话（显式清空工具）= 对话式；其余按任务式 */
-    private systemPromptFor(goal: GoalContract): string {
-        const toolFree = Array.isArray(goal.allowedTools) && goal.allowedTools.length === 0;
-        if (toolFree) {
-            return DEFAULT_CHAT_SYSTEM_PROMPT;
-        }
-        return this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT;
-    }
-
-    /** recorder 异步创建记录：轮询至记录已生成（recording/completed，上限 500ms） */
-    private async waitRecordStarted(sessionId: string): Promise<void> {
-        const deadline = Date.now() + 500;
-        while (Date.now() < deadline) {
-            const record = await this.getRecord(sessionId);
-            if (record) {
-                return;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 5));
-        }
-    }
-
-    /** recorder 异步完成记录：轮询至 completed（上限 500ms，避免竞态） */
-    private async waitRecordCompleted(sessionId: string): Promise<void> {
-        const deadline = Date.now() + 500;
-        while (Date.now() < deadline) {
-            const record = await this.getRecord(sessionId);
-            if (record?.status === 'completed') {
-                return;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 5));
-        }
-    }
-
-    private async sessionMetrics(
-        session: Session,
-        turnSteps: { turn: Turn; steps: import('@mazi/core').Step[] }[],
-    ): Promise<{
-        durationMs: number;
-        totalTokens: number;
-        totalCostUsd: number;
-        turnCount: number;
-    }> {
-        const durationMs = (session.endedAt ?? Date.now()) - session.createdAt;
-        let totalTokens = 0;
-        let totalCostUsd = 0;
-        for (const { steps } of turnSteps) {
-            for (const step of steps) {
-                totalTokens +=
-                    (step.usage?.vendor.inputTokens ?? 0) + (step.usage?.vendor.outputTokens ?? 0);
-                totalCostUsd += step.usage?.cost.totalCostUsd ?? 0;
-            }
-        }
-        return { durationMs, totalTokens, totalCostUsd, turnCount: turnSteps.length };
     }
 }

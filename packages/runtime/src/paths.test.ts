@@ -59,26 +59,22 @@ describe('~/.mazi 用户目录路径（设计文档 §1 / U1 U2）', () => {
 });
 
 describe('配置加载与 RuntimeConfig 组装（U1）', () => {
-    it('loadRuntimeConfig 读取 home 下三个 json；缺失为空数组', () => {
+    it('loadRuntimeConfig 读取 home 下 providers/tools json；缺失为空数组', () => {
         const home = tmpHome();
         writeFileSync(join(home, 'providers.json'), JSON.stringify({ providers: [{ id: 'x' }] }));
         writeFileSync(join(home, 'tools.json'), JSON.stringify({ tools: [{ name: 'fs.read' }] }));
         const file = loadRuntimeConfig(home);
         expect(file.providers.map((p) => p.id)).toEqual(['x']);
         expect(file.tools.map((t) => t.name)).toEqual(['fs.read']);
-        expect(file.flags).toEqual([]);
     });
 
     it('toRuntimeConfig：缺省存储落到 home（db=home/mazi.db, events=home/events）', () => {
         const home = tmpHome();
         process.env.MAZI_HOME = home;
-        const cfg = toRuntimeConfig({ providers: [], tools: [], flags: [] });
+        const cfg = toRuntimeConfig({ providers: [], tools: [] });
         expect(cfg.eventDir).toBe(join(home, 'events'));
         expect(cfg.dbPath).toBe(join(home, 'mazi.db'));
-        const cfg2 = toRuntimeConfig(
-            { providers: [], tools: [], flags: [] },
-            { consoleEnabled: true },
-        );
+        const cfg2 = toRuntimeConfig({ providers: [], tools: [] }, { consoleEnabled: true });
         expect(cfg2.dbPath).toBe(join(home, 'mazi.db'));
     });
 

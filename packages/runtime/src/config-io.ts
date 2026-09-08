@@ -1,12 +1,10 @@
 import { readFileSync } from 'node:fs';
-import type { FeatureFlagDefinition } from '@mazi/core';
 import type { ProviderConfig, RuntimeConfig, ToolConfig } from './config.js';
 import { ensureMaziDirs, maziPaths } from './paths.js';
 
 export interface FileRuntimeConfig {
     providers: ProviderConfig[];
     tools: ToolConfig[];
-    flags: FeatureFlagDefinition[];
 }
 
 function readJson(file: string): unknown {
@@ -20,7 +18,7 @@ function readJson(file: string): unknown {
     }
 }
 
-/** 从 MAZI_HOME（或显式目录）加载 providers/tools/flags 配置 */
+/** 从 MAZI_HOME（或显式目录）加载 providers/tools 配置（flags.json 属旧执行模型，已停止读取） */
 export function loadRuntimeConfig(configDir?: string): FileRuntimeConfig {
     const home = configDir && configDir.length > 0 ? configDir : undefined;
     const paths = home ? maziPaths(home) : ensureMaziDirs();
@@ -28,11 +26,9 @@ export function loadRuntimeConfig(configDir?: string): FileRuntimeConfig {
         | { providers?: ProviderConfig[] }
         | undefined;
     const toolsJson = readJson(paths.toolsFile) as { tools?: ToolConfig[] } | undefined;
-    const flagsJson = readJson(paths.flagsFile) as { flags?: FeatureFlagDefinition[] } | undefined;
     return {
         providers: providersJson?.providers ?? [],
         tools: toolsJson?.tools ?? [],
-        flags: flagsJson?.flags ?? [],
     };
 }
 
