@@ -12,10 +12,9 @@ import type {
     TurnContract,
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
-import type { ProviderJson } from '@mazi/provider';
-import { normalizeProvider, SimpleRouter } from '@mazi/provider';
 import { describe, expect, it } from 'vitest';
 import { equalBudgetSlices, MIN_TURN_BUDGET_USD, validateBudgetConservation } from './budget.js';
+import type { PlannerRouterSelection } from './planner.js';
 import { MvpPlanner, PlannerCapacityError, validateTurnContract } from './planner.js';
 
 function stubFlag(): FlagSnapshot {
@@ -38,30 +37,31 @@ function makeBus(): { bus: EventBus; events: HarnessEvent[] } {
     return { bus, events };
 }
 
-function provider(id: string, price: number): ReturnType<typeof normalizeProvider> {
-    const json: ProviderJson = {
-        id,
-        vendor: 'test',
-        tags: ['tools'],
-        models: [
-            {
-                id: `${id}-m`,
-                contextWindow: 64000,
-                supportsTools: true,
-                supportsThinking: true,
-                supportsVision: false,
-            },
-        ],
-        pricing: {
-            currency: 'USD',
-            base: { inputPerMTok: price, outputPerMTok: price },
-            tiers: [],
-            effectiveAt: 0,
-            version: '1.0',
+interface TestProvider {
+    id: string;
+    price: number;
+    modelId: string;
+}
+
+/** 测试 provider 桩（planner 只消费 select 结果；执行/重试已归 provider-runtime） */
+function provider(id: string, price: number): TestProvider {
+    return { id, price, modelId: `${id}-m` };
+}
+
+/** 本地路由：按单价升序选最便宜（旧 SimpleRouter 语义的最小等价；读 tags 忽略） */
+function simpleRouter(providers: TestProvider[]): { select(): PlannerRouterSelection } {
+    return {
+        select(): PlannerRouterSelection {
+            const best = providers.reduce(
+                (acc, p) => (p.price < acc.price ? p : acc),
+                providers[0],
+            );
+            return {
+                model: { providerId: best.id, vendor: 'test', modelId: best.modelId },
+                provider: { id: best.id },
+            };
         },
-        health: { score: 1 },
     };
-    return normalizeProvider(json);
 }
 
 function fsReadSpec(): ToolSpec {
@@ -120,14 +120,10 @@ function goal(partial: Partial<GoalContract>): GoalContract {
     };
 }
 
-function makePlanner(
-    bus: EventBus,
-    registry: ToolRegistry,
-    providers: ReturnType<typeof normalizeProvider>[],
-): MvpPlanner {
+function makePlanner(bus: EventBus, registry: ToolRegistry, providers: TestProvider[]): MvpPlanner {
     return new MvpPlanner({
         toolRegistry: registry,
-        router: new SimpleRouter(providers),
+        router: simpleRouter(providers),
         bus,
         flagSnapshot: stubFlag(),
         sandboxEnabled: true,

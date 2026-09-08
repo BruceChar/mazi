@@ -11,6 +11,7 @@ import type {
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
+import type { ExecutorRoundContext, RoundResult } from '../executor/executor.js';
 import { Executor } from '../executor/index.js';
 import { SqliteMemoryStore } from '../memory/index.js';
 import { PolicyEngineImpl } from '../policy/index.js';
@@ -106,6 +107,56 @@ class FinalDriver implements LLMDriver {
     }
 }
 
+/** driver 事件流 → requestRound（语义同 executor 测试适配） */
+function roundCollect(events: LLMStreamEvent[]): RoundResult {
+    const text: string[] = [];
+    const toolCalls: RoundResult['toolCalls'] = [];
+    let vendorUsage: RoundResult['vendorUsage'];
+    let finishReason: string | undefined;
+    for (const event of events) {
+        switch (event.type) {
+            case 'text-delta':
+                text.push(event.delta);
+                break;
+            case 'tool-call':
+                toolCalls.push(event);
+                break;
+            case 'usage':
+                vendorUsage = event.usage;
+                break;
+            case 'end':
+                finishReason = event.finishReason;
+                break;
+        }
+    }
+    return {
+        text: text.join(''),
+        reasoning: '',
+        toolCalls,
+        vendorUsage,
+        finishReason,
+        ttftMs: 0,
+        totalMs: 1,
+    };
+}
+
+function driverRequestRound(driver: { stream(req: unknown): AsyncIterable<LLMStreamEvent> }) {
+    return async (ctx: ExecutorRoundContext): Promise<RoundResult> => {
+        const events: LLMStreamEvent[] = [];
+        for await (const event of driver.stream({
+            model: { providerId: 'a', vendor: 'test', modelId: 'a-m' },
+            context: {
+                systemPrompt: ctx.systemPrompt,
+                messages: ctx.messages as never,
+                tools: ctx.tools as never,
+            },
+        })) {
+            events.push(event);
+        }
+        return roundCollect(events);
+    };
+}
+
 function capacity(): Capacity {
     return {
         model: { providerId: 'a', vendor: 'test', modelId: 'a-m' },
@@ -169,8 +220,7 @@ describe('recovery（MVP v1.0 §8 F11 / 验收 A9）', () => {
         // 崩溃后重启：新 Executor + 新计数
         let toolInvocations = 0;
         const executor = new Executor({
-            driverFor: () => new FinalDriver(),
-            fallbackModels: () => [{ model: model }],
+            requestRound: driverRequestRound(new FinalDriver()),
             policy: new PolicyEngineImpl({}),
             memory: mem,
             bus: {

@@ -20,6 +20,7 @@ import { ulid } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import { PolicyEngineImpl } from '../policy/index.js';
 import { ContextMeter, CostCalculator } from '../usage/index.js';
+import type { ExecutorRoundContext, RoundResult } from './executor.js';
 import { Executor } from './executor.js';
 
 function stubFlag(): FlagSnapshot {
@@ -230,12 +231,65 @@ function pricing() {
 const modelA: ModelRef = { providerId: 'a', vendor: 'test', modelId: 'a-m' };
 const modelB: ModelRef = { providerId: 'b', vendor: 'test', modelId: 'b-m' };
 
+/** 把旧脚本驱动（事件流）适配为 requestRound（事件 → RoundResult，语义同被删 localRoundCollector） */
+function roundCollect(events: LLMStreamEvent[]): RoundResult {
+    const text: string[] = [];
+    const reasoning: string[] = [];
+    const toolCalls: RoundResult['toolCalls'] = [];
+    let vendorUsage: RoundResult['vendorUsage'];
+    let finishReason: string | undefined;
+    for (const event of events) {
+        switch (event.type) {
+            case 'text-delta':
+                text.push(event.delta);
+                break;
+            case 'reasoning-delta':
+                reasoning.push(event.delta);
+                break;
+            case 'tool-call':
+                toolCalls.push(event);
+                break;
+            case 'usage':
+                vendorUsage = event.usage;
+                break;
+            case 'end':
+                finishReason = event.finishReason;
+                break;
+        }
+    }
+    return {
+        text: text.join(''),
+        reasoning: reasoning.join(''),
+        toolCalls,
+        vendorUsage,
+        finishReason,
+        ttftMs: 0,
+        totalMs: 1,
+    };
+}
+
+function driverRequestRound(driver: { stream(req: unknown): AsyncIterable<LLMStreamEvent> }) {
+    return async (ctx: ExecutorRoundContext): Promise<RoundResult> => {
+        const events: LLMStreamEvent[] = [];
+        for await (const event of driver.stream({
+            model: { providerId: 'a', vendor: 'test', modelId: 'a-m' },
+            context: {
+                systemPrompt: ctx.systemPrompt,
+                messages: ctx.messages as never,
+                tools: ctx.tools as never,
+            },
+        })) {
+            events.push(event);
+        }
+        return roundCollect(events);
+    };
+}
+
 function baseDeps(over: Record<string, unknown> = {}) {
     return {
-        driverFor: () => {
-            throw new Error('no driver');
+        requestRound: async () => {
+            throw new Error('no requestRound');
         },
-        fallbackModels: () => [{ model: modelA }],
         policy: new PolicyEngineImpl({}),
         memory: new MemoryStub(),
         bus: busStub().bus,
@@ -258,11 +312,7 @@ describe('Executor（MVP v1.0 §8 F10）', () => {
         const driver = new SmartDriver();
         const executor = new Executor(
             baseDeps({
-                driverFor: (providerId: string) => {
-                    if (providerId === 'a') return driver;
-                    throw new Error('no driver');
-                },
-                fallbackModels: () => [{ model: modelA }],
+                requestRound: driverRequestRound(driver),
                 memory: mem,
                 bus,
                 tools: {
@@ -327,7 +377,7 @@ describe('Executor（MVP v1.0 §8 F10）', () => {
         }
         const executor = new Executor(
             baseDeps({
-                driverFor: () => new EvilDriver(),
+                requestRound: driverRequestRound(new EvilDriver()),
                 memory: mem,
                 bus,
                 tools: {
@@ -346,17 +396,13 @@ describe('Executor（MVP v1.0 §8 F10）', () => {
         expect(outcome.steps.some((s) => s.status === 'blocked')).toBe(true);
     });
 
-    it('Provider 故障转移：首选失败自动切次优并 emit provider.fallback', async () => {
+    it('单候选成功即完成；failover/重试已上移 provider-runtime（不在此层 emit provider.fallback）', async () => {
         const { bus, events } = busStub();
         const mem = new MemoryStub();
-        const driverB = new SmartDriver();
+        const driver = new SmartDriver();
         const executor = new Executor(
             baseDeps({
-                driverFor: (providerId: string) => {
-                    if (providerId === 'b') return driverB;
-                    throw new Error('scripted-fail-a');
-                },
-                fallbackModels: () => [{ model: modelA }, { model: modelB }],
+                requestRound: driverRequestRound(driver),
                 memory: mem,
                 bus,
                 tools: {
@@ -367,8 +413,8 @@ describe('Executor（MVP v1.0 §8 F10）', () => {
         const cap = capacity();
         const outcome = await executor.executeTurn(makeTurn(), cap);
         expect(outcome.ok).toBe(true);
-        expect(cap.model.providerId).toBe('b');
-        expect(events.some((e) => e.type === 'provider.fallback')).toBe(true);
+        expect(cap.model.providerId).toBe('a');
+        expect(events.some((e) => e.type === 'provider.fallback')).toBe(false);
     });
 
     it('预算 maxSteps 封顶：持续 tool-call 场景 → max-steps', async () => {
@@ -394,7 +440,7 @@ describe('Executor（MVP v1.0 §8 F10）', () => {
         }
         const executor = new Executor(
             baseDeps({
-                driverFor: () => new LoopDriver(),
+                requestRound: driverRequestRound(new LoopDriver()),
                 memory: mem,
                 bus,
             }),
@@ -414,7 +460,7 @@ describe('Executor（MVP v1.0 §8 F10）', () => {
         const driver = new SmartDriver();
         const executor = new Executor(
             baseDeps({
-                driverFor: () => driver,
+                requestRound: driverRequestRound(driver),
                 memory: mem,
                 bus,
                 tools: {
@@ -441,9 +487,6 @@ describe('Executor（MVP v1.0 §8 F10）', () => {
         const mem = new MemoryStub();
         const executor = new Executor(
             baseDeps({
-                driverFor: () => {
-                    throw new Error('boom');
-                },
                 memory: mem,
                 bus,
             }),

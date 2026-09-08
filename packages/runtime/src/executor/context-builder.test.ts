@@ -16,8 +16,8 @@ function step(over: Partial<Step>): Step {
     } as Step;
 }
 
-describe('buildContextMessages（工具轮历史重建）', () => {
-    it('tool 结果沿用同一 tool_call 的 callId（真实厂商要求 tool 紧随 assistant tool_calls）', () => {
+describe('buildContextMessages（工具轮历史重建 · Block 消息模型）', () => {
+    it('tool 结果沿用同一 tool_call 的 callId（tool.results 紧随 assistant.toolCalls）', () => {
         const messages = buildContextMessages([
             step({
                 seq: 0,
@@ -37,13 +37,12 @@ describe('buildContextMessages（工具轮历史重建）', () => {
         expect(messages).toHaveLength(2);
         expect(messages[0]).toMatchObject({
             role: 'assistant',
-            toolCallId: 'call_00_real',
-            name: 'fs.read',
-            arguments: { path: '.' },
+            content: [],
+            toolCalls: [{ callId: 'call_00_real', name: 'fs.read', arguments: { path: '.' } }],
         });
         expect(messages[1]).toMatchObject({
             role: 'tool',
-            toolCallId: 'call_00_real',
+            results: [{ callId: 'call_00_real', output: 'OK' }],
             name: 'fs.read',
         });
     });
@@ -63,11 +62,12 @@ describe('buildContextMessages（工具轮历史重建）', () => {
         });
         expect(built.context.messages[0]).toEqual({
             role: 'user',
-            content: 'how to think',
+            content: [{ type: 'text', text: 'how to think' }],
         });
         expect(built.context.messages[1]).toMatchObject({
             role: 'assistant',
-            content: '我在思考',
+            content: [{ type: 'text', text: '我在思考' }],
         });
+        expect(built.context.systemPrompt).toBe('sys');
     });
 });

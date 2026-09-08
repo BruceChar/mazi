@@ -1,31 +1,45 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { LLMProvider } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from './config.js';
 import { HarnessRuntime } from './runtime.js';
 
-class OfflineDriver {
-    async *stream(_request) {
-        yield { type: 'text-delta', delta: '完成。' };
-        yield { type: 'end', finishReason: 'stop' };
+class OfflineProvider {
+    id = 'pi-a';
+    name = 'offline';
+    defaultModel = 'm';
+    models = [];
+    async ask(_request) {
+        return { model: 'm', content: [{ type: 'text', text: '完成。' }], finishReason: 'stop' };
+    }
+    async *askStream(_request) {
+        yield { type: 'text_delta', text: '完成。' };
+        yield { type: 'finish', finishReason: 'stop' };
     }
 }
 
-class PromptCaptureDriver {
+class PromptCaptureProvider {
+    id = 'pi-a';
+    name = 'capture';
+    defaultModel = 'm';
+    models = [];
     systemPrompt = '';
-
-    async *stream(request) {
-        this.systemPrompt = request.context.systemPrompt ?? '';
-        yield { type: 'text-delta', delta: '你好，我在这里。' };
-        yield { type: 'end', finishReason: 'stop' };
+    async ask(_request) {
+        return { model: 'm', content: [{ type: 'text', text: '你好。' }], finishReason: 'stop' };
+    }
+    async *askStream(request) {
+        this.systemPrompt = request.system ?? '';
+        yield { type: 'text_delta', text: '你好，我在这里。' };
+        yield { type: 'finish', finishReason: 'stop' };
     }
 }
 
-function offlineRuntime() {
-    const rt = Reflect.construct(HarnessRuntime, [cfg()]);
-    rt.drivers.set('pi-a', new OfflineDriver());
-    return rt;
+function offlineRuntime(
+    llmProviders: Record<string, LLMProvider> = { 'pi-a': new OfflineProvider() },
+) {
+    return new HarnessRuntime(cfg(), { llmProviders });
 }
 
 function cfg(): RuntimeConfig {
@@ -137,9 +151,8 @@ describe('createSession / executeSession（run 兼容）', () => {
     });
 
     it('普通会话（无工具）使用对话式系统提示词，不要求“完成任务”', async () => {
-        const rt = offlineRuntime();
-        const capture = new PromptCaptureDriver();
-        rt.drivers.set('pi-a', capture);
+        const capture = new PromptCaptureProvider();
+        const rt = offlineRuntime({ 'pi-a': capture });
         const created = await rt.createSession('你好', {
             goal: { allowedTools: [], requiredTools: [] },
         });
