@@ -219,4 +219,57 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
             installPackage: 'ast-grep',
         },
     },
+
+    {
+        name: 'cat',
+        description:
+            'Print the contents of one file. Use to read a plain file when line numbers are not needed (prefer bat when available). If unsure about flags, first run: cat --help',
+        parameters: {
+            type: 'object',
+            properties: {
+                path: { type: 'string', description: 'File path (must be inside the workspace)' },
+            },
+            required: ['path'],
+        },
+        minPermission: 'read-only',
+        sideEffects: [],
+        command: { bin: 'cat', args: ['{path}'] },
+    },
+    {
+        name: 'ls',
+        description:
+            'List the contents of a directory. Use to see what files and directories exist in a folder. If unsure about flags, first run: ls --help',
+        parameters: {
+            type: 'object',
+            properties: {
+                path: {
+                    type: 'string',
+                    description:
+                        'Directory to list (relative to workspace; omit = current directory)',
+                },
+            },
+        },
+        minPermission: 'read-only',
+        sideEffects: [],
+        command: { bin: 'ls', args: ['-1', '{path?}'] },
+    },
+    {
+        name: 'git',
+        description:
+            'Run a git command inside the workspace repository (status/log/diff/show/grep etc). Use for repository state and history. Prefer read-only commands; if unsure about flags, first run: git --help. Arguments are an array of tokens.',
+        parameters: {
+            type: 'object',
+            properties: {
+                args: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description:
+                        'git arguments, one token per array item, e.g. [log, --oneline, -5]',
+                },
+            },
+        },
+        minPermission: 'read-only',
+        sideEffects: [],
+        command: { bin: 'git', args: ['{args?}'] },
+    },
 ];

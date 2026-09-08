@@ -165,10 +165,20 @@ async function runCliTool(
                 const target = resolve(rootAbs, String(value));
                 const inside = target === rootAbs || target.startsWith(rootAbs + sep);
                 if (!inside) {
-                    return { ok: false, error: `path 超出当前工作区权限范围：${String(value)}` };
+                    return { ok: false, error: `path escapes the workspace: ${String(value)}` };
                 }
             }
-            argv.push(String(value));
+            // 数组值展开为多个 argv（如 git status --short）
+            if (Array.isArray(value)) {
+                for (const item of value) {
+                    const part = String(item ?? '');
+                    if (part.length > 0) {
+                        argv.push(part);
+                    }
+                }
+            } else {
+                argv.push(String(value));
+            }
             continue;
         }
         argv.push(token);
