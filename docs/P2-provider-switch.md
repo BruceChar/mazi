@@ -2,6 +2,7 @@
 
 > 依据：AHF_RUNTIME_PROVIDER v1.0；前置：core 编译恢复（4143dd6）。
 > 目标：packages/runtime 编译通过且旧行为测试经映射后全绿；随后 P3 apps/cli/api，P4 清理。
+> **状态：P2–P4 已完成（见提交 52a212e/4b52b7b/9a62a0f 及下述验证），全仓 44 文件 231 用例 + pnpm build 7/7 全绿。**
 
 ## 现状（runtime 构建错误盘点，6 文件 20 处）
 
@@ -33,6 +34,8 @@
    usage 的 cost-calculator 可整体替换为 provider-runtime pricing 断言。
 
 ## 执行顺序（每步独立提交）
+
+> 全部完成：P2a-P2e（context-builder/executor/runtime 装配，52a212e；测试迁移 4b52b7b）、P3（cli 模型发现，9a62a0f）、P4（本清单收口）。capacity/其它 legacy 类型按迁移期标注保留（ModelRef 等仍被旧 Session/Turn/Step 层引用，随后续 core AHF 模块替换移除）。
 
 - [ ] P2a context-builder：新 Block 消息构建 + 单测
 - [ ] P2b executor：LLM 轮次换 RoundExecutor + Step/usage 映射 + 单测
