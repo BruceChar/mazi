@@ -94,12 +94,13 @@ core tsc/lint 绿；runtime/apps 仍引用已删类型 → 全仓 build 红（vi
       observability observer/user-profile/usage/policy/flags/recovery/goal-factory 及其测试全部删除；
       runtime.ts 收口 Goal 方法；index 只导出 Goal 面；config 去除 flags 与旧 goal 覆盖字段（flags.json 停止读取）；
       @mazi/core 无 Session/Turn/Capacity 导出；runtime tsc 恢复 0 error；
-- [ ] 5 webui 适配 goal 树 JSON：Conversation 列表/侧栏摘要/对话流/时间线按 rootGoalId + goal 快照渲染；
-      store.js 由 conversation.sessions[] 改 runs[].rootGoalId 拉 /api/sessions/:id/timeline；去掉 profile/ledger 页；
-      事件类型收敛到 goal 会话事件（live/refresh 白名单随 C3e 词汇落地前仅 session.started/ended/user.feedback.captured）；
-      flow/sidebar 纯函数与测试按新形状改造；
-- [x] 6 全仓绿：pnpm build 7/7 成功（core/provider/provider-runtime/runtime/api/cli/webui）；pnpm test 157 用例全绿；
-      pnpm lint 0 error（7 条历史 warning）；pnpm check 退出码 0。
+- [x] 5 webui 适配（010eb47）：store.js/App.vue 迁到 Goal 坐标系——侧栏 Conversation（runs 列表 + 归属分组/归档）、
+      Goal/Task/Step 树视图（status/kind/时间）、run 追加/重跑/执行/评分、事件流抽屉；移除旧 Session 对话流
+      （flow.ts）与 profile/ledger 面板；run 最终消息仅会话内存展示（持久化内容投影属 C3e 事件/载荷卷）；
+      sidebar.ts 纯函数保留（Conversation 归属语义不变），webui vite build 通过；
+- [x] 6 全仓绿：pnpm build 7/7 成功（core/provider/provider-runtime/runtime/api/cli/webui）；pnpm test 全绿；
+      pnpm lint 0 error（仅历史 warning）；pnpm check 退出码 0。
 
-**当前已知欠账（C3e/OBS 卷与 C4c/d）**：goal 路径尚无 usage 计量/账目与 user 归属（token/cost 字段不产出）；
-事件词汇仍沿用旧 session/turn/step 名（观察/账目卷随 OBS v1.0 收敛为 goal/task/step 四元组后再重建 users/ledger 与实时指标）。
+**当前已知欠账（C3e/OBS 卷）**：goal 路径尚无 usage 计量/账目与 user 归属（token/cost 字段不产出、无持久化
+内容载荷，webui 暂按结构树展示）；事件词汇仍沿用旧 session/turn/step 名（观察/账目卷随 OBS v1.0 收敛为
+goal/task/step 四元组后，重建 users/ledger、实时指标与对话内容流）。
