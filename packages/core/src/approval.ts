@@ -1,4 +1,4 @@
-import type { EffectClass, EffectRule } from './authorization';
+import type { EffectClass, EffectRule } from './authorization.js';
 
 export interface ApprovalRequest {
     contractId: string;

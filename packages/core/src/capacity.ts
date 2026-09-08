@@ -1,11 +1,10 @@
+import type { PermissionLevel, SideEffectScope } from './authorization.js';
 import type { FlagSnapshot } from './flags.js';
 import type { ModelRef } from './provider.js';
 
-/** 权限级别 */
-export type PermissionLevel = 'text' | 'read-only' | 'draft' | 'approved' | 'autonomous';
-
-/** 工具可作用的副作用域 */
-export type SideEffectScope = 'fs' | 'net' | 'process' | 'external-api';
+// PermissionLevel / SideEffectScope 的唯一规范来源是 authorization.ts（授权族词汇表），
+// 本模块只消费并转发（保持既有 '@mazi/core' 公开导出面不变，避免同名类型双份）。
+export type { PermissionLevel, SideEffectScope };
 
 /** 沙箱执行配置 */
 export interface SandboxSpec {

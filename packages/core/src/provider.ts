@@ -147,6 +147,29 @@ export interface TagEconomics {
     sampleSize: number;
 }
 
+/**
+ * JSON-Schema 子集规格 —— 工具参数 schema 的唯一规范类型。
+ * 与 pi-ai Tool.parameters（TSchema）结构透传兼容（core 不导入 pi-ai）；
+ * 与 runtime schema-validator 支持的 mini JSON-Schema 子集关键字一致。
+ * MCP inputSchema 与其直接兼容（TOOL_GATEWAY 设计文档 §6.3：adapter 只做搬运）。
+ */
+export interface JSONSchemaSpec {
+    type?: 'object' | 'array' | 'string' | 'number' | 'boolean' | 'null' | 'integer';
+    properties?: Record<string, JSONSchemaSpec>;
+    items?: JSONSchemaSpec;
+    required?: string[];
+    additionalProperties?: boolean | JSONSchemaSpec;
+    enum?: unknown[];
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    minimum?: number;
+    maximum?: number;
+    description?: string;
+    /** 其余 JSON-Schema 关键字透传（保持与厂商 schema 的双向兼容） */
+    [keyword: string]: unknown;
+}
+
 /** 统一的 LLM 消息 */
 export interface LLMMessage {
     role: 'system' | 'user' | 'assistant' | 'tool';
