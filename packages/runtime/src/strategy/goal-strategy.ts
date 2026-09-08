@@ -1,0 +1,62 @@
+/**
+ * goal-strategy —— Goal 树顺序驱动（C3d）。
+ * planGoalTree → 逐 work Goal 的 Task 顺序执行（executeTask）；react-only 由调用方
+ * 直接给单 work Goal（跳过切分语义由 HarnessRuntime 上层裁决）。执行事实全部经 GoalStore 留痕。
+ */
+
+import type { Goal } from '../../../core/src/goal-coordinate.js';
+import type { GoalExecutorDeps, TaskOutcome } from '../executor/goal-executor.js';
+import { executeTask } from '../executor/goal-executor.js';
+import type { GoalStore } from '../memory/goal-store.js';
+import { planGoalTree } from '../planner/goal-planner.js';
+
+export interface GoalRunDeps {
+    store: GoalStore;
+    requestRound: GoalExecutorDeps['requestRound'];
+    systemPrompt?: string;
+    tools?: GoalExecutorDeps['tools'];
+    model?: GoalExecutorDeps['model'];
+}
+
+export interface GoalRunResult {
+    rootGoalId: string;
+    tasks: TaskOutcome[];
+    ok: boolean;
+    rejected?: string[];
+}
+
+export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<GoalRunResult> {
+    const root = goals.find((g) => g.goalId === g.rootGoalId);
+    const plan = planGoalTree({ goals });
+    if (plan.rejected && plan.rejected.length > 0) {
+        return {
+            rootGoalId: root?.rootGoalId ?? goals[0]?.rootGoalId ?? '',
+            tasks: [],
+            ok: false,
+            rejected: plan.rejected,
+        };
+    }
+    const outcomes: TaskOutcome[] = [];
+    for (const goal of plan.workGoals) {
+        const task = plan.tasks.find((t) => t.goalId === goal.goalId);
+        if (task === undefined) continue;
+        const outcome = await executeTask(
+            {
+                store: deps.store,
+                requestRound: deps.requestRound,
+                ...(deps.systemPrompt !== undefined ? { systemPrompt: deps.systemPrompt } : {}),
+                ...(deps.tools !== undefined ? { tools: deps.tools } : {}),
+                ...(deps.model !== undefined ? { model: deps.model } : {}),
+            },
+            task,
+            goal,
+        );
+        outcomes.push(outcome);
+        if (!outcome.ok) break; // 顺序依赖：首个失败即停（后续可扩展为任务组并行）
+    }
+    return {
+        rootGoalId: root?.rootGoalId ?? goals[0]?.rootGoalId ?? '',
+        tasks: outcomes,
+        ok: outcomes.every((o) => o.ok),
+    };
+}
