@@ -1,6 +1,6 @@
 import type { LLMMessage, LLMRequest } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createProviderClient } from './client.js';
 import { createDeepSeekClient } from './deepseek.js';
 
@@ -16,6 +16,14 @@ const messages: LLMMessage[] = [
 const req: LLMRequest = { messages };
 
 describe('DeepSeek Provider（@mazi/provider）', () => {
+    // 单元测试须在“无厂商 key”的确定性环境运行：屏蔽外部 DEEPSEEK_API_KEY，
+    // 防止开发机/CI 导出 key 时误发真实请求（否则“缺 key → auth”断言依赖机器环境）。
+    beforeAll(() => {
+        vi.stubEnv('DEEPSEEK_API_KEY', '');
+    });
+    afterAll(() => {
+        vi.unstubAllEnvs();
+    });
     it('ask rejects with auth ProviderError when apiKey is missing', async () => {
         const client = createDeepSeekClient({ apiKey: '' });
         await expect(client.ask(req)).rejects.toMatchObject({ code: 'auth' });
