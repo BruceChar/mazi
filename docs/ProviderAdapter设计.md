@@ -1,12 +1,6 @@
-# Provider Adapter 设计（pi-ai 真实厂商接入）
+# Provider Adapter 设计
 
-> **版本**：v0.1
-> **依据**：总体设计 v1.2 §3.4/§9（provider-llm 为唯一外部 LLM 依赖、适配 pi-ai）；MVP 文档 v1.0 ADR D3（真实厂商接入为延后 Feature，接口不变）与附录 A E1。
-> **范围**：provider-llm 仅接入真实厂商 Driver（pi-ai），经现有 `LLMDriver` 防腐层注入，上层（planner/executor/strategy/runtime）零改动。
-
----
-
-## 1. 决策
+1. 决策
 
 | #    | 决策                                                                                                                                                                                                                             | 说明                                                                                                                                                                                                                                                        |
 | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -57,19 +51,19 @@
 
 ## 3. 实现位置
 
-- `packages/provider-llm/src/pi-ai-mapper.ts`：纯映射函数（toContext/toVendorUsage/translateEvent…）
-- `packages/provider-llm/src/pi-ai-driver.ts`：`PiAiDriver implements LLMDriver`（`Models.getModel` 惰性解析、env 校验、`models.stream/complete`）
-- `packages/provider-llm/src/pi-ai-mapper.ts`：纯映射（LLMRequest/Context ⇄ pi-ai Context/Tool/Message；事件翻译）
-- `packages/provider-llm/src/default-registry.ts`：`DefaultDriverRegistry`（type=pi-ai）
+- `packages/provider/src/pi-ai-mapper.ts`：纯映射函数（toContext/toVendorUsage/translateEvent…）
+- `packages/provider/src/pi-ai-driver.ts`：`PiAiDriver implements LLMDriver`（`Models.getModel` 惰性解析、env 校验、`models.stream/complete`）
+- `packages/provider/src/pi-ai-mapper.ts`：纯映射（LLMRequest/Context ⇄ pi-ai Context/Tool/Message；事件翻译）
+- `packages/provider/src/default-registry.ts`：`DefaultDriverRegistry`（type=pi-ai）
 - 测试：pi-ai **faux provider**（`fauxProvider()` + `createModels()`）离线端到端验证 stream/complete 映射，无需真实凭据
 - `packages/runtime/src/runtime.ts`：装配点改用 `DefaultDriverRegistry`
 
 ## 4. 验收（对应 MVP 文档 §6 扩展）
 
-| #     | 验收项       | 标准                                                                                            |
-| ----- | ------------ | ----------------------------------------------------------------------------------------------- |
-| PA-A1 | 契约不变     | planner/executor/strategy 无源码改动（防腐层）；provider-llm 仍是唯一含外部 LLM 依赖的包（A13） |
-| PA-A2 | 映射正确     | 纯函数映射测试覆盖请求/响应/Usage/finishReason（fixture 驱动，离线）                            |
-| PA-A3 | 凭据失败语义 | `apiKeyEnv` 配置但缺失 → 首次调用抛含变量名的错误；未配置不阻塞（本地端点）                  |
-| PA-A4 | 注册分派     | `DefaultDriverRegistry`：type=pi-ai 建 PiAiDriver；缺失或未知 type 抛错                       |
-| PA-A5 | 运行时可切换 | runtime 装配使用 DefaultDriverRegistry，真实厂商配置回归                                        |
+| #     | 验收项       | 标准                                                                                        |
+| ----- | ------------ | ------------------------------------------------------------------------------------------- |
+| PA-A1 | 契约不变     | planner/executor/strategy 无源码改动（防腐层）；provider 仍是唯一含外部 LLM 依赖的包（A13） |
+| PA-A2 | 映射正确     | 纯函数映射测试覆盖请求/响应/Usage/finishReason（fixture 驱动，离线）                        |
+| PA-A3 | 凭据失败语义 | `apiKeyEnv` 配置但缺失 → 首次调用抛含变量名的错误；未配置不阻塞（本地端点）              |
+| PA-A4 | 注册分派     | `DefaultDriverRegistry`：type=pi-ai 建 PiAiDriver；缺失或未知 type 抛错                   |
+| PA-A5 | 运行时可切换 | runtime 装配使用 DefaultDriverRegistry，真实厂商配置回归                                    |

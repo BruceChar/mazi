@@ -8,6 +8,7 @@ export type * from './observability.js';
 export type * from './planner.js';
 export type * from './policy.js';
 export type * from './provider.js';
+export { ProviderError } from './provider.js';
 export type * from './session.js';
 export type * from './strategy.js';
 export type { ToolExecutionResult, ToolInvoker, ToolRegistry, ToolResolution } from './tool.js';
