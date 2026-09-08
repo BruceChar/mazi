@@ -7,6 +7,7 @@
 export type * from './approval.js';
 export type * from './authorization.js';
 export type * from './goal-coordinate.js';
+export { validateAttributionChain, validateCeilingMonotonicity } from './goal-coordinate.js';
 export { ulid } from './id.js';
 export type * from './observability.js';
 export type * from './provider.js';

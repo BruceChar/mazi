@@ -4,7 +4,7 @@
  * 供审计/API/WebUI 消费；事实来自 GoalStore，本模块只投影不存储。
  */
 
-import type { Goal, Step, Task } from '../../../core/src/goal-coordinate.js';
+import type { Goal, Step, Task } from '@mazi/core';
 
 export interface GoalNodeView {
     goalId: string;

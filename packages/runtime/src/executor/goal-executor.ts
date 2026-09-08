@@ -4,8 +4,7 @@
  * 无 toolCalls → 最终回答。Step 归因 taskId/goalId，全部经 GoalStore 持久化。
  */
 
-import type { LLMMessage, ToolSchema } from '@mazi/core';
-import type { Goal, Step, Task } from '../../../core/src/goal-coordinate.js';
+import type { Goal, LLMMessage, Step, Task, ToolSchema } from '@mazi/core';
 import type { GoalStore } from '../memory/goal-store.js';
 import type { ExecutorRoundContext, RoundResult } from './round-types.js';
 

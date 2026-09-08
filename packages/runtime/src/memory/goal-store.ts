@@ -5,7 +5,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite';
-import type { Goal, Step, Task } from '../../../core/src/goal-coordinate.js';
+import type { Goal, Step, Task } from '@mazi/core';
 
 export interface GoalStore {
     saveGoal(goal: Goal): Promise<void>;

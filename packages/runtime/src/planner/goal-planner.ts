@@ -10,7 +10,7 @@ import {
     type Task,
     validateAttributionChain,
     validateCeilingMonotonicity,
-} from '../../../core/src/goal-coordinate.js';
+} from '@mazi/core';
 
 export interface PlanGoalTreeInput {
     /** 树节点：全部 Goal（含 intake/work/委托） */

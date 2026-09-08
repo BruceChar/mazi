@@ -4,7 +4,7 @@
  * 直接给单 work Goal（跳过切分语义由 HarnessRuntime 上层裁决）。执行事实全部经 GoalStore 留痕。
  */
 
-import type { Goal } from '../../../core/src/goal-coordinate.js';
+import type { Goal } from '@mazi/core';
 import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../executor/goal-executor.js';
 import { executeTask } from '../executor/goal-executor.js';
 import type { GoalStore } from '../memory/goal-store.js';
