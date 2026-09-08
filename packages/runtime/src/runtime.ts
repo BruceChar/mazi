@@ -386,6 +386,18 @@ export class HarnessRuntime {
         return this.config.providers.find((p) => p.id === providerId)?.pricing;
     }
 
+    /** 解析候选 provider 的模型 id：命中 ctx 目标且非占位值时用 ctx 模型，否则取配置/默认模型 */
+    private roundModelId(
+        id: string,
+        ctxModel: { providerId: string; modelId: string },
+        provider: LLMProvider,
+    ): string | undefined {
+        if (id === ctxModel.providerId && ctxModel.modelId && ctxModel.modelId !== 'default') {
+            return ctxModel.modelId;
+        }
+        return this.defaultModelOf(id) || provider.defaultModel || undefined;
+    }
+
     /** 单次 LLM 轮次：经 provider-runtime RoundExecutor（重试/failover 在 provider-runtime 内） */
     private async requestRound(ctx: {
         model: { providerId: string; modelId: string };
@@ -404,20 +416,18 @@ export class HarnessRuntime {
             .map(({ id, provider }) => ({
                 providerId: id,
                 provider,
-                modelId:
-                    id === ctx.model.providerId && ctx.model.modelId
-                        ? ctx.model.modelId
-                        : this.defaultModelOf(id),
+                modelId: this.roundModelId(id, ctx.model, provider),
                 pricing: this.pricingOf(id),
             }));
         if (candidates.length === 0) {
             throw new Error(`没有可用 provider：${ctx.model.providerId}`);
         }
+        // 不设 request.model：模型 id 交由 provider-runtime 按候选（candidate.modelId）解析，
+        // 避免占位 modelId（goal-executor 缺省 'default'）覆盖真实模型而报 unknown model。
         const request: LLMRequest = {
             ...(ctx.systemPrompt ? { system: ctx.systemPrompt } : {}),
             messages: ctx.messages,
             ...(ctx.tools.length > 0 ? { tools: ctx.tools } : {}),
-            model: ctx.model.modelId,
         };
         const outcome = await this.roundExecutor.execute(request, candidates);
         return toRoundResult(outcome);
