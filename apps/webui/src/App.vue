@@ -1468,7 +1468,7 @@ onBeforeUnmount(() => {
     padding: 4px 8px 4px 14px;
     cursor: pointer;
     border-radius: var(--radius-sm);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--fg);
     user-select: none;
@@ -1478,7 +1478,7 @@ onBeforeUnmount(() => {
 }
 .exec-goal-tag {
     font-family: ui-monospace, monospace;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--accent);
     background: var(--accent-soft);
@@ -1493,7 +1493,7 @@ onBeforeUnmount(() => {
     white-space: nowrap;
 }
 .exec-goal-count {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--fg-tertiary);
     font-weight: 400;
     flex-shrink: 0;
@@ -1514,7 +1514,7 @@ onBeforeUnmount(() => {
     padding: 3px 8px 3px 14px;
     cursor: pointer;
     border-radius: var(--radius-sm);
-    font-size: 12px;
+    font-size: 13px;
     color: var(--fg-secondary);
     user-select: none;
 }
@@ -1523,7 +1523,7 @@ onBeforeUnmount(() => {
 }
 .exec-task-tag {
     font-family: ui-monospace, monospace;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     color: var(--thinking);
     background: var(--thinking-soft);
@@ -1538,7 +1538,7 @@ onBeforeUnmount(() => {
     white-space: nowrap;
 }
 .exec-task-count {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--fg-tertiary);
     flex-shrink: 0;
 }
@@ -1607,7 +1607,7 @@ onBeforeUnmount(() => {
     padding: 0 8px 0 14px;
     height: 22px; /* 4px visual pad + 14px icon + 4px visual pad */
     box-sizing: border-box;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1;
     color: var(--fg-secondary);
     border-radius: var(--radius-sm);
@@ -1634,14 +1634,14 @@ onBeforeUnmount(() => {
 
 .exec-step-name {
     font-weight: 600;
-    font-size: 12px;
+    font-size: 13px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     color: var(--fg);
     flex-shrink: 0;
 }
 .exec-step-tag {
     font-family: ui-monospace, monospace;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     color: var(--fg-tertiary);
     background: var(--bg-code);
@@ -1654,7 +1654,7 @@ onBeforeUnmount(() => {
 .exec-observation .exec-step-name { color: var(--observation); }
 .exec-step.error .exec-step-name { color: var(--error); }
 .exec-step-summary {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--fg-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1667,14 +1667,14 @@ onBeforeUnmount(() => {
     color: var(--error);
 }
 .exec-step-duration {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
     flex-shrink: 0;
 }
 .exec-step-time {
     margin-left: auto;
-    font-size: 10px;
+    font-size: 11px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
     flex-shrink: 0;
@@ -1690,12 +1690,12 @@ onBeforeUnmount(() => {
     margin: 0;
     padding: 8px 10px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.5;
     color: var(--fg);
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: calc(12px * 1.5 * 12 + 16px); /* 12 rows + padding */
+    max-height: calc(13px * 1.5 * 12 + 16px); /* 12 rows + padding */
     overflow: auto;
 }
 .exec-thinking .exec-step-code-inner {
@@ -1706,7 +1706,7 @@ onBeforeUnmount(() => {
     color: var(--error);
 }
 .exec-step-usage {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
     margin: 0 8px 2px 14px;
