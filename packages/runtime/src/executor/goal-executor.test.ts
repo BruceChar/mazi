@@ -3,16 +3,17 @@ import type { Goal, Task } from '../../../core/src/gts.js';
 import { MemoryGoalStore } from '../memory/goal-store.js';
 import { executeTask } from './goal-executor.js';
 import type { RoundResult } from './round-types.js';
+import { ulid } from '../../../core/src/id.js';
 
 function goal(): Goal {
     return {
-        goalId: 'g1',
-        rootGoalId: 'g1',
+        goalId: ulid(),
+        rootGoalId: ulid(),
         origin: { kind: 'human' },
         kind: 'work',
         statement: '读取 README 并汇报',
         contract: {
-            successConditions: [{ id: 'c1', checkType: 'deterministic' }],
+            successConditions: [{ id: ulid(), checkType: 'deterministic' }],
             failureConditions: [],
             forbiddenResources: [],
             budget: {},
@@ -31,8 +32,8 @@ function goal(): Goal {
 }
 function task(): Task {
     return {
-        taskId: 't1',
-        goalId: 'g1',
+        taskId: ulid(),
+        goalId: ulid(),
         title: '读取 README 并汇报',
         acceptance: { conditions: ['c1'] },
         status: 'pending',
@@ -50,27 +51,31 @@ const okRound: RoundResult = {
 describe('goal-executor（C3c：Task 单轮执行）', () => {
     it('执行产 thinking Step（归因 taskId/goalId）并持久化；Task 置 succeeded', async () => {
         const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
         const outcome = await executeTask(
             {
                 store,
                 requestRound: async () => okRound,
                 systemPrompt: 'sys',
             },
-            task(),
-            goal(),
+            t,
+            g,
         );
         expect(outcome.ok).toBe(true);
         expect(outcome.reason).toBe('final-answer');
         expect(outcome.finalMessage).toContain('README');
-        const steps = await store.listSteps('t1');
+        const steps = await store.listSteps(t.taskId);
         expect(steps).toHaveLength(1);
-        expect(steps[0]?.goalId).toBe('g1');
+        expect(steps[0]?.goalId).toBe(t.goalId);
         expect(steps[0]?.kind).toBe('thinking');
-        expect((await store.loadTask('t1'))?.status).toBe('succeeded');
+        expect((await store.loadTask(t.taskId))?.status).toBe('succeeded');
     });
 
     it('requestRound 抛错 → driver-error，不落 Step', async () => {
         const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
         const outcome = await executeTask(
             {
                 store,
@@ -78,18 +83,20 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
                     throw new Error('all providers failed');
                 },
             },
-            task(),
-            goal(),
+            t,
+            g,
         );
         expect(outcome.ok).toBe(false);
         expect(outcome.reason).toBe('driver-error');
-        expect(await store.listSteps('t1')).toEqual([]);
+        expect(await store.listSteps(t.taskId)).toEqual([]);
     });
 
     it('工具闭环：tool_call → 工具 → 观察 → 回注 → 最终回答（C5-1）', async () => {
         const store = new MemoryGoalStore();
         const seenToolRound = { value: false };
         const roundCalls: string[] = [];
+        const t = task();
+        const g = goal();
         const toolRound: RoundResult = {
             text: '',
             reasoning: '',
@@ -118,13 +125,13 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
                     return okRound;
                 },
             },
-            task(),
-            goal(),
+            t,
+            g,
         );
         expect(outcome.ok).toBe(true);
         expect(outcome.reason).toBe('final-answer');
         expect(roundCalls).toEqual(['fs.read']);
-        const steps = await store.listSteps('t1');
+        const steps = await store.listSteps(t.taskId);
         const kinds = steps.map((s) => s.kind);
         expect(kinds).toContain('tool_call');
         expect(kinds).toContain('observation');

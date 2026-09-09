@@ -56,9 +56,10 @@ describe('goal-strategy（C3d：Goal 树顺序驱动）', () => {
         ]);
         expect(result.ok).toBe(true);
         expect(result.tasks.map((x) => x.task.goalId)).toEqual(['a', 'b']);
-        expect((await store.listSteps('task-a'))[0]?.goalId).toBe('a');
-        expect((await store.listSteps('task-b'))[0]?.goalId).toBe('b');
-        expect((await store.loadTask('task-a'))?.status).toBe('succeeded');
+        const taskIds = result.tasks.map((x) => x.task.taskId);
+        expect((await store.listSteps(taskIds[0]!))[0]?.goalId).toBe('a');
+        expect((await store.listSteps(taskIds[1]!))[0]?.goalId).toBe('b');
+        expect((await store.loadTask(taskIds[0]!))?.status).toBe('succeeded');
     });
 
     it('孤儿 Goal 树：拒绝出计划，返回 rejected', async () => {
