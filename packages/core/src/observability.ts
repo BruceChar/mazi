@@ -64,6 +64,10 @@ export type HarnessEventType =
     | 'policy.denied'
     | 'approval.requested'
     | 'approval.granted'
+    /** session/workspace 批准放行一次调用（V8/审计：每次命中必须留痕） */
+    | 'approval.hit'
+    /** workspace 级批准被撤销（或 workspace 删除） */
+    | 'approval.revoked'
     | 'provider.selected'
     | 'provider.fallback'
     | 'plan.created'
