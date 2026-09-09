@@ -905,7 +905,7 @@ onBeforeUnmount(() => {
                                                             <span class="step-dot" :class="{ collapsed: collapsedSteps.has(row.key), interactive: isStepLong(row) }"></span>
                                                             <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="16" />
                                                             <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
-                                                            <span class="exec-step-name">{{ row.toolName || (row.kind === 'thinking' ? '思考' : row.kind === 'observation' ? '观察' : row.kind) }}</span>
+                                                            <span class="exec-step-name">{{ row.toolName || row.kind }}</span>
                                                             <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
                                                             <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
                                                             <span class="exec-step-time">{{ row.time }}</span>
