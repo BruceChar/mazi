@@ -1649,8 +1649,15 @@ onBeforeUnmount(() => {
     font-family: ui-monospace, monospace;
     margin: 0 8px 2px 14px;
 }
-/* step dot hover → collapse button */
-.step-dot { border-color: var(--fg-tertiary); }
+/* step dot: fixed top aligned to 14px icon center (4px pad + 7px = 11px) */
+.step-dot {
+    top: 7px;
+    transform: none;
+    border-color: var(--fg-tertiary);
+}
+.exec-step-head.clickable:hover .step-dot {
+    top: 3px; /* 16px dot centered at 11px */
+}
 .exec-step.exec-thinking .step-dot { border-color: var(--thinking); }
 .exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
 .exec-step.exec-observation .step-dot { border-color: var(--observation); }
