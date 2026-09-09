@@ -29,21 +29,21 @@ class Logger {
     if (env !== 'local' && env !== 'dev') return;
 
     const ts = new Date().toISOString();
-    const line = `[${ts}] [${this.moduleName}] ${Colors.blue}[DEBUG]${Colors.reset} ${msg}\n`;
+    const line = `${ts} ${this.moduleName} ${Colors.blue}[DEBUG]${Colors.reset} ${msg}\n`;
     process.stdout.write(line);
   }
 
   /** WARN：黄色（额外新增） */
   warn(msg: string): void {
     const ts = new Date().toISOString();
-    const line = `[${ts}] [${this.moduleName}] ${Colors.yellow}[WARN]${Colors.reset} ${msg}\n`;
+    const line = `${ts} ${this.moduleName} ${Colors.yellow}[WARN]${Colors.reset} ${msg}\n`;
     process.stdout.write(line);
   }
 
   /** ERROR：红色，stdout（如果你想stderr可以改成 process.stderr.write） */
   error(msg: string): void {
     const ts = new Date().toISOString();
-    const line = `[${ts}] [${this.moduleName}] ${Colors.red}[ERROR]${Colors.reset} ${msg}\n`;
+    const line = `${ts} ${this.moduleName} ${Colors.red}[ERROR]${Colors.reset} ${msg}\n`;
     process.stderr.write(line);
   }
 }

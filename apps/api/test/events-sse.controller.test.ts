@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { get } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { createTestApp, type TestAppHandle } from './testing/test-app.js';
+import { createTestApp, type TestAppHandle } from '../src/testing/test-app.js';
 
 function collectSse(
     port: number,

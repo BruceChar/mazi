@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { BudgetAllocation, Goal, GoalParent, PermissionLevel } from './goal-coordinate.js';
-import { validateAttributionChain, validateCeilingMonotonicity } from './goal-coordinate.js';
+import type { Goal, GoalParent } from './gts.ts';
+import { validateAttributionChain, validateCeilingMonotonicity } from './gts.ts';
+import { PermissionLevel } from './authorization.ts';
 
 function g(
     id: string,

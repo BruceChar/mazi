@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Goal } from '../../../core/src/goal-coordinate.js';
+import type { Goal } from '../../../core/src/gts.js';
 import { planGoalTree } from './goal-planner.js';
 
 function g(

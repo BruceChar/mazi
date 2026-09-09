@@ -1,5 +1,5 @@
 import type { PermissionLevel } from './authorization.js';
-import type { StepKind } from './goal-coordinate.js';
+import type { StepKind } from './gts.js';
 
 /** 迁移期标签类型（旧 turn-contract 移除后以开放字符串表达） */
 type TaskTag = string & {};

@@ -1,9 +1,7 @@
 /**
- * goal-coordinate —— 归因坐标系契约（docs/core/AHF_CORE_GOAL.md v0.5 实现载体）。
+ * goal-task-step —— 会话观测分层指标（docs/core/AHF_CORE_GTS.md 实现载体）。
  *
- * Goal(意图归因) / Task(目标归因) / Step(动作归因) 取代 Session/Turn/Step；
- * 本模块为迁移期新增文件，cutover 前不并入 '@mazi/core' 公共导出（消费方显式
- * import './goal-coordinate.js'），避免与旧 goal.ts/session.ts 同名冲突。
+ * Goal(意图归因) / Task(目标归因) / Step(动作归因) 
  *
  * 与旧模型映射（C1）：
  *   Session(rawIntent+goal) → root Goal(intake) + work Goal(statement)

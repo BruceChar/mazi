@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Goal, Task } from '../../../core/src/goal-coordinate.js';
+import type { Goal, Task } from '../../../core/src/gts.js';
 import { MemoryGoalStore } from '../memory/goal-store.js';
 import { executeTask } from './goal-executor.js';
 import type { RoundResult } from './round-types.js';

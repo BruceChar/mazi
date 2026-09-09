@@ -5,7 +5,7 @@ import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import type { FastifyInstance } from 'fastify';
-import { AppModule } from './app.module.js';
+import { AppModule } from '../src/app.module.js';
 
 /** 独立 MAZI_HOME（含离线 faux 真实驱动配置），避免触碰 ~/.mazi */
 function makeHome(): { home: string; cleanup: () => void } {

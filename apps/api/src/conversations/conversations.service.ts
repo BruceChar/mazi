@@ -135,7 +135,7 @@ export class ConversationsService {
         };
     }
 
-    /** 更新 Conversation 展示名或归档状态 */
+    /** 更新 Conversation 展示名或 */
     update(conversationId: string, changes: { title?: string; archived?: boolean }): void {
         this.read();
         const conversation = this.state.conversations.find(

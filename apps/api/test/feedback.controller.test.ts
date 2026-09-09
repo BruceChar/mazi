@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { createTestApp, type TestAppHandle } from './testing/test-app.js';
+import { createTestApp, type TestAppHandle } from '../src/testing/test-app.js';
 
 describe('feedback（NG-5 契约对齐旧 node:http）', () => {
     let h: TestAppHandle;
