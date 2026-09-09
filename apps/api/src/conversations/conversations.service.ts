@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { ulid } from '@mazi/core';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
+import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 import {
     type Conversation,
@@ -52,6 +53,7 @@ function normalizeRecords(records: ConversationRecord[]): ConversationRecord[] {
  */
 @Injectable()
 export class ConversationsService {
+    private readonly logger = new Logger('conversations');
     private state: ConversationsFile = { conversations: [] };
 
     constructor(private readonly runtime: ApiRuntimeService) {}
@@ -89,6 +91,9 @@ export class ConversationsService {
             updatedAt: now,
         });
         this.write();
+        this.logger.log(
+            `recordNewRun conversation=${conversationId} rootGoalId=${input.rootGoalId} title=${JSON.stringify(input.input.slice(0, 80))}`,
+        );
         return conversationId;
     }
 
@@ -113,6 +118,7 @@ export class ConversationsService {
         }
         conversation.updatedAt = Date.now();
         this.write();
+        this.logger.debug(`appendRun conversation=${conversationId} rootGoalId=${input.rootGoalId}`);
     }
 
     /** 查找 Conversation 的归属上下文（供创建追加 Goal run 时使用） */
@@ -191,6 +197,9 @@ export class ConversationsService {
         for (const run of conversation.runs) {
             await this.runtime.harness().goalStore.deleteGoalTree(run.rootGoalId);
         }
+        this.logger.log(
+            `remove conversation=${conversationId} runs=${conversation.runs.length} (goal trees cascaded)`,
+        );
     }
 
     /** API 会话列表：按 updatedAt 倒序返回 run 引用（含最新 run）；支持分页与标题筛选 */
@@ -213,6 +222,9 @@ export class ConversationsService {
         const offset = Math.max(0, options.offset ?? 0);
         const limit = options.limit;
         records = records.slice(offset, limit === undefined ? undefined : offset + limit);
+        this.logger.debug(
+            `list offset=${offset} limit=${limit ?? '-'} q=${options.q ? JSON.stringify(options.q) : '-'} → ${records.length} conversations`,
+        );
         return records.map(conversationFromRecord);
     }
 }

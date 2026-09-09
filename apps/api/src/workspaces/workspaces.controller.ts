@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Body, Controller, Delete, Get, Patch, Post } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
+import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 
@@ -11,6 +12,8 @@ const execFileAsync = promisify(execFile);
 /** /api/workspaces：选择当前工作区，文件权限默认限定在所选目录 */
 @Controller('workspaces')
 export class WorkspacesController {
+    private readonly logger = new Logger('workspaces');
+
     constructor(
         private readonly runtime: ApiRuntimeService,
         private readonly conversations: ConversationsService,
@@ -21,6 +24,7 @@ export class WorkspacesController {
         const path =
             typeof body.path === 'string' && body.path.trim() ? body.path.trim() : undefined;
         this.runtime.setWorkspaceRoot(path);
+        this.logger.log(`selectCurrent path=${path ?? '(none)'}`);
         return { path: this.runtime.selectedWorkspaceRoot };
     }
 
@@ -29,10 +33,12 @@ export class WorkspacesController {
         path?: string;
         projects?: { title: string; path: string }[];
     } {
-        return {
+        const result = {
             path: this.runtime.selectedWorkspaceRoot,
             projects: this.runtime.projects(),
         };
+        this.logger.debug(`current path=${result.path ?? '-'} projects=${result.projects?.length ?? 0}`);
+        return result;
     }
 
     /** 重命名项目展示名（body: path/title） */
@@ -43,6 +49,7 @@ export class WorkspacesController {
         const path = typeof body.path === 'string' ? body.path : '';
         const title = typeof body.title === 'string' ? body.title : '';
         this.runtime.renameProject(path, title);
+        this.logger.log(`renameProject path=${JSON.stringify(path)} title=${JSON.stringify(title)}`);
         return { projects: this.runtime.projects() };
     }
 
@@ -54,6 +61,7 @@ export class WorkspacesController {
         const path = typeof body.path === 'string' ? body.path : '';
         this.runtime.removeProjectConfig(path);
         this.conversations.detachWorkspace(path);
+        this.logger.log(`removeProject path=${JSON.stringify(path)} (conversations detached)`);
         return { projects: this.runtime.projects() };
     }
 
@@ -73,6 +81,7 @@ export class WorkspacesController {
                 return { path: undefined };
             }
             this.runtime.setWorkspaceRoot(path);
+            this.logger.log(`pick selected path=${JSON.stringify(path)}`);
             return {
                 path: this.runtime.selectedWorkspaceRoot,
                 projects: this.runtime.projects(),
@@ -83,8 +92,10 @@ export class WorkspacesController {
             }
             // 用户取消选择
             if (String(error).includes('canceled') || String(error).includes('User canceled')) {
+                this.logger.debug('pick cancelled by user');
                 return { path: undefined };
             }
+            this.logger.error(`pick failed: ${String(error)}`);
             throw new ApiError(500, `目录选择失败：${String(error)}`);
         }
     }

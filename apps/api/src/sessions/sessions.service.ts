@@ -1,13 +1,9 @@
 import 'reflect-metadata';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
+import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
-
-/** 运行日志（stdout，风格与 main.ts 一致） */
-function logRun(line: string): void {
-    process.stdout.write(`${line}\n`);
-}
 
 /**
  * SessionsService：Goal 会话（= 一棵 Goal 树）的创建/执行/详情/反馈编排。
@@ -16,6 +12,8 @@ function logRun(line: string): void {
  */
 @Injectable()
 export class SessionsService {
+    private readonly logger = new Logger('sessions');
+
     constructor(
         private readonly runtime: ApiRuntimeService,
         private readonly conversations: ConversationsService,
@@ -58,8 +56,8 @@ export class SessionsService {
         const userId =
             (typeof body.userId === 'string' ? body.userId : undefined) ?? targetContext?.userId;
         const created = await this.runtime.harness().createGoalSession(input, { userId });
-        logRun(
-            `[run] create goal-session ${created.rootGoalId} input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'}`,
+        this.logger.log(
+            `createSession ${created.rootGoalId} input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'} workspace=${workspace ?? '-'}`,
         );
         const projectId =
             targetContext?.projectId ??
@@ -89,27 +87,27 @@ export class SessionsService {
 
     /** POST /api/run：一站式创建 + 执行（Goal 树），进程内串行 */
     async runOnce(input: string, userId?: string) {
-        logRun(`[run] start goal-run input=${JSON.stringify(input.slice(0, 80))}`);
+        this.logger.log(`runOnce input=${JSON.stringify(input.slice(0, 80))}`);
         const started = Date.now();
         const result = await this.runtime.runExclusive(() =>
             this.runtime.harness().runGoalSession(input, { userId }),
         );
-        logRun(
-            `[run] done goal-run ${result.rootGoalId} ms=${Date.now() - started} ok=${result.result.ok} tasks=${result.result.tasks.length}`,
+        this.logger.log(
+            `runOnce done ${result.rootGoalId} ms=${Date.now() - started} ok=${result.result.ok} tasks=${result.result.tasks.length}`,
         );
         return result;
     }
 
     /** POST /api/sessions/:id/run：执行已创建 Goal 会话（进程内串行，busy → 409） */
     async executeSession(sessionId: string) {
-        logRun(`[run] start execute ${sessionId}`);
+        this.logger.log(`executeSession ${sessionId}`);
         const started = Date.now();
         const result = await this.runtime.runExclusive(() =>
             this.runtime.harness().executeGoalTree(sessionId),
         );
         const last = result.tasks[result.tasks.length - 1];
-        logRun(
-            `[run] done execute ${sessionId} ms=${Date.now() - started} ok=${result.ok} tasks=${result.tasks.length} reason=${last?.reason ?? '-'} error=${JSON.stringify((last?.errorMessage ?? '').slice(0, 160))}`,
+        this.logger.log(
+            `executeSession done ${sessionId} ms=${Date.now() - started} ok=${result.ok} tasks=${result.tasks.length} reason=${last?.reason ?? '-'} error=${JSON.stringify((last?.errorMessage ?? '').slice(0, 160))}`,
         );
         return result;
     }
@@ -120,6 +118,9 @@ export class SessionsService {
         if (snapshot.goals.length === 0) {
             throw new ApiError(404, 'session not found');
         }
+        this.logger.debug(
+            `sessionDetail ${sessionId} goals=${snapshot.goals.length} tasks=${snapshot.taskCount} steps=${snapshot.stepCount}`,
+        );
         return { sessionId, ...snapshot };
     }
 
@@ -144,6 +145,9 @@ export class SessionsService {
             rating: typeof body.rating === 'number' ? body.rating : undefined,
         };
         await this.runtime.harness().recordFeedback(sessionId, feedback);
+        this.logger.log(
+            `recordFeedback ${sessionId} type=${feedback.type} rating=${feedback.rating ?? '-'} content=${JSON.stringify((feedback.content ?? '').slice(0, 120))}`,
+        );
         return { ok: true };
     }
 }

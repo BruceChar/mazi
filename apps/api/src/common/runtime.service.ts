@@ -11,6 +11,7 @@ import {
 } from '@mazi/runtime';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ApiError } from './api-error.js';
+import Logger from './log.js';
 
 /**
  * ApiRuntimeService：API 侧组合根（docs/后端与存储设计.md v0.2 §10.2）。
@@ -19,6 +20,7 @@ import { ApiError } from './api-error.js';
  */
 @Injectable()
 export class ApiRuntimeService implements OnApplicationShutdown {
+    private readonly logger = new Logger('runtime');
     private readonly workspaces = new Map<string, HarnessRuntime>();
     private runtime: HarnessRuntime | undefined;
     private running = false;
@@ -46,6 +48,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         if (!this.workspaceRoot) {
             if (!this.runtime) {
                 this.runtime = new HarnessRuntime(this.config);
+                this.logger.debug('harness: default runtime assembled');
             }
             return this.runtime as HarnessRuntime;
         }
@@ -54,6 +57,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 workspaceRoot: this.workspaceRoot,
             });
             this.workspaces.set(this.workspaceRoot, workspaceRuntime);
+            this.logger.debug(`harness: workspace runtime assembled root=${this.workspaceRoot}`);
         }
         return this.workspaces.get(this.workspaceRoot) as HarnessRuntime;
     }
@@ -82,6 +86,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     setWorkspaceRoot(root?: string): void {
         if (!root) {
             this.workspaceRoot = undefined;
+            this.logger.log('setWorkspaceRoot → (none)');
             return;
         }
         const resolved = join(root);
@@ -89,6 +94,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             throw new ApiError(400, '工作区路径不存在或不是目录');
         }
         this.workspaceRoot = resolved;
+        this.logger.log(`setWorkspaceRoot → ${resolved}`);
         const projects = this.readWorkspacesState();
         if (!projects.some((project) => project.path === resolved)) {
             projects.push({ title: basename(resolved), path: resolved });
