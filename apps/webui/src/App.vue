@@ -161,6 +161,34 @@ const execStats = computed(() => {
         totalTokens,
     };
 });
+/** 执行流分层：goal → task → step（元信息来自 goalSnapshot，steps 来自事件流） */
+const execTree = computed(() => {
+    const goals = detail.value?.goals || [];
+    return goals.map((goal) => ({
+        goalId: goal.goalId,
+        statement: goal.statement,
+        status: goal.status,
+        tasks: (goal.tasks || []).map((task) => ({
+            taskId: task.taskId,
+            title: task.title,
+            status: task.status,
+            steps: stepEventRows.value.filter((s) => s.taskId === task.taskId),
+        })),
+    }));
+});
+/** goal/task 折叠状态 */
+const collapsedGoals = ref(new Set());
+const collapsedTasks = ref(new Set());
+function toggleGoal(goalId) {
+    const s = new Set(collapsedGoals.value);
+    s.has(goalId) ? s.delete(goalId) : s.add(goalId);
+    collapsedGoals.value = s;
+}
+function toggleTask(taskId) {
+    const s = new Set(collapsedTasks.value);
+    s.has(taskId) ? s.delete(taskId) : s.add(taskId);
+    collapsedTasks.value = s;
+}
 /** 模型输出时间：取最后一个 step 结束时间，无则用 run 创建时间 */
 function assistantTime(run) {
     const last = stepEventRows.value[stepEventRows.value.length - 1];
@@ -307,8 +335,11 @@ const stepEventRows = computed(() => {
         const durationMs = start ? end - start : null;
         rows.push({
             key: 'ev-' + ev.eventId,
+            stepId: ev.stepId,
+            goalId: p.goalId || '',
+            taskId: p.taskId || '',
             at: end,
-            time: fmtClock(end),
+            time: fmtClockMs(end),
             kind: p.kind || 'step',
             kindLabel: kindLabel(p.kind),
             status: p.status || 'ok',
@@ -325,6 +356,14 @@ const stepEventRows = computed(() => {
     rows.sort((a, b) => a.at - b.at);
     return rows;
 });
+
+/** 带毫秒的时间格式：HH:MM:SS.mmm */
+function fmtClockMs(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const pad = (n, w = 2) => String(n).padStart(w, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+}
 
 function formatDuration(ms) {
     if (ms == null) return '';
@@ -809,26 +848,45 @@ onBeforeUnmount(() => {
                                 <LineIcon :name="showExecution ? 'chevronDown' : 'chevronRight'" size="12" />
                                 <span class="worked-for-line"></span>
                             </div>
-                            <!-- 执行流（Codex 风格时间线，仅当前 run） -->
+                            <!-- 执行流（goal → task → step 分层，可折叠，仅当前 run） -->
                             <template v-if="run.rootGoalId === current && showExecution">
-                                <div v-if="stepEventRows.length" class="exec-stream">
-                                    <div
-                                        v-for="row in stepEventRows"
-                                        :key="row.key"
-                                        class="exec-step"
-                                        :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
-                                    >
-                                        <div class="exec-step-head">
-                                            <LineIcon :name="row.kind === 'thinking' ? 'thinking' : row.kind === 'tool_call' ? 'tool' : 'observation'" size="14" />
-                                            <span class="exec-step-name">{{ row.toolName || (row.kind === 'thinking' ? '思考' : row.kind === 'observation' ? '观察' : row.kind) }}</span>
-                                            <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
-                                            <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
-                                            <span class="exec-step-time">{{ row.time }}</span>
+                                <div v-if="execTree.length" class="exec-stream">
+                                    <div v-for="goal in execTree" :key="goal.goalId" class="exec-goal">
+                                        <div class="exec-goal-head" @click="toggleGoal(goal.goalId)">
+                                            <LineIcon :name="collapsedGoals.has(goal.goalId) ? 'chevronRight' : 'chevronDown'" size="13" />
+                                            <span class="exec-goal-title">{{ goal.statement }}</span>
+                                            <span class="exec-goal-count">{{ goal.tasks.reduce((s, t) => s + t.steps.length, 0) }} steps</span>
                                         </div>
-                                        <div v-if="row.text && row.text.length > 80" class="exec-step-content">{{ row.text }}</div>
-                                        <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
-                                            {{ usageStats(row.usage).total }} tokens
-                                            <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
+                                        <div v-if="!collapsedGoals.has(goal.goalId)" class="exec-goal-body">
+                                            <div v-for="task in goal.tasks" :key="task.taskId" class="exec-task">
+                                                <div class="exec-task-head" @click="toggleTask(task.taskId)">
+                                                    <LineIcon :name="collapsedTasks.has(task.taskId) ? 'chevronRight' : 'chevronDown'" size="12" />
+                                                    <span class="exec-task-title">{{ task.title }}</span>
+                                                    <span class="exec-task-count">{{ task.steps.length }} steps</span>
+                                                </div>
+                                                <div v-if="!collapsedTasks.has(task.taskId)" class="exec-task-body">
+                                                    <div
+                                                        v-for="row in task.steps"
+                                                        :key="row.key"
+                                                        class="exec-step"
+                                                        :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
+                                                    >
+                                                        <div class="exec-step-head">
+                                                            <LineIcon :name="row.kind === 'thinking' ? 'thinking' : row.kind === 'tool_call' ? 'tool' : 'observation'" size="14" />
+                                                            <span class="exec-step-name">{{ row.toolName || (row.kind === 'thinking' ? '思考' : row.kind === 'observation' ? '观察' : row.kind) }}</span>
+                                                            <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
+                                                            <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
+                                                            <span class="exec-step-time">{{ row.time }}</span>
+                                                        </div>
+                                                        <div v-if="row.text && row.text.length > 80" class="exec-step-content">{{ row.text }}</div>
+                                                        <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
+                                                            {{ usageStats(row.usage).total }} tokens
+                                                            <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
+                                                        </div>
+                                                    </div>
+                                                    <div v-if="!task.steps.length" class="empty-hint">（该 Task 尚无 Step）</div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                     <!-- 执行流底部统计栏 -->
@@ -1318,38 +1376,95 @@ onBeforeUnmount(() => {
     white-space: nowrap;
     font-weight: 500;
 }
-/* ---------- Execution stream (Codex-style timeline) ---------- */
+/* ---------- Execution stream (goal → task → step) ---------- */
 .exec-stream {
     display: flex;
     flex-direction: column;
     gap: 0;
     margin: 4px 0;
 }
+.exec-goal {
+    margin-bottom: 6px;
+}
+.exec-goal-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+    user-select: none;
+}
+.exec-goal-head:hover {
+    background: var(--bg-hover);
+}
+.exec-goal-head .line-icon {
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.exec-goal-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.exec-goal-count {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    font-weight: 400;
+    flex-shrink: 0;
+}
+.exec-goal-body {
+    padding-left: 16px;
+    border-left: 1px solid var(--border-soft);
+    margin-left: 6px;
+}
+.exec-task {
+    margin: 2px 0;
+}
+.exec-task-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    color: var(--fg-secondary);
+    user-select: none;
+}
+.exec-task-head:hover {
+    background: var(--bg-hover);
+}
+.exec-task-head .line-icon {
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.exec-task-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.exec-task-count {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.exec-task-body {
+    padding-left: 16px;
+    border-left: 1px solid var(--border-soft);
+    margin-left: 6px;
+}
 .exec-step {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 8px 0 8px 28px;
-    position: relative;
-    border-left: 1px solid var(--border-soft);
-    margin-left: 7px;
+    gap: 3px;
+    padding: 5px 0;
 }
-.exec-step::before {
-    content: '';
-    position: absolute;
-    left: -5px;
-    top: 12px;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--bg);
-    border: 2px solid var(--fg-tertiary);
-}
-.exec-step.exec-thinking::before { border-color: var(--thinking); }
-.exec-step.exec-tool_call::before { border-color: var(--tool); }
-.exec-step.exec-observation::before { border-color: var(--observation); }
-.exec-step.error::before { border-color: var(--error); background: var(--error-soft); }
-
 .exec-step-head {
     display: flex;
     align-items: center;
@@ -1425,9 +1540,7 @@ onBeforeUnmount(() => {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 0 4px 28px;
-    margin-left: 7px;
-    border-left: 1px solid var(--border-soft);
+    padding: 8px 4px 4px;
     font-size: 11px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
