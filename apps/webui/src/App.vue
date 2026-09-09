@@ -890,7 +890,7 @@ onBeforeUnmount(() => {
                                                         :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
                                                     >
                                                         <div class="exec-step-head" :class="{ clickable: isStepLong(row) }" @click="isStepLong(row) && toggleStepCollapse(row.key)">
-                                                            <span class="exec-dot step-dot" :class="{ collapsed: collapsedSteps.has(row.key), interactive: isStepLong(row) }"></span>
+                                                            <span class="step-dot" :class="{ collapsed: collapsedSteps.has(row.key), interactive: isStepLong(row) }"></span>
                                                             <LineIcon :name="row.kind === 'thinking' ? 'thinking' : row.kind === 'tool_call' ? 'tool' : 'observation'" size="14" />
                                                             <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                                                             <span class="exec-step-name">{{ row.toolName || (row.kind === 'thinking' ? '思考' : row.kind === 'observation' ? '观察' : row.kind) }}</span>
@@ -1661,25 +1661,32 @@ onBeforeUnmount(() => {
     font-family: ui-monospace, monospace;
     margin: 0 8px 2px 14px;
 }
-/* step dot: static flex item, align-items:center aligns 8px dot and
-   14px icon on the same center. Negative margin pulls dot onto border. */
+/* step dot: fully independent class, no .exec-dot inheritance */
 .step-dot {
-    position: static;
-    left: auto;
-    top: auto;
-    transform: none;
     width: 8px;
     height: 8px;
-    margin-left: -19px; /* content edge at 16px; dot center at border center (1px) → left edge -3px → margin -19px */
-    flex-shrink: 0;
+    border-radius: 50%;
     border: 2px solid var(--fg-tertiary);
     background: var(--bg);
-    display: block;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    margin-left: -19px;
+    cursor: default;
+    position: relative;
 }
-.step-dot::before,
+.step-dot.interactive { cursor: pointer; }
 .step-dot::after {
-    display: none;
+    content: '−';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 10px;
+    font-weight: 700;
+    color: transparent;
+    line-height: 1;
 }
+.step-dot.collapsed::after { content: '+'; }
 .exec-step.exec-thinking .step-dot { border-color: var(--thinking); }
 .exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
 .exec-step.exec-observation .step-dot { border-color: var(--observation); }
@@ -1687,17 +1694,12 @@ onBeforeUnmount(() => {
 .exec-step-head.clickable:hover .step-dot {
     width: 16px;
     height: 16px;
-    margin-left: -23px; /* 16px: left edge -7px, center 1px */
+    margin-left: -23px;
     border-radius: 4px;
     background: var(--fg-tertiary);
     border-color: var(--fg-tertiary);
-    color: #fff;
-    display: grid;
-    place-items: center;
 }
-.exec-step-head.clickable:hover .step-dot::after {
-    display: block;
-}
+.exec-step-head.clickable:hover .step-dot::after { color: #fff; }
 .exec-step.exec-thinking .exec-step-head.clickable:hover .step-dot { background: var(--thinking); border-color: var(--thinking); }
 .exec-step.exec-tool_call .exec-step-head.clickable:hover .step-dot { background: var(--tool); border-color: var(--tool); }
 .exec-step.exec-observation .exec-step-head.clickable:hover .step-dot { background: var(--observation); border-color: var(--observation); }
