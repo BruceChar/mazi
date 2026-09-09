@@ -6,8 +6,12 @@ import type { FastifyInstance } from 'fastify';
 import { AppModule } from './app.module.js';
 import Logger from './common/log.js';
 import dotenv from 'dotenv';
+import { resolve } from 'node:path';
 
-dotenv.config({ path: '.env' });
+// 配置源：仓库根 .env（monorepo 共享配置，端口等协作值）兜底；
+// 包内 .env（apps/api/.env）作为覆盖层，优先级更高。
+dotenv.config({ path: resolve(import.meta.dirname, '../../../.env'), quiet: true });
+dotenv.config({ path: resolve(import.meta.dirname, '../../.env'), override: true, quiet: true });
 
 const logger = new Logger('main');
 

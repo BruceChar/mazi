@@ -3,18 +3,23 @@ import vue from '@vitejs/plugin-vue';
 import { resolve } from 'node:path';
 
 /**
- * 开发/预览配置：
- * - 端口与代理目标从配置读取（单一配置源 apps/api/.env：MAZI_SERVER_PORT /
- *   MAZI_WEBUI_PORT / MAZI_WEBUI_HOST），启动时经 loadEnv 加载；
- * - 环境变量可覆盖：MAZI_API_TARGET（代理目标）、MAZI_WEBUI_PORT /
- *   MAZI_UI_PORT（UI 端口，后者为兼容旧名）、MAZI_WEBUI_HOST / MAZI_UI_HOST；
- * - 代理用 localhost 而非 127.0.0.1（兼容本机 IPv6/localhost 解析差异，
- *   UI 保持同源，无跨域/CSP 告警）。
+ * 开发/预览配置。
+ *
+ * 配置源：仓库根 .env（monorepo 单一共享配置，apps/api/.env 不参与），
+ * 经 vite 原生 envDir/loadEnv 加载；根 .env 定义：
+ *   - MAZI_SERVER_PORT —— api 端口，/api 代理目标据此推导
+ *   - MAZI_WEBUI_PORT / MAZI_WEBUI_HOST —— UI 监听地址
+ * 环境变量可覆盖：MAZI_API_TARGET（整体覆盖代理目标）、MAZI_WEBUI_PORT /
+ * MAZI_WEBUI_HOST（覆盖 UI 地址；MAZI_UI_* 为兼容旧名）。
+ * 代理用 localhost 而非 127.0.0.1（兼容本机 IPv6/localhost 解析差异，
+ * UI 保持同源，无跨域/CSP 告警）。
  */
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, resolve(__dirname, '../api'), '');
+const ENV_DIR = resolve(__dirname, '../..');
 
-  const apiPort = process.env.MAZI_SERVER_PORT ?? env.MAZI_SERVER_PORT ?? '4317';
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, ENV_DIR, '');
+
+  const apiPort = env.MAZI_SERVER_PORT ?? '4317';
   const API_TARGET =
     process.env.MAZI_API_TARGET ?? `http://localhost:${apiPort}`;
 
@@ -32,6 +37,7 @@ export default defineConfig(({ mode }) => {
   );
 
   return {
+    envDir: ENV_DIR,
     plugins: [vue()],
     server: {
       host: UI_HOST,
