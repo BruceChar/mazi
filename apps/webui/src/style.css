@@ -1065,10 +1065,21 @@ pre {
     overflow: hidden;
 }
 .picker-panel-y {
-    max-height: 200px;
+    max-height: 240px;
     overflow-y: auto;
-    min-width: 180px;
+    min-width: 200px;
     padding: 4px;
+}
+.picker-group-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--fg-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 12px 4px;
+}
+.picker-group-title + .picker-option {
+    margin-top: 0;
 }
 .picker-panel-x {
     display: flex;

@@ -136,7 +136,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     }
 
     /** 配置总览（configOverview 同源） */
-    overview(): { home: string; providers: string[]; hasProvidersFile: boolean } {
+    overview(): { home: string; providers: Array<{ id: string; models: Array<{ id: string; name?: string }> }>; hasProvidersFile: boolean } {
         return configOverview();
     }
 

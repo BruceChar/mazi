@@ -15,7 +15,7 @@ export class HealthController {
             ok: true,
             busy: this.runtime.isRunning,
             storage: { driver: 'sqlite', home: paths.home, db: paths.dbPath },
-            providers: overview.providers,
+            providers: overview.providers.map((p) => p.id),
         };
     }
 

@@ -57,7 +57,7 @@ const REASONING_LEVELS = [
 ];
 const reasoningLevel = ref('high');
 const reasoningLabel = computed(() => REASONING_LEVELS.find((r) => r.value === reasoningLevel.value)?.label || 'High');
-const currentModelLabel = computed(() => modelOptions.value.find((m) => m.id === selectedModel.value)?.label?.replace(/\s+(Low|Medium|High)$/i, '') || selectedModel.value);
+const currentModelLabel = computed(() => modelOptions.value.find((m) => m.id === selectedModel.value)?.label || selectedModel.value);
 const feedbackSent = ref(false);
 const feedbackModal = ref(false);
 const feedbackRating = ref(5);
@@ -91,10 +91,13 @@ const preferences = ref({ ...userPreferences });
 
 const modelOptions = computed(() => {
     const providers = cfg.value?.providers || [];
-    return providers.map((id) => ({
-        id,
-        label: id === 'deepseek' ? 'DeepSeek-V4-Flash High' : id,
-    }));
+    return providers.flatMap((p) =>
+        (p.models || []).map((m) => ({
+            id: m.id,
+            label: m.name || m.id,
+            providerId: p.id,
+        })),
+    );
 });
 
 watch(
@@ -971,15 +974,18 @@ onBeforeUnmount(() => {
                                         {{ currentModelLabel }}
                                     </button>
                                     <div v-if="pickerType === 'model'" class="picker-panel picker-panel-y">
-                                        <div
-                                            v-for="m in modelOptions"
-                                            :key="m.id"
-                                            class="picker-option"
-                                            :class="{ active: m.id === selectedModel }"
-                                            @click="selectedModel = m.id; pickerType = null"
-                                        >
-                                            {{ m.label.replace(/\s+(Low|Medium|High)$/i, '') }}
-                                        </div>
+                                        <template v-for="p in cfg?.providers || []" :key="p.id">
+                                            <div class="picker-group-title">{{ p.vendor || p.id }}</div>
+                                            <div
+                                                v-for="m in p.models || []"
+                                                :key="m.id"
+                                                class="picker-option"
+                                                :class="{ active: m.id === selectedModel }"
+                                                @click="selectedModel = m.id; pickerType = null"
+                                            >
+                                                {{ m.name || m.id }}
+                                            </div>
+                                        </template>
                                     </div>
                                 </div>
                                 <div class="picker-wrap">

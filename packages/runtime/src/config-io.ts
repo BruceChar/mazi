@@ -46,14 +46,24 @@ export function toRuntimeConfig(
     };
 }
 
-export function configOverview(): { home: string; providers: string[]; hasProvidersFile: boolean } {
+export interface ProviderOverview {
+    id: string;
+    vendor?: string;
+    models: Array<{ id: string; name?: string }>;
+}
+
+export function configOverview(): { home: string; providers: ProviderOverview[]; hasProvidersFile: boolean } {
     const paths = maziPaths();
     const providersJson = readJson(paths.providersFile) as
         | { providers?: ProviderConfig[] }
         | undefined;
     return {
         home: paths.home,
-        providers: (providersJson?.providers ?? []).map((p) => p.id),
+        providers: (providersJson?.providers ?? []).map((p) => ({
+            id: p.id,
+            vendor: p.vendor,
+            models: (p.models ?? []).map((m) => ({ id: m.id, name: m.name })),
+        })),
         hasProvidersFile: providersJson !== undefined,
     };
 }
