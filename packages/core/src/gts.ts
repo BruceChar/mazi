@@ -150,8 +150,8 @@ export interface HarnessError {
 export interface Step {
     stepId: ULID;
     /** 归因：taskId 锚定 Task，goalId 锚定 Goal（rootGoalId 沿 parent 链派生） */
-    taskId: string;
-    goalId: string;
+    taskId: ULID;
+    goalId: ULID;
     kind: StepKind;
     payload: StepPayload;
     model?: { providerId: string; modelId: string };
