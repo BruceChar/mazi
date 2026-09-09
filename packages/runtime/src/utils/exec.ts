@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { promisify } from 'node:util';
-import type { ToolResult } from "@mazi/core";
 
 const execFilePromise = promisify(execFile);
 
@@ -14,11 +13,14 @@ export interface RunCliOptions {
   encoding?: string | null;
 }
 
+/** execFile 原生结果（stdout/stderr；默认 encoding 下为 string） */
+export type RunCliResult = Awaited<ReturnType<typeof execFilePromise>>;
+
 export const runcli = async (
   command: string,
   args: string[],
   options?: RunCliOptions,
-): Promise<ToolResult> => {
+): Promise<RunCliResult> => {
   try {
     return await execFilePromise(command, args, options);
   } catch (error) {
