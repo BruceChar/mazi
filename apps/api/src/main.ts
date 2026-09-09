@@ -8,10 +8,10 @@ import Logger from './common/log.js';
 import dotenv from 'dotenv';
 import { resolve } from 'node:path';
 
-// 配置源：仓库根 .env（monorepo 共享配置，端口等协作值）兜底；
-// 包内 .env（apps/api/.env）作为覆盖层，优先级更高。
+// 配置源：包内 .env（apps/api/.env）优先，仓库根 .env 兜底；
+// 两者均不覆盖进程已存在的环境变量（shell/CI 注入优先，dotenv 默认语义）。
+dotenv.config({ path: resolve(import.meta.dirname, '../../.env'), quiet: true });
 dotenv.config({ path: resolve(import.meta.dirname, '../../../.env'), quiet: true });
-dotenv.config({ path: resolve(import.meta.dirname, '../../.env'), override: true, quiet: true });
 
 const logger = new Logger('main');
 
