@@ -1681,6 +1681,13 @@ onBeforeUnmount(() => {
     box-sizing: border-box;
     flex-shrink: 0;
 }
+/* hide +/− text by default so it doesn't offset the circle in flex */
+.step-dot::after {
+    display: none;
+}
+.exec-step-head.clickable:hover .step-dot::after {
+    display: block;
+}
 .exec-step.exec-thinking .step-dot::before { border-color: var(--thinking); }
 .exec-step.exec-tool_call .step-dot::before { border-color: var(--tool); }
 .exec-step.exec-observation .step-dot::before { border-color: var(--observation); }
