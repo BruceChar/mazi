@@ -853,7 +853,7 @@ onBeforeUnmount(() => {
                                 <div v-if="execTree.length" class="exec-stream">
                                     <div v-for="(goal, gIdx) in execTree" :key="goal.goalId" class="exec-goal">
                                         <div class="exec-goal-head" @click="toggleGoal(goal.goalId)">
-                                            <LineIcon :name="collapsedGoals.has(goal.goalId) ? 'chevronRight' : 'chevronDown'" size="13" />
+                                            <span class="exec-dot goal-dot" :class="{ collapsed: collapsedGoals.has(goal.goalId) }"></span>
                                             <span class="exec-goal-tag">G#{{ gIdx + 1 }}</span>
                                             <span class="exec-goal-title">{{ goal.statement }}</span>
                                             <span class="exec-goal-count">{{ goal.tasks.reduce((s, t) => s + t.steps.length, 0) }} steps</span>
@@ -861,7 +861,7 @@ onBeforeUnmount(() => {
                                         <div v-if="!collapsedGoals.has(goal.goalId)" class="exec-goal-body">
                                             <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
                                                 <div class="exec-task-head" @click="toggleTask(task.taskId)">
-                                                    <LineIcon :name="collapsedTasks.has(task.taskId) ? 'chevronRight' : 'chevronDown'" size="12" />
+                                                    <span class="exec-dot task-dot" :class="{ collapsed: collapsedTasks.has(task.taskId) }"></span>
                                                     <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
                                                     <span class="exec-task-title">{{ task.title }}</span>
                                                     <span class="exec-task-count">{{ task.steps.length }} steps</span>
@@ -1390,24 +1390,13 @@ onBeforeUnmount(() => {
     margin-bottom: 6px;
     position: relative;
     border-left: 2px solid var(--border);
-    padding-left: 14px;
-}
-.exec-goal::before {
-    content: '';
-    position: absolute;
-    left: -4px;
-    top: 10px;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--bg);
-    border: 1.5px solid var(--accent);
 }
 .exec-goal-head {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px;
+    padding: 4px 8px 4px 14px;
     cursor: pointer;
     border-radius: var(--radius-sm);
     font-size: 13px;
@@ -1417,10 +1406,6 @@ onBeforeUnmount(() => {
 }
 .exec-goal-head:hover {
     background: var(--bg-hover);
-}
-.exec-goal-head .line-icon {
-    color: var(--fg-tertiary);
-    flex-shrink: 0;
 }
 .exec-goal-tag {
     font-family: ui-monospace, monospace;
@@ -1445,30 +1430,19 @@ onBeforeUnmount(() => {
     flex-shrink: 0;
 }
 .exec-goal-body {
-    padding-left: 0;
+    padding-left: 14px;
 }
 .exec-task {
     margin: 4px 0;
     position: relative;
     border-left: 2px solid var(--border);
-    padding-left: 14px;
-}
-.exec-task::before {
-    content: '';
-    position: absolute;
-    left: -4px;
-    top: 9px;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--bg);
-    border: 1.5px solid var(--thinking);
 }
 .exec-task-head {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 8px;
+    padding: 3px 8px 3px 14px;
     cursor: pointer;
     border-radius: var(--radius-sm);
     font-size: 12px;
@@ -1477,10 +1451,6 @@ onBeforeUnmount(() => {
 }
 .exec-task-head:hover {
     background: var(--bg-hover);
-}
-.exec-task-head .line-icon {
-    color: var(--fg-tertiary);
-    flex-shrink: 0;
 }
 .exec-task-tag {
     font-family: ui-monospace, monospace;
@@ -1504,7 +1474,51 @@ onBeforeUnmount(() => {
     flex-shrink: 0;
 }
 .exec-task-body {
-    padding-left: 0;
+    padding-left: 14px;
+}
+/* ---------- Collapsible dot (default circle, hover → +/- button) ---------- */
+.exec-dot {
+    position: absolute;
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--fg-tertiary);
+    box-sizing: border-box;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    color: transparent;
+    transition: all 0.12s ease;
+    z-index: 2;
+}
+.exec-dot::after {
+    content: '−';
+}
+.exec-dot.collapsed::after {
+    content: '+';
+}
+.goal-dot { border-color: var(--accent); }
+.task-dot { border-color: var(--thinking); }
+.exec-goal-head:hover .exec-dot,
+.exec-task-head:hover .exec-dot {
+    width: 16px;
+    height: 16px;
+    left: -9px;
+    border-radius: 4px;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+.exec-task-head:hover .exec-dot {
+    background: var(--thinking);
+    border-color: var(--thinking);
 }
 .exec-step {
     display: flex;
@@ -1517,13 +1531,14 @@ onBeforeUnmount(() => {
 .exec-step::before {
     content: '';
     position: absolute;
-    left: -4px;
-    top: 10px;
-    width: 6px;
-    height: 6px;
+    left: -5px;
+    top: 9px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: var(--bg);
-    border: 1.5px solid var(--fg-tertiary);
+    border: 2px solid var(--fg-tertiary);
+    box-sizing: border-box;
 }
 .exec-step.exec-thinking::before { border-color: var(--thinking); }
 .exec-step.exec-tool_call::before { border-color: var(--tool); }
