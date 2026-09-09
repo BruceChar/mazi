@@ -49,6 +49,11 @@ describe('~/.mazi 用户目录路径（设计文档 §1 / U1 U2）', () => {
         expect(defaultEventDir()).toBe(join(home, 'events'));
     });
 
+    it('MAZI_HOME 支持 ~ 前缀展开', () => {
+        process.env.MAZI_HOME = '~/.mazi';
+        expect(maziHome()).toBe(join(require('node:os').homedir(), '.mazi'));
+    });
+
     it('ensureMaziDirs 自动创建 home/events', () => {
         const home = tmpHome();
         const p = ensureMaziDirs(home);

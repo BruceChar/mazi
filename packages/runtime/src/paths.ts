@@ -2,10 +2,19 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-/** 用户目录根：MAZI_HOME 环境变量可覆盖，缺省 ~/.mazi（设计文档 UserConfigWebUI v0.1 §1） */
+/** 用户目录根：MAZI_HOME 环境变量可覆盖（支持 ~ 前缀展开），缺省 ~/.mazi（设计文档 UserConfigWebUI v0.1 §1） */
 export function maziHome(): string {
     const override = process.env.MAZI_HOME;
-    return override && override.length > 0 ? override : join(homedir(), '.mazi');
+    return override && override.length > 0
+        ? expandHome(override)
+        : join(homedir(), '.mazi');
+}
+
+/** 展开前导 ~：'~' → <homedir>，'~/x' → <homedir>/x；其余原样返回 */
+function expandHome(path: string): string {
+    if (path === '~') return homedir();
+    if (path.startsWith('~/')) return join(homedir(), path.slice(2));
+    return path;
 }
 
 export const HOME_FILE_PROVIDERS = 'providers.json';
