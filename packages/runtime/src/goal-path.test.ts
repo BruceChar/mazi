@@ -60,16 +60,16 @@ describe('HarnessRuntime Goal 路径（C3e，与旧 Session 路径共存）', ()
         }
     });
 
-    it('Goal 会话事件：createGoalSession 发 session.started；executeGoalTree 发 session.ended（sessionId=rootGoalId）', async () => {
+    it('Goal 生命周期事件：createGoalSession 发 goal.started；executeGoalTree 发 goal.ended（rootGoalId 锚定）', async () => {
         const rt = new HarnessRuntime(cfg(), { llmProviders: { p: new OfflineProvider() } });
         try {
             const created = await rt.createGoalSession('完成');
             const started = rt.eventBus.replay(created.rootGoalId);
-            expect(started.some((e) => e.type === 'session.started')).toBe(true);
+            expect(started.some((e) => e.type === 'goal.started')).toBe(true);
             await rt.executeGoalTree(created.rootGoalId);
             const all = rt.eventBus.replay(created.rootGoalId);
-            expect(all.some((e) => e.type === 'session.ended')).toBe(true);
-            const ended = all.find((e) => e.type === 'session.ended');
+            expect(all.some((e) => e.type === 'goal.ended')).toBe(true);
+            const ended = all.find((e) => e.type === 'goal.ended');
             const payload = ended?.payload as { outcome?: { status?: string } } | undefined;
             expect(payload?.outcome?.status).toBe('success');
         } finally {
@@ -151,7 +151,7 @@ describe('HarnessRuntime Goal 工具闭环（C5-1 运行时装配）', () => {
             expect(kinds).toContain('tool_call');
             expect(kinds).toContain('observation');
             const all = rt.eventBus.replay(created.rootGoalId);
-            expect(all.some((e) => e.type === 'session.ended')).toBe(true);
+            expect(all.some((e) => e.type === 'goal.ended')).toBe(true);
         } finally {
             await rt.close();
             rmSync(dir, { recursive: true, force: true });

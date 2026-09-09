@@ -11,13 +11,13 @@ import type {
 import { ulid } from '@mazi/core';
 
 /**
- * Turn 级事件：必须携带 turnId。
- * 说明：plan.created / plan.invalid 发生在 Turn 创建之前（属 Session 级），不在本集合内。
- * llm.* 事件在模型调用（Step 创建前）发出，归为 Turn 级。
+ * Task 级事件：必须携带 taskId。
+ * 说明：plan.created / plan.invalid 发生在 Task 创建之前（属 goal 级），不在本集合内。
+ * llm.* 事件在模型调用（Step 创建前）发出，归为 Task 级。
  */
-const TURN_SCOPED: ReadonlySet<HarnessEventType> = new Set<HarnessEventType>([
-    'turn.started',
-    'turn.ended',
+const TASK_SCOPED: ReadonlySet<HarnessEventType> = new Set<HarnessEventType>([
+    'task.started',
+    'task.ended',
     'llm.request',
     'llm.stream_event',
     'llm.response',
@@ -31,7 +31,7 @@ const TURN_SCOPED: ReadonlySet<HarnessEventType> = new Set<HarnessEventType>([
     'rollback.executed',
 ]);
 
-/** Step 级事件：必须携带 turnId 与 stepId */
+/** Step 级事件：必须携带 taskId 与 stepId */
 const STEP_SCOPED: ReadonlySet<HarnessEventType> = new Set<HarnessEventType>([
     'step.started',
     'step.ended',
@@ -96,11 +96,11 @@ function matchesFilter(event: HarnessEvent, filter: EventFilter): boolean {
 }
 
 function validateTraceIds(event: HarnessEvent): void {
-    if (typeof event.sessionId !== 'string' || event.sessionId.length === 0) {
-        throw new Error(`event 缺少必填 sessionId（type=${event.type}）`);
+    if (typeof event.rootGoalId !== 'string' || event.rootGoalId.length === 0) {
+        throw new Error(`event 缺少必填 rootGoalId（type=${event.type}）`);
     }
-    if (TURN_SCOPED.has(event.type) && typeof event.turnId !== 'string') {
-        throw new Error(`事件 ${event.type} 缺少必填 turnId`);
+    if (TASK_SCOPED.has(event.type) && typeof event.taskId !== 'string') {
+        throw new Error(`事件 ${event.type} 缺少必填 taskId`);
     }
     if (STEP_SCOPED.has(event.type) && typeof event.stepId !== 'string') {
         throw new Error(`事件 ${event.type} 缺少必填 stepId`);
@@ -110,8 +110,9 @@ function validateTraceIds(event: HarnessEvent): void {
 /** 事件构造助手：补齐 eventId(ULID) 与 timestamp */
 export interface NewEventInput {
     type: HarnessEvent['type'];
-    sessionId: string;
-    turnId?: string;
+    rootGoalId: string;
+    goalId?: string;
+    taskId?: string;
     stepId?: string;
     attributes?: HarnessEvent['attributes'];
     payload?: unknown;
@@ -120,8 +121,9 @@ export interface NewEventInput {
 export function newHarnessEvent(input: NewEventInput): HarnessEvent {
     return {
         type: input.type,
-        sessionId: input.sessionId,
-        turnId: input.turnId,
+        rootGoalId: input.rootGoalId,
+        goalId: input.goalId,
+        taskId: input.taskId,
         stepId: input.stepId,
         attributes: input.attributes ?? {},
         payload: input.payload,
@@ -140,8 +142,8 @@ export interface EventBusOptions {
 /**
  * 默认事件总线（MVP）：
  * - emit 永不被 Flag 阻断（Flag 只控制上层是否订阅额外 sink）；
- * - 每条事件同步派发给匹配订阅者，并异步串行落盘 JSONL（按 sessionId 分文件）；
- * - replay(sessionId) 从磁盘只读回放该会话全部事件。
+ * - 每条事件同步派发给匹配订阅者，并异步串行落盘 JSONL（按 rootGoalId 分文件）；
+ * - replay(rootGoalId) 从磁盘只读回放该 root goal 全部事件。
  */
 export class DefaultEventBus implements EventBus {
     private readonly dir: string;
@@ -184,10 +186,10 @@ export class DefaultEventBus implements EventBus {
         };
     }
 
-    replay(sessionId: string): HarnessEvent[] {
+    replay(rootGoalId: string): HarnessEvent[] {
         let raw: string;
         try {
-            raw = readFileSync(this.filePath(sessionId), 'utf8');
+            raw = readFileSync(this.filePath(rootGoalId), 'utf8');
         } catch {
             return [];
         }
@@ -198,7 +200,7 @@ export class DefaultEventBus implements EventBus {
             }
             try {
                 const parsed = JSON.parse(line) as HarnessEvent;
-                if (parsed.sessionId === sessionId) {
+                if (parsed.rootGoalId === rootGoalId) {
                     events.push(parsed);
                 }
             } catch {
@@ -213,8 +215,8 @@ export class DefaultEventBus implements EventBus {
         return this.writeChain;
     }
 
-    private filePath(sessionId: string): string {
-        return join(this.dir, `${sessionId}.jsonl`);
+    private filePath(rootGoalId: string): string {
+        return join(this.dir, `${rootGoalId}.jsonl`);
     }
 
     private enqueuePersist(event: HarnessEvent): void {
@@ -222,7 +224,7 @@ export class DefaultEventBus implements EventBus {
             try {
                 mkdirSync(this.dir, { recursive: true });
                 appendFileSync(
-                    this.filePath(event.sessionId),
+                    this.filePath(event.rootGoalId),
                     `${JSON.stringify(event)}\n`,
                     'utf8',
                 );
@@ -238,7 +240,9 @@ export class ConsoleSink implements EventSink {
     readonly id = 'console';
 
     handle(event: HarnessEvent): void {
-        const ids = [event.sessionId, event.turnId, event.stepId].filter(Boolean).join('/');
+        const ids = [event.rootGoalId, event.goalId, event.taskId, event.stepId]
+            .filter(Boolean)
+            .join('/');
         process.stdout.write(`[event] ${event.type} ${ids}\n`);
     }
 }

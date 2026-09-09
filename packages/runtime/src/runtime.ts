@@ -383,7 +383,7 @@ function stepText(step: Step): string {
 const DEFAULT_AGENT_SYSTEM_PROMPT =
     'You are a helpful agent. Answer conversational questions directly. Only call tools when the user explicitly asks you to read, inspect, modify files, or work with the current workspace.';
 
-/** GoalRunResult → session.ended summary（截断 2000 字符） */
+/** GoalRunResult → goal.ended summary（截断 2000 字符） */
 function goalRunSummary(result: GoalRunResult): string {
     const last = result.tasks[result.tasks.length - 1];
     if (result.rejected && result.rejected.length > 0) {
@@ -396,7 +396,7 @@ function goalRunSummary(result: GoalRunResult): string {
 /**
  * HarnessRuntime —— Goal/Task/Step 坐标系运行器（C5 收口后为唯一执行面）。
  * createGoalSession（intake+work 树落库）→ executeGoalTree（plan→逐 Task，事实经 GoalStore 留痕）；
- * 事件全部经 DefaultEventBus 落盘 JSONL（sessionId 槽 = rootGoalId，词汇收敛属 C3e/OBS）。
+ * 事件全部经 DefaultEventBus 落盘 JSONL（按 rootGoalId 分文件）。
  */
 export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
@@ -437,7 +437,7 @@ export class HarnessRuntime {
         this.goalStoreDb.close();
     }
 
-    /** 创建 Goal 会话（intake 根 + 单 work；单意图快速路径，裁决 D4 快速路径）并持久化；发 session.started */
+    /** 创建 Goal 会话（intake 根 + 单 work；单意图快速路径，裁决 D4 快速路径）并持久化；发 goal.started */
     async createGoalSession(
         input: string,
         opts: RunOptions = {},
@@ -452,7 +452,7 @@ export class HarnessRuntime {
             kind: 'intake',
             statement: input,
             contract: {
-                successConditions: [{ id: 'intake-complete', checkType: 'deterministic' }],
+                successConditions: [{ id: ulid(), checkType: 'deterministic' }],
                 failureConditions: [],
                 forbiddenResources: [],
                 budget: {},
@@ -475,7 +475,7 @@ export class HarnessRuntime {
             kind: 'work',
             statement: input,
             contract: {
-                successConditions: [{ id: 'input-satisfied', checkType: 'deterministic' }],
+                successConditions: [{ id: ulid(), checkType: 'deterministic' }],
                 failureConditions: [],
                 forbiddenResources: [],
                 budget: {},
@@ -495,8 +495,9 @@ export class HarnessRuntime {
         await this.goalStoreDb.saveGoal(work);
         this.bus.emit(
             newHarnessEvent({
-                type: 'session.started',
-                sessionId: rootGoalId,
+                type: 'goal.started',
+                rootGoalId,
+                goalId,
                 attributes: {},
                 payload: {
                     rawInput: input,
@@ -509,7 +510,7 @@ export class HarnessRuntime {
         return { rootGoalId, goalId };
     }
 
-    /** 执行 Goal 树（plan → 逐 Task；事实全部经 goalStore 留痕）；发 session.ended */
+    /** 执行 Goal 树（plan → 逐 Task；事实全部经 goalStore 留痕）；发 goal.ended */
     async executeGoalTree(rootGoalId: string): Promise<GoalRunResult> {
         const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
         if (goals.length === 0) {
@@ -530,8 +531,8 @@ export class HarnessRuntime {
         );
         this.bus.emit(
             newHarnessEvent({
-                type: 'session.ended',
-                sessionId: rootGoalId,
+                type: 'goal.ended',
+                rootGoalId,
                 payload: {
                     outcome: {
                         status: result.ok ? 'success' : 'failed',
@@ -618,19 +619,21 @@ export class HarnessRuntime {
         this.bus.emit(
             newHarnessEvent({
                 type: 'step.ended',
-                sessionId: rootGoalId,
+                rootGoalId,
+                goalId: step.goalId,
+                taskId: step.taskId,
                 stepId: step.stepId,
                 payload,
             }),
         );
     }
 
-    /** 用户对会话结果的反馈（CLI/调用方显式给出；sessionId = rootGoalId） */
-    recordFeedback(sessionId: string, feedback: FeedbackInput): Promise<void> {
+    /** 用户对 root goal 结果的反馈（CLI/调用方显式给出） */
+    recordFeedback(rootGoalId: string, feedback: FeedbackInput): Promise<void> {
         this.bus.emit(
             newHarnessEvent({
                 type: 'user.feedback.captured',
-                sessionId,
+                rootGoalId,
                 attributes: { 'user.feedback_type': feedback.type },
                 payload: { feedback },
             }),
