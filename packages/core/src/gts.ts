@@ -126,6 +126,10 @@ export interface ToolCallPayload {
     toolName: string;
     arguments: Record<string, unknown>;
     callId?: string;
+    /** Tool execution output (merged from former observation step) */
+    output?: string;
+    isError?: boolean;
+    structured?: unknown;
 }
 
 export interface ObservationPayload {

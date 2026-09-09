@@ -134,7 +134,9 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         const steps = await store.listSteps(t.taskId);
         const kinds = steps.map((s) => s.kind);
         expect(kinds).toContain('tool_call');
-        expect(kinds).toContain('observation');
+        expect(kinds).not.toContain('observation');
+        const toolStep = steps.find((s) => s.kind === 'tool_call');
+        expect(toolStep?.payload).toHaveProperty('output');
         expect(kinds.filter((k) => k === 'thinking').length).toBe(2);
     });
 

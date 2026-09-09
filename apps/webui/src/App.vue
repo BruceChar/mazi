@@ -354,6 +354,7 @@ const stepEventRows = computed(() => {
     for (const ev of events.list) {
         if (ev.type !== 'step.ended' || !ev.stepId) continue;
         const p = ev.payload || {};
+        if (p.kind === 'observation') continue; // observation is the tool output, redundant
         const start = startedAt.get(ev.stepId);
         const end = ev.timestamp ?? 0;
         const durationMs = start ? end - start : null;
@@ -370,7 +371,7 @@ const stepEventRows = computed(() => {
             statusLabel: statusLabel(p.status || 'ok'),
             id: short(ev.stepId, 34),
             toolName: p.toolName || '',
-            text: p.content ? String(p.content) : '',
+            text: p.output ? String(p.output) : p.content ? String(p.content) : '',
             durationMs,
             duration: durationMs != null ? formatDuration(durationMs) : '',
             usage: p.usage || null,

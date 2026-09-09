@@ -178,7 +178,7 @@ export async function executeTask(
                 };
             }
 
-            // 执行工具 + 观察 Step
+            // 执行工具（输出合并到 tool_call step，不再单独生成 observation step）
             const outputs: Array<{ callId: string; output: string; isError: boolean }> = [];
             for (const call of round.toolCalls) {
                 const toolStep: Step = {
@@ -191,7 +191,7 @@ export async function executeTask(
                         arguments: call.arguments,
                         callId: call.callId,
                     },
-                    status: 'ok',
+                    status: 'running',
                     startedAt: now(),
                     endedAt: now(),
                 };
@@ -200,29 +200,23 @@ export async function executeTask(
                 deps.onStep?.(toolStep);
 
                 const res = await invoker.invoke(call.toolName, call.arguments);
+                const output = res.ok ? res.content : (res.error ?? 'tool failed');
                 outputs.push({
                     callId: call.callId,
-                    output: res.ok ? res.content : (res.error ?? 'tool failed'),
+                    output,
                     isError: !res.ok,
                 });
-                const obs: Step = {
-                    stepId: ulid(),
-                    taskId: task.taskId,
-                    goalId: task.goalId,
-                    kind: 'observation',
-                    payload: {
-                        toolName: call.toolName,
-                        content: res.ok ? res.content : (res.error ?? 'tool failed'),
-                        ...(res.ok ? {} : { isError: true }),
-                        ...(res.data !== undefined ? { structured: { data: res.data } } : {}),
-                    },
-                    status: 'ok',
-                    startedAt: now(),
-                    endedAt: now(),
-                };
-                steps.push(obs);
-                await deps.store.saveStep(obs);
-                deps.onStep?.(obs);
+                // Merge output into the tool_call step
+                toolStep.payload = {
+                    ...toolStep.payload,
+                    output,
+                    ...(res.ok ? {} : { isError: true }),
+                    ...(res.data !== undefined ? { structured: { data: res.data } } : {}),
+                } as Step['payload'];
+                toolStep.status = res.ok ? 'ok' : 'error';
+                toolStep.endedAt = now();
+                await deps.store.saveStep(toolStep);
+                deps.onStep?.(toolStep);
             }
             // 回注：assistant toolCalls + tool 结果消息；模型本轮文本一并回注（截断防爆上下文），
             // 避免模型在后续轮次“失忆”而重复发起相同工具调用

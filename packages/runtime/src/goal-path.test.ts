@@ -149,7 +149,7 @@ describe('HarnessRuntime Goal 工具闭环（C5-1 运行时装配）', () => {
                 g.tasks.flatMap((t) => t.steps.map((s) => s.kind)),
             );
             expect(kinds).toContain('tool_call');
-            expect(kinds).toContain('observation');
+            expect(kinds).not.toContain('observation');
             const all = rt.eventBus.replay(created.rootGoalId);
             expect(all.some((e) => e.type === 'goal.ended')).toBe(true);
         } finally {

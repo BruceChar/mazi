@@ -92,7 +92,7 @@ describe('配置加载与 RuntimeConfig 组装（U1）', () => {
         process.env.MAZI_HOME = home;
         const overview = configOverview();
         expect(overview.home).toBe(home);
-        expect(overview.providers).toEqual(['deepseek']);
+        expect(overview.providers).toEqual([{ id: 'deepseek', vendor: undefined, models: [] }]);
         expect(overview.hasProvidersFile).toBe(true);
     });
 });
