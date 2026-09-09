@@ -1,91 +1,29 @@
 /**
- * packages/core/src/tool-gateway.ts
+ * ToolGateway contract — the single enforcement point for tool invocation.
  *
- * ToolGateway —— 工具调用的统一出口（唯一咽喉）。
+ * Permission lifecycle: grant (root signing) → derive (policy computation) →
+ * enforce (call-time). This file defines the enforce-stage contract: whether a
+ * given invocation is allowed and how it is executed.
  *
- * ── 设计立场 ──────────────────────────────────────────────────────────
- * 权限三段生命：grant(根层签署) → derive(派生计算) → enforce(调用时强制)。
- * 本契约是第三段的行为接口：Capacity（planner 组装的资源包）回答"这一轮
- * 允许什么"（供给面，静态数据）；ToolGateway 回答"这一次调用是否放行、
- * 如何执行"（执行面，动态行为）。
+ * Invocations flow through the pipeline stages declared in
+ * GATEWAY_PIPELINE_STAGES, in order; enforcement is fail-closed — an absent
+ * approval seam or unresolvable secrets reject the call rather than hang
+ * (V13). The tools whitelist (ToolSpec) narrows the model's view but is NOT a
+ * security boundary: hallucinated calls to unlisted tools are still rejected.
  *
- * 隐喻对齐：模型 = 用户态，工具 = 内核资源，Gateway = syscall trap。
- * 每次 tool_call 陷入此处，harness 做检查、审批、审计、fail-closed。
- * 接口词汇与观测层事件词汇同源：invoke / result / blocked。
+ * Sandbox deployment conventions (binding between the effect surface and the
+ * execution environment; provisioned by the Deployer):
+ *   D1 fs.exec — sandbox profile derives from the effective fs/net surface
+ *       (read rules → read scope, write → write scope, net → no/proxied
+ *       namespace); a runtime EPERM translates to a policy rejection.
+ *   D2 net.*   — proxy-only egress; DNS rebinding guarded by resolve → pin →
+ *       connect → re-verify.
+ *   D3 full    — trust: 'full' processes run outside the sandbox; tier
+ *       clamped to gated; secrets injected into the process env, never args.
  *
- * ── 管道规范（实现必须遵守的语义基线）────────────────────────────────
- * invoke 内部按以下阶段顺序执行（见 GATEWAY_PIPELINE_STAGES）：
- *
- *   ① escalation-short-circuit  升权字段偏序短路（V12）：非严格更宽 →
- *                                整体忽略升权字段，按普通调用直行——
- *                                不报错、不降级、不进审批
- *   ② supply-check              工具 ∈ 注册表 + effectClass 已声明 +
- *                                args 通过 schema 校验（V5 closed-world）
- *   ③ hook-chain                pre-execute 钩子链，deny 单调不可翻转（V14）
- *   ④ tier-dispatch             联合分派：effectClass 与 coEffects 各自
- *                                查 effective；任一 forbidden → 拒绝；
- *                                全体档位取最严者 governs：
- *                                forbidden → 拒绝 / auto → ⑦ / gated → ⑤
- *   ⑤ scope-check               值层范围：各类 scope（paths/hosts/
- *                                amountLimit）分别检查，投影命中白名单
- *                                → 预授权静默放行（恒 gated 类除外，
- *                                V8 白名单不豁免）；任一未命中 → ⑥
- *   ⑥ danger-match              DangerRule 值层匹配（命令模式/SQL 谓词/
- *                                敏感路径），命中按 outcome 处置
- *   ⑦ approval                   范围外/高危 → ApprovalSeam，返回
- *                                pending(handle)；服务缺位 → fail-closed
- *                                拒绝（V13），绝不挂起
- *   ⑧ budget                    steps/tokens/cost 扣减，超限 →
- *                                BUDGET_EXHAUSTED（settle 执行时须复查）
- *   ⑨ execute                    handler 在沙盒内无特权执行（V6）；
- *                                环境由 Deployer 按 D1–D3 部署
- *   ⑩ output-taint               untrustedOutput → 返回值打标
- *   ⑪ audit                      决策事件入 audit sink（永不被 flag 阻断）
- *
- * 供给过滤（tools 白名单剔除 forbidden）是体验优化，不是安全边界——
- * 模型可幻觉调用未列出的工具，②④⑤照样拦截。
- *
- * ── 沙盒部署约定（效果面与执行环境的绑定，V6 完整形态）──────────────
- *   D1 fs.exec 沙盒约定：bash 类工具是效果面动态的工具——命令内容决定
- *      实际读什么写什么连什么。网关只判锚点（进程生成本身）；命令内容
- *      的 fs/net 面由沙盒强制：exec 沙盒 profile 派生自整个 effective
- *      的 fs/net 面（fs.read 规则 → Landlock 读范围，fs.write → 写
- *      范围，net → 无网络命名空间或仅 proxy 出口）。命令内 curl 越网、
- *      cat 越读，得到的是内核 EPERM → 翻译为策略性拒绝 → on-failure 升权。
- *   D2 net.* 部署约定：net 类 handler 的执行环境为仅 proxy 出口的网络
- *      命名空间，无直连能力；域名校验发生在连接时（解析 → pin IP →
- *      建连 → 二次解析不一致即拒，防 DNS rebinding）。
- *   D3 full-trust 部署约定：trust: 'full' 的工具（MCP server、插件等
- *      无法被沙盒约束的进程）在沙盒外执行，tier 下限强制 gated（供给
- *      过滤即钳制），凭证经 secrets 解析注入进程环境，永不出现在 args，
- *      每次调用记一等风险事件。
- *
- * ── 能力覆盖说明 ──────────────────────────────────────────────────────
- *   bash        一注册吃遍所有命令：effectClass: 'fs.exec' 锚点 +
- *               commandParam 值层匹配（⑥ 拦危险命令）+ D1 沙盒判内容。
- *               不按命令拆工具。
- *   网络接口    单效果工具（http_get → net.fetch）直接注册；多效果
- *               工具（支付 API = pay + net.send）用 coEffects 联合分派。
- *   MCP         逐工具映射注册：效果按语义映射（映射不了兜底
- *               external.<server>，恒 gated）；trust: 'full'；
- *               untrustedOutput: true 默认（server 返回文本是模型可见
- *               的外部内容，作为数据进入上下文）。
- *   skill       不是工具，是编排。注册为 ToolRegistration 是类别错误：
- *               skill handler 内部再调工具 = 第二执行点（V6 直接违反）。
- *               正确物化：SkillManifest { prompt, toolNames,
- *               policyTemplate } → spawn 子 Turn → derive → 子 Gateway
- *               实例——合法的递归是 spawn → derive → 新 Gateway，
- *               不是 handler 内嵌 Gateway。
- *
- * ── 不变量映射 ────────────────────────────────────────────────────────
- *   V5  closed-world            ToolRegistration.effectClass 必填 + ②
- *   V6  唯一咽喉/handler 无特权  invoke 唯一入口 + ToolHandler 签名
- *   V8  恒 gated 不豁免          effectiveTier 钳制规则（实现遵守）
- *   V11 身份 harness 注入        InvocationRequest 无身份字段；bindInput
- *                                由执行循环注入
- *   V12 升权短路                 escalation 可选字段 + ① 语义
- *   V13 fail-closed              审批缺件/secrets 不可解析 → 拒绝不挂起
- *   V14 单调守卫                 GatewayHook + deny 不可翻转
+ * Invariant index: V5 closed-world · V6 single chokepoint / unprivileged
+ * handlers · V8 always-gated never exempt · V11 harness-injected identity ·
+ * V12 escalation short-circuit · V13 fail-closed · V14 monotonic hook deny.
  */
 
 import type { ApprovalSeam } from './approval.js';
@@ -101,7 +39,7 @@ import type {
 } from './authorization.js';
 import type { TraceIdentifiers } from './observability.js';
 
-/** 沙箱执行配置（迁移期就地定义；后续随执行环境契约收敛） */
+/** Sandbox execution configuration (temporary definition pending convergence with the executor contract). */
 export interface SandboxSpec {
     enabled: boolean;
     network?: { allowInternet: boolean; allowedHosts?: string[] };
@@ -109,48 +47,51 @@ export interface SandboxSpec {
     process?: { allowSpawn: boolean };
 }
 
-/** 工具参数 JSON-Schema（开放结构；provider-core 用 ToolSchema.parameters 表达） */
+/** Tool parameter JSON Schema (open structure; provider-core expresses it via ToolSchema.parameters). */
 export type JSONSchemaSpec = Record<string, unknown>;
 
 // ============================================================
-// §1 工具注册契约（V5 注册点）
+// §1 Tool registration contract (V5 registration point)
 // ============================================================
 
 /**
- * 外部进程信任标注。
- * confined = 可被沙盒约束（handler 在 D1/D2 环境内执行）；
- * full     = 不受沙盒约束的进程（MCP server 等，D3），tier 下限
- *            强制 gated，每次调用记一等风险事件。
+ * Trust annotation for external processes.
+ * confined — sandboxable (handler runs in D1/D2 environments);
+ * full     — outside sandbox control (MCP servers, plugins; D3); effective
+ *            tier is clamped to gated and every call records a first-class
+ *            risk event.
  */
 export type ToolTrust = 'confined' | 'full';
 
 /**
- * 秘密引用：Deployer 在部署沙盒时解析（环境变量/挂载文件注入进程
- * 环境）。永不出现在 args（模型可见面）；永不出现在 ToolSpec（供给面）。
- * 解析表属于 Deployer 配置，不属于本契约。
- * 声明了 secrets 而解析失败 → fail-closed 拒绝（V13，映射
- * SANDBOX_UNAVAILABLE——秘密注入是环境部署的一部分）。
+ * Secret reference resolved by the Deployer when provisioning the sandbox
+ * (env var / mounted file injected into the process environment). Secrets
+ * never appear in args (model-visible) nor in ToolSpec (supply side). The
+ * resolution table belongs to Deployer configuration, not to this contract.
+ * Declared-but-unresolvable secrets → fail-closed rejection (V13, mapped to
+ * SANDBOX_UNAVAILABLE — secret injection is part of environment provisioning).
  */
 export type SecretRef = string;
 
 /**
- * 值层投影声明：注册时声明哪些参数承载路径/域名/金额/命令/SQL，
- * 运行时由实现据此从 args 提取值做 ⑤⑥ 检查。
+ * Value-layer projection declaration: registration states which args carry
+ * paths / hosts / amounts / commands / SQL; the implementation extracts the
+ * values at runtime for the scope-check and danger-match stages.
  */
 export interface ScopeProjection {
-    /** 值为文件路径的参数名列表 */
+    /** Arg names whose values are file paths */
     pathParams?: string[];
-    /** 值为域名/URL 的参数名列表 */
+    /** Arg names whose values are domains / URLs */
     hostParams?: string[];
-    /** 值为金额的参数名（pay 类：{ currency, amount } 或 number） */
+    /** Arg name for the amount (pay-class: { currency, amount } or number) */
     amountParam?: string;
-    /** 值为命令内容的参数名（fs.exec 类：供 ⑥ commandPatterns 匹配） */
+    /** Arg name carrying command content (fs.exec-class, matched against commandPatterns) */
     commandParam?: string;
-    /** 值为 SQL 语句的参数名（db.* 类：供 ⑥ sqlPredicates 匹配） */
+    /** Arg name carrying the SQL statement (db.*-class, matched against sqlPredicates) */
     sqlParam?: string;
 }
 
-/** 运行时从 args 提取的值投影产物（⑤⑥ 的输入） */
+/** Runtime value projection extracted from args (input to scope-check and danger-match). */
 export interface ValueProjection {
     path?: string;
     host?: string;
@@ -159,98 +100,101 @@ export interface ValueProjection {
     sql?: string;
 }
 
-/** 投影函数签名（实现在 executor 层） */
+/** Projection function signature (implemented in the executor layer). */
 export type ScopeProjector = (
     args: Record<string, unknown>,
     projection: ScopeProjection,
 ) => ValueProjection;
 
 /**
- * 工具执行上下文——刻意最小化。
+ * Tool execution context — deliberately minimal.
  *
- * V6：handler 是无特权纯逻辑。此处没有 policy 访问、没有注册表、
- * 没有身份、没有任何权限判断 API——权限检查只有一个执行点（Gateway
- * 管线 ④⑤⑥），执行环境配置只有一个执行点（executor 层的 Deployer）。
- * handler 内部永远不做权限判断，也无法做出。
+ * V6: handlers are unprivileged pure logic. No policy access, no registry,
+ * no identity, no permission API — permission checks have exactly one
+ * execution point (the gateway pipeline) and environment provisioning has
+ * exactly one execution point (the Deployer in the executor layer). A handler
+ * cannot and must not perform permission decisions.
  */
 export interface HandlerContext {
-    /** 取消信号（超时 / kill switch / 预算中止） */
+    /** Cancellation signal (timeout / kill switch / budget abort) */
     signal: AbortSignal;
 }
 
-/** 工具返回值。untrusted = true 时走出口加工（⑩），作为数据进入上下文 */
+/** Tool return value. untrusted = true routes the value through output processing (output-taint). */
 export interface ToolOutput {
     value: unknown;
     untrusted?: boolean;
 }
 
-/** 工具实现本体 */
+/** Tool implementation body. */
 export type ToolHandler = (
     args: Record<string, unknown>,
     ctx: HandlerContext,
 ) => Promise<ToolOutput>;
 
 /**
- * 注册表条目。无注册即 forbidden（V5 closed-world）。
+ * Registry entry. Unregistered tools are forbidden (V5 closed-world).
  *
- * 切分原则：工具按效果面切分，不按能力切分。generic http(method, url,
- * body) 这种 method 决定 fetch/send 语义的工具是反模式——拆成两个
- * 注册，派单才可静态判定。
+ * Slicing rule: slice by effect surface, not by capability. A generic
+ * http(method, url, body) whose method decides fetch/send semantics is an
+ * anti-pattern — split it into two registrations so dispatch is statically
+ * decidable.
  */
 export interface ToolRegistration {
     name: string;
     description: string;
-    /** TypeBox 产物形状兼容（与 @mazi/provider 桥接），core 不导入 pi-ai */
+    /** TypeBox-compatible shape (bridges to @mazi/provider); core does not import pi-ai */
     parameters: JSONSchemaSpec;
 
-    /** 派单锚点：tier 分派（④）、审计主类、升权判定的主 effectClass */
+    /** Dispatch anchor: tier dispatch, primary audit class, escalation target */
     effectClass: EffectClass;
 
     /**
-     * 联合检查面：本次调用同时涉及的其他效果类。
-     * 分派语义（④⑤）：effectClass 与全部 coEffects 须均非 forbidden，
-     * 全体 tier 取最严者 governs，各类 scope（paths/hosts/amountLimit）
-     * 分别做值层检查——任一未命中即走 ⑥ 审批。
-     * 适用：进程内多效果工具（支付 API = pay + net.send）。
-     * 不适用：bash 类效果面动态工具——其 fs/net 面由沙盒运行时强制
-     * （D1），不进 coEffects。
+     * Additional effect classes involved in a single call.
+     * Dispatch semantics: effectClass AND all coEffects must be non-forbidden;
+     * the strictest tier governs; each class's scopes (paths/hosts/amountLimit)
+     * are checked independently — any miss routes to approval.
+     * Applies to multi-effect in-process tools (payment API = pay + net.send).
+     * NOT for bash-class dynamic tools — their fs/net surfaces are enforced by
+     * the sandbox at runtime (D1), not via coEffects.
      */
     coEffects?: readonly EffectClass[];
 
-    /** 值层检查的参数投影声明 */
+    /** Value-layer projection declaration for scope-check */
     scope: ScopeProjection;
 
-    /** net.fetch / MCP 类工具置 true：返回值统一打 untrusted 标（⑩） */
+    /** net.fetch / MCP-class tools set this: return values are tagged untrusted (output-taint) */
     untrustedOutput?: boolean;
 
     trust: ToolTrust;
 
-    /** 不可逆标记（delete/db.schema/pay/publish 语义对齐，触发更严审批回显） */
+    /** Irreversibility flag (delete/db.schema/pay/publish semantics; triggers stricter approval echo) */
     irreversible?: boolean;
 
-    /** 幂等声明，供重试决策 */
+    /** Idempotency declaration for retry decisions */
     idempotent?: boolean;
 
-    /** 工具级超时（ms），并入 HandlerContext.signal */
+    /** Tool-level timeout (ms), merged into HandlerContext.signal */
     timeoutMs?: number;
 
     sideEffects: SideEffectScope[];
     minPermission: PermissionLevel;
 
-    /** 秘密引用（见 SecretRef 契约与 D3 约定） */
+    /** Secret references (see SecretRef contract and D3 convention) */
     secrets?: readonly SecretRef[];
 
     handler: ToolHandler;
 }
 
 // ============================================================
-// §2 供给视图
+// §2 Supply view
 // ============================================================
 
 /**
- * Gateway 暴露给模型的工具视图——供给过滤后的白名单。
- * forbidden 的工具不出现在此列表；但 invoke 的 ②④⑤ 仍拦截一切
- * 幻觉/伪造调用（白名单是视野收缩，不是安全边界）。
+ * Tool view exposed to the model — the filtered whitelist.
+ * forbidden tools never appear here; invoke still rejects any hallucinated or
+ * forged call (the whitelist narrows visibility, it is not a security
+ * boundary).
  */
 export interface ToolSpec {
     name: string;
@@ -258,67 +202,70 @@ export interface ToolSpec {
     parameters: JSONSchemaSpec;
     effectClass: EffectClass;
     /**
-     * 供给过滤后的生效档位：forbidden 已被剔除；此处为 effectClass 与
-     * coEffects 联合分派后的最严档（恒 gated 类与 trust: 'full' 钳制
-     * 为 gated，V8）。
+     * Effective tier after supply filtering: forbidden is removed; this is
+     * the strictest tier of the joint effectClass + coEffects dispatch
+     * (always-gated classes and trust: 'full' are clamped to gated, V8).
      */
     effectiveTier: 'auto' | 'gated';
     trust: ToolTrust;
     irreversible?: boolean;
     sideEffects: SideEffectScope[];
     minPermission: PermissionLevel;
-    /** 值层白名单（主 effectClass 的投影；值层检查实现按类全量判） */
-    scope?: { paths?: string[]; hosts?: string[] };
+    /** Value-level whitelist for the primary effectClass (scope-check runs across the full class set) */
+    whitelist?: { paths?: string[]; hosts?: string[] };
 }
 
 // ============================================================
-// §3 调用契约
+// §3 Invocation contract
 // ============================================================
 
 /**
- * 升权载荷。V12 语义：仅当 requested 相对 effective 严格更宽
- * （档位更高，或同档且范围严格扩大）时才进入 justification 校验
- * 与审批链；否则实现必须整体忽略本字段，按普通调用直行——
- * 不报错、不降级、不进审批、不校验 justification。偏序判定函数
- * 在 executor 实现，语义期望矩阵见 core/src/semantics.ts。
+ * Escalation payload. V12 semantics: only when requested is strictly wider
+ * than effective (higher tier, or same tier with strictly broader scope) does
+ * the justification get validated and the approval chain engage; otherwise
+ * implementations MUST ignore this field entirely and proceed as a normal
+ * call — no error, no downgrade, no approval, no justification check. The
+ * partial-order comparison lives in the executor; expected semantics are in
+ * core/src/semantics.ts.
  */
 export interface EscalationPayload {
     requested: EffectRule;
-    /** 一句话理由。仅严格更宽时校验非空 */
+    /** One-sentence justification; required only when strictly wider */
     justification: string;
 }
 
 /**
- * 调用请求。
+ * Invocation request.
  *
- * V11：本结构无任何身份字段（无 contractId/turnId/sessionId）。
- * 身份在 Gateway 构造时由 harness 经 GatewayBindInput 注入——
- * 模型无法选择身份，权限提升在类型结构上不可表达。
+ * V11: this structure carries no identity fields (no contractId/turnId/
+ * sessionId). Identity is injected by the harness at construction via
+ * GatewayBindInput — the model cannot choose its identity, and privilege
+ * elevation is not expressible at the type level.
  */
 export interface InvocationRequest {
-    /** 要调用的工具名（须已在注册表） */
+    /** Tool name (must be registered) */
     tool: string;
-    /** 参数（② 阶段做 schema 校验，不合规则拒绝） */
+    /** Args (schema-validated at supply-check; invalid → rejected) */
     args: Record<string, unknown>;
-    /** 升权请求（可选，走 ① 偏序短路） */
+    /** Optional escalation request (subject to escalation-short-circuit) */
     escalation?: EscalationPayload;
 }
 
-/** pending 审批句柄 */
+/** Handle of a pending approval. */
 export type PendingHandle = string;
 
-/** 审批结算（由审批门经 settle 注入，不经模型） */
+/** Approval settlement (injected by the approval gate via settle, never by the model). */
 export type PendingSettlement =
-    | { decision: 'granted' } // allowed-once：按原请求执行一次
+    | { decision: 'granted' } // allowed-once: execute the original request once
     | { decision: 'rejected'; reason: string }
     | { decision: 'cancelled' };
 
 /**
- * 调用三态。
+ * Invocation outcome (three states).
  *
- * 拒绝必须结构化且可行动——裸 permission denied 是 agent 重试
- * 死循环的头号来源（dsh 实证）。hint 给出范围内的更窄替代或
- * "勿重试同类"指引。
+ * Rejections must be structured and actionable — a bare permission denied is
+ * the leading cause of agent retry loops (dsh evidence). hint offers a
+ * narrower in-scope alternative or a "do not retry" directive.
  */
 export type InvocationResult =
     | { kind: 'executed'; value: unknown; untrusted?: boolean }
@@ -326,7 +273,7 @@ export type InvocationResult =
     | { kind: 'rejected'; code: RejectCode; hint: string; dangerRuleId?: string };
 
 // ============================================================
-// §4 钩子契约（V14 单调守卫）
+// §4 Hook contract (V14 monotonic guard)
 // ============================================================
 
 export interface HookContext {
@@ -341,24 +288,53 @@ export type HookVerdict =
     | { verdict: 'deny'; code: RejectCode; hint: string };
 
 /**
- * 管道 pre/post 钩子。
+ * Pre/post pipeline hooks.
  *
- * V14 单调性（实现必须保证）：一次 invoke 内，一旦任何钩子返回
- * deny，后续钩子即使返回 allow 也无法翻转本次调用的结局——
- * deny 是本次调用内的吸收态。
+ * V14 monotonicity (implementations MUST guarantee): within one invocation,
+ * once any hook returns deny, later hooks returning allow cannot flip the
+ * outcome — deny is an absorbing state for the invocation.
  */
 export interface GatewayHook {
     id: string;
     preExecute(ctx: HookContext): HookVerdict | Promise<HookVerdict>;
-    /** 只读事后钩子：不可修改结果，仅供观测/审计 */
+    /** Read-only post hook: cannot mutate the result; observation/audit only */
     postExecute?(ctx: HookContext & { result: ToolOutput }): void | Promise<void>;
 }
 
 // ============================================================
-// §5 审计契约（decisionLog 的接口化）
+// §5 Audit contract (interface for the decision log)
 // ============================================================
 
-/** 管道阶段规范常量——实现的阶段名与此对齐，审计事件才可横向比较 */
+/**
+ * Canonical pipeline stage names — implementation stage names must align so
+ * audit events are comparable across runs. Stages execute in the listed order.
+ *
+ * Stage semantics:
+ *   escalation-short-circuit — ignore the escalation field unless it is
+ *       strictly wider than the effective rule (V12): no error, no downgrade,
+ *       no approval.
+ *   supply-check            — tool is registered, effectClass is declared, and
+ *       args pass schema validation (V5 closed-world).
+ *   hook-chain              — pre-execute hooks; deny is absorbing (V14).
+ *   tier-dispatch           — joint dispatch over effectClass + coEffects:
+ *       any forbidden → reject; the strictest tier governs
+ *       (forbidden → reject / auto → execute / gated → approval).
+ *   scope-check             — value-level scope checks (paths/hosts/amount):
+ *       whitelist hit → pre-authorized pass-through (always-gated classes are
+ *       never exempt, V8); any miss → danger-match.
+ *   danger-match            — DangerRule value-level matching (command
+ *       patterns / SQL predicates / sensitive paths); outcome applies.
+ *   approval                — out-of-scope or high-risk → ApprovalSeam,
+ *       returns pending(handle); missing seam → fail-closed rejection (V13).
+ *   budget                  — steps/tokens/cost deduction; over-limit →
+ *       BUDGET_EXHAUSTED (re-checked when settling).
+ *   execute                 — handler runs unprivileged in the sandbox (V6);
+ *       environment provisioned by the Deployer (D1–D3).
+ *   output-taint            — untrustedOutput → return value tagged.
+ *
+ * Audit is cross-cutting: every stage emits its decision event
+ * (allowed/denied/pending/info) to the sink; it is not a stage itself.
+ */
 export const GATEWAY_PIPELINE_STAGES = [
     'escalation-short-circuit',
     'supply-check',
@@ -370,16 +346,15 @@ export const GATEWAY_PIPELINE_STAGES = [
     'budget',
     'execute',
     'output-taint',
-    'audit',
 ] as const;
 
 export type GatewayStage = (typeof GATEWAY_PIPELINE_STAGES)[number];
 
 export interface GatewayAuditEvent {
     stage: GatewayStage;
-    /** allowed=放行 denied=拒绝 pending=入队 info=记账 */
+    /** allowed=passed denied=rejected pending=queued info=accounting */
     decision: 'allowed' | 'denied' | 'pending' | 'info';
-    /** 三层 ID 必备（v2 观测对齐），缺一即实现缺陷 */
+    /** All three IDs required (v2 observability alignment); any missing is an implementation defect */
     identifiers: TraceIdentifiers;
     tool?: string;
     effectClass?: EffectClass;
@@ -389,52 +364,55 @@ export interface GatewayAuditEvent {
 }
 
 /**
- * 决策事件出口。
+ * Decision event sink.
  *
- * emit 永不被 Feature Flag 阻断（v2 原则 4：flag 只控制 sink 是否
- * 消费）。被拦截的尝试也必须留痕——"agent 想做什么但被挡了"是
- * 安全分析的一等信号。
+ * emit is never blocked by feature flags (v2 principle 4: flags control only
+ * whether the sink consumes). Blocked attempts must also be recorded — "what
+ * the agent tried to do and was stopped from" is a first-class signal for
+ * security analysis.
  */
 export interface GatewayAuditSink {
     log(event: GatewayAuditEvent): void;
 }
 
 // ============================================================
-// §6 核心接口
+// §6 Core interface
 // ============================================================
 
 /**
- * ToolGateway —— 每实例绑定一个 Turn。
+ * ToolGateway — one instance per Turn.
  *
- * 有状态组件：持有该 Turn 的 effective、DangerRule、预算计数器。
- * Turn 结束即弃，计数器不跨 Turn。
+ * Stateful: holds the turn's effective policy, danger rules and budget
+ * counters. Discarded when the turn ends; counters do not cross turns.
  */
 export interface ToolGateway {
-    /** 绑定的 Turn（身份已注入，模型不可伪造） */
+    /** Bound Turn (identity injected; the model cannot forge it) */
     readonly turnId: string;
-    /** 供给过滤后的工具白名单（视野收缩，非安全边界） */
+    /** Filtered tool whitelist (visibility narrowing, not a security boundary) */
     readonly tools: readonly ToolSpec[];
 
     /**
-     * 唯一调用出口。管道阶段顺序见文件头规范与
-     * GATEWAY_PIPELINE_STAGES。并发调用的预算计数必须原子（实现保证）。
+     * The single invocation entry point. Stage order follows the header
+     * contract and GATEWAY_PIPELINE_STAGES. Budget counting under concurrent
+     * calls must be atomic (implementation guarantee).
      */
     invoke(req: InvocationRequest): Promise<InvocationResult>;
 
     /**
-     * pull：模型主动查询 pending 状态。
-     * 返回 undefined = handle 未知；未结算返回 pending 副本；
-     * 已结算返回最终结果。（push 注入由 executor 执行循环在下一轮
-     * 开始时完成，两者并存、push 为主。）
+     * pull: model-initiated pending status query.
+     * undefined = unknown handle; unsettled returns a pending copy; settled
+     * returns the final result. (push injection happens in the executor loop
+     * at the start of the next round; both coexist, push is primary.)
      */
     checkPending(handle: PendingHandle): Promise<InvocationResult | undefined>;
 
     /**
-     * push 注入审批结果（由审批门/executor 调用，不经模型）。
-     * granted 时按原请求执行一次——allowed-once 语义：批准只适用
-     * 本次动作，绝不回写 grant（权限持久变化只走 ContractRevision）。
-     * 执行前须复查预算（⑧）与钩子仍有效；handle 未知或已结算返回
-     * undefined。
+     * push: injects an approval result (called by the approval gate or the
+     * executor, never by the model). granted executes the original request
+     * once — allowed-once semantics: approval applies to this action only and
+     * never rewrites the grant (persistent permission changes only via
+     * ContractRevision). The budget stage and hooks are re-checked before
+     * execution. Unknown or already-settled handle → undefined.
      */
     settle(
         handle: PendingHandle,
@@ -443,47 +421,51 @@ export interface ToolGateway {
 }
 
 /**
- * 工厂：为一个 Turn 构造绑定实例。
- * executor 持有；bindInput 的身份来自执行循环的活跃游标（V11）。
+ * Factory: constructs a turn-bound instance.
+ * Owned by the executor; identity in bindInput comes from the active cursor
+ * of the execution loop (V11).
  */
 export interface ToolGatewayFactory {
     forTurn(bind: GatewayBindInput): ToolGateway;
 }
 
 /**
- * 构造输入 = Capacity 交接的权限数据 + harness 注入的身份 + 周边服务。
+ * Construction input = permission data handed off by Capacity + identity
+ * injected by the harness + peripheral services.
  *
- * V2 不变量：本结构只含 effective（计算结果）与注册表引用——
- * 没有任何字段能让 Gateway 实例凭空放宽权限。
+ * V2 invariant: this structure contains only effective (computed result) and
+ * registry references — nothing that could let a gateway instance widen
+ * permissions on its own.
  */
 export interface GatewayBindInput {
-    // —— 身份（harness 注入，模型输出不含）——
+    // —— identity (harness-injected; never from model output) ——
     sessionId: string;
     turnId: string;
 
-    // —— 权限数据（派生产物，Gateway 只消费不计算）——
+    // —— permission data (derived artifacts; the gateway consumes, never computes) ——
     effective: EffectivePolicy;
     dangerRules: readonly AppliedDangerRule[];
     budget: Budget;
     toolRegistry: ReadonlyMap<string, ToolRegistration>;
-    /** 沙盒配置（来自 Capacity.sandbox；Deployer 按 D1–D3 部署执行环境） */
+    /** Sandbox configuration (from Capacity.sandbox; Deployer provisions D1–D3) */
     sandbox: SandboxSpec;
 
-    // —— 周边服务 ——
-    /** 审批 Seam（L1 policy 实现）；缺位时实现必须 fail-closed（V13） */
+    // —— peripheral services ——
+    /** Approval seam (L1 policy implementation); must fail-closed when absent (V13) */
     approval: ApprovalSeam;
-    /** 决策事件出口（emit 永不被 flag 阻断） */
+    /** Decision event sink (emit never blocked by flags) */
     audit: GatewayAuditSink;
-    /** pre-execute 钩子链（V14 单调守卫） */
+    /** Pre-execute hook chain (V14 monotonic guard) */
     hooks?: readonly GatewayHook[];
 }
 
 // ============================================================
-// §7 注册示例（文档；类型-checked 的用例见 __tests__/registrations.ts）
+// §7 Registration examples (docs; type-checked cases in __tests__/registrations.ts)
 // ============================================================
 
 /**
- * bash —— 一注册吃遍所有命令，效果面交给沙盒（D1）：
+ * bash — a single registration covers all commands; the effect surface is
+ * enforced by the sandbox (D1):
  *
  *   {
  *     name: 'bash', effectClass: 'fs.exec',
@@ -495,7 +477,7 @@ export interface GatewayBindInput {
  *     handler: spawnInSandbox,
  *   }
  *
- * HTTP GET —— 单效果，hosts 白名单 + proxy（D2）：
+ * HTTP GET — single effect, hosts whitelist + proxy (D2):
  *
  *   {
  *     name: 'http_get', effectClass: 'net.fetch',
@@ -507,7 +489,7 @@ export interface GatewayBindInput {
  *     handler: fetchViaProxy,
  *   }
  *
- * 支付 API —— 多效果联合分派 + 秘密注入：
+ * Payment API — multi-effect joint dispatch + secret injection:
  *
  *   {
  *     name: 'charge', effectClass: 'pay', coEffects: ['net.send'],
@@ -521,7 +503,7 @@ export interface GatewayBindInput {
  *     handler: callMerchantApi,
  *   }
  *
- * MCP 工具 —— 逐个映射，全信标注（D3）：
+ * MCP tool — one-to-one mapping, full-trust annotation (D3):
  *
  *   {
  *     name: 'mcp.github.create_issue', effectClass: 'publish',
