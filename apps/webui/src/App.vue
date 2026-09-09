@@ -1389,14 +1389,13 @@ onBeforeUnmount(() => {
 .exec-goal {
     margin-bottom: 6px;
     position: relative;
-    border-left: 1px solid var(--border-soft);
-    margin-left: 3px;
-    padding-left: 12px;
+    border-left: 2px solid var(--border);
+    padding-left: 14px;
 }
 .exec-goal::before {
     content: '';
     position: absolute;
-    left: -3px;
+    left: -4px;
     top: 10px;
     width: 6px;
     height: 6px;
@@ -1446,19 +1445,18 @@ onBeforeUnmount(() => {
     flex-shrink: 0;
 }
 .exec-goal-body {
-    padding-left: 4px;
+    padding-left: 0;
 }
 .exec-task {
     margin: 4px 0;
     position: relative;
-    border-left: 1px solid var(--border-soft);
-    margin-left: 3px;
-    padding-left: 10px;
+    border-left: 2px solid var(--border);
+    padding-left: 14px;
 }
 .exec-task::before {
     content: '';
     position: absolute;
-    left: -3px;
+    left: -4px;
     top: 9px;
     width: 6px;
     height: 6px;
@@ -1506,7 +1504,7 @@ onBeforeUnmount(() => {
     flex-shrink: 0;
 }
 .exec-task-body {
-    padding-left: 2px;
+    padding-left: 0;
 }
 .exec-step {
     display: flex;
@@ -1514,13 +1512,12 @@ onBeforeUnmount(() => {
     gap: 3px;
     padding: 4px 0 4px 14px;
     position: relative;
-    border-left: 1px solid var(--border-soft);
-    margin-left: 3px;
+    border-left: 2px solid var(--border);
 }
 .exec-step::before {
     content: '';
     position: absolute;
-    left: -3px;
+    left: -4px;
     top: 10px;
     width: 6px;
     height: 6px;
