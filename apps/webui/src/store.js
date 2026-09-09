@@ -136,7 +136,13 @@ export function fmtUsd(value) {
 
 export function fmtClock(ts) {
     if (!ts) return '';
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const d = new Date(ts);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (isToday) return time;
+    const date = d.toLocaleDateString([], { year: 'numeric', month: '2-digit', day: '2-digit' });
+    return `${date} ${time}`;
 }
 
 export function relTime(ts) {
