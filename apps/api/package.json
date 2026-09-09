@@ -11,6 +11,7 @@
     "@nestjs/common": "^12",
     "@nestjs/core": "^12",
     "@nestjs/platform-fastify": "^12",
+    "dotenv": "^17.4.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },

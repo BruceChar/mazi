@@ -15,7 +15,7 @@
     "check": "pnpm lint && pnpm test",
     "prepare": "husky",
     "mazi": "node apps/cli/dist/cli.js",
-    "api": "node apps/api/dist/main.js",
+    "api": "pnpm build && node apps/api/dist/main.js",
     "ui": "pnpm --filter @mazi/webui dev",
     "dev": "pnpm api & pnpm ui"
   },
