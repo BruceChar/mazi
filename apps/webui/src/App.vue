@@ -1485,6 +1485,8 @@ onBeforeUnmount(() => {
     padding: 1px 5px;
     border-radius: 4px;
     flex-shrink: 0;
+    width: 36px;
+    text-align: center;
 }
 .exec-goal-title {
     flex: 1;
@@ -1530,6 +1532,8 @@ onBeforeUnmount(() => {
     padding: 1px 4px;
     border-radius: 3px;
     flex-shrink: 0;
+    width: 32px;
+    text-align: center;
 }
 .exec-task-title {
     flex: 1;
