@@ -47,7 +47,7 @@ describe('events SSE follow（NG-4）', () => {
         await h.close();
     });
 
-    it('follow=1：先回放 session.started，随后 live 收到 user.feedback.captured', async () => {
+    it('follow=1：先回放 goal.started，随后 live 收到 user.feedback.captured', async () => {
         const created = await h.fastify.inject({
             method: 'POST',
             url: '/api/sessions',
@@ -57,7 +57,7 @@ describe('events SSE follow（NG-4）', () => {
         const sessionId = created.json().sessionId;
 
         const stream = collectSse(port, `/api/events/${sessionId}?follow=1`, [
-            'event: session.started',
+            'event: goal.started',
             'event: user.feedback.captured',
         ]);
         await new Promise((r) => setTimeout(r, 300)); // 让回放帧先写
@@ -70,7 +70,7 @@ describe('events SSE follow（NG-4）', () => {
         expect(fb.statusCode).toBe(200);
         const result = await stream;
         expect(result.matched).toBe(true);
-        expect(result.text).toContain('event: session.started');
+        expect(result.text).toContain('event: goal.started');
         expect(result.text).toContain('event: user.feedback.captured');
     });
 });
