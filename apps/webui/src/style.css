@@ -384,8 +384,11 @@ pre {
 
 .group-head {
     padding: 4px 8px 6px;
-    color: var(--fg-secondary);
-    font-size: 12px;
+    color: var(--fg-tertiary);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .group-head.project-head {
@@ -394,11 +397,17 @@ pre {
     gap: 2px;
     position: relative;
     cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--fg);
+    padding: 5px 8px;
 }
 
 .group-head.project-head:hover {
     background: var(--bg-hover);
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
 }
 
 .project-fold {
@@ -413,6 +422,8 @@ pre {
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--fg);
+    font-weight: 600;
+    font-size: 13px;
 }
 
 .project-add {
@@ -430,8 +441,8 @@ pre {
 .session-list li {
     position: relative;
     border-left: 3px solid transparent;
-    border-radius: 6px;
-    padding: 8px 10px 8px 12px;
+    border-radius: var(--radius-sm);
+    padding: 6px 10px 6px 12px;
     cursor: pointer;
 }
 
@@ -440,7 +451,7 @@ pre {
 }
 
 .session-list li.active {
-    background: var(--bg-active);
+    background: var(--accent-soft);
     border-left-color: var(--accent);
 }
 
@@ -449,13 +460,18 @@ pre {
     text-overflow: ellipsis;
     white-space: nowrap;
     padding-right: 18px;
-    font-size: 13px;
+    font-size: 12px;
+    color: var(--fg-secondary);
+    transition: color 0.12s;
+}
+.session-list li:hover .session-title,
+.session-list li.active .session-title {
     color: var(--fg);
 }
 
 .session-actions {
     position: absolute;
-    top: 6px;
+    top: 4px;
     right: 6px;
     display: none;
     gap: 2px;
@@ -483,21 +499,18 @@ pre {
     color: var(--accent);
 }
 
-.session-meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 3px;
-    font-size: 11px;
-    color: var(--fg-secondary);
+.session-time {
+    display: none;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    margin-top: 2px;
 }
-
-.session-meta .time {
-    margin-left: auto;
+.session-list li:hover .session-time {
+    display: block;
 }
 
 .empty-sidebar {
-    color: var(--fg-secondary);
+    color: var(--fg-tertiary);
     font-size: 12px;
     padding: 8px;
 }
@@ -1336,6 +1349,28 @@ pre {
     justify-content: flex-end;
     gap: 8px;
     margin-top: 16px;
+}
+
+.confirm-modal {
+    width: min(420px, 90vw);
+}
+.confirm-message {
+    color: var(--fg-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 8px 0 0;
+}
+.modal-actions .danger {
+    background: var(--error);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.modal-actions .danger:hover {
+    background: #dc2626;
 }
 
 /* ---------- Badge / common ---------- */

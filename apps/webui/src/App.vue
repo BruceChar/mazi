@@ -53,6 +53,18 @@ const feedbackSent = ref(false);
 const feedbackModal = ref(false);
 const feedbackRating = ref(5);
 const feedbackContent = ref('');
+/** 自定义确认弹窗（替代 window.confirm） */
+const confirmDialog = ref({ open: false, title: '', message: '', confirmText: '确认', danger: false, action: null });
+async function runConfirmAction() {
+    const d = confirmDialog.value;
+    if (d.action) await d.action();
+    d.open = false;
+    d.action = null;
+}
+function cancelConfirm() {
+    confirmDialog.value.open = false;
+    confirmDialog.value.action = null;
+}
 const draft = ref({
     statement: '',
     permission: 'read-only',
@@ -122,6 +134,8 @@ const currentInput = computed(() => {
     return run?.input || '';
 });
 const workedFor = computed(() => '');
+/** 聊天流中展开了执行过程的 run（默认当前 run） */
+const expandedRunId = ref(null);
 
 function conversationTitle(conversation) {
     const run = latestRun(conversation);
@@ -375,14 +389,16 @@ async function renameConversationById(conversation) {
 }
 
 async function removeConversation(conversation) {
-    if (
-        !window.confirm(
-            `删除会话「${conversationTitle(conversation)}」？此操作同时删除其 Goal 树。`,
-        )
-    ) {
-        return;
-    }
-    await deleteConversationById(conversation.conversationId);
+    confirmDialog.value = {
+        open: true,
+        title: '删除会话',
+        message: `删除会话「${conversationTitle(conversation)}」？此操作同时删除其 Goal 树。`,
+        confirmText: '删除',
+        danger: true,
+        action: async () => {
+            await deleteConversationById(conversation.conversationId);
+        },
+    };
 }
 
 async function renameProjectById(project) {
@@ -393,16 +409,17 @@ async function renameProjectById(project) {
 }
 
 async function removeProjectById(project) {
-    if (
-        !window.confirm(
-            `删除项目「${project.title}」的配置？仅删除配置，对话记录保留并移入“会话”区。`,
-        )
-    ) {
-        return;
-    }
-    await deleteWorkspaceProject(project.path);
-    // 若当前选中的会话属于该项目，解除归属后仍在“会话”区显示，刷新列表保持打开
-    await loadConversations();
+    confirmDialog.value = {
+        open: true,
+        title: '删除项目配置',
+        message: `删除项目「${project.title}」的配置？仅删除配置，对话记录保留并移入“会话”区。`,
+        confirmText: '删除',
+        danger: true,
+        action: async () => {
+            await deleteWorkspaceProject(project.path);
+            await loadConversations();
+        },
+    };
 }
 
 function openRate() {
@@ -618,13 +635,9 @@ onBeforeUnmount(() => {
                                 <div class="session-title">{{ conversationTitle(c) }}</div>
                                 <div class="session-actions">
                                     <button title="重命名会话" @click.stop="renameConversationById(c)"><LineIcon name="rename" size="13" /></button>
-                                                                        <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
+                                    <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
                                 </div>
-                                <div class="session-meta">
-                                    <span class="badge" :class="badge(conversationOutcome(c))">{{ conversationOutcome(c) }}</span>
-                                    <span>{{ (c.runs || []).length }} runs</span>
-                                    <span class="time">{{ relTime(c.updatedAt || c.createdAt) }}</span>
-                                </div>
+                                <div class="session-time">{{ relTime(c.updatedAt || c.createdAt) }}</div>
                             </li>
                             <li v-if="!projectConversationItems(project).length" class="empty-sidebar">
                                 暂无项目会话
@@ -651,13 +664,9 @@ onBeforeUnmount(() => {
                             <div class="session-title">{{ conversationTitle(c) }}</div>
                             <div class="session-actions">
                                 <button title="重命名会话" @click.stop="renameConversationById(c)"><LineIcon name="rename" size="13" /></button>
-                                                                <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
+                                <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
                             </div>
-                            <div class="session-meta">
-                                <span class="badge" :class="badge(conversationOutcome(c))">{{ conversationOutcome(c) }}</span>
-                                <span>{{ (c.runs || []).length }} runs</span>
-                                <span class="time">{{ relTime(c.updatedAt || c.createdAt) }}</span>
-                            </div>
+                            <div class="session-time">{{ relTime(c.updatedAt || c.createdAt) }}</div>
                         </li>
                         <li v-if="!generalConversations.length" class="empty-sidebar">暂无会话</li>
                     </ul>
@@ -679,73 +688,76 @@ onBeforeUnmount(() => {
                     <div class="goal-conv-head">
                         <span class="goal-conv-title">{{ conversationTitle(activeConversation) }}</span>
                         <span v-if="workspaceRoot" class="goal-conv-ws">{{ workspaceRoot }}</span>
-                        <span class="goal-conv-meta">{{ runs.length }} runs · {{ activeGoals.length }} goals · {{ taskCount }} tasks · {{ stepCount }} steps</span>
-                    </div>
-                    <div class="goal-runsbar">
-                        <button
-                            v-for="(run, i) in runs"
-                            :key="run.rootGoalId"
-                            class="goal-chip"
-                            :class="{ on: run.rootGoalId === current }"
-                            @click="selectRun(run)"
-                        >
-                            <span class="goal-chip-main">{{ i + 1 }} · {{ runLabel(run) }}</span>
-                            <span class="goal-chip-sub">
-                                {{ fmtClock(run.createdAt) }}
-                                <template v-if="runOutcomes[run.rootGoalId]">
-                                    · {{ runOutcomes[run.rootGoalId].ok ? '✓' : '✗' }}
-                                </template>
-                            </span>
-                        </button>
-                        <button v-if="!runs.length" class="goal-chip-add" @click="ui.showNew = true">＋ 追加任务</button>
+                        <span class="goal-conv-meta">{{ runs.length }} runs</span>
                     </div>
                 </template>
 
                 <div class="chat-scroll">
-                    <template v-if="activeConversation && detail">
-                        <div
-                            v-if="rootOutcome && (rootOutcome.finalMessage || rootOutcome.errorMessage)"
-                            class="goal-bubble"
-                            :class="{ fail: !rootOutcome.ok }"
-                        >
-                            <div class="goal-bubble-head">
-                                {{ rootOutcome.ok ? '最终回答' : '执行失败' }}
-                                <template v-if="rootOutcome.reason"> · {{ rootOutcome.reason }}</template>
+                    <template v-if="activeConversation && runs.length">
+                        <div v-for="run in runs" :key="run.rootGoalId" class="run-block" :class="{ current: run.rootGoalId === current }">
+                            <!-- 用户输入 -->
+                            <div class="msg msg-user">
+                                <div class="msg-bubble">{{ run.input }}</div>
+                                <span class="msg-time">{{ fmtClock(run.createdAt) }}</span>
                             </div>
-                            <pre class="goal-final">{{ rootOutcome.ok ? rootOutcome.finalMessage : rootOutcome.errorMessage }}</pre>
-                        </div>
-                        <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
-                        <div v-for="goal in activeGoals" :key="goal.goalId" class="goal-card" :class="`goal-kind-${goal.kind}`">
-                            <div class="goal-head">
-                                <span class="kind-pill" :class="goal.kind">{{ goal.kind }}</span>
-                                <span class="status-dot" :class="statusClass(goal.status)"></span>
-                                <span class="status-text">{{ statusLabel(goal.status) }}</span>
-                                <span class="goal-statement">{{ goal.statement }}</span>
-                            </div>
-                            <div v-for="task in goal.tasks" :key="task.taskId" class="goal-task">
-                                <div class="goal-task-head">
-                                    <span class="status-dot" :class="statusClass(task.status)"></span>
-                                    <span class="goal-task-title">{{ task.title }}</span>
-                                    <span class="task-meta">{{ task.steps?.length || 0 }} steps</span>
+                            <!-- 最终回答 -->
+                            <div
+                                v-if="runOutcomes[run.rootGoalId] && (runOutcomes[run.rootGoalId].finalMessage || runOutcomes[run.rootGoalId].errorMessage)"
+                                class="msg msg-assistant"
+                            >
+                                <div class="msg-bubble" :class="{ fail: !runOutcomes[run.rootGoalId].ok }">
+                                    <div class="msg-bubble-head">
+                                        {{ runOutcomes[run.rootGoalId].ok ? '最终回答' : '执行失败' }}
+                                        <template v-if="runOutcomes[run.rootGoalId].reason"> · {{ runOutcomes[run.rootGoalId].reason }}</template>
+                                    </div>
+                                    <pre class="msg-final">{{ runOutcomes[run.rootGoalId].ok ? runOutcomes[run.rootGoalId].finalMessage : runOutcomes[run.rootGoalId].errorMessage }}</pre>
                                 </div>
-                                <ul v-if="task.steps.length" class="goal-steps">
-                                    <li v-for="step in task.steps" :key="step.stepId" :class="['step-item', `step-${step.kind}`]">
-                                        <span class="step-dot"></span>
-                                        <span class="step-kind">{{ kindLabel(step.kind) }}</span>
-                                        <span class="step-status" :class="statusClass(step.status)">{{ statusLabel(step.status) }}</span>
-                                        <span class="step-content" :title="stepSummary(step)">{{ stepSummary(step) || '（无内容）' }}</span>
-                                        <span class="step-when">{{ fmtClock(step.startedAt) }}</span>
-                                    </li>
-                                </ul>
-                                <div v-else class="empty-hint">（该 Task 尚无 Step）</div>
+                            </div>
+                            <!-- 执行中提示 -->
+                            <div v-else-if="run.rootGoalId === current && busy" class="msg msg-assistant">
+                                <div class="msg-bubble thinking-bubble">执行中…</div>
+                            </div>
+                            <!-- goal 树（仅当前 run 有 detail 数据） -->
+                            <template v-if="run.rootGoalId === current && detail">
+                                <div v-for="goal in activeGoals" :key="goal.goalId" class="goal-card" :class="`goal-kind-${goal.kind}`">
+                                    <div class="goal-head">
+                                        <span class="kind-pill" :class="goal.kind">{{ goal.kind }}</span>
+                                        <span class="status-dot" :class="statusClass(goal.status)"></span>
+                                        <span class="status-text">{{ statusLabel(goal.status) }}</span>
+                                        <span class="goal-statement">{{ goal.statement }}</span>
+                                    </div>
+                                    <div v-for="task in goal.tasks" :key="task.taskId" class="goal-task">
+                                        <div class="goal-task-head">
+                                            <span class="status-dot" :class="statusClass(task.status)"></span>
+                                            <span class="goal-task-title">{{ task.title }}</span>
+                                            <span class="task-meta">{{ task.steps?.length || 0 }} steps</span>
+                                        </div>
+                                        <ul v-if="task.steps.length" class="goal-steps">
+                                            <li v-for="step in task.steps" :key="step.stepId" :class="['step-item', `step-${step.kind}`]">
+                                                <span class="step-dot"></span>
+                                                <span class="step-kind">{{ kindLabel(step.kind) }}</span>
+                                                <span class="step-status" :class="statusClass(step.status)">{{ statusLabel(step.status) }}</span>
+                                                <span class="step-content" :title="stepSummary(step)">{{ stepSummary(step) || '（无内容）' }}</span>
+                                                <span class="step-when">{{ fmtClock(step.startedAt) }}</span>
+                                            </li>
+                                        </ul>
+                                        <div v-else class="empty-hint">（该 Task 尚无 Step）</div>
+                                    </div>
+                                </div>
+                            </template>
+                            <!-- 非当前 run：查看执行过程 -->
+                            <div v-else-if="run.rootGoalId !== current" class="run-expand">
+                                <button class="ghost" @click="selectRun(run)">查看执行过程 →</button>
                             </div>
                         </div>
                     </template>
                     <div v-else-if="activeConversation" class="empty-hint">
-                        暂无 Goal 树（run 不存在或已被删除）。
+                        暂无 run，输入任务开始
                     </div>
                     <div v-else class="empty-hint">暂无会话，点击「新会话」开始</div>
                 </div>
+
+                <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
 
                 <div class="input-area">
                     <button class="icon-btn add-btn" title="选择/创建工作区" @click="openSystemPicker">
@@ -953,6 +965,17 @@ onBeforeUnmount(() => {
             </div>
         </div>
     </div>
+
+    <div v-if="confirmDialog.open" class="modal-mask" @click.self="cancelConfirm">
+        <div class="modal confirm-modal">
+            <h1>{{ confirmDialog.title }}</h1>
+            <p class="confirm-message">{{ confirmDialog.message }}</p>
+            <div class="modal-actions">
+                <button class="ghost" @click="cancelConfirm">取消</button>
+                <button :class="confirmDialog.danger ? 'danger' : 'primary'" @click="runConfirmAction">{{ confirmDialog.confirmText }}</button>
+            </div>
+        </div>
+    </div>
 </template>
 
 <style>
@@ -1029,6 +1052,88 @@ onBeforeUnmount(() => {
 .goal-chip-sub {
     color: var(--fg-tertiary);
     font-size: 10px;
+}
+.run-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+.run-block.current {
+    /* 当前 run 无特殊标记，靠内容区分 */
+}
+.msg {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: 80%;
+}
+.msg-user {
+    align-items: flex-end;
+    align-self: flex-end;
+}
+.msg-assistant {
+    align-items: flex-start;
+    align-self: flex-start;
+}
+.msg-bubble {
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    line-height: 1.55;
+    word-break: break-word;
+}
+.msg-user .msg-bubble {
+    background: var(--accent);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+}
+.msg-assistant .msg-bubble {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+    box-shadow: var(--shadow-sm);
+}
+.msg-assistant .msg-bubble.fail {
+    border-color: var(--error);
+    background: var(--error-soft);
+}
+.msg-bubble-head {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-secondary);
+    margin-bottom: 4px;
+}
+.msg-user .msg-bubble-head {
+    color: rgba(255, 255, 255, 0.8);
+}
+.msg-final {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: inherit;
+    font-size: 13px;
+}
+.msg-time {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    padding: 0 4px;
+}
+.thinking-bubble {
+    color: var(--fg-secondary);
+    font-style: italic;
+    animation: pulse 1.5s infinite;
+}
+.run-expand {
+    display: flex;
+    justify-content: center;
+    padding: 4px 0;
+}
+.run-expand .ghost {
+    font-size: 12px;
+    color: var(--fg-tertiary);
+}
+.run-expand .ghost:hover {
+    color: var(--accent);
 }
 .goal-card {
     border: 1px solid var(--border);
