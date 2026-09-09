@@ -1654,63 +1654,48 @@ onBeforeUnmount(() => {
     font-family: ui-monospace, monospace;
     margin: 0 8px 2px 14px;
 }
-/* step dot: 14px container matching icon height, with 8px circle centered
-   inside. align-items:center aligns the 14px container with the 14px svg
-   exactly, so the inner circle shares the icon's visual center. */
+/* step dot: absolute, fixed top aligned to 14px icon center
+   (head padding-top 4px + icon half 7px = 11px; dot 8px → top 7px) */
 .step-dot {
-    position: static;
-    left: auto;
-    top: auto;
+    position: absolute;
+    left: -5px;
+    top: 7px;
     transform: none;
-    width: 14px;
-    height: 14px;
-    margin-left: -22px; /* 14px container: center at border center (16px content edge - 7px half - 7px = -22) */
-    border: none;
-    background: transparent;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.step-dot::before {
-    content: '';
     width: 8px;
     height: 8px;
-    border-radius: 50%;
-    background: var(--bg);
+    margin-left: 0;
     border: 2px solid var(--fg-tertiary);
-    box-sizing: border-box;
-    flex-shrink: 0;
+    background: var(--bg);
+    display: grid;
+    place-items: center;
 }
-/* hide +/− text by default so it doesn't offset the circle in flex */
+.step-dot::before {
+    display: none;
+}
 .step-dot::after {
     display: none;
 }
-.exec-step-head.clickable:hover .step-dot::after {
-    display: block;
-}
-.exec-step.exec-thinking .step-dot::before { border-color: var(--thinking); }
-.exec-step.exec-tool_call .step-dot::before { border-color: var(--tool); }
-.exec-step.exec-observation .step-dot::before { border-color: var(--observation); }
-.exec-step.error .step-dot::before { border-color: var(--error); }
-.exec-step-head.clickable:hover .step-dot::before {
-    display: none; /* square button shows +/− text instead */
-}
+.exec-step.exec-thinking .step-dot { border-color: var(--thinking); }
+.exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
+.exec-step.exec-observation .step-dot { border-color: var(--observation); }
+.exec-step.error .step-dot { border-color: var(--error); }
 .exec-step-head.clickable:hover .step-dot {
-    margin-left: -23px; /* 16px button centered on border */
-}
-.exec-step-head.clickable:hover .exec-dot {
     width: 16px;
     height: 16px;
     left: -9px;
+    top: 3px;
     border-radius: 4px;
     background: var(--fg-tertiary);
     border-color: var(--fg-tertiary);
     color: #fff;
 }
-.exec-step.exec-thinking .exec-step-head.clickable:hover .exec-dot { background: var(--thinking); border-color: var(--thinking); }
-.exec-step.exec-tool_call .exec-step-head.clickable:hover .exec-dot { background: var(--tool); border-color: var(--tool); }
-.exec-step.exec-observation .exec-step-head.clickable:hover .exec-dot { background: var(--observation); border-color: var(--observation); }
-.exec-step.error .exec-step-head.clickable:hover .exec-dot { background: var(--error); border-color: var(--error); }
+.exec-step-head.clickable:hover .step-dot::after {
+    display: block;
+}
+.exec-step.exec-thinking .exec-step-head.clickable:hover .step-dot { background: var(--thinking); border-color: var(--thinking); }
+.exec-step.exec-tool_call .exec-step-head.clickable:hover .step-dot { background: var(--tool); border-color: var(--tool); }
+.exec-step.exec-observation .exec-step-head.clickable:hover .step-dot { background: var(--observation); border-color: var(--observation); }
+.exec-step.error .exec-step-head.clickable:hover .step-dot { background: var(--error); border-color: var(--error); }
 .exec-stats {
     display: flex;
     align-items: center;
