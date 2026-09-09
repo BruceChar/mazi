@@ -166,6 +166,14 @@ function assistantTime(run) {
     const last = stepEventRows.value[stepEventRows.value.length - 1];
     return last ? last.time : fmtClock(run.createdAt);
 }
+/** 执行流步骤 title 摘要：失败时显示错误消息，否则显示内容前 80 字 */
+function stepTitleSummary(row) {
+    const isError = row.status === 'error' || row.status === 'failed';
+    if (isError) {
+        return row.text ? `Error: ${row.text.slice(0, 80)}` : '执行失败';
+    }
+    return row.text ? row.text.slice(0, 80) : '';
+}
 
 function conversationTitle(conversation) {
     const run = latestRun(conversation);
@@ -812,13 +820,12 @@ onBeforeUnmount(() => {
                                     >
                                         <div class="exec-step-head">
                                             <LineIcon :name="row.kind === 'thinking' ? 'thinking' : row.kind === 'tool_call' ? 'tool' : 'observation'" size="14" />
-                                            <span class="exec-step-label">{{ row.kind === 'thinking' ? '思考' : row.kind === 'tool_call' ? '代码' : '观察' }}</span>
-                                            <span v-if="row.toolName" class="exec-step-tool">{{ row.toolName }}</span>
-                                            <span class="exec-step-status" :class="row.status">{{ row.statusLabel }}</span>
+                                            <span class="exec-step-name">{{ row.toolName || (row.kind === 'thinking' ? '思考' : row.kind === 'observation' ? '观察' : row.kind) }}</span>
+                                            <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
                                             <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
                                             <span class="exec-step-time">{{ row.time }}</span>
                                         </div>
-                                        <div v-if="row.text" class="exec-step-content">{{ row.text }}</div>
+                                        <div v-if="row.text && row.text.length > 80" class="exec-step-content">{{ row.text }}</div>
                                         <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
                                             {{ usageStats(row.usage).total }} tokens
                                             <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
@@ -1359,29 +1366,29 @@ onBeforeUnmount(() => {
 .exec-observation .exec-step-head .line-icon { color: var(--observation); }
 .exec-step.error .exec-step-head .line-icon { color: var(--error); }
 
-.exec-step-label {
+.exec-step-name {
     font-weight: 600;
-    color: var(--fg);
     font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--fg);
+    flex-shrink: 0;
 }
-.exec-step-tool {
-    font-family: ui-monospace, monospace;
-    font-size: 11px;
-    color: var(--tool);
-    background: var(--tool-soft);
-    padding: 1px 6px;
-    border-radius: 4px;
-}
-.exec-step-status {
-    font-size: 10px;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: var(--bg-code);
+.exec-thinking .exec-step-name { color: var(--thinking); }
+.exec-tool_call .exec-step-name { color: var(--tool); }
+.exec-observation .exec-step-name { color: var(--observation); }
+.exec-step.error .exec-step-name { color: var(--error); }
+.exec-step-summary {
+    font-size: 12px;
     color: var(--fg-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
 }
-.exec-step-status.ok { background: var(--ok-soft); color: var(--ok); }
-.exec-step-status.error, .exec-step-status.failed { background: var(--error-soft); color: var(--error); }
-.exec-step-status.running, .exec-step-status.active { background: var(--accent-soft); color: var(--accent); }
+.exec-step.error .exec-step-summary {
+    color: var(--error);
+}
 .exec-step-duration {
     font-size: 10px;
     color: var(--fg-tertiary);
