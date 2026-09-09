@@ -141,6 +141,13 @@ const panelMaximized = ref(false);
 function togglePanelMax() {
     panelMaximized.value = !panelMaximized.value;
 }
+/** 执行过程（goal 树）展开/折叠 */
+const showExecution = ref(true);
+/** 当前 run 总耗时（从 stepEventRows 汇总） */
+const totalDuration = computed(() => {
+    const ms = stepEventRows.value.reduce((s, r) => s + (r.durationMs || 0), 0);
+    return formatDuration(ms);
+});
 
 function conversationTitle(conversation) {
     const run = latestRun(conversation);
@@ -730,7 +737,6 @@ onBeforeUnmount(() => {
                     <div class="goal-conv-head">
                         <span class="goal-conv-title">{{ conversationTitle(activeConversation) }}</span>
                         <span v-if="workspaceRoot" class="goal-conv-ws">{{ workspaceRoot }}</span>
-                        <span class="goal-conv-meta">{{ runs.length }} runs</span>
                     </div>
                 </template>
 
@@ -759,8 +765,19 @@ onBeforeUnmount(() => {
                             <div v-else-if="run.rootGoalId === current && busy" class="msg msg-assistant">
                                 <div class="msg-bubble thinking-bubble">执行中…</div>
                             </div>
-                            <!-- goal 树（仅当前 run 有 detail 数据） -->
-                            <template v-if="run.rootGoalId === current && detail">
+                            <!-- 执行时间分隔线 -->
+                            <div
+                                v-if="run.rootGoalId === current && stepEventRows.length"
+                                class="worked-for"
+                                @click="showExecution = !showExecution"
+                            >
+                                <span class="worked-for-line"></span>
+                                <span class="worked-for-text">Worked for {{ totalDuration }}</span>
+                                <LineIcon :name="showExecution ? 'chevronDown' : 'chevronRight'" size="12" />
+                                <span class="worked-for-line"></span>
+                            </div>
+                            <!-- goal 树（仅当前 run 有 detail 数据，可折叠） -->
+                            <template v-if="run.rootGoalId === current && detail && showExecution">
                                 <div v-for="goal in activeGoals" :key="goal.goalId" class="goal-card" :class="`goal-kind-${goal.kind}`">
                                     <div class="goal-head">
                                         <span class="kind-pill" :class="goal.kind">{{ goal.kind }}</span>
@@ -802,33 +819,41 @@ onBeforeUnmount(() => {
                 <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
 
                 <div class="input-area">
-                    <button class="icon-btn add-btn" title="选择/创建工作区" @click="openSystemPicker">
-                        <LineIcon name="plus" size="17" />
-                    </button>
-                    <textarea
-                        v-model="prompt"
-                        rows="1"
-                        placeholder="输入任务…（Enter 发送，Shift+Enter 换行）"
-                        @keydown.enter.exact.prevent="submitPrompt"
-                    ></textarea>
-                    <div class="input-actions">
-                        <select v-model="selectedModel" title="模型">
-                            <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
-                        </select>
-                        <select v-model="draft.loopMode" class="mode-select" title="Loop 模式">
-                            <option v-for="m in LOOP_MODE_OPTIONS" :key="m.value" :value="m.value">
-                                {{ m.label }}
-                            </option>
-                        </select>
-                        <button v-if="current" class="ghost" title="重跑当前 Goal" @click="rerunCurrent">
-                            <LineIcon name="refresh" size="15" />
-                        </button>
-                        <button v-if="current && rootOutcome" class="ghost" title="评分" @click="openRate">
-                            <LineIcon name="like" size="15" />
-                        </button>
-                        <button class="send" :disabled="busy" title="发送" @click="submitPrompt">
-                            <LineIcon name="send" size="16" />
-                        </button>
+                    <div class="input-composer">
+                        <div class="input-top">
+                            <button class="input-add" title="选择/创建工作区" @click="openSystemPicker">
+                                <LineIcon name="plus" size="16" />
+                            </button>
+                            <textarea
+                                v-model="prompt"
+                                rows="1"
+                                placeholder="输入任务…（Enter 发送，Shift+Enter 换行）"
+                                @keydown.enter.exact.prevent="submitPrompt"
+                            ></textarea>
+                        </div>
+                        <div class="input-footer">
+                            <div class="input-footer-left">
+                                <select v-model="selectedModel" title="模型">
+                                    <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
+                                </select>
+                                <select v-model="draft.loopMode" class="mode-select" title="Loop 模式">
+                                    <option v-for="m in LOOP_MODE_OPTIONS" :key="m.value" :value="m.value">
+                                        {{ m.label }}
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="input-footer-right">
+                                <button v-if="current" class="ghost" title="重跑当前 Goal" @click="rerunCurrent">
+                                    <LineIcon name="refresh" size="15" />
+                                </button>
+                                <button v-if="current && rootOutcome" class="ghost" title="评分" @click="openRate">
+                                    <LineIcon name="like" size="15" />
+                                </button>
+                                <button class="send" :disabled="busy" title="发送" @click="submitPrompt">
+                                    <LineIcon name="send" size="16" />
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </template>
@@ -1123,72 +1148,69 @@ onBeforeUnmount(() => {
 .run-block {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-bottom: 20px;
-}
-.run-block.current {
-    /* 当前 run 无特殊标记，靠内容区分 */
+    gap: 12px;
+    margin-bottom: 24px;
 }
 .msg {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    max-width: 80%;
+    gap: 4px;
+    max-width: 100%;
+    width: 100%;
 }
 .msg-user {
-    align-items: flex-end;
-    align-self: flex-end;
+    align-items: stretch;
 }
 .msg-assistant {
-    align-items: flex-start;
-    align-self: flex-start;
+    align-items: stretch;
 }
 .msg-bubble {
     padding: 10px 14px;
-    border-radius: var(--radius);
-    font-size: 13px;
-    line-height: 1.55;
+    border-radius: var(--radius-lg);
+    font-size: 14px;
+    line-height: 1.6;
     word-break: break-word;
 }
+/* 用户消息：全宽浅灰框，Codex 风格 */
 .msg-user .msg-bubble {
-    background: var(--accent);
-    color: #fff;
-    border-bottom-right-radius: 4px;
+    background: var(--bg-code);
+    color: var(--fg);
+    border: 1px solid var(--border-soft);
 }
+/* AI 回答：无背景纯文本 */
 .msg-assistant .msg-bubble {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-bottom-left-radius: 4px;
-    box-shadow: var(--shadow-sm);
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
 }
 .msg-assistant .msg-bubble.fail {
-    border-color: var(--error);
-    background: var(--error-soft);
+    color: var(--error);
 }
 .msg-bubble-head {
     font-size: 11px;
     font-weight: 600;
-    color: var(--fg-secondary);
+    color: var(--fg-tertiary);
     margin-bottom: 4px;
-}
-.msg-user .msg-bubble-head {
-    color: rgba(255, 255, 255, 0.8);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 .msg-final {
     margin: 0;
     white-space: pre-wrap;
     font-family: inherit;
-    font-size: 13px;
+    font-size: 14px;
+    line-height: 1.65;
 }
 .msg-time {
-    font-size: 10px;
-    color: var(--fg-tertiary);
-    padding: 0 4px;
+    display: none;
 }
 .thinking-bubble {
-    color: var(--fg-secondary);
+    color: var(--fg-tertiary);
     font-style: italic;
+    font-size: 13px;
     animation: pulse 1.5s infinite;
+    padding: 4px 0;
 }
 .run-expand {
     display: flex;
@@ -1201,6 +1223,28 @@ onBeforeUnmount(() => {
 }
 .run-expand .ghost:hover {
     color: var(--accent);
+}
+.worked-for {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    cursor: pointer;
+    color: var(--fg-tertiary);
+    font-size: 12px;
+    user-select: none;
+}
+.worked-for:hover {
+    color: var(--fg-secondary);
+}
+.worked-for-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+.worked-for-text {
+    white-space: nowrap;
+    font-weight: 500;
 }
 .goal-card {
     border: 1px solid var(--border);
