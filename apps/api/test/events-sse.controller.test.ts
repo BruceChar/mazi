@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { get } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createTestApp, type TestAppHandle } from '../src/testing/test-app.js';

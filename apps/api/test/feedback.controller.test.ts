@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createTestApp, type TestAppHandle } from '../src/testing/test-app.js';
 
 describe('feedback（NG-5 契约对齐旧 node:http）', () => {

@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { join } from 'node:path';
 import { createTestApp, type TestAppHandle } from '../src/testing/test-app.js';
 
