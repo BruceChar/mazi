@@ -46,6 +46,10 @@ export function planGoalTree(input: PlanGoalTreeInput): GoalPlan {
 
     const rejected: string[] = [];
     for (const goal of goals) {
+        if (goal.kind === 'work' && goal.parent === undefined && goal.rootGoalId === goal.goalId) {
+            rejected.push(`orphan work goal '${goal.goalId}' missing parent`);
+            continue;
+        }
         const chain = validateAttributionChain(goal, index);
         if (!chain.ok) {
             rejected.push(chain.reason);
