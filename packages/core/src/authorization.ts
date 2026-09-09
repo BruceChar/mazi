@@ -1,27 +1,39 @@
 /**
- * Authorization 契约 —— 权限系统的全部数据模型。
+ * Authorization contract — the complete data model of the permission system.
  *
- * 权限三段生命：grant(根层签署) → derive(派生计算) → enforce(调用时强制)。
- * 本文件定义前两段的类型；第三段的行为契约见 tool-gateway.ts（ToolGateway）。
+ * Permission lifecycle: grant (root signing) → derive (policy computation) →
+ * enforce (call-time). This file defines the types of the first two stages;
+ * the enforce-stage behavioral contract lives in tool-gateway.ts
+ * (ToolGateway).
  *
- * ── 枚举开放扩展约定 ─────────────────────────────────────────────────
+ * Approval layering (see approval.ts): human-in-the-loop approvals never
+ * rewrite the root grant. once/session approvals are per-Turn (held by the
+ * ToolGateway, discarded at Turn end); workspace approvals are held by the
+ * workspace-level container (they outlive Turns, until revoked or the
+ * workspace is deleted). Persistent permission changes go exclusively
+ * through ContractRevision.
+ *
+ * ── Open-extension conventions ─────────────────────────────────────────
  * EffectClass / EffectTier / Trigger / PermissionLevel / SideEffectScope /
- * RejectCode 均以 `(string & {})` 收尾——保留字面量自动补全与判别力的
- * 同时允许平台扩展。各类扩展语义：
- *   - EffectClass      新工具注册新效果类别；未注册类别 closed-world
- *                      兜底 forbidden（V5），扩展无安全风险
- *   - EffectTier       平台自定义档位须给出与标准三档的偏序映射，
- *                      否则派生取严逻辑（meet）无法比较
- *   - Trigger          平台自定义升权触发时机
- *   - PermissionLevel  扩展档位无法从标准 PRESETS 构造，须由平台提供
- *                      具名 grant 工厂（见类型注释的定位警示）
- *   - SideEffectScope  纯描述性元数据，扩展无约束
- *   - RejectCode       平台自定义拒绝码仍须遵守"结构化 + 可行动 hint"
- *                      契约（防重试死循环）
+ * RejectCode all end with `(string & {})` — keeping literal autocomplete and
+ * discrimination while allowing platform extension. Extension semantics:
+ *   - EffectClass      new tools register new effect classes; unregistered
+ *                      classes fall back to forbidden via closed-world (V5),
+ *                      so extension carries no security risk
+ *   - EffectTier       platform tiers must provide a partial-order mapping to
+ *                      the standard three tiers, otherwise the derivation
+ *                      meet cannot compare them
+ *   - Trigger          platform-custom escalation trigger timing
+ *   - PermissionLevel  extended levels cannot be built from the standard
+ *                      PRESETS; the platform must provide named grant
+ *                      factories (see the positioning note on the type)
+ *   - SideEffectScope  purely descriptive metadata; extension is unconstrained
+ *   - RejectCode       platform codes still honor the "structured +
+ *                      actionable hint" contract (prevents retry loops)
  */
 
 // ============================================================
-// §1 权限原子
+// §1 Permission atoms
 // ============================================================
 
 export type EffectClass =
@@ -46,35 +58,40 @@ export type EffectTier = 'auto' | 'gated' | 'forbidden' | (string & {});
 export type Trigger = 'on-failure' | 'on-request' | (string & {});
 
 /**
- * v2 五级语义档位。
+ * v2 five-level semantic tiers.
  *
- * ── 定位警示 ─────────────────────────────────────────────────────────
- * PermissionLevel 是 AgentGrant 预设工厂（PRESETS）的索引，不是权限本体。
- * 实际权限治理由 EffectivePolicy 承担。它仅用于：
- *   ① 根层以人类可读档位签发 grant（makeRootGrant(level, ...)）
- *   ② 观测/审计/路由的粗粒度展示（inferPermissionLevel 从 effective
- *      反推的产物，tool-gateway 消费）
- * 任何 enforce 判定不得读 PermissionLevel，只读 EffectivePolicy——
- * 档位是索引，规则是本体。
- * 扩展档位（非标准五档）无法从 PRESETS 构造，须由平台提供具名
- * grant 工厂并在组合根注册。
+ * ── Positioning note ───────────────────────────────────────────────────
+ * PermissionLevel is the index into the AgentGrant preset factories
+ * (PRESETS), not the permission itself. Actual permission governance is
+ * carried by EffectivePolicy. It is used only for:
+ *   ① root-level signing of human-readable grants (makeRootGrant(level, ...))
+ *   ② coarse-grained display for observability/audit/routing
+ *      (inferPermissionLevel derives it back from the effective policy;
+ *      consumed by tool-gateway)
+ * No enforce decision may read PermissionLevel — enforce reads only
+ * EffectivePolicy: the tier is an index, the rule is the substance.
+ * Extended tiers (outside the standard five) cannot be built from PRESETS;
+ * the platform must provide named grant factories registered at the
+ * composition root.
  */
 export type PermissionLevel =
-    | 'text' // 仅生成文本，无任何效果
-    | 'read-only' // 可读不可写
-    | 'draft' // 写入暂存区
-    | 'approved' // 经审批可对外
-    | 'autonomous' // 受限自主
+    | 'text' // text-only generation, no effects
+    | 'read-only' // readable, not writable
+    | 'draft' // writes to the staging area
+    | 'approved' // external actions after approval
+    | 'autonomous' // constrained autonomy
     | (string & {});
 
 /**
- * 副作用域 —— 工具注册时的粗分类标注。
+ * Side-effect domain — coarse classification annotated at tool registration.
  *
- * ── 定位警示 ─────────────────────────────────────────────────────────
- * 纯描述性元数据：用于观测聚合、审计分类、工具目录检索。
- * 不参与派单与 enforce 判定——权限判定只认 EffectClass，任何实现
- * 拿 SideEffectScope 做权限判断都是缺陷。
- * 与 EffectClass 有映射但不等价：
+ * ── Positioning note ───────────────────────────────────────────────────
+ * Purely descriptive metadata: used for observability aggregation, audit
+ * classification and tool-directory lookup. It does NOT participate in
+ * dispatch or enforce decisions — permission decisions recognize only
+ * EffectClass; any implementation judging permissions from
+ * SideEffectScope is defective.
+ * Maps to (but is not equivalent to) EffectClass:
  *   fs.* → 'fs'；net.* → 'net'；fs.exec → 'process'；
  *   db.* → 'db'；pay → 'pay'；external.* → 'external-api'
  */
@@ -88,7 +105,7 @@ export type SideEffectScope =
     | (string & {});
 
 // ============================================================
-// §2 规则与授权
+// §2 Rules and authorization
 // ============================================================
 
 export interface EffectRule {
@@ -127,10 +144,19 @@ export type DeriveResult =
     | { ok: false; revision: { wants: EffectClass }; reason: string };
 
 // ============================================================
-// §3 规范常量
+// §3 Canonical constants
 // ============================================================
 
-// —— V8 规范常量：恒 gated 类，白名单不豁免 ——
+/**
+ * V8 canonical constant: always-gated classes, never exempted by whitelists.
+ *
+ * Scope of the V8 rule: the pre-authorization path — an effective whitelist
+ * hit (scope-check) never exempts these classes. HIL approvals are a
+ * different path: an explicit session/workspace approval of an always-gated
+ * class is a deliberate human decision and MAY waive the gate per platform
+ * semantics — but every grant and every hit must be audited (emit is never
+ * blocked by feature flags).
+ */
 export const ALWAYS_GATED_CLASSES: readonly EffectClass[] = [
     'delete',
     'db.schema',
@@ -139,7 +165,7 @@ export const ALWAYS_GATED_CLASSES: readonly EffectClass[] = [
 ] as const;
 
 // ============================================================
-// §4 DangerRule（V16：不参与 meet，任何层不可放宽）
+// §4 DangerRule (V16: does not join the meet; never relaxable at any layer)
 // ============================================================
 
 export interface DangerRule {
@@ -162,7 +188,7 @@ export interface AppliedDangerRule {
 }
 
 // ============================================================
-// §5 危险组合守卫（Guard 的唯一合法用法之一）
+// §5 Dangerous-combination guard (one of the only legitimate uses of a Guard)
 // ============================================================
 
 export interface GuardRule {
@@ -173,12 +199,13 @@ export interface GuardRule {
 }
 
 // ============================================================
-// §6 拒绝码（结构化，防死循环）
+// §6 Reject codes (structured, prevents retry loops)
 // ============================================================
 
 /**
- * 裸 permission denied 是 agent 重试死循环的头号来源——拒绝必须
- * 结构化且可行动。平台扩展码仍须遵守此契约并给出可行动 hint。
+ * A bare permission denied is the leading cause of agent retry loops —
+ * rejections must be structured and actionable. Platform extension codes
+ * still honor this contract and provide an actionable hint.
  */
 export type RejectCode =
     | 'FORBIDDEN_UNREGISTERED'

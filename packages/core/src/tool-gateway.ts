@@ -254,11 +254,45 @@ export interface InvocationRequest {
 /** Handle of a pending approval. */
 export type PendingHandle = string;
 
-/** Approval settlement (injected by the approval gate via settle, never by the model). */
+/**
+ * Approval settlement (injected by the approval gate via settle, never by the
+ * model).
+ *
+ * granted semantics (see ApprovalScope in approval.ts):
+ *   once      — execute the original request exactly once, then expire;
+ *   session   — session-scoped: the whole effectClass is approved for the rest
+ *               of the Turn;
+ *   workspace — workspace-scoped: the whole effectClass is approved for the
+ *               workspace until revoked or deleted; held by the
+ *               workspace-level container, not the per-Turn gateway.
+ * No granted variant rewrites the root grant — persistent permission changes
+ * go exclusively through ContractRevision.
+ */
 export type PendingSettlement =
-    | { decision: 'granted' } // allowed-once: execute the original request once
+    | { decision: 'granted'; scope: 'once' }
+    | { decision: 'granted'; scope: 'session' }
+    | { decision: 'granted'; scope: 'workspace' }
     | { decision: 'rejected'; reason: string }
     | { decision: 'cancelled' };
+
+/**
+ * Session-scoped approval entry — the materialized form of a granted
+ * session/workspace settlement.
+ *
+ * session entries are held by the ToolGateway instance and discarded at Turn
+ * end (the gateway is stateful per Turn; approvals never survive it).
+ * workspace entries are held by the workspace-level container (they outlive
+ * Turns, until revoked or the workspace is deleted); the gateway's view
+ * includes the workspace entries in effect for this Turn. Consumed by the
+ * session-approval hook and by the observability layer; every hit is audited
+ * (emit is never blocked by feature flags).
+ */
+export interface SessionApproval {
+    id: string;
+    effectClass: EffectClass;
+    scope: 'session' | 'workspace';
+    createdAt: number;
+}
 
 /**
  * Invocation outcome (three states).
@@ -281,6 +315,12 @@ export interface HookContext {
     args: Record<string, unknown>;
     projection: ValueProjection;
     identifiers: TraceIdentifiers;
+    /**
+     * Session/workspace approvals in effect for this Turn (snapshot taken at
+     * invocation start). The session-approval hook grants allow for calls
+     * covered by these entries, before the approval stage.
+     */
+    approvals: readonly SessionApproval[];
 }
 
 export type HookVerdict =
@@ -326,6 +366,9 @@ export interface GatewayHook {
  *       patterns / SQL predicates / sensitive paths); outcome applies.
  *   approval                — out-of-scope or high-risk → ApprovalSeam,
  *       returns pending(handle); missing seam → fail-closed rejection (V13).
+ *       Grants settle as session/workspace approvals (once/session/workspace)
+ *       that never rewrite the root grant; covered calls are let through by
+ *       the session-approval hook before scope-check.
  *   budget                  — steps/tokens/cost deduction; over-limit →
  *       BUDGET_EXHAUSTED (re-checked when settling).
  *   execute                 — handler runs unprivileged in the sandbox (V6);
@@ -382,14 +425,23 @@ export interface GatewayAuditSink {
 /**
  * ToolGateway — one instance per Turn.
  *
- * Stateful: holds the turn's effective policy, danger rules and budget
- * counters. Discarded when the turn ends; counters do not cross turns.
+ * Stateful: holds the turn's effective policy, danger rules, budget counters
+ * and session-scoped approvals. Discarded when the turn ends; counters and
+ * approvals do not cross turns.
  */
 export interface ToolGateway {
     /** Bound Turn (identity injected; the model cannot forge it) */
     readonly turnId: string;
     /** Filtered tool whitelist (visibility narrowing, not a security boundary) */
     readonly tools: readonly ToolSpec[];
+    /**
+     * Session/workspace approvals in effect for this Turn (granted
+     * session/workspace settlements, materialized). Read-only view for the
+     * session-approval hook and the observability layer; session entries are
+     * appended by settle and discarded at Turn end, workspace entries are
+     * held by the workspace-level container.
+     */
+    readonly sessionApprovals: readonly SessionApproval[];
 
     /**
      * The single invocation entry point. Stage order follows the header
@@ -408,11 +460,20 @@ export interface ToolGateway {
 
     /**
      * push: injects an approval result (called by the approval gate or the
-     * executor, never by the model). granted executes the original request
-     * once — allowed-once semantics: approval applies to this action only and
-     * never rewrites the grant (persistent permission changes only via
-     * ContractRevision). The budget stage and hooks are re-checked before
-     * execution. Unknown or already-settled handle → undefined.
+     * executor, never by the model).
+     *
+     * granted semantics:
+     *   once      — execute the original request exactly once, then expire;
+     *   session   — materialize a session-scoped approval for the whole
+     *               effectClass and execute the original request; calls for
+     *               the rest of the Turn bypass the approval stage;
+     *   workspace — materialize a workspace-scoped approval for the whole
+     *               effectClass (workspace-level container) and execute the
+     *               original request.
+     * No granted variant rewrites the root grant — persistent permission
+     * changes only via ContractRevision. The budget stage and hooks are
+     * re-checked before execution. Unknown or already-settled handle →
+     * undefined.
      */
     settle(
         handle: PendingHandle,
