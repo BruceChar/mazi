@@ -10,6 +10,11 @@ const TIME_LEN = 10; // 48bit / 5bit = 10 chars
 const RANDOM_LEN = 16; // 80bit / 5bit = 16 chars
 let lastTime = 0;
 
+declare const Phantom: unique symbol
+type PhantomTag<T> = { readonly [Phantom]: T }
+
+export type ULID = string & PhantomTag<'ULID'>;
+
 /** 时间戳部分：单调递增，保证同一毫秒内多次生成仍严格有序 */
 function encodeTime(now: number): string {
     let time = now;
@@ -36,6 +41,6 @@ function encodeRandom(): string {
 }
 
 /** 生成一个 26 字符 ULID */
-export function ulid(): string {
-    return encodeTime(Date.now()) + encodeRandom();
+export function ulid(): ULID {
+    return encodeTime(Date.now()) + encodeRandom() as ULID;
 }

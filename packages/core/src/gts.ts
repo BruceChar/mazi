@@ -12,6 +12,7 @@
  */
 
 import type { PermissionLevel } from './authorization.js';
+import { ULID } from './id.js';
 
 export type OriginKind = 'human' | 'agent' | 'system';
 export type GoalStatus = 'active' | 'succeeded' | 'failed' | 'aborted' | 'timeout';
@@ -25,12 +26,12 @@ export interface RawPayload {
 
 /** parent 引用（Delegation 实体解散后的坍缩形态，裁决 D6/D7） */
 export type GoalParent =
-    | { type: 'split'; goalId: string }
-    | { type: 'delegation'; goalId: string; taskId?: string; stepId: string };
+    | { type: 'split'; goalId: ULID }
+    | { type: 'delegation'; goalId: ULID; taskId?: ULID; stepId: ULID };
 
 /** 机器可判验收条款（checkType='semantic' 占比是健康度指标，裁决 D8） */
 export interface CheckableCondition {
-    id: string;
+    id: ULID;
     checkType: 'deterministic' | 'semantic';
     description?: string;
 }
@@ -76,9 +77,9 @@ export interface GoalContract {
 }
 
 export interface Goal {
-    goalId: string;
+    goalId: ULID;
     /** 沿 parent 链最顶层（根自身 = goalId）；A/B 锚点与法律 1 终点 */
-    rootGoalId: string;
+    rootGoalId: ULID;
     parent?: GoalParent;
     /** 根 Goal 必填（origin.kind ∈ human|agent|system 均可作根来源；法律 1 终点允许 agent 委托根由上游 parent 铐链） */
     origin?: { kind: OriginKind };
@@ -104,9 +105,9 @@ export interface AcceptanceSpec {
 }
 
 export interface Task {
-    taskId: string;
+    taskId: ULID;
     /** 唯一归属：验收锚定编译期强制（裁决 D3） */
-    goalId: string;
+    goalId: ULID;
     title: string;
     acceptance: AcceptanceSpec;
     status: 'pending' | 'running' | 'succeeded' | 'failed' | 'rolled_back';
@@ -147,7 +148,7 @@ export interface HarnessError {
 }
 
 export interface Step {
-    stepId: string;
+    stepId: ULID;
     /** 归因：taskId 锚定 Task，goalId 锚定 Goal（rootGoalId 沿 parent 链派生） */
     taskId: string;
     goalId: string;

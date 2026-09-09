@@ -4,8 +4,8 @@
     "composite": true,
     "tsBuildInfoFile": "dist/.tsbuildinfo",
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "."
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "test/gts.test.ts"],
   "exclude": ["src/**/*.test.ts"]
 }
