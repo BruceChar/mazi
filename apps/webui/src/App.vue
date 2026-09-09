@@ -179,6 +179,20 @@ const execTree = computed(() => {
 /** goal/task 折叠状态 */
 const collapsedGoals = ref(new Set());
 const collapsedTasks = ref(new Set());
+/** step 内容展开状态（超过 5 行可折叠） */
+const expandedSteps = ref(new Set());
+function toggleStepContent(key) {
+    const s = new Set(expandedSteps.value);
+    s.has(key) ? s.delete(key) : s.add(key);
+    expandedSteps.value = s;
+}
+/** 判断内容是否超过 5 行（基于字符数估算，~80 字符/行） */
+function isLongContent(text) {
+    if (!text) return false;
+    const lines = text.split('\n').length;
+    const wrappedLines = Math.ceil(text.length / 80);
+    return Math.max(lines, wrappedLines) > 5;
+}
 function toggleGoal(goalId) {
     const s = new Set(collapsedGoals.value);
     s.has(goalId) ? s.delete(goalId) : s.add(goalId);
@@ -881,7 +895,16 @@ onBeforeUnmount(() => {
                                                             <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
                                                             <span class="exec-step-time">{{ row.time }}</span>
                                                         </div>
-                                                        <div v-if="row.text && row.text.length > 80" class="exec-step-content">{{ row.text }}</div>
+                                                        <div v-if="row.text" class="exec-step-code" :class="{ expanded: expandedSteps.has(row.key) }">
+                                                            <pre class="exec-step-code-inner">{{ row.text }}</pre>
+                                                            <button
+                                                                v-if="isLongContent(row.text)"
+                                                                class="exec-step-code-toggle"
+                                                                @click.stop="toggleStepContent(row.key)"
+                                                            >
+                                                                {{ expandedSteps.has(row.key) ? '收起' : '展开' }}
+                                                            </button>
+                                                        </div>
                                                         <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
                                                             {{ usageStats(row.usage).total }} tokens
                                                             <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
@@ -1604,26 +1627,58 @@ onBeforeUnmount(() => {
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
 }
-.exec-step-content {
-    font-size: 13px;
-    line-height: 1.55;
+.exec-step-code {
+    position: relative;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-top: 4px;
+    overflow: hidden;
+}
+.exec-step-code-inner {
+    margin: 0;
+    padding: 8px 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
     color: var(--fg);
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 200px;
+    max-height: calc(12px * 1.5 * 5 + 16px); /* 5 rows + padding */
+    overflow: hidden;
+}
+.exec-step-code.expanded .exec-step-code-inner {
+    max-height: 400px;
     overflow: auto;
 }
-.exec-thinking .exec-step-content {
+.exec-thinking .exec-step-code-inner {
     color: var(--fg-secondary);
     font-style: italic;
 }
-.exec-step.error .exec-step-content {
+.exec-step.error .exec-step-code-inner {
     color: var(--error);
+}
+.exec-step-code-toggle {
+    display: block;
+    width: 100%;
+    border: none;
+    border-top: 1px solid var(--border);
+    background: var(--bg-code);
+    color: var(--fg-secondary);
+    font-size: 11px;
+    padding: 4px;
+    cursor: pointer;
+    text-align: center;
+}
+.exec-step-code-toggle:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
 }
 .exec-step-usage {
     font-size: 10px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
+    margin-top: 2px;
 }
 .exec-stats {
     display: flex;
