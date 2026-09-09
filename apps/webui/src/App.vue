@@ -1648,6 +1648,8 @@ onBeforeUnmount(() => {
     padding: 1px 4px;
     border-radius: 3px;
     flex-shrink: 0;
+    width: 36px;
+    text-align: center;
 }
 .exec-thinking .exec-step-name { color: var(--thinking); }
 .exec-tool_call .exec-step-name { color: var(--tool); }
