@@ -843,14 +843,8 @@ onBeforeUnmount(() => {
                                 </select>
                             </div>
                             <div class="input-footer-right">
-                                <button v-if="current" class="ghost" title="重跑当前 Goal" @click="rerunCurrent">
-                                    <LineIcon name="refresh" size="15" />
-                                </button>
-                                <button v-if="current && rootOutcome" class="ghost" title="评分" @click="openRate">
-                                    <LineIcon name="like" size="15" />
-                                </button>
                                 <button class="send" :disabled="busy" title="发送" @click="submitPrompt">
-                                    <LineIcon name="send" size="16" />
+                                    <LineIcon name="arrowUp" size="16" />
                                 </button>
                             </div>
                         </div>
@@ -1159,7 +1153,7 @@ onBeforeUnmount(() => {
     width: 100%;
 }
 .msg-user {
-    align-items: stretch;
+    align-items: flex-start;
 }
 .msg-assistant {
     align-items: stretch;
@@ -1171,11 +1165,13 @@ onBeforeUnmount(() => {
     line-height: 1.6;
     word-break: break-word;
 }
-/* 用户消息：全宽浅灰框，Codex 风格 */
+/* 用户消息：自适应宽度浅灰框，最大 85% */
 .msg-user .msg-bubble {
     background: var(--bg-code);
     color: var(--fg);
     border: 1px solid var(--border-soft);
+    max-width: 85%;
+    width: fit-content;
 }
 /* AI 回答：无背景纯文本 */
 .msg-assistant .msg-bubble {
