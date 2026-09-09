@@ -87,6 +87,30 @@ export type HarnessEventType =
     | 'user.feedback.captured'
     | 'user.interaction.updated';
 
+/**
+ * Audit-to-harness bridge contract — maps every GatewayAuditEvent
+ * (tool-gateway.ts) onto a HarnessEvent on the bus.
+ *
+ *   GatewayAuditEvent.decision → HarnessEvent.type
+ *     allowed   → 'tool.invoke'     (terminal execute decision)
+ *     denied    → 'policy.denied'
+ *     pending   → 'approval.requested'
+ *     info      → 'policy.check'    (escalation short-circuit, supply checks,
+ *                                    budget accounting)
+ *   Settlement (ApprovalResult)  → 'approval.granted' | 'approval.cancelled'
+ *   Session/workspace approval hit → 'approval.hit'
+ *   Workspace revocation           → 'approval.revoked'
+ *
+ *   GatewayAuditEvent fields → attributes
+ *     stage         → 'harness.gateway_stage'
+ *     effectClass   → 'harness.gateway_effect_class'
+ *     dangerRuleId  → 'harness.gateway_danger_rule'
+ *     escalation    → payload (serialized)
+ *
+ * The audit sink's identifiers are AuditIdentifiers (all three core levels
+ * required) and are carried verbatim on the emitted event.
+ */
+
 /** 统一事件结构 */
 export interface HarnessEvent extends TraceIdentifiers {
     eventId: string;
@@ -103,6 +127,9 @@ export interface HarnessEvent extends TraceIdentifiers {
         'harness.permission_level'?: PermissionLevel;
         'harness.strategy_id'?: string;
         'harness.turn_tags'?: TaskTag[];
+        'harness.gateway_stage'?: string;
+        'harness.gateway_effect_class'?: string;
+        'harness.gateway_danger_rule'?: string;
         'harness.runtime.context.system_prompt_ratio'?: number;
         'harness.runtime.context.total_tokens'?: number;
         'harness.pricing_tier'?: string;
