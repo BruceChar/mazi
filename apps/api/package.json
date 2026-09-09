@@ -18,7 +18,7 @@
   "scripts": {
     "build": "tsc -b tsconfig.json",
     "start": "node dist/main.js",
-    "dev": "tsx watch src/main.ts"
+    "dev": "tsc -b && (tsc -b --watch & node --watch dist/main.js)"
   },
   "devDependencies": {
     "@nestjs/testing": "^12",
