@@ -148,6 +148,19 @@ const totalDuration = computed(() => {
     const ms = stepEventRows.value.reduce((s, r) => s + (r.durationMs || 0), 0);
     return formatDuration(ms);
 });
+/** 执行流统计：步数、LLM 耗时、工具耗时、token 总量 */
+const execStats = computed(() => {
+    const rows = stepEventRows.value;
+    const thinkingMs = rows.filter((r) => r.kind === 'thinking').reduce((s, r) => s + (r.durationMs || 0), 0);
+    const toolMs = rows.filter((r) => r.kind === 'tool_call').reduce((s, r) => s + (r.durationMs || 0), 0);
+    const totalTokens = rows.reduce((s, r) => s + (usageStats(r.usage)?.total || 0), 0);
+    return {
+        steps: rows.length,
+        thinkingTime: formatDuration(thinkingMs),
+        toolTime: formatDuration(toolMs),
+        totalTokens,
+    };
+});
 
 function conversationTitle(conversation) {
     const run = latestRun(conversation);
@@ -776,34 +789,43 @@ onBeforeUnmount(() => {
                                 <LineIcon :name="showExecution ? 'chevronDown' : 'chevronRight'" size="12" />
                                 <span class="worked-for-line"></span>
                             </div>
-                            <!-- goal 树（仅当前 run 有 detail 数据，可折叠） -->
-                            <template v-if="run.rootGoalId === current && detail && showExecution">
-                                <div v-for="goal in activeGoals" :key="goal.goalId" class="goal-card" :class="`goal-kind-${goal.kind}`">
-                                    <div class="goal-head">
-                                        <span class="status-dot" :class="statusClass(goal.status)"></span>
-                                        <span class="status-text">{{ statusLabel(goal.status) }}</span>
-                                        <span class="goal-statement">{{ goal.statement }}</span>
-                                    </div>
-                                    <div v-for="task in goal.tasks" :key="task.taskId" class="goal-task">
-                                        <div class="goal-task-head">
-                                            <span class="status-dot" :class="statusClass(task.status)"></span>
-                                            <span class="goal-task-title">{{ task.title }}</span>
-                                            <span class="task-meta">{{ task.steps?.length || 0 }} steps</span>
+                            <!-- 执行流（Codex 风格时间线，仅当前 run） -->
+                            <template v-if="run.rootGoalId === current && showExecution">
+                                <div v-if="stepEventRows.length" class="exec-stream">
+                                    <div
+                                        v-for="row in stepEventRows"
+                                        :key="row.key"
+                                        class="exec-step"
+                                        :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
+                                    >
+                                        <div class="exec-step-head">
+                                            <LineIcon :name="row.kind === 'thinking' ? 'thinking' : row.kind === 'tool_call' ? 'tool' : 'observation'" size="14" />
+                                            <span class="exec-step-label">{{ row.kind === 'thinking' ? '思考' : row.kind === 'tool_call' ? '代码' : '观察' }}</span>
+                                            <span v-if="row.toolName" class="exec-step-tool">{{ row.toolName }}</span>
+                                            <span class="exec-step-status" :class="row.status">{{ row.statusLabel }}</span>
+                                            <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
+                                            <span class="exec-step-time">{{ row.time }}</span>
                                         </div>
-                                        <ul v-if="task.steps.length" class="goal-steps">
-                                            <li v-for="step in task.steps" :key="step.stepId" :class="['step-item', `step-${step.kind}`]">
-                                                <span class="step-dot"></span>
-                                                <span class="step-kind">{{ kindLabel(step.kind) }}</span>
-                                                <span class="step-status" :class="statusClass(step.status)">{{ statusLabel(step.status) }}</span>
-                                                <span class="step-content" :title="stepSummary(step)">{{ stepSummary(step) || '（无内容）' }}</span>
-                                                <span class="step-when">{{ fmtClock(step.startedAt) }}</span>
-                                            </li>
-                                        </ul>
-                                        <div v-else class="empty-hint">（该 Task 尚无 Step）</div>
+                                        <div v-if="row.text" class="exec-step-content">{{ row.text }}</div>
+                                        <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
+                                            {{ usageStats(row.usage).total }} tokens
+                                            <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
+                                        </div>
+                                    </div>
+                                    <!-- 执行流底部统计栏 -->
+                                    <div class="exec-stats">
+                                        <span>{{ execStats.steps }} 步</span>
+                                        <span>·</span>
+                                        <span>LLM {{ execStats.thinkingTime }}</span>
+                                        <span>·</span>
+                                        <span>工具 {{ execStats.toolTime }}</span>
+                                        <span>·</span>
+                                        <span>{{ execStats.totalTokens }} tokens</span>
                                     </div>
                                 </div>
+                                <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
                             </template>
-                            <!-- 非当前 run 不展示执行树 -->
+                            <!-- 非当前 run 不展示执行流 -->
                         </div>
                     </template>
                     <div v-else-if="activeConversation" class="empty-hint">
@@ -1238,6 +1260,121 @@ onBeforeUnmount(() => {
     white-space: nowrap;
     font-weight: 500;
 }
+/* ---------- Execution stream (Codex-style timeline) ---------- */
+.exec-stream {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 4px 0;
+}
+.exec-step {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 0 8px 28px;
+    position: relative;
+    border-left: 1px solid var(--border-soft);
+    margin-left: 7px;
+}
+.exec-step::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 12px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--fg-tertiary);
+}
+.exec-step.exec-thinking::before { border-color: var(--thinking); }
+.exec-step.exec-tool_call::before { border-color: var(--tool); }
+.exec-step.exec-observation::before { border-color: var(--observation); }
+.exec-step.error::before { border-color: var(--error); background: var(--error-soft); }
+
+.exec-step-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--fg-secondary);
+}
+.exec-step-head .line-icon {
+    flex-shrink: 0;
+    color: var(--fg-tertiary);
+}
+.exec-thinking .exec-step-head .line-icon { color: var(--thinking); }
+.exec-tool_call .exec-step-head .line-icon { color: var(--tool); }
+.exec-observation .exec-step-head .line-icon { color: var(--observation); }
+.exec-step.error .exec-step-head .line-icon { color: var(--error); }
+
+.exec-step-label {
+    font-weight: 600;
+    color: var(--fg);
+    font-size: 12px;
+}
+.exec-step-tool {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--tool);
+    background: var(--tool-soft);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+.exec-step-status {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--bg-code);
+    color: var(--fg-secondary);
+}
+.exec-step-status.ok { background: var(--ok-soft); color: var(--ok); }
+.exec-step-status.error, .exec-step-status.failed { background: var(--error-soft); color: var(--error); }
+.exec-step-status.running, .exec-step-status.active { background: var(--accent-soft); color: var(--accent); }
+.exec-step-duration {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+}
+.exec-step-time {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+}
+.exec-step-content {
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--fg);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow: auto;
+}
+.exec-thinking .exec-step-content {
+    color: var(--fg-secondary);
+    font-style: italic;
+}
+.exec-step.error .exec-step-content {
+    color: var(--error);
+}
+.exec-step-usage {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+}
+.exec-stats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 4px 28px;
+    margin-left: 7px;
+    border-left: 1px solid var(--border-soft);
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+}
+
 .goal-card {
     border: 1px solid var(--border);
     border-left: 3px solid var(--fg-tertiary);
