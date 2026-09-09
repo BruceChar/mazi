@@ -1627,7 +1627,7 @@ onBeforeUnmount(() => {
 .exec-step-head.clickable:hover {
     background: var(--bg-hover);
 }
-.exec-thinking .exec-step-head .line-icon { color: var(--thinking); }
+.exec-thinking .exec-step-head .line-icon { color: var(--thinking); filter: drop-shadow(0 0 3px var(--thinking)); }
 .exec-tool_call .exec-step-head .line-icon { color: var(--tool); }
 .exec-observation .exec-step-head .line-icon { color: var(--observation); }
 .exec-step.error .exec-step-head .line-icon { color: var(--error); }
