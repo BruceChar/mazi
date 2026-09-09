@@ -186,6 +186,11 @@ function toggleStepCollapse(key) {
     s.has(key) ? s.delete(key) : s.add(key);
     collapsedSteps.value = s;
 }
+/** 内容是否超过单行（>80 字符或含换行），仅长内容支持折叠 */
+function isStepLong(row) {
+    if (!row.text) return false;
+    return row.text.length > 80 || row.text.includes('\n');
+}
 function toggleGoal(goalId) {
     const s = new Set(collapsedGoals.value);
     s.has(goalId) ? s.delete(goalId) : s.add(goalId);
@@ -880,8 +885,8 @@ onBeforeUnmount(() => {
                                                         class="exec-step"
                                                         :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
                                                     >
-                                                        <div class="exec-step-head" @click="toggleStepCollapse(row.key)">
-                                                            <span class="exec-dot step-dot" :class="{ collapsed: collapsedSteps.has(row.key) }"></span>
+                                                        <div class="exec-step-head" :class="{ clickable: isStepLong(row) }" @click="isStepLong(row) && toggleStepCollapse(row.key)">
+                                                            <span class="exec-dot step-dot" :class="{ collapsed: collapsedSteps.has(row.key), interactive: isStepLong(row) }"></span>
                                                             <LineIcon :name="row.kind === 'thinking' ? 'thinking' : row.kind === 'tool_call' ? 'tool' : 'observation'" size="14" />
                                                             <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                                                             <span class="exec-step-name">{{ row.toolName || (row.kind === 'thinking' ? '思考' : row.kind === 'observation' ? '观察' : row.kind) }}</span>
@@ -889,7 +894,7 @@ onBeforeUnmount(() => {
                                                             <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
                                                             <span class="exec-step-time">{{ row.time }}</span>
                                                         </div>
-                                                        <div v-if="!collapsedSteps.has(row.key) && row.text" class="exec-step-code">
+                                                        <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
                                                             <pre class="exec-step-code-inner">{{ row.text }}</pre>
                                                         </div>
                                                         <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
@@ -1498,7 +1503,7 @@ onBeforeUnmount(() => {
     background: var(--bg);
     border: 2px solid var(--fg-tertiary);
     box-sizing: border-box;
-    cursor: pointer;
+    cursor: default;
     display: grid;
     place-items: center;
     font-size: 10px;
@@ -1507,6 +1512,9 @@ onBeforeUnmount(() => {
     color: transparent;
     transition: all 0.12s ease;
     z-index: 2;
+}
+.exec-dot.interactive {
+    cursor: pointer;
 }
 .exec-dot::after {
     content: '−';
@@ -1545,10 +1553,12 @@ onBeforeUnmount(() => {
     padding: 4px 8px 4px 14px;
     font-size: 12px;
     color: var(--fg-secondary);
-    cursor: pointer;
     border-radius: var(--radius-sm);
 }
-.exec-step-head:hover {
+.exec-step-head.clickable {
+    cursor: pointer;
+}
+.exec-step-head.clickable:hover {
     background: var(--bg-hover);
 }
 .exec-step-head .line-icon {
@@ -1645,7 +1655,7 @@ onBeforeUnmount(() => {
 .exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
 .exec-step.exec-observation .step-dot { border-color: var(--observation); }
 .exec-step.error .step-dot { border-color: var(--error); }
-.exec-step-head:hover .exec-dot {
+.exec-step-head.clickable:hover .exec-dot {
     width: 16px;
     height: 16px;
     left: -9px;
@@ -1654,10 +1664,10 @@ onBeforeUnmount(() => {
     border-color: var(--fg-tertiary);
     color: #fff;
 }
-.exec-step.exec-thinking .exec-step-head:hover .exec-dot { background: var(--thinking); border-color: var(--thinking); }
-.exec-step.exec-tool_call .exec-step-head:hover .exec-dot { background: var(--tool); border-color: var(--tool); }
-.exec-step.exec-observation .exec-step-head:hover .exec-dot { background: var(--observation); border-color: var(--observation); }
-.exec-step.error .exec-step-head:hover .exec-dot { background: var(--error); border-color: var(--error); }
+.exec-step.exec-thinking .exec-step-head.clickable:hover .exec-dot { background: var(--thinking); border-color: var(--thinking); }
+.exec-step.exec-tool_call .exec-step-head.clickable:hover .exec-dot { background: var(--tool); border-color: var(--tool); }
+.exec-step.exec-observation .exec-step-head.clickable:hover .exec-dot { background: var(--observation); border-color: var(--observation); }
+.exec-step.error .exec-step-head.clickable:hover .exec-dot { background: var(--error); border-color: var(--error); }
 .exec-stats {
     display: flex;
     align-items: center;
