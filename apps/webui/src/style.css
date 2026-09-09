@@ -1019,6 +1019,23 @@ pre {
     border-left-width: 1px;
 }
 
+.right-panel.maximized {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100% !important;
+    flex-basis: 100% !important;
+    min-width: 0 !important;
+    z-index: 50;
+    border-left: none;
+    background: var(--bg);
+}
+.right-panel.maximized .right-panel-inner {
+    width: 100%;
+}
+
 .right-panel-inner {
     width: 340px;
     height: 100%;
@@ -1034,6 +1051,12 @@ pre {
     justify-content: space-between;
     border-bottom: 1px solid var(--border);
     padding: 0 8px 0 0;
+}
+
+.drawer-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
 }
 
 .drawer-tabs {

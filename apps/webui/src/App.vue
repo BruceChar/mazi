@@ -136,6 +136,11 @@ const currentInput = computed(() => {
 const workedFor = computed(() => '');
 /** 聊天流中展开了执行过程的 run（默认当前 run） */
 const expandedRunId = ref(null);
+/** 右侧面板最大化（覆盖主页面） */
+const panelMaximized = ref(false);
+function togglePanelMax() {
+    panelMaximized.value = !panelMaximized.value;
+}
 
 function conversationTitle(conversation) {
     const run = latestRun(conversation);
@@ -252,28 +257,65 @@ function stepSummary(step) {
     return content.slice(0, 120);
 }
 
-/** 步骤流：来自 SSE/事件回放中的 step.ended（思考/工具/观察），内容完整 */
+/** 步骤流：收集 step.started + step.ended，计算耗时，结构化 usage 用于看板展示 */
 const stepEventRows = computed(() => {
+    const startedAt = new Map();
+    for (const ev of events.list) {
+        if (ev.type === 'step.started' && ev.stepId) {
+            startedAt.set(ev.stepId, ev.timestamp ?? 0);
+        }
+    }
     const rows = [];
     for (const ev of events.list) {
         if (ev.type !== 'step.ended' || !ev.stepId) continue;
         const p = ev.payload || {};
+        const start = startedAt.get(ev.stepId);
+        const end = ev.timestamp ?? 0;
+        const durationMs = start ? end - start : null;
         rows.push({
             key: 'ev-' + ev.eventId,
-            at: ev.timestamp ?? 0,
-            time: fmtClock(ev.timestamp),
+            at: end,
+            time: fmtClock(end),
             kind: p.kind || 'step',
             kindLabel: kindLabel(p.kind),
             status: p.status || 'ok',
             statusLabel: statusLabel(p.status || 'ok'),
             id: short(ev.stepId, 34),
+            toolName: p.toolName || '',
             text: p.content ? String(p.content) : '',
+            durationMs,
+            duration: durationMs != null ? formatDuration(durationMs) : '',
+            usage: p.usage || null,
             usageText: formatUsage(p.usage),
         });
     }
     rows.sort((a, b) => a.at - b.at);
     return rows;
 });
+
+function formatDuration(ms) {
+    if (ms == null) return '';
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+}
+
+/** 从 usage 提取结构化 token 统计，用于看板展示 */
+function usageStats(usage) {
+    if (!usage) return null;
+    const v = usage.vendor || {};
+    const r = usage.runtime || {};
+    const input = v.inputTokens ?? 0;
+    const output = v.outputTokens ?? 0;
+    const cache = v.cacheReadInputTokens ?? 0;
+    const reasoning = v.reasoningOutputTokens ?? 0;
+    const total = input + output;
+    return {
+        input, output, cache, reasoning, total,
+        context: r.totalContextTokens ?? null,
+        hasData: total > 0 || cache > 0 || reasoning > 0,
+    };
+}
 
 /** 两维度 token 统计摘要文本 */
 function formatUsage(usage) {
@@ -847,15 +889,15 @@ onBeforeUnmount(() => {
         </main>
 
         <div
-            v-if="rightOpen"
+            v-if="rightOpen && !panelMaximized"
             class="panel-resizer"
             title="拖拽调整宽度"
             @pointerdown="startResize"
         ></div>
         <aside
             class="right-panel"
-            :class="{ open: ui.rightOpen }"
-            :style="{ width: rightWidth + 'px', minWidth: rightWidth + 'px' }"
+            :class="{ open: ui.rightOpen, maximized: panelMaximized }"
+            :style="panelMaximized ? {} : { width: rightWidth + 'px', minWidth: rightWidth + 'px' }"
         >
             <div class="right-panel-inner">
                 <div class="drawer-head">
@@ -863,9 +905,14 @@ onBeforeUnmount(() => {
                         <button :class="{ on: drawerTab === 'log' }" @click="drawerTab = 'log'">日志</button>
                         <button :class="{ on: drawerTab === 'events' }" @click="drawerTab = 'events'">事件</button>
                     </div>
-                    <button class="icon-btn" title="收起" @click="ui.rightOpen = false">
-                        <LineIcon name="close" size="15" />
-                    </button>
+                    <div class="drawer-head-actions">
+                        <button class="icon-btn" :title="panelMaximized ? '还原' : '最大化'" @click="togglePanelMax">
+                            <LineIcon :name="panelMaximized ? 'minimize' : 'maximize'" size="14" />
+                        </button>
+                        <button class="icon-btn" title="收起" @click="ui.rightOpen = false">
+                            <LineIcon name="close" size="15" />
+                        </button>
+                    </div>
                 </div>
 
                 <div v-if="drawerTab === 'log'" class="drawer-body">
@@ -874,22 +921,42 @@ onBeforeUnmount(() => {
                             <div class="log-line">
                                 <span class="log-tag">{{ rootOutcome.ok ? '成功' : '失败' }}</span>
                                 <span class="log-reason">reason: {{ rootOutcome.reason || '-' }}</span>
-                                <span class="log-msg">{{ rootOutcome.ok ? rootOutcome.finalMessage : rootOutcome.errorMessage }}</span>
                             </div>
+                            <div class="log-msg">{{ rootOutcome.ok ? rootOutcome.finalMessage : rootOutcome.errorMessage }}</div>
                         </div>
                         <div v-if="busy && !rootOutcome" class="empty-hint">执行中…（流式步骤实时到达）</div>
 
                         <template v-if="stepEventRows.length">
-                            <div class="log-head">步骤（{{ stepEventRows.length }}）</div>
-                            <div v-for="line in stepEventRows" :key="line.key" class="log-row">
-                                <div class="log-row-head">
-                                    <span class="log-time">{{ line.time }}</span>
-                                    <span class="log-kind" :class="line.kind">{{ line.kindLabel }}</span>
-                                    <span class="log-status" :class="line.status">{{ line.statusLabel }}</span>
-                                    <span class="log-id">{{ line.id }}</span>
+                            <div class="log-head">
+                                <span>步骤（{{ stepEventRows.length }}）</span>
+                                <span class="log-head-total">
+                                    总耗时 {{ formatDuration(stepEventRows.reduce((s, r) => s + (r.durationMs || 0), 0)) }}
+                                </span>
+                            </div>
+                            <div v-for="line in stepEventRows" :key="line.key" class="kanban-card" :class="`kanban-${line.kind}`">
+                                <div class="kanban-head">
+                                    <span class="kanban-kind">{{ line.kindLabel }}</span>
+                                    <span class="kanban-status" :class="line.status">{{ line.statusLabel }}</span>
+                                    <span class="kanban-time">{{ line.time }}</span>
+                                    <span v-if="line.duration" class="kanban-duration">{{ line.duration }}</span>
                                 </div>
-                                <div v-if="line.usageText" class="log-usage">{{ line.usageText }}</div>
-                                <pre v-if="line.text" class="log-code">{{ line.text }}</pre>
+                                <div v-if="line.toolName" class="kanban-tool">{{ line.toolName }}</div>
+                                <pre v-if="line.text" class="kanban-content">{{ line.text }}</pre>
+                                <div v-if="usageStats(line.usage)?.hasData" class="kanban-usage">
+                                    <div class="usage-row">
+                                        <span class="usage-label">tokens</span>
+                                        <span class="usage-value">{{ usageStats(line.usage).total }}</span>
+                                        <span class="usage-breakdown">
+                                            in {{ usageStats(line.usage).input }} · out {{ usageStats(line.usage).output }}
+                                            <template v-if="usageStats(line.usage).cache"> · cache {{ usageStats(line.usage).cache }}</template>
+                                            <template v-if="usageStats(line.usage).reasoning"> · reasoning {{ usageStats(line.usage).reasoning }}</template>
+                                        </span>
+                                    </div>
+                                    <div v-if="usageStats(line.usage).context != null" class="usage-row">
+                                        <span class="usage-label">context</span>
+                                        <span class="usage-value">{{ usageStats(line.usage).context }}</span>
+                                    </div>
+                                </div>
                             </div>
                         </template>
                         <div v-else-if="!busy" class="empty-hint">暂无步骤事件</div>
@@ -1383,7 +1450,135 @@ onBeforeUnmount(() => {
     color: var(--fg-secondary);
     text-transform: uppercase;
     font-size: 11px;
-    margin: 6px 0 2px;
+    margin: 10px 0 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.log-head-total {
+    text-transform: none;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    font-weight: 500;
+}
+
+/* ---------- Kanban step cards ---------- */
+.kanban-card {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--fg-tertiary);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    background: var(--bg-panel);
+    transition: box-shadow 0.12s;
+}
+.kanban-card:hover {
+    box-shadow: var(--shadow-sm);
+}
+.kanban-card.kanban-thinking { border-left-color: var(--thinking); }
+.kanban-card.kanban-tool_call { border-left-color: var(--tool); }
+.kanban-card.kanban-observation { border-left-color: var(--observation); }
+
+.kanban-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.kanban-kind {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--bg-code);
+    color: var(--fg-secondary);
+}
+.kanban-thinking .kanban-kind { background: var(--thinking-soft); color: var(--thinking); }
+.kanban-tool_call .kanban-kind { background: var(--tool-soft); color: var(--tool); }
+.kanban-observation .kanban-kind { background: var(--observation-soft); color: var(--observation); }
+
+.kanban-status {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--bg-code);
+    color: var(--fg-secondary);
+}
+.kanban-status.ok { background: var(--ok-soft); color: var(--ok); }
+.kanban-status.error, .kanban-status.failed { background: var(--error-soft); color: var(--error); }
+.kanban-status.running, .kanban-status.active { background: var(--accent-soft); color: var(--accent); }
+
+.kanban-time {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+    margin-left: auto;
+}
+.kanban-duration {
+    font-size: 10px;
+    color: var(--fg-secondary);
+    font-family: ui-monospace, monospace;
+    background: var(--bg-code);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
+.kanban-tool {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--tool);
+    margin-bottom: 2px;
+    font-family: ui-monospace, monospace;
+}
+
+.kanban-content {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--fg);
+    background: var(--bg-code);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    max-height: 120px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.kanban-usage {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.usage-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+}
+.usage-label {
+    color: var(--fg-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    width: 48px;
+    flex-shrink: 0;
+}
+.usage-value {
+    font-weight: 600;
+    color: var(--fg);
+    font-family: ui-monospace, monospace;
+    min-width: 40px;
+}
+.usage-breakdown {
+    color: var(--fg-secondary);
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
 }
 .log-row {
     display: flex;

@@ -30,6 +30,8 @@ const paths = {
     archive: 'M4 8h16M6 8v11h12V8M4 4h16v4H4z',
     restore: 'M4 12a8 8 0 1 0 2.4-5.7M4 4v5h5',
     trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6',
+    maximize: 'M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3',
+    minimize: 'M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3',
 };
 </script>
 
