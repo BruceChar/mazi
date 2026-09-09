@@ -1021,94 +1021,98 @@ pre {
     cursor: not-allowed;
 }
 
-/* ---------- Model Picker (Codex-style) ---------- */
-.model-picker {
+/* ---------- Model / Reasoning Pickers (Codex-style) ---------- */
+.picker-wrap {
     position: relative;
 }
-.model-picker-backdrop {
+.picker-backdrop {
     position: fixed;
     inset: 0;
     z-index: 99;
     cursor: default;
 }
-.model-picker-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
+.picker-btn {
     height: 28px;
     padding: 0 10px;
     border: none;
     border-radius: var(--radius-md);
     background: transparent;
-    color: var(--fg-secondary);
     font-size: 12px;
     cursor: pointer;
     transition: background 0.12s;
 }
-.model-picker-btn:hover {
+.picker-btn:hover,
+.picker-btn.active {
     background: var(--bg-hover);
 }
-.model-picker-btn.open {
-    background: var(--bg-hover);
-}
-.model-picker-name {
-    font-weight: 500;
+.model-btn {
     color: var(--fg-secondary);
+    font-weight: 500;
 }
-.model-picker-level {
+.reasoning-btn {
     color: var(--fg-tertiary);
-    font-size: 11px;
 }
-.model-picker-panel {
+.picker-panel {
     position: absolute;
     bottom: calc(100% + 6px);
     right: 0;
-    min-width: 200px;
     background: var(--bg-panel);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
-    padding: 6px 0;
     z-index: 100;
     animation: pickerFadeIn 0.12s ease;
 }
-@keyframes pickerFadeIn {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
+.picker-panel-y {
+    max-height: 200px;
+    overflow-y: auto;
+    min-width: 180px;
+    padding: 4px 0;
 }
-.model-picker-section-title {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--fg-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 4px 12px 6px;
+.picker-panel-x {
+    display: flex;
+    gap: 2px;
+    padding: 6px;
+    overflow-x: auto;
+    white-space: nowrap;
 }
-.model-picker-option {
-    padding: 6px 12px;
+.picker-option {
+    padding: 7px 14px;
     font-size: 12px;
     color: var(--fg-secondary);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
 }
-.model-picker-option:hover {
+.picker-option:hover {
     background: var(--bg-hover);
     color: var(--fg);
 }
-.model-picker-option.active {
+.picker-option.active {
     color: var(--accent);
     font-weight: 500;
 }
-.model-picker-option.active::after {
+.picker-option.active::after {
     content: '✓';
     font-size: 11px;
 }
-.model-picker-divider {
-    height: 1px;
-    background: var(--border);
-    margin: 4px 0;
+.picker-option-x {
+    flex-shrink: 0;
+    padding: 5px 14px;
+    border-radius: var(--radius-sm);
+    justify-content: center;
+}
+.picker-option-x.active::after {
+    display: none;
+}
+.picker-option-x.active {
+    background: var(--accent-soft);
+}
+@keyframes pickerFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 /* ---------- Status Bar (inside center column) ---------- */

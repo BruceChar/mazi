@@ -49,7 +49,7 @@ const projectCollapsed = ref({});
 const projectMenuFor = ref('');
 const accountOpen = ref(false);
 const selectedModel = ref('');
-const modelPickerOpen = ref(false);
+const pickerType = ref(/** @type {'model'|'reasoning'|null} */ (null));
 const REASONING_LEVELS = [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
@@ -58,10 +58,6 @@ const REASONING_LEVELS = [
 const reasoningLevel = ref('high');
 const reasoningLabel = computed(() => REASONING_LEVELS.find((r) => r.value === reasoningLevel.value)?.label || 'High');
 const currentModelLabel = computed(() => modelOptions.value.find((m) => m.id === selectedModel.value)?.label?.replace(/\s+(Low|Medium|High)$/i, '') || selectedModel.value);
-function cycleReasoning() {
-    const idx = REASONING_LEVELS.findIndex((r) => r.value === reasoningLevel.value);
-    reasoningLevel.value = REASONING_LEVELS[(idx + 1) % REASONING_LEVELS.length].value;
-}
 const feedbackSent = ref(false);
 const feedbackModal = ref(false);
 const feedbackRating = ref(5);
@@ -964,37 +960,47 @@ onBeforeUnmount(() => {
                         <div class="input-footer">
                             <div class="input-footer-left"></div>
                             <div class="input-footer-right">
-                                <div class="model-picker">
-                                    <div v-if="modelPickerOpen" class="model-picker-backdrop" @click="modelPickerOpen = false"></div>
-                                    <button class="model-picker-btn" :class="{ open: modelPickerOpen }" title="select model" @click="modelPickerOpen = !modelPickerOpen">
-                                        <span class="model-picker-name">{{ currentModelLabel }}</span>
-                                        <span class="model-picker-level">{{ reasoningLabel }}</span>
+                                <div class="picker-wrap">
+                                    <div v-if="pickerType === 'model'" class="picker-backdrop" @click="pickerType = null"></div>
+                                    <button
+                                        class="picker-btn model-btn"
+                                        :class="{ active: pickerType === 'model' }"
+                                        title="select model"
+                                        @click="pickerType = pickerType === 'model' ? null : 'model'"
+                                    >
+                                        {{ currentModelLabel }}
                                     </button>
-                                    <div v-if="modelPickerOpen" class="model-picker-panel" @click.stop>
-                                        <div class="model-picker-section">
-                                            <div class="model-picker-section-title">模型</div>
-                                            <div
-                                                v-for="m in modelOptions"
-                                                :key="m.id"
-                                                class="model-picker-option"
-                                                :class="{ active: m.id === selectedModel }"
-                                                @click="selectedModel = m.id; modelPickerOpen = false"
-                                            >
-                                                {{ m.label.replace(/\s+(Low|Medium|High)$/i, '') }}
-                                            </div>
+                                    <div v-if="pickerType === 'model'" class="picker-panel picker-panel-y">
+                                        <div
+                                            v-for="m in modelOptions"
+                                            :key="m.id"
+                                            class="picker-option"
+                                            :class="{ active: m.id === selectedModel }"
+                                            @click="selectedModel = m.id; pickerType = null"
+                                        >
+                                            {{ m.label.replace(/\s+(Low|Medium|High)$/i, '') }}
                                         </div>
-                                        <div class="model-picker-divider"></div>
-                                        <div class="model-picker-section">
-                                            <div class="model-picker-section-title">推理等级</div>
-                                            <div
-                                                v-for="r in REASONING_LEVELS"
-                                                :key="r.value"
-                                                class="model-picker-option"
-                                                :class="{ active: r.value === reasoningLevel }"
-                                                @click="reasoningLevel = r.value"
-                                            >
-                                                {{ r.label }}
-                                            </div>
+                                    </div>
+                                </div>
+                                <div class="picker-wrap">
+                                    <div v-if="pickerType === 'reasoning'" class="picker-backdrop" @click="pickerType = null"></div>
+                                    <button
+                                        class="picker-btn reasoning-btn"
+                                        :class="{ active: pickerType === 'reasoning' }"
+                                        title="select reasoning level"
+                                        @click="pickerType = pickerType === 'reasoning' ? null : 'reasoning'"
+                                    >
+                                        {{ reasoningLabel }}
+                                    </button>
+                                    <div v-if="pickerType === 'reasoning'" class="picker-panel picker-panel-x">
+                                        <div
+                                            v-for="r in REASONING_LEVELS"
+                                            :key="r.value"
+                                            class="picker-option picker-option-x"
+                                            :class="{ active: r.value === reasoningLevel }"
+                                            @click="reasoningLevel = r.value; pickerType = null"
+                                        >
+                                            {{ r.label }}
                                         </div>
                                     </div>
                                 </div>
