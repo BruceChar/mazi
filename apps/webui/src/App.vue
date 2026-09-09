@@ -1552,6 +1552,7 @@ onBeforeUnmount(() => {
     gap: 6px;
     padding: 4px 8px 4px 14px;
     font-size: 12px;
+    line-height: 1;
     color: var(--fg-secondary);
     border-radius: var(--radius-sm);
 }
@@ -1597,8 +1598,8 @@ onBeforeUnmount(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 240px;
-    flex: 0 1 auto;
+    max-width: 80%;
+    flex: 1 1 auto;
     min-width: 0;
 }
 .exec-step.error .exec-step-summary {
@@ -1649,15 +1650,8 @@ onBeforeUnmount(() => {
     font-family: ui-monospace, monospace;
     margin: 0 8px 2px 14px;
 }
-/* step dot: fixed top aligned to 14px icon center (4px pad + 7px = 11px) */
-.step-dot {
-    top: 7px;
-    transform: none;
-    border-color: var(--fg-tertiary);
-}
-.exec-step-head.clickable:hover .step-dot {
-    top: 3px; /* 16px dot centered at 11px */
-}
+/* step dot per-kind colors */
+.step-dot { border-color: var(--fg-tertiary); }
 .exec-step.exec-thinking .step-dot { border-color: var(--thinking); }
 .exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
 .exec-step.exec-observation .step-dot { border-color: var(--observation); }
