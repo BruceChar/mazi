@@ -179,19 +179,12 @@ const execTree = computed(() => {
 /** goal/task 折叠状态 */
 const collapsedGoals = ref(new Set());
 const collapsedTasks = ref(new Set());
-/** step 内容展开状态（超过 5 行可折叠） */
-const expandedSteps = ref(new Set());
-function toggleStepContent(key) {
-    const s = new Set(expandedSteps.value);
+/** step 内容折叠状态（默认展开，点击 dot 折叠） */
+const collapsedSteps = ref(new Set());
+function toggleStepCollapse(key) {
+    const s = new Set(collapsedSteps.value);
     s.has(key) ? s.delete(key) : s.add(key);
-    expandedSteps.value = s;
-}
-/** 判断内容是否超过 5 行（基于字符数估算，~80 字符/行） */
-function isLongContent(text) {
-    if (!text) return false;
-    const lines = text.split('\n').length;
-    const wrappedLines = Math.ceil(text.length / 80);
-    return Math.max(lines, wrappedLines) > 5;
+    collapsedSteps.value = s;
 }
 function toggleGoal(goalId) {
     const s = new Set(collapsedGoals.value);
@@ -887,7 +880,8 @@ onBeforeUnmount(() => {
                                                         class="exec-step"
                                                         :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
                                                     >
-                                                        <div class="exec-step-head">
+                                                        <div class="exec-step-head" @click="toggleStepCollapse(row.key)">
+                                                            <span class="exec-dot step-dot" :class="{ collapsed: collapsedSteps.has(row.key) }"></span>
                                                             <LineIcon :name="row.kind === 'thinking' ? 'thinking' : row.kind === 'tool_call' ? 'tool' : 'observation'" size="14" />
                                                             <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                                                             <span class="exec-step-name">{{ row.toolName || (row.kind === 'thinking' ? '思考' : row.kind === 'observation' ? '观察' : row.kind) }}</span>
@@ -895,15 +889,8 @@ onBeforeUnmount(() => {
                                                             <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
                                                             <span class="exec-step-time">{{ row.time }}</span>
                                                         </div>
-                                                        <div v-if="row.text" class="exec-step-code" :class="{ expanded: expandedSteps.has(row.key) }">
+                                                        <div v-if="!collapsedSteps.has(row.key) && row.text" class="exec-step-code">
                                                             <pre class="exec-step-code-inner">{{ row.text }}</pre>
-                                                            <button
-                                                                v-if="isLongContent(row.text)"
-                                                                class="exec-step-code-toggle"
-                                                                @click.stop="toggleStepContent(row.key)"
-                                                            >
-                                                                {{ expandedSteps.has(row.key) ? '收起' : '展开' }}
-                                                            </button>
                                                         </div>
                                                         <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
                                                             {{ usageStats(row.usage).total }} tokens
@@ -1547,32 +1534,22 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    padding: 4px 0 4px 14px;
     position: relative;
     border-left: 2px solid var(--border);
 }
-.exec-step::before {
-    content: '';
-    position: absolute;
-    left: -5px;
-    top: 9px;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--bg);
-    border: 2px solid var(--fg-tertiary);
-    box-sizing: border-box;
-}
-.exec-step.exec-thinking::before { border-color: var(--thinking); }
-.exec-step.exec-tool_call::before { border-color: var(--tool); }
-.exec-step.exec-observation::before { border-color: var(--observation); }
-.exec-step.error::before { border-color: var(--error); background: var(--error-soft); }
 .exec-step-head {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 6px;
+    padding: 4px 8px 4px 14px;
     font-size: 12px;
     color: var(--fg-secondary);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+}
+.exec-step-head:hover {
+    background: var(--bg-hover);
 }
 .exec-step-head .line-icon {
     flex-shrink: 0;
@@ -1610,7 +1587,8 @@ onBeforeUnmount(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
+    max-width: 240px;
+    flex: 0 1 auto;
     min-width: 0;
 }
 .exec-step.error .exec-step-summary {
@@ -1620,19 +1598,20 @@ onBeforeUnmount(() => {
     font-size: 10px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
+    flex-shrink: 0;
 }
 .exec-step-time {
     margin-left: auto;
     font-size: 10px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
+    flex-shrink: 0;
 }
 .exec-step-code {
-    position: relative;
     background: var(--bg-code);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    margin-top: 4px;
+    margin: 2px 8px 4px 14px;
     overflow: hidden;
 }
 .exec-step-code-inner {
@@ -1644,11 +1623,7 @@ onBeforeUnmount(() => {
     color: var(--fg);
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: calc(12px * 1.5 * 5 + 16px); /* 5 rows + padding */
-    overflow: hidden;
-}
-.exec-step-code.expanded .exec-step-code-inner {
-    max-height: 400px;
+    max-height: calc(12px * 1.5 * 12 + 16px); /* 12 rows + padding */
     overflow: auto;
 }
 .exec-thinking .exec-step-code-inner {
@@ -1658,28 +1633,31 @@ onBeforeUnmount(() => {
 .exec-step.error .exec-step-code-inner {
     color: var(--error);
 }
-.exec-step-code-toggle {
-    display: block;
-    width: 100%;
-    border: none;
-    border-top: 1px solid var(--border);
-    background: var(--bg-code);
-    color: var(--fg-secondary);
-    font-size: 11px;
-    padding: 4px;
-    cursor: pointer;
-    text-align: center;
-}
-.exec-step-code-toggle:hover {
-    background: var(--bg-hover);
-    color: var(--accent);
-}
 .exec-step-usage {
     font-size: 10px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
-    margin-top: 2px;
+    margin: 0 8px 2px 14px;
 }
+/* step dot hover → collapse button */
+.step-dot { border-color: var(--fg-tertiary); }
+.exec-step.exec-thinking .step-dot { border-color: var(--thinking); }
+.exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
+.exec-step.exec-observation .step-dot { border-color: var(--observation); }
+.exec-step.error .step-dot { border-color: var(--error); }
+.exec-step-head:hover .exec-dot {
+    width: 16px;
+    height: 16px;
+    left: -9px;
+    border-radius: 4px;
+    background: var(--fg-tertiary);
+    border-color: var(--fg-tertiary);
+    color: #fff;
+}
+.exec-step.exec-thinking .exec-step-head:hover .exec-dot { background: var(--thinking); border-color: var(--thinking); }
+.exec-step.exec-tool_call .exec-step-head:hover .exec-dot { background: var(--tool); border-color: var(--tool); }
+.exec-step.exec-observation .exec-step-head:hover .exec-dot { background: var(--observation); border-color: var(--observation); }
+.exec-step.error .exec-step-head:hover .exec-dot { background: var(--error); border-color: var(--error); }
 .exec-stats {
     display: flex;
     align-items: center;
