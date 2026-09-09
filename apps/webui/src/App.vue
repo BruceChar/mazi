@@ -325,9 +325,8 @@ function kindGlyph(kind) {
 }
 
 function kindLabel(kind) {
-    if (kind === 'thinking') return '思考';
-    if (kind === 'tool_call') return '工具';
-    if (kind === 'observation') return '观察';
+    if (kind === 'thinking') return 'thinking';
+    if (kind === 'tool_call') return 'tool';
     return kind || '-';
 }
 
@@ -904,7 +903,7 @@ onBeforeUnmount(() => {
                                                     >
                                                         <div class="exec-step-head" :class="{ clickable: isStepLong(row) }" @click="isStepLong(row) && toggleStepCollapse(row.key)">
                                                             <span class="step-dot" :class="{ collapsed: collapsedSteps.has(row.key), interactive: isStepLong(row) }"></span>
-                                                            <LineIcon :name="row.kind === 'thinking' ? 'thinking' : row.kind === 'tool_call' ? 'tool' : 'observation'" size="14" />
+                                                            <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="14" />
                                                             <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                                                             <span class="exec-step-name">{{ row.toolName || (row.kind === 'thinking' ? '思考' : row.kind === 'observation' ? '观察' : row.kind) }}</span>
                                                             <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
