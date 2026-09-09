@@ -5,6 +5,7 @@
  */
 
 import {
+    ulid,
     type AcceptanceSpec,
     type Goal,
     type Task,
@@ -60,7 +61,7 @@ export function planGoalTree(input: PlanGoalTreeInput): GoalPlan {
 
     const workGoals = goals.filter((g) => g.kind === 'work' && g.status === 'active');
     const tasks: Task[] = workGoals.map((goal, i) => ({
-        taskId: `task-${goal.goalId}`,
+        taskId: ulid(),
         goalId: goal.goalId,
         title: goal.statement.slice(0, 80),
         acceptance: acceptanceFrom(goal),

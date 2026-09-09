@@ -5,6 +5,7 @@
  */
 
 import type { Goal, LLMMessage, Step, Task, ToolSchema } from '@mazi/core';
+import { ulid } from '@mazi/core';
 import type { GoalStore } from '../memory/goal-store.js';
 import type { ExecutorRoundContext, RoundResult } from './round-types.js';
 
@@ -81,7 +82,7 @@ export async function executeTask(
             const round = await roundRequest();
             const text = round.text.length > 0 ? round.text : round.reasoning;
             const thinking: Step = {
-                stepId: `step-${task.taskId}-${now()}-${roundIndex}`,
+                stepId: ulid(),
                 taskId: task.taskId,
                 goalId: task.goalId,
                 kind: 'thinking',
@@ -154,7 +155,7 @@ export async function executeTask(
             );
             if (blocked !== undefined) {
                 const callStep: Step = {
-                    stepId: `step-${task.taskId}-${now()}-blocked`,
+                    stepId: ulid(),
                     taskId: task.taskId,
                     goalId: task.goalId,
                     kind: 'tool_call',
@@ -181,7 +182,7 @@ export async function executeTask(
             const outputs: Array<{ callId: string; output: string; isError: boolean }> = [];
             for (const call of round.toolCalls) {
                 const toolStep: Step = {
-                    stepId: `step-${task.taskId}-${now()}-tool-${call.callId}`,
+                    stepId: ulid(),
                     taskId: task.taskId,
                     goalId: task.goalId,
                     kind: 'tool_call',
@@ -205,7 +206,7 @@ export async function executeTask(
                     isError: !res.ok,
                 });
                 const obs: Step = {
-                    stepId: `step-${task.taskId}-${now()}-obs-${call.callId}`,
+                    stepId: ulid(),
                     taskId: task.taskId,
                     goalId: task.goalId,
                     kind: 'observation',
