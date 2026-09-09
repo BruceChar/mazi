@@ -1021,6 +1021,104 @@ pre {
     cursor: not-allowed;
 }
 
+/* ---------- Model Picker (Codex-style) ---------- */
+.model-picker {
+    position: relative;
+}
+.model-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    cursor: default;
+}
+.model-picker-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--fg-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+.model-picker-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-hover);
+}
+.model-picker-btn.open {
+    background: var(--bg-hover);
+}
+.model-picker-name {
+    font-weight: 500;
+    color: var(--fg);
+}
+.model-picker-level {
+    color: var(--fg-tertiary);
+    font-size: 11px;
+}
+.model-picker-caret {
+    color: var(--fg-tertiary);
+    transition: transform 0.12s;
+}
+.model-picker-btn.open .model-picker-caret {
+    transform: rotate(180deg);
+}
+.model-picker-panel {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 0;
+    min-width: 200px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 6px 0;
+    z-index: 100;
+    animation: pickerFadeIn 0.12s ease;
+}
+@keyframes pickerFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.model-picker-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--fg-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 12px 6px;
+}
+.model-picker-option {
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--fg-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.model-picker-option:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+.model-picker-option.active {
+    color: var(--accent);
+    font-weight: 500;
+}
+.model-picker-option.active::after {
+    content: '✓';
+    font-size: 11px;
+}
+.model-picker-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+}
+
 /* ---------- Status Bar (inside center column) ---------- */
 
 .statusbar {

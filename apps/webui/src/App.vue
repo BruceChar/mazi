@@ -49,6 +49,19 @@ const projectCollapsed = ref({});
 const projectMenuFor = ref('');
 const accountOpen = ref(false);
 const selectedModel = ref('');
+const modelPickerOpen = ref(false);
+const REASONING_LEVELS = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+];
+const reasoningLevel = ref('high');
+const reasoningLabel = computed(() => REASONING_LEVELS.find((r) => r.value === reasoningLevel.value)?.label || 'High');
+const currentModelLabel = computed(() => modelOptions.value.find((m) => m.id === selectedModel.value)?.label?.replace(/\s+(Low|Medium|High)$/i, '') || selectedModel.value);
+function cycleReasoning() {
+    const idx = REASONING_LEVELS.findIndex((r) => r.value === reasoningLevel.value);
+    reasoningLevel.value = REASONING_LEVELS[(idx + 1) % REASONING_LEVELS.length].value;
+}
 const feedbackSent = ref(false);
 const feedbackModal = ref(false);
 const feedbackRating = ref(5);
@@ -949,17 +962,43 @@ onBeforeUnmount(() => {
                             ></textarea>
                         </div>
                         <div class="input-footer">
-                            <div class="input-footer-left">
-                                <select v-model="selectedModel" title="模型">
-                                    <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
-                                </select>
-                                <select v-model="draft.loopMode" class="mode-select" title="Loop 模式">
-                                    <option v-for="m in LOOP_MODE_OPTIONS" :key="m.value" :value="m.value">
-                                        {{ m.label }}
-                                    </option>
-                                </select>
-                            </div>
+                            <div class="input-footer-left"></div>
                             <div class="input-footer-right">
+                                <div class="model-picker">
+                                    <div v-if="modelPickerOpen" class="model-picker-backdrop" @click="modelPickerOpen = false"></div>
+                                    <button class="model-picker-btn" :class="{ open: modelPickerOpen }" @click="modelPickerOpen = !modelPickerOpen">
+                                        <span class="model-picker-name">{{ currentModelLabel }}</span>
+                                        <span class="model-picker-level">{{ reasoningLabel }}</span>
+                                        <LineIcon name="chevronDown" size="12" class="model-picker-caret" />
+                                    </button>
+                                    <div v-if="modelPickerOpen" class="model-picker-panel" @click.stop>
+                                        <div class="model-picker-section">
+                                            <div class="model-picker-section-title">模型</div>
+                                            <div
+                                                v-for="m in modelOptions"
+                                                :key="m.id"
+                                                class="model-picker-option"
+                                                :class="{ active: m.id === selectedModel }"
+                                                @click="selectedModel = m.id; modelPickerOpen = false"
+                                            >
+                                                {{ m.label.replace(/\s+(Low|Medium|High)$/i, '') }}
+                                            </div>
+                                        </div>
+                                        <div class="model-picker-divider"></div>
+                                        <div class="model-picker-section">
+                                            <div class="model-picker-section-title">推理等级</div>
+                                            <div
+                                                v-for="r in REASONING_LEVELS"
+                                                :key="r.value"
+                                                class="model-picker-option"
+                                                :class="{ active: r.value === reasoningLevel }"
+                                                @click="reasoningLevel = r.value"
+                                            >
+                                                {{ r.label }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                                 <button class="send" :disabled="busy" title="发送" @click="submitPrompt">
                                     <LineIcon name="arrowUp" size="16" />
                                 </button>
