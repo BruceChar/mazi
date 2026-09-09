@@ -1660,12 +1660,13 @@ onBeforeUnmount(() => {
     position: static;
     left: auto;
     top: auto;
-    transform: none;
-    margin-left: -19px; /* 14px pad + 2px border = 16px content edge; dot center at border center */
+    transform: translateY(-1px); /* svg visual center is ~1px above geometric center */
+    margin-left: -19px;
     border-color: var(--fg-tertiary);
 }
 .exec-step-head.clickable:hover .step-dot {
-    margin-left: -23px; /* 16px dot: center stays on border */
+    margin-left: -23px;
+    transform: none; /* expanded square button uses true center */
 }
 .exec-step.exec-thinking .step-dot { border-color: var(--thinking); }
 .exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
