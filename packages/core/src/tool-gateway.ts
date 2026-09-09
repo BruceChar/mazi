@@ -37,7 +37,7 @@ import type {
     RejectCode,
     SideEffectScope,
 } from './authorization.js';
-import type { TraceIdentifiers } from './observability.js';
+import type { AuditIdentifiers } from './observability.js';
 
 /** Sandbox execution configuration (temporary definition pending convergence with the executor contract). */
 export interface SandboxSpec {
@@ -314,7 +314,7 @@ export interface HookContext {
     tool: ToolSpec;
     args: Record<string, unknown>;
     projection: ValueProjection;
-    identifiers: TraceIdentifiers;
+    identifiers: AuditIdentifiers;
     /**
      * Session/workspace approvals in effect for this Turn (snapshot taken at
      * invocation start). The session-approval hook grants allow for calls
@@ -398,7 +398,7 @@ export interface GatewayAuditEvent {
     /** allowed=passed denied=rejected pending=queued info=accounting */
     decision: 'allowed' | 'denied' | 'pending' | 'info';
     /** All three IDs required (v2 observability alignment); any missing is an implementation defect */
-    identifiers: TraceIdentifiers;
+    identifiers: AuditIdentifiers;
     tool?: string;
     effectClass?: EffectClass;
     detail?: string;

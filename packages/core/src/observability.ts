@@ -4,11 +4,30 @@ import type { StepKind } from './gts.js';
 /** 迁移期标签类型（旧 turn-contract 移除后以开放字符串表达） */
 type TaskTag = string & {};
 
-/** 三层 ID 是所有事件的必备字段 */
+/** 三层 ID 是所有事件的必备字段（通用事件允许部分层级；审计事件见 AuditIdentifiers） */
 export interface TraceIdentifiers {
     sessionId: string;
     turnId?: string;
     stepId?: string;
+}
+
+/**
+ * Audit identifiers — all three core levels required (v2 observability
+ * alignment): any missing is an implementation defect. Used by
+ * GatewayAuditEvent (tool-gateway.ts) and hook contexts, where the full
+ * decision chain must be reconstructable.
+ */
+export interface AuditIdentifiers {
+    /** Root anchor: the root goal id (rootGoalId) */
+    sessionId: string;
+    /** Owning turn/task of the audited invocation */
+    turnId: string;
+    /** Owning step of the audited invocation */
+    stepId: string;
+    /** gts alignment: owning goal */
+    goalId?: string;
+    /** gts alignment: owning task */
+    taskId?: string;
 }
 
 /** Harness 事件类型 */
