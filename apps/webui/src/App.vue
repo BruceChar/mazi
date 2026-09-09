@@ -1463,8 +1463,26 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    padding: 5px 0;
+    padding: 5px 0 5px 20px;
+    position: relative;
+    border-left: 1px solid var(--border-soft);
+    margin-left: 5px;
 }
+.exec-step::before {
+    content: '';
+    position: absolute;
+    left: -4px;
+    top: 10px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--fg-tertiary);
+}
+.exec-step.exec-thinking::before { border-color: var(--thinking); }
+.exec-step.exec-tool_call::before { border-color: var(--tool); }
+.exec-step.exec-observation::before { border-color: var(--observation); }
+.exec-step.error::before { border-color: var(--error); background: var(--error-soft); }
 .exec-step-head {
     display: flex;
     align-items: center;
