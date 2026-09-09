@@ -780,7 +780,6 @@ onBeforeUnmount(() => {
                             <template v-if="run.rootGoalId === current && detail && showExecution">
                                 <div v-for="goal in activeGoals" :key="goal.goalId" class="goal-card" :class="`goal-kind-${goal.kind}`">
                                     <div class="goal-head">
-                                        <span class="kind-pill" :class="goal.kind">{{ goal.kind }}</span>
                                         <span class="status-dot" :class="statusClass(goal.status)"></span>
                                         <span class="status-text">{{ statusLabel(goal.status) }}</span>
                                         <span class="goal-statement">{{ goal.statement }}</span>
@@ -804,10 +803,7 @@ onBeforeUnmount(() => {
                                     </div>
                                 </div>
                             </template>
-                            <!-- 非当前 run：查看执行过程 -->
-                            <div v-else-if="run.rootGoalId !== current" class="run-expand">
-                                <button class="ghost" @click="selectRun(run)">查看执行过程 →</button>
-                            </div>
+                            <!-- 非当前 run 不展示执行树 -->
                         </div>
                     </template>
                     <div v-else-if="activeConversation" class="empty-hint">
@@ -1153,7 +1149,7 @@ onBeforeUnmount(() => {
     width: 100%;
 }
 .msg-user {
-    align-items: flex-start;
+    align-items: flex-end;
 }
 .msg-assistant {
     align-items: stretch;

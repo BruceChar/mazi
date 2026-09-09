@@ -999,16 +999,19 @@ pre {
 }
 
 .send {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
     border: none;
     background: var(--accent);
     color: #ffffff;
-    display: grid;
-    place-items: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
     transition: background 0.12s;
+    line-height: 0;
+    padding: 0;
 }
 .send:hover:not(:disabled) {
     background: var(--accent-hover);
