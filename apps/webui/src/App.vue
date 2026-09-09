@@ -373,8 +373,12 @@ const stepEventRows = computed(() => {
 function fmtClockMs(ts) {
     if (!ts) return '';
     const d = new Date(ts);
+    const now = new Date();
     const pad = (n, w = 2) => String(n).padStart(w, '0');
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+    if (d.toDateString() === now.toDateString()) return time;
+    const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return `${date} ${time}`;
 }
 
 function formatDuration(ms) {
@@ -868,7 +872,7 @@ onBeforeUnmount(() => {
                                             <span class="exec-dot goal-dot" :class="{ collapsed: collapsedGoals.has(goal.goalId) }"></span>
                                             <span class="exec-goal-tag">G#{{ gIdx + 1 }}</span>
                                             <span class="exec-goal-title">{{ goal.statement }}</span>
-                                            <span class="exec-goal-count">{{ goal.tasks.reduce((s, t) => s + t.steps.length, 0) }} steps</span>
+                                            <span class="exec-goal-count">{{ goal.tasks.length }} tasks · {{ goal.tasks.reduce((s, t) => s + t.steps.length, 0) }} steps</span>
                                         </div>
                                         <div v-if="!collapsedGoals.has(goal.goalId)" class="exec-goal-body">
                                             <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
@@ -1650,8 +1654,19 @@ onBeforeUnmount(() => {
     font-family: ui-monospace, monospace;
     margin: 0 8px 2px 14px;
 }
-/* step dot per-kind colors */
-.step-dot { border-color: var(--fg-tertiary); }
+/* step dot: flex-item (not absolute) so it aligns naturally with icon
+   via align-items:center; negative margin pulls it onto the border */
+.step-dot {
+    position: static;
+    left: auto;
+    top: auto;
+    transform: none;
+    margin-left: -19px; /* 14px pad + 2px border = 16px content edge; dot center at border center */
+    border-color: var(--fg-tertiary);
+}
+.exec-step-head.clickable:hover .step-dot {
+    margin-left: -23px; /* 16px dot: center stays on border */
+}
 .exec-step.exec-thinking .step-dot { border-color: var(--thinking); }
 .exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
 .exec-step.exec-observation .step-dot { border-color: var(--observation); }
