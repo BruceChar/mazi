@@ -227,6 +227,17 @@ function kindLabel(kind) {
     return kind || '-';
 }
 
+/** Step 内容摘要：thinking 取 content，tool_call 取 toolName+参数，observation 取 content */
+function stepSummary(step) {
+    const p = step.payload || {};
+    if (step.kind === 'tool_call') {
+        const args = p.arguments ? JSON.stringify(p.arguments).slice(0, 80) : '';
+        return `${p.toolName || 'tool'}(${args})`;
+    }
+    const content = p.content ? String(p.content) : '';
+    return content.slice(0, 120);
+}
+
 /** 步骤流：来自 SSE/事件回放中的 step.ended（思考/工具/观察），内容完整 */
 const stepEventRows = computed(() => {
     const rows = [];
@@ -437,15 +448,51 @@ function endResize() {
     document.body.style.cursor = '';
 }
 
+/** 事件面板：默认仅展示关键事件（goal/tool/llm/approval/policy/provider），step.* 噪音可展开 */
+const showAllEvents = ref(false);
+const KEY_EVENT_TYPES = new Set([
+    'goal.started', 'goal.ended',
+    'tool.invoke', 'tool.result', 'tool.blocked',
+    'llm.request', 'llm.response',
+    'approval.requested', 'approval.granted', 'approval.denied', 'approval.cancelled',
+    'policy.denied',
+    'provider.selected', 'provider.fallback',
+    'plan.created', 'plan.invalid',
+]);
 const filteredEvents = computed(() => {
     const key = ui.eventTypes === 'all' ? null : ui.eventTypes;
-    const list = key ? events.list.filter((e) => e.type === key) : events.list;
+    let list = key ? events.list.filter((e) => e.type === key) : events.list;
+    if (!showAllEvents.value) {
+        list = list.filter((e) => KEY_EVENT_TYPES.has(e.type));
+    }
     return list.slice().reverse();
 });
 const eventTypes = computed(() => [
     'all',
     ...new Set(events.list.map((e) => e.type)),
 ]);
+
+/** 事件 payload 摘要（替代无意义的 sessionId 展示） */
+function eventSummary(e) {
+    const p = e.payload || {};
+    if (e.type === 'goal.started') return p.rawInput ? String(p.rawInput).slice(0, 60) : '';
+    if (e.type === 'goal.ended') return p.outcome?.summary ? String(p.outcome.summary).slice(0, 60) : (p.outcome?.status || '');
+    if (e.type === 'tool.invoke' || e.type === 'tool.result') return p.toolName || '';
+    if (e.type === 'llm.request' || e.type === 'llm.response') return p.model || '';
+    if (e.type === 'approval.requested') return p.toolName || p.effectClass || '';
+    if (e.type === 'provider.selected') return p.providerId || '';
+    return '';
+}
+function eventColorClass(type) {
+    if (type.startsWith('goal.')) return 'ev-goal';
+    if (type.startsWith('tool.')) return 'ev-tool';
+    if (type.startsWith('llm.')) return 'ev-llm';
+    if (type.startsWith('approval.')) return 'ev-approval';
+    if (type.startsWith('policy.')) return 'ev-policy';
+    if (type.startsWith('provider.')) return 'ev-provider';
+    if (type.startsWith('step.')) return 'ev-step';
+    return 'ev-other';
+}
 
 onMounted(async () => {
     document.addEventListener('click', () => {
@@ -668,25 +715,26 @@ onBeforeUnmount(() => {
                             <pre class="goal-final">{{ rootOutcome.ok ? rootOutcome.finalMessage : rootOutcome.errorMessage }}</pre>
                         </div>
                         <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
-                        <div v-for="goal in activeGoals" :key="goal.goalId" class="goal-card">
+                        <div v-for="goal in activeGoals" :key="goal.goalId" class="goal-card" :class="`goal-kind-${goal.kind}`">
                             <div class="goal-head">
-                                <span class="badge" :class="goal.kind">{{ goal.kind }}</span>
-                                <span class="badge" :class="statusClass(goal.status)">{{ statusLabel(goal.status) }}</span>
+                                <span class="kind-pill" :class="goal.kind">{{ goal.kind }}</span>
+                                <span class="status-dot" :class="statusClass(goal.status)"></span>
+                                <span class="status-text">{{ statusLabel(goal.status) }}</span>
                                 <span class="goal-statement">{{ goal.statement }}</span>
                             </div>
                             <div v-for="task in goal.tasks" :key="task.taskId" class="goal-task">
                                 <div class="goal-task-head">
-                                    <span class="badge taskid" :title="task.taskId">{{ short(task.taskId, 24) }}</span>
-                                    <span class="badge" :class="statusClass(task.status)">{{ statusLabel(task.status) }}</span>
+                                    <span class="status-dot" :class="statusClass(task.status)"></span>
                                     <span class="goal-task-title">{{ task.title }}</span>
+                                    <span class="task-meta">{{ task.steps?.length || 0 }} steps</span>
                                 </div>
                                 <ul v-if="task.steps.length" class="goal-steps">
-                                    <li v-for="step in task.steps" :key="step.stepId">
-                                        <span class="goal-glyph">{{ kindGlyph(step.kind) }}</span>
-                                        <span class="goal-step-kind">{{ statusLabel(step.kind) }}</span>
-                                        <span class="badge" :class="statusClass(step.status)">{{ statusLabel(step.status) }}</span>
-                                        <span class="goal-step-id" :title="step.stepId">{{ short(step.stepId, 32) }}</span>
-                                        <span class="goal-when">{{ fmtClock(step.startedAt) }}</span>
+                                    <li v-for="step in task.steps" :key="step.stepId" :class="['step-item', `step-${step.kind}`]">
+                                        <span class="step-dot"></span>
+                                        <span class="step-kind">{{ kindLabel(step.kind) }}</span>
+                                        <span class="step-status" :class="statusClass(step.status)">{{ statusLabel(step.status) }}</span>
+                                        <span class="step-content" :title="stepSummary(step)">{{ stepSummary(step) || '（无内容）' }}</span>
+                                        <span class="step-when">{{ fmtClock(step.startedAt) }}</span>
                                     </li>
                                 </ul>
                                 <div v-else class="empty-hint">（该 Task 尚无 Step）</div>
@@ -842,14 +890,20 @@ onBeforeUnmount(() => {
                         <select v-model="ui.eventTypes" title="事件类型">
                             <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
                         </select>
+                        <button class="ev-toggle" :class="{ on: showAllEvents }" @click="showAllEvents = !showAllEvents">
+                            {{ showAllEvents ? '全部' : '仅关键' }}
+                        </button>
                     </div>
                     <div class="event-log">
                         <div v-for="e in filteredEvents" :key="e.eventId" class="event-row">
+                            <span class="ev-dot" :class="eventColorClass(e.type)"></span>
                             <span class="event-time">{{ fmtClock(e.timestamp) }}</span>
-                            <span class="event-type">{{ e.type }}</span>
-                            <span class="event-ids">{{ short(e.sessionId, 16) }}</span>
+                            <span class="event-type" :class="eventColorClass(e.type)">{{ e.type }}</span>
+                            <span class="event-summary" :title="eventSummary(e)">{{ eventSummary(e) }}</span>
                         </div>
-                        <div v-if="!filteredEvents.length" class="empty-hint">暂无事件</div>
+                        <div v-if="!filteredEvents.length" class="empty-hint">
+                            {{ showAllEvents ? '暂无事件' : '暂无关键事件（切换「全部」查看 step 等细节）' }}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -936,44 +990,95 @@ onBeforeUnmount(() => {
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
-    padding: 6px 14px 4px;
+    padding: 8px 14px 4px;
+    border-bottom: 1px solid var(--border-soft);
 }
 .goal-chip {
     display: inline-flex;
     flex-direction: column;
     align-items: flex-start;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     background: var(--bg-panel);
-    padding: 4px 10px;
+    padding: 5px 12px;
     cursor: pointer;
     color: var(--fg);
-    max-width: 260px;
+    max-width: 200px;
+    transition: all 0.12s;
+}
+.goal-chip:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
 }
 .goal-chip.on {
     border-color: var(--accent);
-    background: var(--bg-active);
+    background: var(--accent);
+    color: #fff;
+}
+.goal-chip.on .goal-chip-sub {
+    color: rgba(255, 255, 255, 0.75);
 }
 .goal-chip-main {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 240px;
-    font-size: 13px;
+    max-width: 180px;
+    font-size: 12px;
+    font-weight: 500;
 }
 .goal-chip-sub {
-    color: var(--fg-secondary);
-    font-size: 11px;
+    color: var(--fg-tertiary);
+    font-size: 10px;
 }
 .goal-card {
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-left: 3px solid var(--fg-tertiary);
+    border-radius: var(--radius);
     background: var(--bg-panel);
-    padding: 10px 12px;
+    padding: 12px 14px;
     margin: 0 14px 10px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
+    box-shadow: var(--shadow-sm);
+}
+.goal-card.goal-kind-intake { border-left-color: var(--accent); }
+.goal-card.goal-kind-work { border-left-color: var(--thinking); }
+.kind-pill {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--bg-code);
+    color: var(--fg-secondary);
+}
+.kind-pill.intake { background: var(--accent-soft); color: var(--accent-text); }
+.kind-pill.work { background: var(--thinking-soft); color: var(--thinking); }
+.status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.status-dot.ok { background: var(--ok); }
+.status-dot.error, .status-dot.failed { background: var(--error); }
+.status-dot.running, .status-dot.active { background: var(--accent); animation: pulse 1.5s infinite; }
+.status-dot.pending { background: var(--warn); }
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+.status-text {
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.task-meta {
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    margin-left: auto;
 }
 .goal-head,
 .goal-task-head {
@@ -985,43 +1090,84 @@ onBeforeUnmount(() => {
 .goal-statement {
     flex: 1;
     min-width: 0;
+    font-weight: 500;
 }
 .goal-task {
-    border-top: 1px dashed var(--border);
-    padding-top: 6px;
+    border-top: 1px solid var(--border-soft);
+    padding-top: 8px;
 }
 .goal-task-title {
     color: var(--fg-secondary);
+    font-size: 13px;
 }
 .goal-steps {
     list-style: none;
-    margin: 4px 0 0;
+    margin: 6px 0 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
 }
-.goal-steps li {
+.step-item {
     display: flex;
     gap: 8px;
-    align-items: center;
+    align-items: flex-start;
     font-size: 13px;
+    padding: 5px 8px;
+    border-radius: var(--radius-sm);
+    transition: background 0.12s;
 }
-.goal-glyph {
-    width: 18px;
+.step-item:hover {
+    background: var(--bg-hover);
 }
-.goal-step-kind {
-    width: 90px;
+.step-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-top: 6px;
+    flex-shrink: 0;
+    background: var(--fg-tertiary);
 }
-.goal-step-id {
+.step-thinking .step-dot { background: var(--thinking); }
+.step-tool_call .step-dot { background: var(--tool); }
+.step-observation .step-dot { background: var(--observation); }
+.step-kind {
+    width: 36px;
+    flex-shrink: 0;
+    font-size: 11px;
     color: var(--fg-secondary);
-    font-family: ui-monospace, monospace;
-    font-size: 11px;
+    margin-top: 1px;
 }
-.goal-when {
-    color: var(--trace-text);
+.step-thinking .step-kind { color: var(--thinking); }
+.step-tool_call .step-kind { color: var(--tool); }
+.step-observation .step-kind { color: var(--observation); }
+.step-status {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-top: 1px;
+    background: var(--bg-code);
+    color: var(--fg-secondary);
+}
+.step-status.ok { background: var(--ok-soft); color: var(--ok); }
+.step-status.error, .step-status.failed { background: var(--error-soft); color: var(--error); }
+.step-status.running, .step-status.active { background: var(--accent-soft); color: var(--accent); }
+.step-content {
+    flex: 1;
+    min-width: 0;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+}
+.step-when {
+    color: var(--fg-tertiary);
     font-size: 11px;
-    margin-left: auto;
+    flex-shrink: 0;
+    margin-top: 1px;
 }
 .goal-bubble {
     border: 1px solid var(--border);
