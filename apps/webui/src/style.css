@@ -905,7 +905,8 @@ pre {
     background: var(--bg-panel);
     box-shadow: var(--shadow-sm);
     transition: border-color 0.12s, box-shadow 0.12s;
-    overflow: hidden;
+    position: relative;
+    z-index: 1;
 }
 .input-composer:focus-within {
     border-color: var(--accent);
