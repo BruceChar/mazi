@@ -34,7 +34,7 @@ const paths = {
     minimize: 'M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3',
     arrowUp: 'M12 19V5M5 12l7-7 7 7',
     lightbulb: 'M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2ZM10 13a4 4 0 0 0 4 0',
-    hammer: 'M13 21V10M5 5h14v5H5zM5 5L3 9m2-4l-2 4',
+    hammer: 'M5 3h10l1 3H4l1-3zM9 6v11m0 0H6m3 0h3',
 };
 </script>
 
