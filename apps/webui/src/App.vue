@@ -1554,21 +1554,28 @@ onBeforeUnmount(() => {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px 4px 14px;
+    padding: 0 8px 0 14px;
+    height: 22px; /* 4px visual pad + 14px icon + 4px visual pad */
+    box-sizing: border-box;
     font-size: 12px;
     line-height: 1;
     color: var(--fg-secondary);
     border-radius: var(--radius-sm);
+}
+.exec-step-head > * {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+.exec-step-head .line-icon {
+    display: block;
+    flex-shrink: 0;
+    color: var(--fg-tertiary);
 }
 .exec-step-head.clickable {
     cursor: pointer;
 }
 .exec-step-head.clickable:hover {
     background: var(--bg-hover);
-}
-.exec-step-head .line-icon {
-    flex-shrink: 0;
-    color: var(--fg-tertiary);
 }
 .exec-thinking .exec-step-head .line-icon { color: var(--thinking); }
 .exec-tool_call .exec-step-head .line-icon { color: var(--tool); }
