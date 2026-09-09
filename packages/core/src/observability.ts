@@ -2,57 +2,49 @@ import type { EffectClass, PermissionLevel } from './authorization.js';
 import type { ApprovalScope } from './approval.js';
 import type { StepKind } from './gts.js';
 
-/** 迁移期标签类型（旧 turn-contract 移除后以开放字符串表达） */
+/** Task-level tag (open string; expressed on the gts task model) */
 type TaskTag = string & {};
 
 /**
  * Trace identifiers for general events — hierarchical identity along the
- * gts model (goal/task/step). sessionId is the root anchor (rootGoalId) and
- * is always required; deeper levels are present depending on the event's
- * scope. Audit events require all three core levels — see AuditIdentifiers.
- *
- * Vocabulary note: turnId/stepId are legacy turn-contract terms, kept for
- * migration compatibility (runtime still emits them); goalId/taskId align
- * with the gts Goal/Task model and are the forward vocabulary.
+ * gts model (goal/task/step). rootGoalId is the top-level anchor and is
+ * always required; deeper levels are present depending on the event's scope.
+ * Audit events require all four levels — see AuditIdentifiers.
  */
 export interface TraceIdentifiers {
-    /** Root anchor: the root goal id (rootGoalId) */
-    sessionId: string;
-    /** Legacy turn id (old turn-contract vocabulary); migration-period alias */
-    turnId?: string;
-    /** Legacy step id; gts step id (migration-period alias) */
-    stepId?: string;
-    /** gts alignment: owning goal (optional on general events) */
+    /** Root anchor: the root goal id */
+    rootGoalId: string;
+    /** Owning goal (optional on general events) */
     goalId?: string;
-    /** gts alignment: owning task (optional on general events) */
+    /** Owning task (optional on general events) */
     taskId?: string;
+    /** Owning step (optional on general events) */
+    stepId?: string;
 }
 
 /**
- * Audit identifiers — all three core levels required (v2 observability
- * alignment): any missing is an implementation defect. Used by
+ * Audit identifiers — all four levels required (root goal / goal / task /
+ * step): any missing is an implementation defect. Used by
  * GatewayAuditEvent (tool-gateway.ts) and hook contexts, where the full
  * decision chain must be reconstructable.
  */
 export interface AuditIdentifiers {
-    /** Root anchor: the root goal id (rootGoalId) */
-    sessionId: string;
-    /** Owning turn/task of the audited invocation */
-    turnId: string;
+    /** Root anchor: the root goal id */
+    rootGoalId: string;
+    /** Owning goal of the audited invocation */
+    goalId: string;
+    /** Owning task of the audited invocation */
+    taskId: string;
     /** Owning step of the audited invocation */
     stepId: string;
-    /** gts alignment: owning goal */
-    goalId?: string;
-    /** gts alignment: owning task */
-    taskId?: string;
 }
 
 /** Harness 事件类型 */
 export type HarnessEventType =
-    | 'session.started'
-    | 'session.ended'
-    | 'turn.started'
-    | 'turn.ended'
+    | 'goal.started'
+    | 'goal.ended'
+    | 'task.started'
+    | 'task.ended'
     | 'step.started'
     | 'step.ended'
     | 'llm.request'
@@ -108,7 +100,7 @@ export type HarnessEventType =
  *     dangerRuleId  → 'harness.gateway_danger_rule'
  *     escalation    → payload (serialized)
  *
- * The audit sink's identifiers are AuditIdentifiers (all three core levels
+ * The audit sink's identifiers are AuditIdentifiers (all four levels
  * required) and are carried verbatim on the emitted event.
  */
 
@@ -129,7 +121,7 @@ export interface HarnessEvent extends TraceIdentifiers {
         /** 事件严重级（EventFilter.minLevel 的判定来源） */
         'harness.level'?: 'debug' | 'info' | 'warn' | 'error';
         'harness.strategy_id'?: string;
-        'harness.turn_tags'?: TaskTag[];
+        'harness.task_tags'?: TaskTag[];
         'harness.gateway_stage'?: string;
         'harness.gateway_effect_class'?: string;
         'harness.gateway_danger_rule'?: string;
@@ -173,6 +165,6 @@ export interface EventSink {
 export interface EventBus {
     emit(event: HarnessEvent): void;
     subscribe(filter: EventFilter, sink: EventSink): Unsubscribe;
-    /** 事件流回放（只读重放） */
-    replay(sessionId: string): HarnessEvent[];
+    /** 事件流回放（只读重放，按 rootGoalId 分文件） */
+    replay(rootGoalId: string): HarnessEvent[];
 }

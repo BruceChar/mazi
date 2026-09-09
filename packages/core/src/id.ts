@@ -1,6 +1,6 @@
 /**
  * 轻量 ULID 生成器（core 内唯一运行时工具，零外部依赖，仅用 Node 内置模块）。
- * 满足 v1.2 对 sessionId/turnId/stepId/eventId 的 ULID 要求：
+ * 满足 gts 契约对 rootGoalId/goalId/taskId/stepId/eventId 的 ULID 要求：
  * 48 位毫秒时间戳前缀（字典序可排序）+ 80 位随机后缀，Crockford Base32 编码，共 26 字符。
  */
 import { randomBytes } from 'node:crypto';

@@ -237,8 +237,8 @@ export interface EscalationPayload {
 /**
  * Invocation request.
  *
- * V11: this structure carries no identity fields (no contractId/turnId/
- * sessionId). Identity is injected by the harness at construction via
+ * V11: this structure carries no identity fields (no rootGoalId/goalId/
+ * taskId). Identity is injected by the harness at construction via
  * GatewayBindInput — the model cannot choose its identity, and privilege
  * elevation is not expressible at the type level.
  */
@@ -261,10 +261,10 @@ export type PendingHandle = string;
  * granted semantics (see ApprovalScope in approval.ts):
  *   once      — execute the original request exactly once, then expire;
  *   session   — session-scoped: the whole effectClass is approved for the rest
- *               of the Turn;
+ *               of the task execution;
  *   workspace — workspace-scoped: the whole effectClass is approved for the
  *               workspace until revoked or deleted; held by the
- *               workspace-level container, not the per-Turn gateway.
+ *               workspace-level container, not the per-task gateway.
  * No granted variant rewrites the root grant — persistent permission changes
  * go exclusively through ContractRevision.
  */
@@ -279,11 +279,12 @@ export type PendingSettlement =
  * Session-scoped approval entry — the materialized form of a granted
  * session/workspace settlement.
  *
- * session entries are held by the ToolGateway instance and discarded at Turn
- * end (the gateway is stateful per Turn; approvals never survive it).
+ * session entries are held by the ToolGateway instance and discarded when
+ * the task execution ends (the gateway is stateful per task; approvals never
+ * survive it).
  * workspace entries are held by the workspace-level container (they outlive
- * Turns, until revoked or the workspace is deleted); the gateway's view
- * includes the workspace entries in effect for this Turn. Consumed by the
+ * tasks, until revoked or the workspace is deleted); the gateway's view
+ * includes the workspace entries in effect for this task. Consumed by the
  * session-approval hook and by the observability layer; every hit is audited
  * (emit is never blocked by feature flags).
  */
@@ -316,9 +317,9 @@ export interface HookContext {
     projection: ValueProjection;
     identifiers: AuditIdentifiers;
     /**
-     * Session/workspace approvals in effect for this Turn (snapshot taken at
-     * invocation start). The session-approval hook grants allow for calls
-     * covered by these entries, before the approval stage.
+     * Session/workspace approvals in effect for this task execution (snapshot
+     * taken at invocation start). The session-approval hook grants allow for
+     * calls covered by these entries, before the approval stage.
      */
     approvals: readonly SessionApproval[];
 }
@@ -423,23 +424,23 @@ export interface GatewayAuditSink {
 // ============================================================
 
 /**
- * ToolGateway — one instance per Turn.
+ * ToolGateway — one instance per task execution.
  *
- * Stateful: holds the turn's effective policy, danger rules, budget counters
- * and session-scoped approvals. Discarded when the turn ends; counters and
- * approvals do not cross turns.
+ * Stateful: holds the task execution's effective policy, danger rules,
+ * budget counters and session-scoped approvals. Discarded when the task
+ * execution ends; counters and approvals do not cross tasks.
  */
 export interface ToolGateway {
-    /** Bound Turn (identity injected; the model cannot forge it) */
-    readonly turnId: string;
+    /** Bound task (identity injected; the model cannot forge it) */
+    readonly taskId: string;
     /** Filtered tool whitelist (visibility narrowing, not a security boundary) */
     readonly tools: readonly ToolSpec[];
     /**
-     * Session/workspace approvals in effect for this Turn (granted
+     * Session/workspace approvals in effect for this task execution (granted
      * session/workspace settlements, materialized). Read-only view for the
      * session-approval hook and the observability layer; session entries are
-     * appended by settle and discarded at Turn end, workspace entries are
-     * held by the workspace-level container.
+     * appended by settle and discarded when the task execution ends, workspace
+     * entries are held by the workspace-level container.
      */
     readonly sessionApprovals: readonly SessionApproval[];
 
@@ -466,7 +467,7 @@ export interface ToolGateway {
      *   once      — execute the original request exactly once, then expire;
      *   session   — materialize a session-scoped approval for the whole
      *               effectClass and execute the original request; calls for
-     *               the rest of the Turn bypass the approval stage;
+     *               the rest of the task execution bypass the approval stage;
      *   workspace — materialize a workspace-scoped approval for the whole
      *               effectClass (workspace-level container) and execute the
      *               original request.
@@ -482,12 +483,12 @@ export interface ToolGateway {
 }
 
 /**
- * Factory: constructs a turn-bound instance.
+ * Factory: constructs a task-bound instance.
  * Owned by the executor; identity in bindInput comes from the active cursor
  * of the execution loop (V11).
  */
 export interface ToolGatewayFactory {
-    forTurn(bind: GatewayBindInput): ToolGateway;
+    forTask(bind: GatewayBindInput): ToolGateway;
 }
 
 /**
@@ -500,8 +501,9 @@ export interface ToolGatewayFactory {
  */
 export interface GatewayBindInput {
     // —— identity (harness-injected; never from model output) ——
-    sessionId: string;
-    turnId: string;
+    rootGoalId: string;
+    goalId: string;
+    taskId: string;
 
     // —— permission data (derived artifacts; the gateway consumes, never computes) ——
     effective: EffectivePolicy;

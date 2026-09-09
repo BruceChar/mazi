@@ -7,11 +7,11 @@
  * (ToolGateway).
  *
  * Approval layering (see approval.ts): human-in-the-loop approvals never
- * rewrite the root grant. once/session approvals are per-Turn (held by the
- * ToolGateway, discarded at Turn end); workspace approvals are held by the
- * workspace-level container (they outlive Turns, until revoked or the
- * workspace is deleted). Persistent permission changes go exclusively
- * through ContractRevision.
+ * rewrite the root grant. once/session approvals are per-task (held by the
+ * ToolGateway, discarded when the task execution ends); workspace approvals
+ * are held by the workspace-level container (they outlive tasks, until
+ * revoked or the workspace is deleted). Persistent permission changes go
+ * exclusively through ContractRevision.
  *
  * ── Open-extension conventions ─────────────────────────────────────────
  * EffectClass / EffectTier / Trigger / PermissionLevel / SideEffectScope /
@@ -136,7 +136,7 @@ export interface TaskPolicyRequest {
 
 export interface EffectivePolicy {
     rules: Partial<Record<EffectClass, EffectRule>>;
-    derivedFrom: { rootContractId: string; rootVersion: number; turnId: string };
+    derivedFrom: { rootContractId: string; rootVersion: number; taskId: string };
 }
 
 export type DeriveResult =
