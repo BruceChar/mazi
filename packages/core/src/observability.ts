@@ -39,8 +39,13 @@ export interface AuditIdentifiers {
     stepId: string;
 }
 
-/** Harness 事件类型 */
-export type HarnessEventType =
+/**
+ * 核心事件类型 —— 任何宿主（runtime/api/provider/webui）都应支持的最小契约面：
+ * 生命周期、模型调用、工具、权限、审批、提供方、用户。
+ * runtime 层的执行行为事件（plan/capacity/budget/strategy/reflection/rollback）
+ * 不属于本集合 —— 由 runtime 的 RUNTIME_EVENT_TYPES 声明。
+ */
+export type CoreEventType =
     | 'goal.started'
     | 'goal.ended'
     | 'task.started'
@@ -64,21 +69,16 @@ export type HarnessEventType =
     | 'approval.revoked'
     | 'provider.selected'
     | 'provider.fallback'
-    | 'plan.created'
-    | 'plan.invalid'
-    | 'capacity.assembled'
-    | 'capacity.degraded'
-    | 'budget.reallocation'
-    | 'budget.exceeded'
-    | 'strategy.selected'
-    | 'strategy.switched'
-    | 'context.strategy.applied'
     | 'flag.evaluated'
-    | 'reflection.verdict'
-    | 'rollback.executed'
     | 'user.input.recorded'
     | 'user.feedback.captured'
     | 'user.interaction.updated';
+
+/**
+ * 事件类型 —— 核心契约面 + 宿主扩展。
+ * 扩展侧开放为字符串（runtime 层以 RUNTIME_EVENT_TYPES 声明其受控集合）。
+ */
+export type HarnessEventType = CoreEventType | (string & {});
 
 /**
  * Audit-to-harness bridge contract — maps every GatewayAuditEvent
@@ -120,16 +120,12 @@ export interface HarnessEvent extends TraceIdentifiers {
         'harness.permission_level'?: PermissionLevel;
         /** 事件严重级（EventFilter.minLevel 的判定来源） */
         'harness.level'?: 'debug' | 'info' | 'warn' | 'error';
-        'harness.strategy_id'?: string;
         'harness.task_tags'?: TaskTag[];
         'harness.gateway_stage'?: string;
         'harness.gateway_effect_class'?: string;
         'harness.gateway_danger_rule'?: string;
         'harness.approval_scope'?: ApprovalScope;
         'harness.approval_effect_class'?: EffectClass;
-        'harness.runtime.context.system_prompt_ratio'?: number;
-        'harness.runtime.context.total_tokens'?: number;
-        'harness.pricing_tier'?: string;
         'harness.flag_overrides'?: Record<string, unknown>;
         'user.record_id'?: string;
         'user.feedback_type'?: string;
