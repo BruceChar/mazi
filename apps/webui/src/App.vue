@@ -1654,24 +1654,43 @@ onBeforeUnmount(() => {
     font-family: ui-monospace, monospace;
     margin: 0 8px 2px 14px;
 }
-/* step dot: flex-item (not absolute) so it aligns naturally with icon
-   via align-items:center; negative margin pulls it onto the border */
+/* step dot: 14px container matching icon height, with 8px circle centered
+   inside. align-items:center aligns the 14px container with the 14px svg
+   exactly, so the inner circle shares the icon's visual center. */
 .step-dot {
     position: static;
     left: auto;
     top: auto;
-    transform: translateY(-1px); /* svg visual center is ~1px above geometric center */
-    margin-left: -19px;
-    border-color: var(--fg-tertiary);
+    transform: none;
+    width: 14px;
+    height: 14px;
+    margin-left: -22px; /* 14px container: center at border center (16px content edge - 7px half - 7px = -22) */
+    border: none;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.step-dot::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--fg-tertiary);
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+.exec-step.exec-thinking .step-dot::before { border-color: var(--thinking); }
+.exec-step.exec-tool_call .step-dot::before { border-color: var(--tool); }
+.exec-step.exec-observation .step-dot::before { border-color: var(--observation); }
+.exec-step.error .step-dot::before { border-color: var(--error); }
+.exec-step-head.clickable:hover .step-dot::before {
+    display: none; /* square button shows +/− text instead */
 }
 .exec-step-head.clickable:hover .step-dot {
-    margin-left: -23px;
-    transform: none; /* expanded square button uses true center */
+    margin-left: -23px; /* 16px button centered on border */
 }
-.exec-step.exec-thinking .step-dot { border-color: var(--thinking); }
-.exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
-.exec-step.exec-observation .step-dot { border-color: var(--observation); }
-.exec-step.error .step-dot { border-color: var(--error); }
 .exec-step-head.clickable:hover .exec-dot {
     width: 16px;
     height: 16px;
