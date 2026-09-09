@@ -1,4 +1,5 @@
-import type { PermissionLevel } from './authorization.js';
+import type { EffectClass, PermissionLevel } from './authorization.js';
+import type { ApprovalScope } from './approval.js';
 import type { StepKind } from './gts.js';
 
 /** 迁移期标签类型（旧 turn-contract 移除后以开放字符串表达） */
@@ -130,6 +131,8 @@ export interface HarnessEvent extends TraceIdentifiers {
         'harness.gateway_stage'?: string;
         'harness.gateway_effect_class'?: string;
         'harness.gateway_danger_rule'?: string;
+        'harness.approval_scope'?: ApprovalScope;
+        'harness.approval_effect_class'?: EffectClass;
         'harness.runtime.context.system_prompt_ratio'?: number;
         'harness.runtime.context.total_tokens'?: number;
         'harness.pricing_tier'?: string;
