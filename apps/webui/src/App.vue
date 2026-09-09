@@ -161,6 +161,11 @@ const execStats = computed(() => {
         totalTokens,
     };
 });
+/** 模型输出时间：取最后一个 step 结束时间，无则用 run 创建时间 */
+function assistantTime(run) {
+    const last = stepEventRows.value[stepEventRows.value.length - 1];
+    return last ? last.time : fmtClock(run.createdAt);
+}
 
 function conversationTitle(conversation) {
     const run = latestRun(conversation);
@@ -773,6 +778,13 @@ onBeforeUnmount(() => {
                                     </div>
                                     <pre class="msg-final">{{ runOutcomes[run.rootGoalId].ok ? runOutcomes[run.rootGoalId].finalMessage : runOutcomes[run.rootGoalId].errorMessage }}</pre>
                                 </div>
+                                <div class="msg-meta">
+                                    <span class="msg-time">{{ assistantTime(run) }}</span>
+                                    <div class="msg-feedback">
+                                        <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
+                                        <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
+                                    </div>
+                                </div>
                             </div>
                             <!-- 执行中提示 -->
                             <div v-else-if="run.rootGoalId === current && busy" class="msg msg-assistant">
@@ -1217,7 +1229,46 @@ onBeforeUnmount(() => {
     line-height: 1.65;
 }
 .msg-time {
-    display: none;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    padding: 0 2px;
+}
+.msg-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 4px;
+}
+.msg-assistant .msg-meta {
+    justify-content: flex-start;
+}
+.msg-user .msg-time {
+    align-self: flex-end;
+}
+.msg-feedback {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+.msg-assistant:hover .msg-feedback {
+    opacity: 1;
+}
+.fb-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-tertiary);
+    cursor: pointer;
+    padding: 0;
+}
+.fb-btn:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
 }
 .thinking-bubble {
     color: var(--fg-tertiary);
