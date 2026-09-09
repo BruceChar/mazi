@@ -1654,24 +1654,22 @@ onBeforeUnmount(() => {
     font-family: ui-monospace, monospace;
     margin: 0 8px 2px 14px;
 }
-/* step dot: absolute, fixed top aligned to 14px icon center
-   (head padding-top 4px + icon half 7px = 11px; dot 8px → top 7px) */
+/* step dot: static flex item, align-items:center aligns 8px dot and
+   14px icon on the same center. Negative margin pulls dot onto border. */
 .step-dot {
-    position: absolute;
-    left: -5px;
-    top: 7px;
+    position: static;
+    left: auto;
+    top: auto;
     transform: none;
     width: 8px;
     height: 8px;
-    margin-left: 0;
+    margin-left: -19px; /* content edge at 16px; dot center at border center (1px) → left edge -3px → margin -19px */
+    flex-shrink: 0;
     border: 2px solid var(--fg-tertiary);
     background: var(--bg);
-    display: grid;
-    place-items: center;
+    display: block;
 }
-.step-dot::before {
-    display: none;
-}
+.step-dot::before,
 .step-dot::after {
     display: none;
 }
@@ -1682,12 +1680,13 @@ onBeforeUnmount(() => {
 .exec-step-head.clickable:hover .step-dot {
     width: 16px;
     height: 16px;
-    left: -9px;
-    top: 3px;
+    margin-left: -23px; /* 16px: left edge -7px, center 1px */
     border-radius: 4px;
     background: var(--fg-tertiary);
     border-color: var(--fg-tertiary);
     color: #fff;
+    display: grid;
+    place-items: center;
 }
 .exec-step-head.clickable:hover .step-dot::after {
     display: block;
