@@ -1389,20 +1389,20 @@ onBeforeUnmount(() => {
 .exec-goal {
     margin-bottom: 6px;
     position: relative;
-    border-left: 2px solid var(--accent);
-    margin-left: 4px;
-    padding-left: 16px;
+    border-left: 1px solid var(--border-soft);
+    margin-left: 3px;
+    padding-left: 12px;
 }
 .exec-goal::before {
     content: '';
     position: absolute;
-    left: -6px;
+    left: -3px;
     top: 10px;
-    width: 10px;
-    height: 10px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--bg);
-    border: 2px solid var(--accent);
+    border: 1.5px solid var(--accent);
 }
 .exec-goal-head {
     display: flex;
@@ -1446,25 +1446,25 @@ onBeforeUnmount(() => {
     flex-shrink: 0;
 }
 .exec-goal-body {
-    padding-left: 8px;
+    padding-left: 4px;
 }
 .exec-task {
     margin: 4px 0;
     position: relative;
-    border-left: 2px solid var(--thinking);
-    margin-left: 4px;
-    padding-left: 14px;
+    border-left: 1px solid var(--border-soft);
+    margin-left: 3px;
+    padding-left: 10px;
 }
 .exec-task::before {
     content: '';
     position: absolute;
-    left: -5px;
-    top: 8px;
-    width: 8px;
-    height: 8px;
+    left: -3px;
+    top: 9px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--bg);
-    border: 2px solid var(--thinking);
+    border: 1.5px solid var(--thinking);
 }
 .exec-task-head {
     display: flex;
@@ -1506,27 +1506,27 @@ onBeforeUnmount(() => {
     flex-shrink: 0;
 }
 .exec-task-body {
-    padding-left: 4px;
+    padding-left: 2px;
 }
 .exec-step {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    padding: 5px 0 5px 20px;
+    padding: 4px 0 4px 14px;
     position: relative;
     border-left: 1px solid var(--border-soft);
-    margin-left: 5px;
+    margin-left: 3px;
 }
 .exec-step::before {
     content: '';
     position: absolute;
-    left: -4px;
+    left: -3px;
     top: 10px;
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--bg);
-    border: 2px solid var(--fg-tertiary);
+    border: 1.5px solid var(--fg-tertiary);
 }
 .exec-step.exec-thinking::before { border-color: var(--thinking); }
 .exec-step.exec-tool_call::before { border-color: var(--tool); }
