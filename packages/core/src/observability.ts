@@ -126,6 +126,8 @@ export interface HarnessEvent extends TraceIdentifiers {
         'gen_ai.usage.cache_read.input_tokens'?: number;
         'harness.step_kind'?: StepKind;
         'harness.permission_level'?: PermissionLevel;
+        /** 事件严重级（EventFilter.minLevel 的判定来源） */
+        'harness.level'?: 'debug' | 'info' | 'warn' | 'error';
         'harness.strategy_id'?: string;
         'harness.turn_tags'?: TaskTag[];
         'harness.gateway_stage'?: string;
@@ -147,6 +149,10 @@ export interface HarnessEvent extends TraceIdentifiers {
 /** 事件过滤器 */
 export interface EventFilter {
     types?: HarnessEventType[];
+    /**
+     * 最低严重级：按事件 attributes['harness.level'] 判定；
+     * 事件未携带 level 时视为不匹配（保守拒绝）。
+     */
     minLevel?: 'debug' | 'info' | 'warn' | 'error';
     requireFlag?: {
         key: string;
