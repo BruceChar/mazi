@@ -4,11 +4,27 @@ import type { StepKind } from './gts.js';
 /** 迁移期标签类型（旧 turn-contract 移除后以开放字符串表达） */
 type TaskTag = string & {};
 
-/** 三层 ID 是所有事件的必备字段（通用事件允许部分层级；审计事件见 AuditIdentifiers） */
+/**
+ * Trace identifiers for general events — hierarchical identity along the
+ * gts model (goal/task/step). sessionId is the root anchor (rootGoalId) and
+ * is always required; deeper levels are present depending on the event's
+ * scope. Audit events require all three core levels — see AuditIdentifiers.
+ *
+ * Vocabulary note: turnId/stepId are legacy turn-contract terms, kept for
+ * migration compatibility (runtime still emits them); goalId/taskId align
+ * with the gts Goal/Task model and are the forward vocabulary.
+ */
 export interface TraceIdentifiers {
+    /** Root anchor: the root goal id (rootGoalId) */
     sessionId: string;
+    /** Legacy turn id (old turn-contract vocabulary); migration-period alias */
     turnId?: string;
+    /** Legacy step id; gts step id (migration-period alias) */
     stepId?: string;
+    /** gts alignment: owning goal (optional on general events) */
+    goalId?: string;
+    /** gts alignment: owning task (optional on general events) */
+    taskId?: string;
 }
 
 /**
