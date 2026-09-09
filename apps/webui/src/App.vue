@@ -851,28 +851,31 @@ onBeforeUnmount(() => {
                             <!-- 执行流（goal → task → step 分层，可折叠，仅当前 run） -->
                             <template v-if="run.rootGoalId === current && showExecution">
                                 <div v-if="execTree.length" class="exec-stream">
-                                    <div v-for="goal in execTree" :key="goal.goalId" class="exec-goal">
+                                    <div v-for="(goal, gIdx) in execTree" :key="goal.goalId" class="exec-goal">
                                         <div class="exec-goal-head" @click="toggleGoal(goal.goalId)">
                                             <LineIcon :name="collapsedGoals.has(goal.goalId) ? 'chevronRight' : 'chevronDown'" size="13" />
+                                            <span class="exec-goal-tag">G#{{ gIdx + 1 }}</span>
                                             <span class="exec-goal-title">{{ goal.statement }}</span>
                                             <span class="exec-goal-count">{{ goal.tasks.reduce((s, t) => s + t.steps.length, 0) }} steps</span>
                                         </div>
                                         <div v-if="!collapsedGoals.has(goal.goalId)" class="exec-goal-body">
-                                            <div v-for="task in goal.tasks" :key="task.taskId" class="exec-task">
+                                            <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
                                                 <div class="exec-task-head" @click="toggleTask(task.taskId)">
                                                     <LineIcon :name="collapsedTasks.has(task.taskId) ? 'chevronRight' : 'chevronDown'" size="12" />
+                                                    <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
                                                     <span class="exec-task-title">{{ task.title }}</span>
                                                     <span class="exec-task-count">{{ task.steps.length }} steps</span>
                                                 </div>
                                                 <div v-if="!collapsedTasks.has(task.taskId)" class="exec-task-body">
                                                     <div
-                                                        v-for="row in task.steps"
+                                                        v-for="(row, sIdx) in task.steps"
                                                         :key="row.key"
                                                         class="exec-step"
                                                         :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
                                                     >
                                                         <div class="exec-step-head">
                                                             <LineIcon :name="row.kind === 'thinking' ? 'thinking' : row.kind === 'tool_call' ? 'tool' : 'observation'" size="14" />
+                                                            <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                                                             <span class="exec-step-name">{{ row.toolName || (row.kind === 'thinking' ? '思考' : row.kind === 'observation' ? '观察' : row.kind) }}</span>
                                                             <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
                                                             <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
@@ -1385,12 +1388,27 @@ onBeforeUnmount(() => {
 }
 .exec-goal {
     margin-bottom: 6px;
+    position: relative;
+    border-left: 2px solid var(--accent);
+    margin-left: 4px;
+    padding-left: 16px;
+}
+.exec-goal::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 10px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--accent);
 }
 .exec-goal-head {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 8px;
+    padding: 4px 8px;
     cursor: pointer;
     border-radius: var(--radius-sm);
     font-size: 13px;
@@ -1403,6 +1421,16 @@ onBeforeUnmount(() => {
 }
 .exec-goal-head .line-icon {
     color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.exec-goal-tag {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 1px 5px;
+    border-radius: 4px;
     flex-shrink: 0;
 }
 .exec-goal-title {
@@ -1418,18 +1446,31 @@ onBeforeUnmount(() => {
     flex-shrink: 0;
 }
 .exec-goal-body {
-    padding-left: 16px;
-    border-left: 1px solid var(--border-soft);
-    margin-left: 6px;
+    padding-left: 8px;
 }
 .exec-task {
-    margin: 2px 0;
+    margin: 4px 0;
+    position: relative;
+    border-left: 2px solid var(--thinking);
+    margin-left: 4px;
+    padding-left: 14px;
+}
+.exec-task::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--thinking);
 }
 .exec-task-head {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px;
+    padding: 3px 8px;
     cursor: pointer;
     border-radius: var(--radius-sm);
     font-size: 12px;
@@ -1441,6 +1482,16 @@ onBeforeUnmount(() => {
 }
 .exec-task-head .line-icon {
     color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.exec-task-tag {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--thinking);
+    background: var(--thinking-soft);
+    padding: 1px 4px;
+    border-radius: 3px;
     flex-shrink: 0;
 }
 .exec-task-title {
@@ -1455,9 +1506,7 @@ onBeforeUnmount(() => {
     flex-shrink: 0;
 }
 .exec-task-body {
-    padding-left: 16px;
-    border-left: 1px solid var(--border-soft);
-    margin-left: 6px;
+    padding-left: 4px;
 }
 .exec-step {
     display: flex;
@@ -1504,6 +1553,16 @@ onBeforeUnmount(() => {
     font-size: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     color: var(--fg);
+    flex-shrink: 0;
+}
+.exec-step-tag {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--fg-tertiary);
+    background: var(--bg-code);
+    padding: 1px 4px;
+    border-radius: 3px;
     flex-shrink: 0;
 }
 .exec-thinking .exec-step-name { color: var(--thinking); }
