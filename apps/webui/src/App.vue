@@ -966,10 +966,9 @@ onBeforeUnmount(() => {
                             <div class="input-footer-right">
                                 <div class="model-picker">
                                     <div v-if="modelPickerOpen" class="model-picker-backdrop" @click="modelPickerOpen = false"></div>
-                                    <button class="model-picker-btn" :class="{ open: modelPickerOpen }" @click="modelPickerOpen = !modelPickerOpen">
+                                    <button class="model-picker-btn" :class="{ open: modelPickerOpen }" title="select model" @click="modelPickerOpen = !modelPickerOpen">
                                         <span class="model-picker-name">{{ currentModelLabel }}</span>
                                         <span class="model-picker-level">{{ reasoningLabel }}</span>
-                                        <LineIcon name="chevronDown" size="12" class="model-picker-caret" />
                                     </button>
                                     <div v-if="modelPickerOpen" class="model-picker-panel" @click.stop>
                                         <div class="model-picker-section">

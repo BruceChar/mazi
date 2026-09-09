@@ -1036,36 +1036,28 @@ pre {
     align-items: center;
     gap: 5px;
     height: 28px;
-    padding: 0 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg);
+    padding: 0 10px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: transparent;
     color: var(--fg-secondary);
     font-size: 12px;
     cursor: pointer;
-    transition: background 0.12s, border-color 0.12s;
+    transition: background 0.12s;
 }
 .model-picker-btn:hover {
     background: var(--bg-hover);
-    border-color: var(--border-hover);
 }
 .model-picker-btn.open {
     background: var(--bg-hover);
 }
 .model-picker-name {
     font-weight: 500;
-    color: var(--fg);
+    color: var(--fg-secondary);
 }
 .model-picker-level {
     color: var(--fg-tertiary);
     font-size: 11px;
-}
-.model-picker-caret {
-    color: var(--fg-tertiary);
-    transition: transform 0.12s;
-}
-.model-picker-btn.open .model-picker-caret {
-    transform: rotate(180deg);
 }
 .model-picker-panel {
     position: absolute;
