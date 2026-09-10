@@ -1,3 +1,4 @@
+export * from './catalog.js';
 export * from './client.js';
 export * from './deepseek.js';
 export * from './from-config.js';

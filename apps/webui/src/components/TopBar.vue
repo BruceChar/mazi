@@ -13,7 +13,7 @@ defineProps({
     /** Whether the right audit panel is currently expanded. */
     rightOpen: { type: Boolean, default: false },
 });
-const emit = defineEmits(['toggle-sidebar', 'toggle-right']);
+const emit = defineEmits(['toggle-sidebar', 'toggle-right', 'open-audit']);
 </script>
 
 <template>
@@ -30,6 +30,13 @@ const emit = defineEmits(['toggle-sidebar', 'toggle-right']);
             <span class="slogan">Be water, my friend</span>
         </div>
         <div class="topbar-right">
+            <button
+                class="ghost audit-open"
+                title="查看当前会话审计"
+                @click="emit('open-audit')"
+            >
+                <LineIcon name="info" />
+            </button>
             <button
                 class="ghost right-toggle"
                 :title="rightOpen ? '收起事件栏' : '展开事件栏'"

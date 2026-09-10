@@ -60,6 +60,8 @@ export interface RunOptions {
     llmProviders?: Record<string, LLMProvider>;
     /** 同一 Conversation 内此前轮次，作为本轮前置消息（共享上下文） */
     history?: ConversationTurn[];
+    /** 推理强度（off/low/medium/high...），透传 provider 的 reasoningEffort */
+    reasoningLevel?: string;
 }
 
 /** ConversationTurn[] → LLMMessage[]（user/assistant 文本消息）。 */
@@ -510,6 +512,8 @@ export class HarnessRuntime {
     private lastTaskId?: string;
     /** 待执行 Session 的 Conversation 前置消息（create → execute 之间传递） */
     private readonly pendingHistory = new Map<string, LLMMessage[]>();
+    /** 待执行 Session 的推理强度（create → execute 之间传递） */
+    private readonly pendingReasoning = new Map<string, string>();
     /** Steps already announced via step.started (a step persists several times). */
     private readonly startedStepIds = new Set<string>();
     private readonly llmProviders: Map<string, LLMProvider>;
@@ -556,6 +560,9 @@ export class HarnessRuntime {
         const history = conversationMessages(opts.history);
         if (history.length > 0) {
             this.pendingHistory.set(rootGoalId, history);
+        }
+        if (opts.reasoningLevel) {
+            this.pendingReasoning.set(rootGoalId, opts.reasoningLevel);
         }
         const goalId = ulid();
         const ceiling = this.config.goal?.permissionCeiling ?? 'read-only';
@@ -636,11 +643,13 @@ export class HarnessRuntime {
         this.lastTaskId = undefined;
         const history = this.pendingHistory.get(rootGoalId) ?? [];
         this.pendingHistory.delete(rootGoalId);
+        const reasoningLevel = this.pendingReasoning.get(rootGoalId);
+        this.pendingReasoning.delete(rootGoalId);
         const exec = this.goalExecutionConfig();
         const result = await runGoalTree(
             {
                 store: this.goalStoreDb,
-                requestRound: (ctx) => this.requestRound(rootGoalId, ctx),
+                requestRound: (ctx) => this.requestRound(rootGoalId, ctx, reasoningLevel),
                 systemPrompt: this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT,
                 tools: exec.tools,
                 invoker: exec.invoker,
@@ -847,6 +856,7 @@ export class HarnessRuntime {
     private async requestRound(
         rootGoalId: string,
         ctx: ExecutorRoundContext,
+        reasoningLevel?: string,
     ): Promise<RoundResult> {
         const orderedIds = [
             ctx.model.providerId,
@@ -870,6 +880,9 @@ export class HarnessRuntime {
             ...(ctx.systemPrompt ? { system: ctx.systemPrompt } : {}),
             messages: ctx.messages,
             ...(ctx.tools.length > 0 ? { tools: ctx.tools } : {}),
+            ...(reasoningLevel && reasoningLevel.length > 0
+                ? { extra: { reasoningEffort: reasoningLevel } }
+                : {}),
         };
         // runtime 维度：请求发出前的上下文分段计量（同一 Task 内累计 delta / 新增内容）
         const sameTask = ctx.taskId !== undefined && ctx.taskId === this.lastTaskId;

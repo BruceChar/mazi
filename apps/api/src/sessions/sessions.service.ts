@@ -60,10 +60,21 @@ export class SessionsService {
             targetContext?.workspace ?? bodyWorkspace ?? this.runtime.selectedWorkspaceRoot;
         const userId =
             (typeof body.userId === 'string' ? body.userId : undefined) ?? targetContext?.userId;
+        const goalBody =
+            body.goal && typeof body.goal === 'object'
+                ? (body.goal as Record<string, unknown>)
+                : undefined;
+        const reasoningLevel =
+            typeof goalBody?.reasoningLevel === 'string'
+                ? goalBody.reasoningLevel
+                : typeof body.reasoningLevel === 'string'
+                  ? body.reasoningLevel
+                  : undefined;
         const history = conversationId ? await this.conversationHistory(conversationId) : [];
         const created = await this.runtime.harness().createGoalSession(input, {
             userId,
             ...(history.length > 0 ? { history } : {}),
+            ...(reasoningLevel ? { reasoningLevel } : {}),
         });
         this.logger.log(
             `createSession ${created.rootGoalId} input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'} workspace=${workspace ?? '-'}`,

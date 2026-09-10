@@ -2,6 +2,15 @@
  * @mazi/runtime —— Goal/Task/Step 坐标系的执行实现聚合包（C5 收口）。
  */
 
+// Goal/Task/Step 坐标投影（审计/API/WebUI 消费；类型已上移到 @mazi/libs，此处 re-export 保持兼容）
+export type {
+    GoalNodeView,
+    GoalTreeSnapshot,
+    StepUsage,
+    StepView,
+    TaskNodeView,
+} from '@mazi/libs';
+export { builtinModelsFor, builtinVendors, type CatalogModel } from '@mazi/provider';
 export type {
     ProviderConfig,
     RuntimeConfig,
@@ -15,14 +24,6 @@ export type { GoalStore } from './memory/goal-store.js';
 // 观测层（事件总线；apps 直接消费）
 export type { EventBusOptions, NewEventInput } from './observability/event-bus.js';
 export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/event-bus.js';
-// Goal/Task/Step 坐标投影（审计/API/WebUI 消费；类型已上移到 @mazi/libs，此处 re-export 保持兼容）
-export type {
-    GoalNodeView,
-    GoalTreeSnapshot,
-    StepView,
-    StepUsage,
-    TaskNodeView,
-} from '@mazi/libs';
 export type { MaziPaths } from './paths.js';
 export {
     defaultConfigDir,

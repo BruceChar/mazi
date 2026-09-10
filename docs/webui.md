@@ -310,6 +310,7 @@
   - 占位符提示
 - **右侧操作区**：
   - **模型选择器**：`DeepSeek-V4-Flash High ▼`（下拉选择 Provider/模型）
+  - **推理等级**：`Off / Low / Medium / High`；Off 关闭思考，其余档位透传 provider 的 `reasoningEffort`
   - **Approve for me**：Agent 出现工具/文件操作时显示的审批按钮
   - **刷新按钮**（↻）：重新生成或刷新状态
   - **发送按钮**：蓝色圆形按钮（`#2563eb`），带向上箭头 ⬆️
@@ -338,6 +339,9 @@
 | `首 token 平均 1.9秒` | `Σ Step.usage.timing.ttftMs / count`      | 平均首 token 延迟     |
 | `157 tok/s`           | `SessionAggregate` 实时计算                | 当前输出 token 速率   |
 | `缓存命中 99.9%`      | `cacheRead / inputTokens`                  | 缓存命中率            |
+
+> 当前实现（Conversation 维度）：`sessions · goals · tasks · steps · input · output · cost`，
+> 取整条会话流的快照聚合（`App.conversationStats`），input/output 为 vendor 上报口径。
 
 **设计要点**：
 
@@ -462,6 +466,8 @@ GoalContract；新建会话不再弹出 GoalContract 配置弹窗，直接使用
 ├───────────────────────────────────────────────────────────┤
 │  模型                                                     │
 │  ├─ 默认模型: [DeepSeek-V4-Flash High ▼]                │
+│  ├─ 推理等级: [Off / Low / Medium / High ▼]             │
+│  ├─ 模型目录: [同步模型]  ← 从 pi-ai 目录刷新并落盘      │
 │  ├─ 路由模式: [simple ▼] / [full]                       │
 │  └─ 权重配置...                                          │
 ├───────────────────────────────────────────────────────────┤

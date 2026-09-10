@@ -38,6 +38,7 @@ import {
     projects,
     renameProject,
     runOutcomes,
+    clearAuditSelection,
     selectStep,
     selectTask,
     selectWorkspace,
@@ -48,6 +49,7 @@ import {
     short,
     statusLabel,
     stopEvents,
+    syncConfig,
     theme,
     ui,
     updateConversation,
@@ -65,6 +67,7 @@ const projectCollapsed = ref(new Set());
 const accountOpen = ref(false);
 const selectedModel = ref('');
 const REASONING_LEVELS = [
+    { value: 'off', label: 'Off' },
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
@@ -223,6 +226,55 @@ const auditView = computed(() => {
         conversationTitle: conversationTitle(activeConversation.value),
     });
 });
+
+/** Conversation-wide totals for the status bar under the composer. */
+const conversationStats = computed(() => {
+    let goals = 0;
+    let tasks = 0;
+    let steps = 0;
+    for (const run of runs.value) {
+        const snapshot = runDetails[run.rootGoalId];
+        if (!snapshot) continue;
+        for (const goal of snapshot.goals || []) {
+            const goalTasks = goal.tasks || [];
+            if (goalTasks.length === 0) continue;
+            goals += 1;
+            tasks += goalTasks.length;
+            for (const task of goalTasks) {
+                steps += (task.steps || []).filter(
+                    (step) => step.kind !== 'intent' && step.kind !== 'observation',
+                ).length;
+            }
+        }
+    }
+    const usage = auditView.value.usage;
+    return {
+        sessions: runs.value.length,
+        goals,
+        tasks,
+        steps,
+        inputTokens: usage.vendor?.input ?? 0,
+        outputTokens: usage.vendor?.output ?? 0,
+        costUsd: usage.cost?.total ?? 0,
+    };
+});
+
+/** TopBar「审计」：清空选择直接展示整条会话汇总。 */
+function openAuditPanel() {
+    clearAuditSelection();
+    ui.rightOpen = true;
+    drawerTab.value = 'audit';
+}
+
+const syncingModels = ref(false);
+async function syncModels() {
+    syncingModels.value = true;
+    try {
+        await syncConfig();
+    } finally {
+        syncingModels.value = false;
+    }
+}
 
 function onSelectStep(target) {
     if (!target?.stepId) return;
@@ -433,6 +485,7 @@ async function createAndRunGoal({ statement, permissionCeiling, maxCostUsd, maxS
             maxCostUsd,
             maxSteps,
             loopMode,
+            reasoningLevel: reasoningLevel.value,
         },
     });
     if (rootGoalId) {
@@ -627,6 +680,7 @@ onBeforeUnmount(() => {
         :right-open="ui.rightOpen"
         @toggle-sidebar="ui.sidebar = !ui.sidebar"
         @toggle-right="ui.rightOpen = !ui.rightOpen"
+        @open-audit="openAuditPanel"
     />
 
     <div class="app-shell" :class="{ 'panel-maximized': panelMaximized }">
@@ -693,6 +747,7 @@ onBeforeUnmount(() => {
                     :reasoning-levels="REASONING_LEVELS"
                     :task-count="taskCount"
                     :step-count="stepCount"
+                    :stats="conversationStats"
                     :selected-step-id="selectedStepId"
                     :selected-task-id="selectedTaskId"
                     @select-step="onSelectStep"
@@ -716,9 +771,11 @@ onBeforeUnmount(() => {
                     :selected-model="selectedModel"
                     :reasoning-level="reasoningLevel"
                     :reasoning-levels="REASONING_LEVELS"
+                    :syncing="syncingModels"
                     @update:theme="setTheme"
                     @update:selected-model="selectedModel = $event"
                     @update:reasoning-level="reasoningLevel = $event"
+                    @sync-models="syncModels"
                 />
             </template>
 

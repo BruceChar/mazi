@@ -3,6 +3,7 @@ import { nextTick, onMounted, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import ExecStream from './ExecStream.vue';
 import Composer from './Composer.vue';
+import { formatCost, formatTokens } from '../scripts/audit.ts';
 
 const props = defineProps({
     activeConversation: { type: Object, default: null },
@@ -25,6 +26,8 @@ const props = defineProps({
     reasoningLevels: { type: Array, default: () => [] },
     taskCount: { type: Number, default: 0 },
     stepCount: { type: Number, default: 0 },
+    /** Conversation-wide totals for the status bar (App.conversationStats). */
+    stats: { type: Object, default: () => ({}) },
     /** Audit selection highlight (store.selectedStepId / selectedTaskId). */
     selectedStepId: { type: String, default: '' },
     selectedTaskId: { type: String, default: '' },
@@ -289,13 +292,13 @@ onMounted(() => {
             @update:reasoning-level="emit('update:reasoningLevel', $event)"
         />
         <div class="statusbar">
-            <span class="stat">{{ runs.length }} sessions</span>
-            <span class="stat">{{ 0 }} goals</span>
-            <span class="stat">{{ taskCount }} tasks</span>
-            <span class="stat">{{ stepCount }} steps</span>
-            <span class="stat">{{ 0 }} inputs</span>
-            <span class="stat">{{ 0 }} outputs</span>
-            <span class="stat">{{ 0 }} costs</span>
+            <span class="stat">{{ stats.sessions || 0 }} sessions</span>
+            <span class="stat">{{ stats.goals || 0 }} goals</span>
+            <span class="stat">{{ stats.tasks || 0 }} tasks</span>
+            <span class="stat">{{ stats.steps || 0 }} steps</span>
+            <span class="stat">{{ formatTokens(stats.inputTokens) }} in</span>
+            <span class="stat">{{ formatTokens(stats.outputTokens) }} out</span>
+            <span class="stat">{{ formatCost(stats.costUsd) }} cost</span>
         </div>
     </div>
 </template>

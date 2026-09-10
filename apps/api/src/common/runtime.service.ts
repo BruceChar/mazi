@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { basename, dirname, join } from 'node:path';
 import type { MaziPaths, RuntimeConfig } from '@mazi/runtime';
 import {
+    builtinModelsFor,
     configOverview,
     ensureMaziDirs,
     HarnessRuntime,
@@ -29,9 +30,75 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         projects: { title: string; path: string; sessionIds?: string[] }[];
     } = { projects: [] };
     private readonly paths: MaziPaths = ensureMaziDirs();
-    private readonly config: RuntimeConfig = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
-        consoleEnabled: false,
-    });
+    private config: RuntimeConfig;
+
+    constructor() {
+        // 启动时按 pi-ai 内置目录同步一次 providers.json 的模型列表（失败不阻断启动）。
+        try {
+            this.syncProviderModels();
+        } catch (error) {
+            this.logger.warn(`syncProviderModels on boot failed: ${String(error)}`);
+        }
+        this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
+            consoleEnabled: false,
+        });
+    }
+
+    /**
+     * 按 pi-ai 内置目录同步 providers.json 的 models 列表（best-effort）。
+     * 未知厂商（目录无此 provider）保留原 models，不覆盖。
+     * @returns 是否发生变更
+     */
+    syncProviderModels(): boolean {
+        const file = this.paths.providersFile;
+        if (!existsSync(file)) {
+            return false;
+        }
+        let parsed: { providers?: Array<Record<string, unknown>> };
+        try {
+            parsed = JSON.parse(readFileSync(file, 'utf8')) as typeof parsed;
+        } catch (error) {
+            this.logger.warn(`read providers.json failed: ${String(error)}`);
+            return false;
+        }
+        const providers = parsed.providers ?? [];
+        let changed = false;
+        for (const provider of providers) {
+            const vendor = (provider.driver as { provider?: string } | undefined)?.provider;
+            if (!vendor) continue;
+            const models = builtinModelsFor(vendor);
+            if (models.length === 0) continue;
+            if (JSON.stringify(models) !== JSON.stringify(provider.models ?? [])) {
+                provider.models = models;
+                changed = true;
+            }
+        }
+        if (changed) {
+            writeFileSync(file, JSON.stringify(parsed, null, 2));
+            this.logger.log('syncProviderModels: models updated from pi-ai catalog');
+        }
+        return changed;
+    }
+
+    /**
+     * 手动同步：刷新目录模型 → 重新加载配置 → 丢弃已装配 runtime（下次按新配置重建）。
+     * 会话执行中不重建，避免打断在跑的 run。
+     */
+    async syncConfig(): Promise<ReturnType<typeof configOverview>> {
+        this.syncProviderModels();
+        this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
+            consoleEnabled: false,
+        });
+        if (!this.running) {
+            const stale = [this.runtime, ...this.workspaces.values()];
+            this.runtime = undefined;
+            this.workspaces.clear();
+            for (const runtime of stale) {
+                if (runtime) await runtime.close();
+            }
+        }
+        return this.overview();
+    }
 
     /** MAZI_HOME 目录树（health/config 展示用） */
     get homePaths(): MaziPaths {

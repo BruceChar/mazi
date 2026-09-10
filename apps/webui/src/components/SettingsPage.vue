@@ -14,8 +14,14 @@ defineProps({
     selectedModel: { type: String, default: '' },
     reasoningLevel: { type: String, default: 'high' },
     reasoningLevels: { type: Array, default: () => ['low', 'medium', 'high'] },
+    syncing: { type: Boolean, default: false },
 });
-const emit = defineEmits(['update:theme', 'update:selectedModel', 'update:reasoningLevel']);
+const emit = defineEmits([
+    'update:theme',
+    'update:selectedModel',
+    'update:reasoningLevel',
+    'sync-models',
+]);
 </script>
 
 <template>
@@ -141,8 +147,19 @@ const emit = defineEmits(['update:theme', 'update:selectedModel', 'update:reason
                         <div class="setting-desc">Default reasoning effort</div>
                     </div>
                     <select :value="reasoningLevel" @change="emit('update:reasoningLevel', $event.target.value)" class="setting-select">
-                        <option v-for="lvl in reasoningLevels" :key="lvl" :value="lvl">{{ lvl }}</option>
+                        <option v-for="lvl in reasoningLevels" :key="lvl.value || lvl" :value="lvl.value || lvl">
+                            {{ lvl.label || lvl }}
+                        </option>
                     </select>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Model catalog</div>
+                        <div class="setting-desc">Sync the model list from the provider catalog</div>
+                    </div>
+                    <button class="setting-sync" :disabled="syncing" @click="emit('sync-models')">
+                        {{ syncing ? '同步中…' : '同步模型' }}
+                    </button>
                 </div>
             </div>
         </template>
@@ -247,6 +264,23 @@ const emit = defineEmits(['update:theme', 'update:selectedModel', 'update:reason
     color: var(--fg);
     font-size: 13px;
     cursor: pointer;
+}
+.setting-sync {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    color: var(--fg);
+    font-size: 13px;
+    cursor: pointer;
+}
+.setting-sync:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.setting-sync:disabled {
+    opacity: 0.6;
+    cursor: wait;
 }
 .setting-input {
     width: 120px;

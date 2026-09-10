@@ -53,6 +53,28 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         ]);
     });
 
+    it('createSession 透传 goal.reasoningLevel 到 createGoalSession', async () => {
+        const captured: Array<Record<string, unknown>> = [];
+        const conversations = {
+            runs: () => [],
+            recordNewRun: () => 'c1',
+            appendRun: () => {},
+        };
+        const runtime = {
+            selectedWorkspaceRoot: undefined,
+            setWorkspaceRoot: () => {},
+            harness: () => ({
+                createGoalSession: async (_input: string, opts: Record<string, unknown>) => {
+                    captured.push(opts);
+                    return { rootGoalId: 'r1', goalId: 'g1' };
+                },
+            }),
+        };
+        const service = new SessionsService(runtime as never, conversations as never);
+        await service.createSession({ input: 'hi', goal: { reasoningLevel: 'high' } });
+        expect(captured[0]?.reasoningLevel).toBe('high');
+    });
+
     it('无最终回答时只输出 user 输入', async () => {
         const service = serviceWith([{ rootGoalId: 'r1', input: 'q1', createdAt: 1 }], {});
         const history = await (

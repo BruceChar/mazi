@@ -257,6 +257,16 @@ export async function loadConfig(): Promise<void> {
     }
 }
 
+/** 从服务端重新同步模型目录（POST /api/config/sync）并刷新配置。 */
+export async function syncConfig(): Promise<void> {
+    try {
+        cfg.value = await api('/api/config/sync', { method: 'POST' });
+        ui.err = null;
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
 export async function loadConversations(): Promise<void> {
     try {
         conversations.value = await api('/api/conversations');

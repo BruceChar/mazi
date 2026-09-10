@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Post } from '@nestjs/common';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 
 /** /api/health 与 /api/config：契约对齐旧 node:http 实现（docs v0.2 §10.4） */
@@ -22,6 +22,18 @@ export class HealthController {
     @Get('config')
     config(): Record<string, unknown> {
         const overview = this.runtime.overview();
+        const paths = this.runtime.homePaths;
+        return {
+            ...overview,
+            defaultConfigDir: paths.home,
+            storage: { driver: 'sqlite', db: paths.dbPath, events: paths.eventDir },
+        };
+    }
+
+    /** POST /api/config/sync：从 pi-ai 目录重新同步模型列表并返回最新配置。 */
+    @Post('config/sync')
+    async syncConfig(): Promise<Record<string, unknown>> {
+        const overview = await this.runtime.syncConfig();
         const paths = this.runtime.homePaths;
         return {
             ...overview,

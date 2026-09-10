@@ -86,6 +86,37 @@ describe('Conversation 共享上下文', () => {
         }
     });
 
+    it('reasoningLevel 透传到 LLMRequest.extra.reasoningEffort', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-conv-'));
+        dirs.push(dir);
+        const extras: Array<Record<string, unknown> | undefined> = [];
+        const provider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new ProviderError('unknown', 'ask unused');
+            },
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                extras.push(request.extra);
+                yield { type: 'start', model: 'faux-model' };
+                yield { type: 'text_delta', text: 'ok' };
+                yield { type: 'finish', finishReason: 'stop' };
+            },
+        };
+        const runtime = new HarnessRuntime(configIn(dir), {
+            llmProviders: { default: provider },
+        });
+        try {
+            const created = await runtime.createGoalSession('q', { reasoningLevel: 'high' });
+            await runtime.executeGoalTree(created.rootGoalId);
+            expect(extras[0]?.reasoningEffort).toBe('high');
+        } finally {
+            await runtime.close();
+        }
+    });
+
     it('无 history → messages 只有本轮输入', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'mazi-conv-'));
         dirs.push(dir);
