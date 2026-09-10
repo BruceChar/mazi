@@ -260,20 +260,34 @@ const stats = computed(() => buildExecStats(props.runDetail));
                                 :class="{ selected: row.stepId === selectedStepId }"
                                 @click="emit('select-step', { stepId: row.stepId, taskId: row.taskId })"
                             >
-                                <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="16" />
+                                <button
+                                    v-if="isStepLong(row)"
+                                    class="exec-step-toggle"
+                                    :class="{ collapsed: collapsedSteps.has(row.key) }"
+                                    :title="collapsedSteps.has(row.key) ? '展开' : '折叠'"
+                                    @click.stop="toggleStepCollapse(row.key)"
+                                >
+                                    <LineIcon
+                                        class="kind-icon"
+                                        :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'"
+                                        size="16"
+                                    />
+                                    <LineIcon
+                                        class="toggle-icon"
+                                        :name="collapsedSteps.has(row.key) ? 'chevronRight' : 'chevronDown'"
+                                        size="12"
+                                    />
+                                </button>
+                                <LineIcon
+                                    v-else
+                                    :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'"
+                                    size="16"
+                                />
                                 <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                                 <span class="exec-step-name">{{ row.toolName || row.kind }}</span>
                                 <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
                                 <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
                                 <span class="exec-step-time">{{ row.time }}</span>
-                                <button
-                                    v-if="isStepLong(row)"
-                                    class="exec-step-caret"
-                                    :title="collapsedSteps.has(row.key) ? '展开' : '折叠'"
-                                    @click.stop="toggleStepCollapse(row.key)"
-                                >
-                                    <LineIcon :name="collapsedSteps.has(row.key) ? 'chevronRight' : 'chevronDown'" size="12" />
-                                </button>
                             </div>
                             <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
                                 <pre class="exec-step-code-inner">{{ row.text }}</pre>
@@ -541,22 +555,50 @@ const stats = computed(() => buildExecStats(props.runDetail));
 .exec-task-head.selected .exec-task-title {
     color: var(--accent-text);
 }
-.exec-step-caret {
+/* 可折叠 step：hover 标题行时左侧图标变折叠按钮（与 task 一致） */
+.exec-step-toggle {
     display: inline-grid;
     place-items: center;
-    width: 18px;
-    height: 18px;
-    padding: 0;
+    box-sizing: content-box;
+    width: 16px;
+    height: 16px;
+    padding: 2px;
+    margin-left: -23px;
     border: none;
-    background: transparent;
+    border-radius: 50%;
+    background: var(--bg);
     color: var(--fg-tertiary);
     cursor: pointer;
     flex-shrink: 0;
 }
-.exec-step-caret:hover {
-    color: var(--fg);
+.exec-step-toggle .line-icon {
+    margin-left: 0;
+    padding: 0;
+    background: transparent;
+    box-sizing: border-box;
+}
+.exec-step-head:hover .exec-step-toggle .line-icon {
+    background: transparent;
+}
+.exec-step-toggle .toggle-icon {
+    display: none;
+}
+.exec-step-head:hover .exec-step-toggle .kind-icon,
+.exec-step-toggle.collapsed .kind-icon {
+    display: none;
+}
+.exec-step-head:hover .exec-step-toggle .toggle-icon,
+.exec-step-toggle.collapsed .toggle-icon {
+    display: block;
+}
+.exec-step-head:hover .exec-step-toggle,
+.exec-step-toggle.collapsed {
     background: var(--bg-hover);
-    border-radius: 4px;
+    color: var(--fg);
+}
+.exec-step-head.selected .exec-step-toggle {
+    background: var(--accent-soft);
+    color: var(--fg);
 }
 .exec-thinking .exec-step-head .line-icon { color: var(--thinking); }
 .exec-tool_call .exec-step-head .line-icon { color: var(--tool); }
