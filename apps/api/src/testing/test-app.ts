@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
@@ -54,7 +54,10 @@ export async function createTestApp(
             ),
         );
         for (const file of ['tools.json', 'flags.json']) {
-            copyFileSync(join(DEMO_CONFIG, file), join(home, file));
+            const src = join(DEMO_CONFIG, file);
+            if (existsSync(src)) {
+                copyFileSync(src, join(home, file));
+            }
         }
     }
     process.env.MAZI_HOME = home;
