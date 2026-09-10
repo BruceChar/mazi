@@ -1,0 +1,251 @@
+/**
+ * Center workspace: composer, model/reasoning pickers and the status bar.
+ */
+/* ---------- Input ---------- */
+
+.input-area {
+    flex: 0 0 auto;
+    padding: 4px 16px 14px;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 760px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.input-composer {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-sm);
+    transition: border-color 0.12s, box-shadow 0.12s;
+    position: relative;
+    z-index: 1;
+}
+.input-composer:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.input-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 10px 10px 4px 12px;
+}
+
+.input-composer textarea {
+    flex: 1;
+    max-height: 160px;
+    min-height: 28px;
+    padding: 4px 0;
+    line-height: 1.5;
+    background: transparent;
+    border: none;
+    color: var(--fg);
+    resize: none;
+    font-size: 14px;
+    font-family: inherit;
+}
+.input-composer textarea:focus {
+    outline: none;
+}
+
+.input-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px 8px 12px;
+    gap: 8px;
+}
+
+.input-footer-left,
+.input-footer-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.input-footer select {
+    max-width: 160px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--fg-secondary);
+    padding: 3px 6px;
+}
+.input-footer .mode-select {
+    max-width: 120px;
+}
+
+.input-footer .ghost {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg-secondary);
+    cursor: pointer;
+}
+.input-footer .ghost:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
+}
+
+.send {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.12s;
+    line-height: 0;
+    padding: 0;
+}
+.send:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+.send:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ---------- Model / Reasoning Pickers (Codex-style) ---------- */
+.picker-wrap {
+    position: relative;
+}
+.picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    cursor: default;
+}
+.picker-btn {
+    height: 28px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.picker-btn:hover,
+.picker-btn.active {
+    background: var(--bg-hover);
+}
+.model-btn {
+    color: var(--fg-secondary);
+    font-weight: 500;
+}
+.reasoning-btn {
+    color: var(--fg-tertiary);
+}
+.picker-panel {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 0;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    z-index: 100;
+    animation: pickerFadeIn 0.12s ease;
+    overflow: hidden;
+}
+.picker-panel-y {
+    max-height: 240px;
+    overflow-y: auto;
+    min-width: 200px;
+    padding: 4px;
+}
+.picker-group-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--fg-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 12px 4px;
+}
+.picker-group-title + .picker-option {
+    margin-top: 0;
+}
+.picker-panel-x {
+    display: flex;
+    gap: 2px;
+    padding: 6px;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+.picker-option {
+    padding: 7px 12px;
+    font-size: 12px;
+    color: var(--fg-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border-radius: 8px;
+}
+.picker-option:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+.picker-option.active {
+    color: var(--accent);
+    font-weight: 500;
+}
+.picker-option.active::after {
+    content: '✓';
+    font-size: 11px;
+}
+.picker-option-x {
+    flex-shrink: 0;
+    padding: 5px 14px;
+    border-radius: var(--radius-sm);
+    justify-content: center;
+}
+.picker-option-x.active::after {
+    display: none;
+}
+.picker-option-x.active {
+    background: var(--accent-soft);
+}
+@keyframes pickerFadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- Status Bar (inside center column) ---------- */
+
+.statusbar {
+    flex: 0 0 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 0 16px;
+    background: var(--status-bg);
+    color: var(--fg-secondary);
+    font-size: 11px;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.stat b {
+    color: var(--fg);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-weight: 600;
+}
+

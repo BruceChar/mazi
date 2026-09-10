@@ -1,0 +1,165 @@
+/**
+ * Design tokens, reset and base controls (buttons, inputs, scrollbars).
+ * Intentionally global: every component relies on these primitives.
+ */
+:root,
+:root[data-theme='light'] {
+    --bg: #fafafa;
+    --bg-chat: #ffffff;
+    --bg-code: #f4f4f5;
+    --bg-panel: #ffffff;
+    --bg-active: #eef2ff;
+    --bg-hover: #f4f4f5;
+    --bg-elevated: #ffffff;
+    --fg: #18181b;
+    --fg-secondary: #71717a;
+    --fg-tertiary: #a1a1aa;
+    --border: #e4e4e7;
+    --border-soft: #f4f4f5;
+    --accent: #6366f1;
+    --accent-hover: #4f46e5;
+    --accent-soft: #eef2ff;
+    --accent-text: #4338ca;
+    --ok: #10b981;
+    --ok-soft: #ecfdf5;
+    --warn: #f59e0b;
+    --warn-soft: #fffbeb;
+    --error: #ef4444;
+    --error-soft: #fef2f2;
+    --thinking: #8b5cf6;
+    --thinking-soft: #f5f3ff;
+    --tool: #3b82f6;
+    --tool-soft: #eff6ff;
+    --observation: #10b981;
+    --observation-soft: #ecfdf5;
+    --shadow: rgba(24, 24, 27, 0.06);
+    --shadow-sm: rgba(24, 24, 27, 0.04);
+    --shadow-md: rgba(24, 24, 27, 0.08);
+    --status-bg: #fafafa;
+    --user-bubble: #f4f4f5;
+    --trace-text: #a1a1aa;
+    --radius: 10px;
+    --radius-sm: 6px;
+    --radius-lg: 14px;
+}
+
+:root[data-theme='dark'] {
+    --bg: #09090b;
+    --bg-chat: #09090b;
+    --bg-code: #18181b;
+    --bg-panel: #111113;
+    --bg-active: #1e1b4b;
+    --bg-hover: #18181b;
+    --bg-elevated: #18181b;
+    --fg: #fafafa;
+    --fg-secondary: #a1a1aa;
+    --fg-tertiary: #71717a;
+    --border: #27272a;
+    --border-soft: #18181b;
+    --accent: #818cf8;
+    --accent-hover: #6366f1;
+    --accent-soft: #1e1b4b;
+    --accent-text: #a5b4fc;
+    --ok: #34d399;
+    --ok-soft: #064e3b;
+    --warn: #fbbf24;
+    --warn-soft: #451a03;
+    --error: #f87171;
+    --error-soft: #450a0a;
+    --thinking: #a78bfa;
+    --thinking-soft: #2e1065;
+    --tool: #60a5fa;
+    --tool-soft: #172554;
+    --observation: #34d399;
+    --observation-soft: #064e3b;
+    --shadow: rgba(0, 0, 0, 0.4);
+    --shadow-sm: rgba(0, 0, 0, 0.2);
+    --shadow-md: rgba(0, 0, 0, 0.5);
+    --status-bg: #09090b;
+    --user-bubble: #18181b;
+    --trace-text: #71717a;
+    --radius: 10px;
+    --radius-sm: 6px;
+    --radius-lg: 14px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family:
+        -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+        'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+}
+
+button,
+input,
+textarea,
+select {
+    font: inherit;
+}
+
+button {
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    color: var(--fg);
+    border-radius: 7px;
+    padding: 6px 12px;
+    cursor: pointer;
+}
+
+button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+button:disabled {
+    opacity: 0.45;
+    cursor: wait;
+}
+
+input,
+textarea,
+select {
+    background: var(--bg-panel);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 7px 10px;
+    outline: none;
+}
+
+textarea {
+    resize: none;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+    border-color: var(--accent);
+}
+
+pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+#app {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+
