@@ -120,4 +120,20 @@ describe('StreamAggregator（AHF_RUNTIME_PROVIDER §3）', () => {
             (error: unknown) => error instanceof ProviderError && error.code === 'unknown',
         );
     });
+
+    it('onEvent 逐事件按到达顺序回调，且不改变聚合结果', async () => {
+        const seen: StreamCompletionEvent[] = [];
+        const input: StreamCompletionEvent[] = [
+            { type: 'start', model: 'm' },
+            { type: 'reasoning_delta', reasoning: 'r' },
+            { type: 'text_delta', text: 'hi' },
+            { type: 'finish', finishReason: 'stop' },
+        ];
+        const round = await aggregateStream(streamOf(input), timers(), (event) => seen.push(event));
+        expect(seen).toEqual(input);
+        expect(round.response.content).toEqual([
+            { type: 'reasoning', text: 'r' },
+            { type: 'text', text: 'hi' },
+        ]);
+    });
 });

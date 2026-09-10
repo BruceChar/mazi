@@ -181,4 +181,34 @@ describe('RoundExecutor（§4）', () => {
         expect(estimateInputTokens(req)).toBeGreaterThan(0);
         expect(estimateInputTokens({ messages: [] })).toBeGreaterThanOrEqual(1);
     });
+
+    it('listener 透传流式事件（provider/model/attempt=1）', async () => {
+        const seen: Array<{
+            providerId: string;
+            modelId: string;
+            attempt: number;
+            event: StreamCompletionEvent;
+        }> = [];
+        const executor = new RoundExecutor();
+        await executor.execute(
+            req,
+            [candidate('p', makeProvider('p', [{ events: textEvents('hello') }]))],
+            (event) => seen.push(event),
+        );
+        expect(seen.map((x) => x.event.type)).toEqual(['start', 'text_delta', 'finish']);
+        expect(seen.every((x) => x.providerId === 'p' && x.modelId === 'm' && x.attempt === 1)).toBe(
+            true,
+        );
+    });
+
+    it('本地重试使 attempt 递增（第二次网络尝试的事件记为 attempt=2）', async () => {
+        const attempts: number[] = [];
+        const executor = new RoundExecutor({ retryPolicy: FAST_POLICY });
+        const provider = makeProvider('p', [
+            { error: new ProviderError('network', 'conn refused') },
+            { events: textEvents('ok') },
+        ]);
+        await executor.execute(req, [candidate('p', provider)], (event) => attempts.push(event.attempt));
+        expect(attempts).toEqual([2, 2, 2]);
+    });
 });

@@ -57,10 +57,14 @@ interface ToolSlot {
  * 聚合一次 askStream 事件流为 AggregatedRound。
  * 事件流自身抛出的异常（含 [CORE §8.8] 已分类的 ProviderError）原样上抛；
  * 畸形工具调用的拒绝规则见文件头与 §3.3。
+ *
+ * @param onEvent 可选观测钩子：每个原始流式事件按到达顺序同步回调（流式 UI 转发用），
+ *                必须无副作用、不抛异常；不影响聚合结果。
  */
 export async function aggregateStream(
     events: AsyncIterable<StreamCompletionEvent>,
     timers: RoundTimers,
+    onEvent?: (event: StreamCompletionEvent) => void,
 ): Promise<AggregatedRound> {
     const now = (): number => Date.now();
     let firstContentAt: number | undefined;
@@ -100,6 +104,7 @@ export async function aggregateStream(
     };
 
     for await (const event of events) {
+        onEvent?.(event);
         switch (event.type) {
             case 'start':
                 model = event.model ?? model;

@@ -16,6 +16,7 @@ import type {
     LLMRequest,
     LLMResponse,
     ProviderErrorCode,
+    StreamCompletionEvent,
     TokenUsage,
 } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
@@ -90,6 +91,18 @@ export interface RoundOutcome {
     metrics: RoundMetrics;
     attempts: RoundAttemptLogEntry[];
 }
+
+/** 单次网络尝试的流式事件（观测/UI 转发用；provider 原始事件不做改写） */
+export interface RoundStreamEvent {
+    providerId: string;
+    modelId: string;
+    /** 1-based 网络尝试序号：本地重试或换家时递增（同一 streamId 下 attempt 单调不减） */
+    attempt: number;
+    event: StreamCompletionEvent;
+}
+
+/** 流式事件监听器；实现必须无副作用、不抛异常，不得改写聚合语义 */
+export type RoundStreamListener = (streamEvent: RoundStreamEvent) => void;
 
 export interface RoundExecutorOptions {
     limiter?: Limiter;
@@ -214,14 +227,21 @@ export class RoundExecutor {
         this.policy = options.retryPolicy ?? DEFAULT_RETRY_POLICY;
     }
 
-    /** 执行一轮：候选序列 + 重试/failover/熔断/限流/打点。 */
+    /**
+     * 执行一轮：候选序列 + 重试/failover/熔断/限流/打点。
+     *
+     * @param listener 可选流式事件监听器；每次网络尝试的事件都会带 1-based attempt 透传
+     *                 （含失败尝试：失败前的增量是真实到达的事实，由上层按 attempt 决定取舍）。
+     */
     async execute(
         request: LLMRequest,
         candidates: readonly RoundCandidate[],
+        listener?: RoundStreamListener,
     ): Promise<RoundOutcome> {
         const maxAttempts = this.opts.maxAttempts;
         const attemptsLog: RoundAttemptLogEntry[] = [];
         const metricBatch: RoundMetrics[] = [];
+        let networkAttempt = 0;
         const emit = (metrics: RoundMetrics): void => {
             metricBatch.push(metrics);
             this.opts.onMetrics?.(metrics);
@@ -275,9 +295,23 @@ export class RoundExecutor {
                     signal: signal.signal,
                 };
                 try {
+                    networkAttempt += 1;
+                    const attempt = networkAttempt;
                     const stream = candidate.provider.askStream(roundRequest);
                     const timers = { startedAt: roundStartedAt };
-                    const round = await aggregateStream(stream, timers);
+                    const round = await aggregateStream(
+                        stream,
+                        timers,
+                        listener
+                            ? (event) =>
+                                  listener({
+                                      providerId: candidate.providerId,
+                                      modelId,
+                                      attempt,
+                                      event,
+                                  })
+                            : undefined,
+                    );
                     const finishReason = round.response.finishReason;
 
                     // finishReason 特殊通道（§6.1）：insufficient_system_resource 按 provider_unavailable 行处理
