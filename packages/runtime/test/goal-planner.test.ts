@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Goal } from '../../core/src/gts.js';
-import { planGoalTree } from '../src/planner/goal-planner.js';
+import { planGoalTree } from '../src/gts/goal-planner.js';
 import { ULID, ulid } from '../../core/src/id.js';
 
 function g(

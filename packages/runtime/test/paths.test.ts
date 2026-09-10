@@ -12,7 +12,7 @@ import {
     maziHome,
     maziPaths,
     toRuntimeConfig,
-} from './index.js';
+} from '../src/index.js';
 
 const homes: string[] = [];
 

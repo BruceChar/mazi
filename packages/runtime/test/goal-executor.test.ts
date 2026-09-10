@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Goal, Task } from '../../core/src/gts.js';
 import { MemoryGoalStore } from '../src/memory/goal-store.js';
-import { executeTask } from '../src/executor/goal-executor.js';
-import type { RoundResult } from '../src/executor/round-types.js';
+import { executeTask } from '../src/gts/goal-executor.js';
+import type { RoundResult } from '../src/gts/round-types.js';
 import { ulid } from '../../core/src/id.js';
 
 function goal(): Goal {

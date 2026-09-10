@@ -61,14 +61,17 @@ describe('GoalStore（并存存储，C3a）', () => {
                 const task2 = task(ulid(), other.goalId);
                 await store.saveTask(task1);
                 await store.saveTask(task2);
-                await store.saveStep(step(ulid(), task1.taskId, child.goalId));
-                await store.saveStep(step(ulid(), task2.taskId, other.goalId));
+                const s1 = step(ulid(), task1.taskId, child.goalId);
+                const s2 = step(ulid(), task2.taskId, other.goalId);
+                await store.saveStep(s1);
+                await store.saveStep(s2);
                 await store.deleteGoalTree(root.goalId);
                 expect(await store.listGoalsByRoot(root.goalId)).toEqual([]);
                 expect((await store.loadGoal(other.goalId))?.goalId).toBe(other.goalId);
                 expect(await store.listTasks(child.goalId)).toEqual([]);
                 expect(await store.listSteps(task1.taskId)).toEqual([]);
-                expect((await store.loadStep(step(ulid(), task1.taskId, child.goalId).stepId))?.stepId).toBe(step(ulid(), task1.taskId, child.goalId).stepId);
+                expect(await store.loadStep(s1.stepId)).toBeUndefined();
+                expect((await store.loadStep(s2.stepId))?.stepId).toBe(s2.stepId);
             } finally {
                 store.close();
             }
@@ -114,11 +117,12 @@ describe('SqliteGoalStore 文件持久化', () => {
     });
 
     it('重开连接后数据可读', async () => {
+        const g = goal(ulid());
         const a = new SqliteGoalStore(file);
-        await a.saveGoal(goal(ulid()));
+        await a.saveGoal(g);
         a.close();
         const b = new SqliteGoalStore(file);
-        expect((await b.loadGoal('persist'))?.goalId).toBe('persist');
+        expect((await b.loadGoal(g.goalId))?.goalId).toBe(g.goalId);
         b.close();
     });
 });
