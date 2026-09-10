@@ -8,11 +8,11 @@ import RightPanel from './components/RightPanel.vue';
 import Sidebar from './components/Sidebar.vue';
 import ChatMain from './components/ChatMain.vue';
 import TopBar from './components/TopBar.vue';
-import NewSessionModal from './components/NewSessionModal.vue';
 import FeedbackModal from './components/FeedbackModal.vue';
+import PromptDialog from './components/PromptDialog.vue';
 import UserPreferencesPage from './components/UserPreferencesPage.vue';
 import { defaultConversations } from './scripts/conversation.ts';
-import { createGoalContractDraft, toGoalContractPayload } from './scripts/goal-contract.ts';
+import { goalFromRunSettings } from './scripts/run-settings.ts';
 import { API_BASE } from './api.js';
 import {
     activeLiveStream,
@@ -97,6 +97,27 @@ function cancelConfirm() {
     confirmDialog.value.open = false;
     confirmDialog.value.action = null;
 }
+
+/** In-app text prompt (replaces window.prompt) used by the rename flows. */
+const promptDialog = ref({
+    open: false,
+    title: '',
+    label: '',
+    value: '',
+    confirmText: '保存',
+    action: null,
+});
+async function confirmPrompt(value) {
+    const d = promptDialog.value;
+    if (d.action) await d.action(value);
+    d.open = false;
+    d.action = null;
+}
+function cancelPrompt() {
+    promptDialog.value.open = false;
+    promptDialog.value.action = null;
+}
+
 const modelOptions = computed(() => {
     const providers = cfg.value?.providers || [];
     return providers.flatMap((p) =>
@@ -177,45 +198,24 @@ function conversationTitle(conversation) {
     return conversation?.title || run?.input || '';
 }
 
-/** Pending workspace for the next new conversation (set by the project "+" menu). */
+/**
+ * Pending workspace for the next new conversation. Set by the project "+" menu
+ * and consumed by submitPrompt when the conversation is actually created.
+ */
 const pendingWorkspace = ref('');
-/** Set when the default "+" was used: force a workspace-less conversation. */
-const noWorkspaceNew = ref(false);
 
 function startTopConversation() {
-    // Jump to the blank welcome screen (no goal modal); user types in composer
+    // Jump to the blank welcome screen; the composer creates the conversation.
     currentConversation.value = null;
     current.value = null;
     detail.value = null;
     stopEvents();
+    pendingWorkspace.value = '';
 }
 
 function startProjectConversation(project) {
+    startTopConversation();
     pendingWorkspace.value = project.path;
-    noWorkspaceNew.value = false;
-    ui.showNew = true;
-}
-
-function startGeneralConversation() {
-    pendingWorkspace.value = '';
-    noWorkspaceNew.value = true;
-    ui.showNew = true;
-}
-
-/**
- * NewSessionModal submit handler.
- *
- * The dialog always starts a brand new Conversation placed either in the pending
- * workspace or in the default (workspace-less) group; it never continues the
- * currently open conversation.
- */
-async function onNewSessionSubmit({ goal, exec }) {
-    const workspacePath = noWorkspaceNew.value
-        ? undefined
-        : pendingWorkspace.value || workspaceRoot.value || undefined;
-    pendingWorkspace.value = '';
-    noWorkspaceNew.value = false;
-    await createAndRunGoal(goal, workspacePath, undefined, exec);
 }
 
 function toggleProject(path) {
@@ -376,18 +376,31 @@ async function submitPrompt() {
         return;
     }
     prompt.value = '';
-    // Continue the open conversation inside its workspace; a fresh conversation
-    // stays standalone and does not inherit the current workspace.
-    const workspacePath = currentConversation.value ? workspaceRoot.value : undefined;
-    const goal = { statement: text, ...toGoalContractPayload(createGoalContractDraft()) };
-    await createAndRunGoal(goal, workspacePath, currentConversation.value || undefined, true);
+    const isNewConversation = !currentConversation.value;
+    // New conversations use the pending project (if any); existing ones keep theirs.
+    const workspacePath = isNewConversation
+        ? pendingWorkspace.value || undefined
+        : workspaceRoot.value;
+    await createAndRunGoal(
+        goalFromRunSettings(text),
+        workspacePath,
+        currentConversation.value || undefined,
+        true,
+    );
+    pendingWorkspace.value = '';
 }
 
-async function renameConversationById(conversation) {
-    const title = window.prompt('重命名会话', conversationTitle(conversation));
-    if (title?.trim()) {
-        await updateConversation(conversation.conversationId, { title: title.trim() });
-    }
+function openRenameConversation(conversation) {
+    promptDialog.value = {
+        open: true,
+        title: '重命名会话',
+        label: '名称',
+        value: conversationTitle(conversation),
+        confirmText: '保存',
+        action: async (title) => {
+            await updateConversation(conversation.conversationId, { title });
+        },
+    };
 }
 
 async function removeConversation(conversation) {
@@ -403,11 +416,17 @@ async function removeConversation(conversation) {
     };
 }
 
-async function renameProjectById(project) {
-    const title = window.prompt('重命名项目', project.title);
-    if (title?.trim()) {
-        await renameProject(project.path, title.trim());
-    }
+function openRenameProject(project) {
+    promptDialog.value = {
+        open: true,
+        title: '重命名项目',
+        label: '名称',
+        value: project.title,
+        confirmText: '保存',
+        action: async (title) => {
+            await renameProject(project.path, title);
+        },
+    };
 }
 
 async function removeProjectById(project) {
@@ -561,13 +580,12 @@ onBeforeUnmount(() => {
                 @new-session="startTopConversation"
                 @open-system-picker="openSystemPicker"
                 @toggle-project="toggleProject"
-                @rename-project="renameProjectById"
+                @rename-project="openRenameProject"
                 @start-project-conversation="startProjectConversation"
                 @remove-project="removeProjectById"
                 @open-conversation="openConversation"
-                @rename-conversation="renameConversationById"
+                @rename-conversation="openRenameConversation"
                 @remove-conversation="removeConversation"
-                @start-general-conversation="startGeneralConversation"
                 @open-settings="openSettings"
             />
             </template>
@@ -651,11 +669,14 @@ onBeforeUnmount(() => {
         />
     </div>
 
-    <NewSessionModal
-        :open="ui.showNew"
-        :busy="busy"
-        @close="ui.showNew = false"
-        @submit="onNewSessionSubmit"
+    <PromptDialog
+        :open="promptDialog.open"
+        :title="promptDialog.title"
+        :label="promptDialog.label"
+        :initial-value="promptDialog.value"
+        :confirm-text="promptDialog.confirmText"
+        @cancel="cancelPrompt"
+        @confirm="confirmPrompt"
     />
 
     <FeedbackModal

@@ -8,7 +8,7 @@
 export const PERMISSION_LEVELS = ['text', 'read-only', 'draft', 'approved', 'autonomous'] as const;
 
 export const LOOP_MODES = [
-    { value: 'goal-plan-execute-reflect', label: 'GPER · 默认' },
+    { value: 'goal-plan-execute-reflect', label: 'GPER · default' },
     { value: 'goal-plan-execute', label: 'Plan-Execute' },
     { value: 'react-only', label: 'React Only' },
 ] as const;

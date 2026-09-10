@@ -20,7 +20,6 @@ const emit = defineEmits([
     'open-conversation',
     'rename-conversation',
     'remove-conversation',
-    'start-general-conversation',
     'open-settings',
 ]);
 
@@ -159,11 +158,6 @@ function latencyText() {
         <div class="group">
             <div class="group-head">
                 <span>会话 · {{ generalConversations.length }}</span>
-                <span class="head-icons">
-                    <button class="head-icon" title="添加新会话" @click.stop="emit('start-general-conversation')">
-                        <LineIcon name="plus" size="14" />
-                    </button>
-                </span>
             </div>
             <ul class="session-list">
                 <li

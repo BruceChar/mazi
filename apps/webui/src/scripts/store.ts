@@ -68,7 +68,6 @@ applyTheme(theme.value);
 export interface UiState {
     view: 'chat' | 'system-settings' | 'settings';
     rightOpen: boolean;
-    showNew: boolean;
     sidebar: boolean;
     eventTypes: string;
     err: string | null;
@@ -77,7 +76,6 @@ export interface UiState {
 export const ui = reactive<UiState>({
     view: 'chat',
     rightOpen: false,
-    showNew: false,
     sidebar: true,
     eventTypes: 'all',
     err: null,
@@ -465,7 +463,6 @@ export async function createRun({
         return null;
     } finally {
         busy.value = false;
-        ui.showNew = false;
     }
 }
 

@@ -1,4 +1,12 @@
 <script setup>
+import { LOOP_MODES, PERMISSION_LEVELS } from '../scripts/goal-contract.ts';
+import { runSettings, saveRunSettings } from '../scripts/run-settings.ts';
+
+/** Update one run-default field and persist it. */
+function updateRun(key, value) {
+    saveRunSettings({ [key]: value });
+}
+
 defineProps({
     activeTab: { type: String, default: 'general' },
     theme: { type: String, default: 'system' },
@@ -26,6 +34,65 @@ const emit = defineEmits(['update:theme', 'update:selectedModel', 'update:reason
                         <option value="light">Light</option>
                         <option value="dark">Dark</option>
                         <option value="system">System</option>
+                    </select>
+                </div>
+            </div>
+            <div class="settings-group">
+                <div class="settings-group-title">Run defaults</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Permission ceiling</div>
+                        <div class="setting-desc">Highest permission a new goal may request</div>
+                    </div>
+                    <select
+                        class="setting-select"
+                        :value="runSettings.permission"
+                        @change="updateRun('permission', $event.target.value)"
+                    >
+                        <option v-for="p in PERMISSION_LEVELS" :key="p" :value="p">{{ p }}</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Budget (USD)</div>
+                        <div class="setting-desc">Spending cap for a new goal</div>
+                    </div>
+                    <input
+                        class="setting-input"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        :value="runSettings.budgetUsd"
+                        @change="updateRun('budgetUsd', Number($event.target.value))"
+                    />
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Max steps</div>
+                        <div class="setting-desc">Upper bound of model steps per task</div>
+                    </div>
+                    <input
+                        class="setting-input"
+                        type="number"
+                        min="1"
+                        step="1"
+                        :value="runSettings.maxSteps"
+                        @change="updateRun('maxSteps', Number($event.target.value))"
+                    />
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Loop mode</div>
+                        <div class="setting-desc">Execution loop used for new goals</div>
+                    </div>
+                    <select
+                        class="setting-select"
+                        :value="runSettings.loopMode"
+                        @change="updateRun('loopMode', $event.target.value)"
+                    >
+                        <option v-for="m in LOOP_MODES" :key="m.value" :value="m.value">
+                            {{ m.label }}
+                        </option>
                     </select>
                 </div>
             </div>
@@ -180,6 +247,15 @@ const emit = defineEmits(['update:theme', 'update:selectedModel', 'update:reason
     color: var(--fg);
     font-size: 13px;
     cursor: pointer;
+}
+.setting-input {
+    width: 120px;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    color: var(--fg);
+    font-size: 13px;
 }
 .setting-badge {
     font-size: 11px;
