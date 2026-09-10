@@ -26,6 +26,7 @@ const LIVE_EVENT_TYPES = [
     'goal.started',
     'goal.ended',
     'user.feedback.captured',
+    'step.started',
     'step.ended',
     'llm.stream_event',
 ] as const;

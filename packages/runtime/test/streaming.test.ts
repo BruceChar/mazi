@@ -86,7 +86,13 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
                 '你好，世界',
             );
 
-            expect(events.some((event) => event.type === 'step.ended')).toBe(true);
+            const started = events.filter((event) => event.type === 'step.started');
+            const ended = events.filter((event) => event.type === 'step.ended');
+            expect(ended.length).toBeGreaterThan(0);
+            // Every step announces exactly one start before its ending events.
+            expect(started).toHaveLength(ended.length);
+            expect(started.every((event) => typeof event.stepId === 'string')).toBe(true);
+            expect(started[0]?.stepId).toBe(ended[0]?.stepId);
         } finally {
             unsubscribe();
             await runtime.close();

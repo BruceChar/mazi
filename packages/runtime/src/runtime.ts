@@ -404,6 +404,8 @@ export class HarnessRuntime {
     private readonly goalStoreDb: GoalStore;
     /** 上一轮上下文总量（估算跨轮 delta 用） */
     private lastContextTotal?: number;
+    /** Steps already announced via step.started (a step persists several times). */
+    private readonly startedStepIds = new Set<string>();
     private readonly llmProviders: Map<string, LLMProvider>;
     private readonly roundExecutor: RoundExecutor;
     private readonly config: RuntimeConfig;
@@ -614,6 +616,21 @@ export class HarnessRuntime {
                         : {}),
                 },
             };
+        }
+        // Announce the step once when it first reaches the store, then emit an
+        // ended event on every persist (tool calls: running -> ok updates).
+        if (!this.startedStepIds.has(step.stepId)) {
+            this.startedStepIds.add(step.stepId);
+            this.bus.emit(
+                newHarnessEvent({
+                    type: 'step.started',
+                    rootGoalId,
+                    goalId: step.goalId,
+                    taskId: step.taskId,
+                    stepId: step.stepId,
+                    payload,
+                }),
+            );
         }
         this.bus.emit(
             newHarnessEvent({
