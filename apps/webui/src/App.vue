@@ -6,6 +6,7 @@ import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
 import ExecStream from './components/ExecStream.vue';
+import Composer from './components/Composer.vue';
 import { defaultConversations, projectConversations } from './sidebar.ts';
 import {
     busy,
@@ -1044,118 +1045,32 @@ onBeforeUnmount(() => {
 
                 <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
 
-                <div class="input-area">
-                    <div class="input-wrap">
-                        <div class="input-composer">
-                            <div class="input-top">
-                                <textarea
-                                    v-model="prompt"
-                                    rows="1"
-                                    placeholder="输入任务…（Enter 发送，Shift+Enter 换行）"
-                                    @keydown.enter.exact.prevent="submitPrompt"
-                                ></textarea>
-                            </div>
-                            <div class="input-footer">
-                                <div class="input-footer-left">
-                                    <div v-if="!activeConversation" class="ws-picker-wrap">
-                                        <div v-if="workspaceMenu" class="picker-backdrop" @click="workspaceMenu = false"></div>
-                                        <button
-                                            class="ws-btn"
-                                            :class="{ active: workspaceMenu }"
-                                            @click="workspaceMenu = !workspaceMenu"
-                                        >
-                                            <LineIcon name="folder" size="13" />
-                                            <span>No workspace</span>
-                                        </button>
-                                        <div v-if="workspaceMenu" class="ws-menu">
-                                            <div class="ws-menu-section">Projects</div>
-                                            <button
-                                                v-for="p in projects"
-                                                :key="p.path"
-                                                class="ws-menu-item"
-                                                :class="{ active: p.path === workspaceRoot }"
-                                                @click="switchProject(p.path)"
-                                            >
-                                                <LineIcon name="folder" size="13" />
-                                                <span>{{ p.title || p.path }}</span>
-                                            </button>
-                                            <div class="ws-menu-divider"></div>
-                                            <button class="ws-menu-item" @click="openSystemPicker(); workspaceMenu = false">
-                                                <LineIcon name="plus" size="13" />
-                                                <span>Open other folder…</span>
-                                            </button>
-                                            <button v-if="workspaceRoot" class="ws-menu-item danger" @click="exitWorkspace">
-                                                <LineIcon name="close" size="13" />
-                                                <span>Exit workspace</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="input-footer-right">
-                                    <div class="picker-wrap">
-                                        <div v-if="pickerType === 'model'" class="picker-backdrop" @click="pickerType = null"></div>
-                                        <button
-                                            class="picker-btn model-btn"
-                                            :class="{ active: pickerType === 'model' }"
-                                            title="select model"
-                                            @click="pickerType = pickerType === 'model' ? null : 'model'"
-                                        >
-                                            {{ currentModelLabel }}
-                                        </button>
-                                        <div v-if="pickerType === 'model'" class="picker-panel picker-panel-y">
-                                            <template v-for="p in cfg?.providers || []" :key="p.id">
-                                                <div class="picker-group-title">{{ p.vendor || p.id }}</div>
-                                                <div
-                                                    v-for="m in p.models || []"
-                                                    :key="m.id"
-                                                    class="picker-option"
-                                                    :class="{ active: m.id === selectedModel }"
-                                                    @click="selectedModel = m.id; pickerType = null"
-                                                >
-                                                    {{ m.name || m.id }}
-                                                </div>
-                                            </template>
-                                        </div>
-                                    </div>
-                                    <div class="picker-wrap">
-                                        <div v-if="pickerType === 'reasoning'" class="picker-backdrop" @click="pickerType = null"></div>
-                                        <button
-                                            class="picker-btn reasoning-btn"
-                                            :class="{ active: pickerType === 'reasoning' }"
-                                            title="select reasoning level"
-                                            @click="pickerType = pickerType === 'reasoning' ? null : 'reasoning'"
-                                        >
-                                            {{ reasoningLabel }}
-                                        </button>
-                                        <div v-if="pickerType === 'reasoning'" class="picker-panel picker-panel-x">
-                                            <div
-                                                v-for="r in REASONING_LEVELS"
-                                                :key="r.value"
-                                                class="picker-option picker-option-x"
-                                                :class="{ active: r.value === reasoningLevel }"
-                                                @click="reasoningLevel = r.value; pickerType = null"
-                                            >
-                                                {{ r.label }}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <button class="send" :disabled="busy" title="发送" @click="submitPrompt">
-                                        <LineIcon name="arrowUp" size="16" />
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="statusbar">
-                            <!-- TODO: total time, tool time, cached tokens -->
-                            <span class="stat">{{ runs.length }} sessions</span>
-                            <span class="stat">{{ 0 }} goals</span>
-                            <span class="stat">{{ taskCount }} tasks</span>
-                            <span class="stat">{{ stepCount }} steps</span>
-                            <span class="stat">{{ 0 }} inputs</span>
-                            <span class="stat">{{ 0 }} outputs</span>
-                            <span class="stat">{{ 0 }} costs</span>
-                        </div>
-                    </div>
+                <Composer
+                    v-model="prompt"
+                    :busy="busy"
+                    :active-conversation="activeConversation"
+                    :projects="projects"
+                    :workspace-root="workspaceRoot"
+                    :cfg="cfg"
+                    :selected-model="selectedModel"
+                    :reasoning-level="reasoningLevel"
+                    :reasoning-levels="REASONING_LEVELS"
+                    @submit="submitPrompt"
+                    @switch-project="switchProject"
+                    @open-system-picker="openSystemPicker"
+                    @exit-workspace="exitWorkspace"
+                    @update:selected-model="selectedModel = $event"
+                    @update:reasoning-level="reasoningLevel = $event"
+                />
+                <div class="statusbar">
+                    <!-- TODO: total time, tool time, cached tokens -->
+                    <span class="stat">{{ runs.length }} sessions</span>
+                    <span class="stat">{{ 0 }} goals</span>
+                    <span class="stat">{{ taskCount }} tasks</span>
+                    <span class="stat">{{ stepCount }} steps</span>
+                    <span class="stat">{{ 0 }} inputs</span>
+                    <span class="stat">{{ 0 }} outputs</span>
+                    <span class="stat">{{ 0 }} costs</span>
                 </div>
             </template>
 
