@@ -350,9 +350,11 @@ const pendingWorkspace = ref('');
 const noWorkspaceNew = ref(false);
 
 function startTopConversation() {
-    pendingWorkspace.value = '';
-    noWorkspaceNew.value = false;
-    ui.showNew = true;
+    // Jump to the blank welcome screen (no goal modal); user types in composer
+    currentConversation.value = null;
+    current.value = null;
+    detail.value = null;
+    stopEvents();
 }
 
 function startProjectConversation(project) {
@@ -1066,7 +1068,7 @@ onBeforeUnmount(() => {
                         </div>
                         <div class="input-footer">
                             <div class="input-footer-left">
-                                <div class="ws-picker-wrap">
+                                <div v-if="!activeConversation" class="ws-picker-wrap">
                                     <div v-if="workspaceMenu" class="picker-backdrop" @click="workspaceMenu = false"></div>
                                     <button
                                         class="ws-btn"
