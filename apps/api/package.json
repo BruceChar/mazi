@@ -20,7 +20,7 @@
     "build": "tsc -b tsconfig.json",
     "clean": "rm -rf dist",
     "start": "node dist/main.js",
-    "dev": "tsc -b && (tsc -b --watch & node --watch dist/main.js)"
+    "dev": "tsc -b --watch & pid=$!; trap 'kill $pid 2>/dev/null' EXIT INT TERM; node --watch dist/main.js"
   },
   "devDependencies": {
     "@nestjs/testing": "^12",

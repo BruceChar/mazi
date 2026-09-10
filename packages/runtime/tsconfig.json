@@ -4,14 +4,13 @@
     "composite": true,
     "tsBuildInfoFile": "dist/.tsbuildinfo",
     "outDir": "dist",
-    "rootDir": "."
+    "rootDir": "src"
   },
-  "include": ["src/**/*.ts", "test/event-bus.test.ts", "test/goal-store.test.ts", "test/goal-executor.test.ts", "test/goal-snapshot.test.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["test/**/*.test.ts"],
   "references": [
     { "path": "../core" },
     { "path": "../libs" },
-    { "path": "../provider" },
-    { "path": "../provider-runtime" }
+    { "path": "../provider" }
   ]
 }
