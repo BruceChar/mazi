@@ -18,7 +18,8 @@ apps/*/src/**/*.d.ts
 !apps/webui/src/api.js
 !apps/webui/src/store.js
 !apps/webui/src/main.js
-events/
+# 运行期事件日志（DefaultEventBus 写 <rootGoalId>.jsonl）；不要吞掉源码目录 apps/*/src/events/
+events/*.jsonl
 events-demo/
 *.mazi.db
 .npm-tmp/
