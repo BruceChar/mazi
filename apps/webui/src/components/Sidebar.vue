@@ -27,6 +27,8 @@ const emit = defineEmits([
 const searchOpen = ref(false);
 const q = ref('');
 const projectMenuFor = ref('');
+/** Whether the default "随心聊" group is expanded. */
+const freeChatOpen = ref(true);
 
 /* Helpers */
 function isProjectOpen(path) {
@@ -106,7 +108,7 @@ function latencyText() {
                     :title="isProjectOpen(project.path) ? '折叠' : '展开'"
                     @click.stop="emit('toggle-project', project.path)"
                 >
-                    <LineIcon :name="isProjectOpen(project.path) ? 'chevronDown' : 'chevronRight'" size="13" />
+                    <LineIcon name="folder" size="14" />
                 </button>
                 <span class="project-title">{{ project.title }}</span>
                 <button
@@ -156,10 +158,18 @@ function latencyText() {
             </ul>
         </div>
         <div class="group">
-            <div class="group-head">
-                <span>会话 · {{ generalConversations.length }}</span>
+            <div class="group-head free-head" @click="freeChatOpen = !freeChatOpen">
+                <button
+                    class="head-icon group-fold"
+                    :title="freeChatOpen ? '折叠' : '展开'"
+                    @click.stop="freeChatOpen = !freeChatOpen"
+                >
+                    <LineIcon :name="freeChatOpen ? 'chevronDown' : 'chevronRight'" size="13" />
+                </button>
+                <span class="free-title">随心聊</span>
+                <span class="group-count">{{ generalConversations.length }}</span>
             </div>
-            <ul class="session-list">
+            <ul v-if="freeChatOpen" class="session-list">
                 <li
                     v-for="c in generalConversations"
                     :key="c.conversationId"
@@ -273,7 +283,8 @@ function latencyText() {
 .project-head {
     cursor: default;
 }
-.project-fold {
+.project-fold,
+.group-fold {
     margin-right: 2px;
 }
 .project-title {
@@ -287,10 +298,23 @@ function latencyText() {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+/* Default (workspace-less) group header: clickable to collapse. */
+.free-head {
+    cursor: pointer;
+}
+.free-title {
+    flex: 1;
+}
+.group-count {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--fg-tertiary);
+}
 .session-list {
     list-style: none;
     margin: 0;
-    padding: 0 6px;
+    /* Indent rows so their content aligns right after the group icon (folder/chevron). */
+    padding: 0 6px 0 30px;
 }
 .session-list li {
     display: flex;
