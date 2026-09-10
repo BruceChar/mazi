@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { LLMProvider, StreamCompletionEvent } from '@mazi/core';
+import type { HarnessEvent, LLMProvider, StreamCompletionEvent } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
@@ -53,10 +53,18 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
         const runtime = new HarnessRuntime(configIn(dir), {
             llmProviders: { default: makeProvider() },
         });
+        // 实时订阅：在 execute 之前注册，验证增量在执行过程中同步到达（非仅回放）
+        const live: HarnessEvent[] = [];
+        const unsubscribe = runtime.eventBus.subscribe(
+            { types: ['llm.stream_event'] },
+            { id: 'stream-test', handle: (event) => live.push(event) },
+        );
         try {
             const created = await runtime.createGoalSession('打个招呼');
             await runtime.executeGoalTree(created.rootGoalId);
             const events = (runtime.eventBus as DefaultEventBus).replay(created.rootGoalId);
+            expect(live).toHaveLength(5);
+            expect(live.every((event) => event.type === 'llm.stream_event')).toBe(true);
 
             const streamEvents = events.filter((event) => event.type === 'llm.stream_event');
             expect(streamEvents).toHaveLength(5);
@@ -80,6 +88,7 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
 
             expect(events.some((event) => event.type === 'step.ended')).toBe(true);
         } finally {
+            unsubscribe();
             await runtime.close();
         }
     });
