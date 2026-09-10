@@ -5,6 +5,7 @@ import ConfirmDialog from './components/ConfirmDialog.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
+import ExecStream from './components/ExecStream.vue';
 import { defaultConversations, projectConversations } from './sidebar.ts';
 import {
     busy,
@@ -1008,82 +1009,10 @@ onBeforeUnmount(() => {
                                 <div class="msg-bubble thinking-bubble">执行中…</div>
                             </div>
                             <!-- 执行流（goal → task → step 分层，每个 run 用自己的 timeline） -->
-                            <template v-if="runDetails[run.rootGoalId]">
-                                <div v-if="buildExecTree(runDetails[run.rootGoalId]).length" class="exec-stream">
-                                    <!-- Simple run (1 goal / 1 task / 0 steps): show output directly -->
-                                    <template v-if="isSimpleExecOf(runDetails[run.rootGoalId])">
-                                        <div v-if="reasoningTextOf(runDetails[run.rootGoalId])" class="exec-reasoning">{{ reasoningTextOf(runDetails[run.rootGoalId]) }}</div>
-                                        <div v-if="finalSummaryOf(runDetails[run.rootGoalId])" class="exec-summary">
-                                            <div class="exec-summary-text">{{ finalSummaryOf(runDetails[run.rootGoalId]) }}</div>
-                                        </div>
-                                    </template>
-                                    <!-- Normal run: goal → task → step hierarchy -->
-                                    <template v-else>
-                                    <div v-for="(goal, gIdx) in buildExecTree(runDetails[run.rootGoalId])" :key="goal.goalId" class="exec-goal">
-                                        <div class="exec-goal-head" @click="toggleGoal(goal.goalId)">
-                                            <span class="exec-dot goal-dot" :class="{ collapsed: collapsedGoals.has(goal.goalId) }"></span>
-                                            <span class="exec-goal-tag">G#{{ gIdx + 1 }}</span>
-                                            <span class="exec-goal-title">{{ goal.statement }}</span>
-                                            <span class="exec-goal-count">{{ goal.tasks.length }} tasks · {{ goal.tasks.reduce((s, t) => s + t.steps.length, 0) }} steps</span>
-                                        </div>
-                                        <div v-if="!collapsedGoals.has(goal.goalId)" class="exec-goal-body">
-                                            <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
-                                                <div class="exec-task-head" @click="toggleTask(task.taskId)">
-                                                    <span class="exec-dot task-dot" :class="{ collapsed: collapsedTasks.has(task.taskId) }"></span>
-                                                    <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
-                                                    <span class="exec-task-title">{{ task.title }}</span>
-                                                    <span class="exec-task-count">{{ task.steps.length }} steps</span>
-                                                </div>
-                                                <div v-if="!collapsedTasks.has(task.taskId)" class="exec-task-body">
-                                                    <div
-                                                        v-for="(row, sIdx) in task.steps"
-                                                        :key="row.key"
-                                                        class="exec-step"
-                                                        :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
-                                                    >
-                                                        <div class="exec-step-head" :class="{ clickable: isStepLong(row) }" @click="isStepLong(row) && toggleStepCollapse(row.key)">
-                                                            <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="16" />
-                                                            <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
-                                                            <span class="exec-step-name">{{ row.toolName || row.kind }}</span>
-                                                            <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
-                                                            <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
-                                                            <span class="exec-step-time">{{ row.time }}</span>
-                                                        </div>
-                                                        <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
-                                                            <pre class="exec-step-code-inner">{{ row.text }}</pre>
-                                                        </div>
-                                                        <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
-                                                            {{ usageStats(row.usage).total }} tokens
-                                                            <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
-                                                        </div>
-                                                    </div>
-                                                    <div v-if="!task.steps.length" class="empty-hint">（该 Task 尚无 Step）</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    </template>
-                                    <!-- Final summary (goal-level, not a step) -->
-                                    <div v-if="finalSummaryOf(runDetails[run.rootGoalId]) && !isSimpleExecOf(runDetails[run.rootGoalId])" class="exec-summary">
-                                        <div class="exec-summary-text">{{ finalSummaryOf(runDetails[run.rootGoalId]) }}</div>
-                                    </div>
-                                    <!-- Per-run stats + feedback -->
-                                    <div class="exec-stats">
-                                        <div class="exec-stats-fb">
-                                            <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
-                                            <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
-                                        </div>
-                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).stepCount }} steps</span>
-                                        <span>·</span>
-                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).taskCount }} tasks</span>
-                                        <span>·</span>
-                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).totalTime }}</span>
-                                        <span>·</span>
-                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).inputTokens }} in / {{ buildExecStats(runDetails[run.rootGoalId]).outputTokens }} out tokens</span>
-                                    </div>
-                                </div>
-                                <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
-                            </template>
+                            <ExecStream
+                                :run-detail="runDetails[run.rootGoalId]"
+                                :busy="busy && run.rootGoalId === current"
+                            />
                             <!-- 非当前 run 不展示执行流 -->
                         </div>
                     </template>
