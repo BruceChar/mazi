@@ -183,14 +183,25 @@ const totalDuration = computed(() => {
 /** 执行流统计：步数、LLM 耗时、工具耗时、token 总量 */
 const execStats = computed(() => {
     const rows = stepEventRows.value;
-    const thinkingMs = rows.filter((r) => r.kind === 'thinking').reduce((s, r) => s + (r.durationMs || 0), 0);
-    const toolMs = rows.filter((r) => r.kind === 'tool_call').reduce((s, r) => s + (r.durationMs || 0), 0);
-    const totalTokens = rows.reduce((s, r) => s + (usageStats(r.usage)?.total || 0), 0);
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let totalMs = 0;
+    for (const r of rows) {
+        const u = usageStats(r.usage);
+        if (u) {
+            inputTokens += u.input || 0;
+            outputTokens += u.output || 0;
+        }
+        if (r.durationMs) totalMs += r.durationMs;
+    }
+    const taskCount = execTree.value.reduce((s, g) => s + g.tasks.length, 0);
+    const stepCount = rows.filter((r) => r.kind !== 'intent').length;
     return {
-        steps: rows.length,
-        thinkingTime: formatDuration(thinkingMs),
-        toolTime: formatDuration(toolMs),
-        totalTokens,
+        inputTokens,
+        outputTokens,
+        totalTime: formatDuration(totalMs),
+        taskCount,
+        stepCount,
     };
 });
 /** Final summary: model's last intent output (shown at end of exec stream, goal-level) */
@@ -904,19 +915,8 @@ onBeforeUnmount(() => {
                             <div v-else-if="run.rootGoalId === current && busy" class="msg msg-assistant">
                                 <div class="msg-bubble thinking-bubble">执行中…</div>
                             </div>
-                            <!-- 执行时间分隔线 -->
-                            <div
-                                v-if="run.rootGoalId === current && stepEventRows.length"
-                                class="worked-for"
-                                @click="showExecution = !showExecution"
-                            >
-                                <span class="worked-for-line"></span>
-                                <span class="worked-for-text">Worked for {{ totalDuration }}</span>
-                                <LineIcon :name="showExecution ? 'chevronDown' : 'chevronRight'" size="12" />
-                                <span class="worked-for-line"></span>
-                            </div>
                             <!-- 执行流（goal → task → step 分层，可折叠，仅当前 run） -->
-                            <template v-if="run.rootGoalId === current && showExecution">
+                            <template v-if="run.rootGoalId === current">
                                 <div v-if="execTree.length" class="exec-stream">
                                     <div v-for="(goal, gIdx) in execTree" :key="goal.goalId" class="exec-goal">
                                         <div class="exec-goal-head" @click="toggleGoal(goal.goalId)">
@@ -962,23 +962,23 @@ onBeforeUnmount(() => {
                                             </div>
                                         </div>
                                     </div>
-                                    <!-- 执行流底部统计栏 -->
-                                    <div class="exec-stats">
-                                        <span>{{ execStats.steps }} 步</span>
-                                        <span>·</span>
-                                        <span>LLM {{ execStats.thinkingTime }}</span>
-                                        <span>·</span>
-                                        <span>工具 {{ execStats.toolTime }}</span>
-                                        <span>·</span>
-                                        <span>{{ execStats.totalTokens }} tokens</span>
-                                    </div>
                                     <!-- Final summary (goal-level, not a step) -->
                                     <div v-if="finalSummary" class="exec-summary">
-                                        <div class="exec-summary-head">
-                                            <LineIcon name="userMessage" size="14" />
-                                            <span>Summary</span>
-                                        </div>
                                         <div class="exec-summary-text">{{ finalSummary }}</div>
+                                    </div>
+                                    <!-- Bottom stats + feedback -->
+                                    <div class="exec-stats">
+                                        <span>{{ execStats.stepCount }} steps</span>
+                                        <span>·</span>
+                                        <span>{{ execStats.taskCount }} tasks</span>
+                                        <span>·</span>
+                                        <span>{{ execStats.totalTime }}</span>
+                                        <span>·</span>
+                                        <span>{{ execStats.inputTokens }} in / {{ execStats.outputTokens }} out tokens</span>
+                                        <div class="exec-stats-fb">
+                                            <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
+                                            <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
+                                        </div>
                                     </div>
                                 </div>
                                 <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
@@ -1880,23 +1880,19 @@ onBeforeUnmount(() => {
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
 }
+.exec-stats-fb {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
 
 /* Final summary (goal-level, sits after all goals/tasks/steps) */
 .exec-summary {
     margin-top: 12px;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--bg-panel);
-}
-.exec-summary-head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--fg);
-    margin-bottom: 8px;
+    padding: 0;
+    border: none;
+    background: transparent;
 }
 .exec-summary-text {
     font-size: 13px;
