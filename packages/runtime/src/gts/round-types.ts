@@ -23,6 +23,8 @@ export interface ExecutorRoundContext {
     goalId?: string;
     /** 归因：本轮所属 task（llm.stream_event 为 Task 级事件，必须携带） */
     taskId?: string;
+    /** 前置历史消息条数（Conversation 共享上下文；用于区分「本步新增内容」） */
+    baseMessageCount?: number;
 }
 
 export interface RoundToolCall {

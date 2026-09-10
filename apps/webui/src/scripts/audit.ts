@@ -80,6 +80,10 @@ export interface AggregatedUsage {
 /** 步骤明细行（Task/Run 级逐步骤 context diff）。 */
 export interface AuditStepRow {
     stepId: string;
+    /** 会话流中的全局序号（1-based，跨 run/task/step） */
+    lineIndex: number;
+    /** 所属 run 序号（1-based） */
+    runIndex: number;
     index: number;
     kind: string;
     toolName: string;
@@ -106,7 +110,7 @@ export interface CostDrift {
 
 /** 面板视图。 */
 export interface AuditView {
-    kind: 'step' | 'task' | 'run' | 'none';
+    kind: 'step' | 'task' | 'conversation' | 'none';
     stale: boolean;
     title: string;
     subtitle: string;
@@ -127,18 +131,30 @@ export interface AuditView {
     vendorTotal: number | null;
 }
 
-export interface AuditInput {
+/** 一个 run（Session）及其快照，按 Conversation 内时间顺序。 */
+export interface AuditRunInput {
+    rootGoalId: string;
+    input?: string;
     snapshot: GoalTreeSnapshot | null;
+}
+
+export interface AuditInput {
+    /** 当前 Conversation 的全部 run（按时间顺序）；缺省回落到单 snapshot。 */
+    runs?: AuditRunInput[];
+    snapshot?: GoalTreeSnapshot | null;
     liveSteps?: AuditLiveStep[];
     stepId?: string;
     taskId?: string;
-    runInput?: string;
+    /** Conversation 展示名（会话汇总用）。 */
+    conversationTitle?: string;
 }
 
 interface ResolvedStep {
     stepId: string;
     taskId: string;
     goalId: string;
+    runIndex: number;
+    runInput: string;
     taskIndex: number;
     taskTitle: string;
     index: number;
@@ -150,6 +166,11 @@ interface ResolvedStep {
     durationMs: number | null;
     usage: StepUsage | null;
     text: string;
+    /** 会话流中的全局序号（collectRows 结束后赋值） */
+    lineIndex: number;
+    /** 会话流中相对上一步的上下文 delta / 上一步总量（collectRows 结束后赋值） */
+    contextDelta: number | null;
+    previousContextTotal: number | null;
 }
 
 interface UsageBearingStep {
@@ -469,25 +490,23 @@ export function conicGradient(segments: AuditSegment[], minShare = DONUT_MIN_SHA
 // View building
 // ============================================================
 
-function taskIndexMap(
-    snapshot: GoalTreeSnapshot | null,
-): Map<string, { index: number; title: string }> {
-    const map = new Map<string, { index: number; title: string }>();
-    if (!snapshot) return map;
-    let index = 0;
-    for (const goal of snapshot.goals ?? []) {
-        for (const task of goal.tasks ?? []) {
-            index += 1;
-            map.set(task.taskId, { index, title: task.title });
-        }
+function countTasks(snapshot: GoalTreeSnapshot | null): number {
+    let count = 0;
+    for (const goal of snapshot?.goals ?? []) {
+        count += (goal.tasks ?? []).length;
     }
-    return map;
+    return count;
 }
 
-function collectSnapshotSteps(snapshot: GoalTreeSnapshot | null): ResolvedStep[] {
+function collectSnapshotSteps(
+    snapshot: GoalTreeSnapshot | null,
+    runIndex: number,
+    runInput: string,
+    taskStart: number,
+): ResolvedStep[] {
     if (!snapshot) return [];
     const out: ResolvedStep[] = [];
-    let taskIndex = 0;
+    let taskIndex = taskStart;
     for (const goal of snapshot.goals ?? []) {
         for (const task of goal.tasks ?? []) {
             taskIndex += 1;
@@ -497,6 +516,8 @@ function collectSnapshotSteps(snapshot: GoalTreeSnapshot | null): ResolvedStep[]
                     stepId: step.stepId,
                     taskId: task.taskId,
                     goalId: goal.goalId,
+                    runIndex,
+                    runInput,
                     taskIndex,
                     taskTitle: task.title,
                     index: i + 1,
@@ -509,6 +530,9 @@ function collectSnapshotSteps(snapshot: GoalTreeSnapshot | null): ResolvedStep[]
                         step.endedAt && step.startedAt ? step.endedAt - step.startedAt : null,
                     usage: step.usage ?? null,
                     text: step.content ?? step.payloadText ?? '',
+                    lineIndex: 0,
+                    contextDelta: null,
+                    previousContextTotal: null,
                 });
             });
         }
@@ -516,29 +540,46 @@ function collectSnapshotSteps(snapshot: GoalTreeSnapshot | null): ResolvedStep[]
     return out;
 }
 
+/**
+ * 会话流步骤表：按 Conversation 内 run 顺序拼接所有 run/task/step，
+ * 并在整条线上计算 context delta（当前步总量 − 上一步总量）。
+ */
 function collectRows(input: AuditInput): ResolvedStep[] {
-    const snapshotRows = collectSnapshotSteps(input.snapshot);
-    const known = new Set(snapshotRows.map((row) => row.stepId));
-    const indexMap = taskIndexMap(input.snapshot);
-    const titles = new Map<string, string>();
-    if (input.snapshot) {
-        for (const goal of input.snapshot.goals ?? []) {
-            for (const task of goal.tasks ?? []) titles.set(task.taskId, task.title);
+    const runs: AuditRunInput[] =
+        input.runs && input.runs.length > 0
+            ? input.runs
+            : [{ rootGoalId: '', input: '', snapshot: input.snapshot ?? null }];
+    const out: ResolvedStep[] = [];
+    const indexMap = new Map<string, { index: number; title: string }>();
+    let taskStart = 0;
+    for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
+        const run = runs[runIndex];
+        const snapshot = run.snapshot ?? null;
+        const runRows = collectSnapshotSteps(snapshot, runIndex + 1, run.input ?? '', taskStart);
+        for (const row of runRows) {
+            if (!indexMap.has(row.taskId)) {
+                indexMap.set(row.taskId, { index: row.taskIndex, title: row.taskTitle });
+            }
         }
+        taskStart += countTasks(snapshot);
+        out.push(...runRows);
     }
-    const liveRows: ResolvedStep[] = [];
+    // 实时步骤（执行中的 run 尚未落快照）追加在会话线末尾
+    const known = new Set(out.map((row) => row.stepId));
     const liveCount = new Map<string, number>();
     for (const step of input.liveSteps ?? []) {
         if (known.has(step.stepId)) continue;
         const next = (liveCount.get(step.taskId) ?? 0) + 1;
         liveCount.set(step.taskId, next);
         const meta = indexMap.get(step.taskId);
-        liveRows.push({
+        out.push({
             stepId: step.stepId,
             taskId: step.taskId,
             goalId: '',
+            runIndex: runs.length + 1,
+            runInput: '',
             taskIndex: meta?.index ?? 0,
-            taskTitle: titles.get(step.taskId) ?? '',
+            taskTitle: meta?.title ?? '',
             index: next,
             kind: step.kind,
             toolName: step.toolName,
@@ -548,9 +589,23 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             durationMs: step.endedAt ? step.endedAt - step.startedAt : null,
             usage: step.usage ?? null,
             text: step.content,
+            lineIndex: 0,
+            contextDelta: null,
+            previousContextTotal: null,
         });
     }
-    return snapshotRows.concat(liveRows);
+    // 整条会话线的全局序号与 context delta
+    let lineIndex = 0;
+    let prevTotal: number | null = null;
+    for (const row of out) {
+        lineIndex += 1;
+        row.lineIndex = lineIndex;
+        const total = row.usage?.runtime?.totalContextTokens ?? null;
+        row.contextDelta = total !== null && prevTotal !== null ? total - prevTotal : null;
+        row.previousContextTotal = prevTotal;
+        if (total !== null) prevTotal = total;
+    }
+    return out;
 }
 
 function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
@@ -558,6 +613,8 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
     const tokens = (step.usage?.vendor?.inputTokens ?? 0) + (step.usage?.vendor?.outputTokens ?? 0);
     return {
         stepId: step.stepId,
+        lineIndex: step.lineIndex,
+        runIndex: step.runIndex,
         index: step.index,
         kind: step.kind,
         toolName: step.toolName,
@@ -565,7 +622,7 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         durationMs: step.durationMs,
         tokens,
         contextTotal: runtime?.totalContextTokens ?? null,
-        contextDelta: runtime?.contextDeltaFromPrev ?? null,
+        contextDelta: step.contextDelta,
         selected: step.stepId === selectedId,
     };
 }
@@ -617,18 +674,22 @@ function noneView(stale: boolean): AuditView {
     };
 }
 
-/** 目标解析：step 优先于 task；两者都无 → run 汇总。 */
+/** 目标解析：step 优先于 task；两者都无 → 会话汇总。 */
 export function buildAuditView(input: AuditInput): AuditView {
     const rows = collectRows(input);
     const stepId = input.stepId ?? '';
     const taskId = input.taskId ?? '';
     const selected = stepId ? rows.find((row) => row.stepId === stepId) : undefined;
     const taskRows = taskId ? rows.filter((row) => row.taskId === taskId) : [];
-    const taskExists = input.snapshot
-        ? (input.snapshot.goals ?? []).some((goal) =>
-              (goal.tasks ?? []).some((task) => task.taskId === taskId),
-          )
-        : false;
+    const snapshots =
+        input.runs && input.runs.length > 0
+            ? input.runs.map((run) => run.snapshot)
+            : [input.snapshot ?? null];
+    const taskExists = snapshots.some((snapshot) =>
+        (snapshot?.goals ?? []).some((goal) =>
+            (goal.tasks ?? []).some((task) => task.taskId === taskId),
+        ),
+    );
 
     if (stepId && !selected) {
         return noneView(true);
@@ -641,7 +702,11 @@ export function buildAuditView(input: AuditInput): AuditView {
         const usage = aggregateUsage([selected]);
         const runtime = usage.runtime;
         const total = runtime?.totalContextTokens ?? null;
-        const delta = runtime?.contextDeltaFromPrev ?? null;
+        const delta = selected.contextDelta;
+        const from =
+            total !== null && delta !== null
+                ? (selected.previousContextTotal ?? total - delta)
+                : null;
         const toolSuffix = selected.toolName ? ` ${selected.toolName}` : '';
         const statusSuffix = selected.status ? ` · ${selected.status}` : '';
         return {
@@ -653,7 +718,9 @@ export function buildAuditView(input: AuditInput): AuditView {
             segments: contextSegments(runtime),
             utilization: runtime?.contextWindowUtilization ?? null,
             diff:
-                total !== null && delta !== null ? { delta, from: total - delta, to: total } : null,
+                total !== null && delta !== null && from !== null
+                    ? { delta, from, to: total }
+                    : null,
             strategies: runtime?.strategyApplied ?? [],
             budgetPressureAction: runtime?.budgetPressureAction ?? '',
             rows: [],
@@ -686,11 +753,12 @@ export function buildAuditView(input: AuditInput): AuditView {
 
     const usage = aggregateUsage(rows);
     const runtime = usage.runtime;
+    const runCount = input.runs && input.runs.length > 0 ? input.runs.length : 1;
     return {
-        kind: 'run',
+        kind: 'conversation',
         stale: false,
-        title: 'Run 汇总',
-        subtitle: (input.runInput ?? '').trim() || `${rows.length} steps`,
+        title: '会话汇总',
+        subtitle: (input.conversationTitle ?? '').trim() || `${runCount} 轮 · ${rows.length} 步`,
         usage,
         segments: contextSegments(runtime),
         utilization: runtime?.contextWindowUtilization ?? null,

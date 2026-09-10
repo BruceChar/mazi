@@ -7,8 +7,8 @@
 import type { Goal } from '@mazi/core';
 import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../gts/goal-executor.js';
 import { executeTask } from '../gts/goal-executor.js';
-import type { GoalStore } from '../memory/goal-store.js';
 import { planGoalTree } from '../gts/goal-planner.js';
+import type { GoalStore } from '../memory/goal-store.js';
 
 export interface GoalRunDeps {
     store: GoalStore;
@@ -20,6 +20,8 @@ export interface GoalRunDeps {
     invoker?: GoalToolInvoker;
     /** Task 允许的工具白名单（undefined = 不限） */
     allowedTools?: string[];
+    /** Conversation 共享上下文：前置历史消息（透传 executeTask） */
+    history?: GoalExecutorDeps['history'];
     /** Step 流式回调（透传 executeTask.onStep） */
     onStep?: GoalExecutorDeps['onStep'];
 }
@@ -55,6 +57,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                 ...(deps.model !== undefined ? { model: deps.model } : {}),
                 ...(deps.invoker !== undefined ? { invoker: deps.invoker } : {}),
                 ...(deps.allowedTools !== undefined ? { allowedTools: deps.allowedTools } : {}),
+                ...(deps.history !== undefined ? { history: deps.history } : {}),
                 ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
             },
             task,

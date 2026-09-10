@@ -81,11 +81,12 @@ function stepView(
     kind: string,
     startedAt: number,
     usage: StepUsage | null,
+    taskId = 't1',
 ): GoalTreeSnapshot['goals'][number]['tasks'][number]['steps'][number] {
     return {
         stepId,
         goalId: 'g1',
-        taskId: 't1',
+        taskId,
         kind: kind as never,
         status: 'ok',
         startedAt,
@@ -97,6 +98,8 @@ function stepView(
 
 function snapshotOf(
     steps: ReturnType<typeof stepView>[],
+    taskId = 't1',
+    title = 'Read file',
 ): GoalTreeSnapshot {
     return {
         rootGoalId: 'root',
@@ -108,10 +111,18 @@ function snapshotOf(
                 kind: 'work',
                 status: 'succeeded',
                 statement: 'do the thing',
-                tasks: [{ taskId: 't1', status: 'succeeded', title: 'Read file', steps }],
+                tasks: [{ taskId, status: 'succeeded', title, steps }],
             },
         ],
     };
+}
+
+function withTotal(total: number): StepUsage {
+    const base = stepUsage();
+    return {
+        ...base,
+        runtime: { ...(base.runtime ?? {}), totalContextTokens: total },
+    } as StepUsage;
 }
 
 describe('audit aggregateUsage', () => {
@@ -258,13 +269,12 @@ describe('audit conicGradient', () => {
 });
 
 describe('audit buildAuditView', () => {
-    it('step 目标：diff / 同 Task 明细 / cost 漂移 / 总量对照', () => {
+    it('step 目标：单步无前序 → diff 为 null；无步骤明细；cost 漂移与总量对照', () => {
         const snapshot = snapshotOf([stepView('s1', 'thinking', 1, stepUsage())]);
         const view = buildAuditView({ snapshot, stepId: 's1' });
         expect(view.kind).toBe('step');
         expect(view.title).toContain('S#1');
-        expect(view.diff).toEqual({ delta: 0, from: 1000, to: 1000 });
-        // 单步骤不展示步骤明细
+        expect(view.diff).toBeNull();
         expect(view.rows).toHaveLength(0);
         expect(view.diffContent).toContain('NI');
         expect(view.estimatedTotal).toBe(1018);
@@ -273,7 +283,36 @@ describe('audit buildAuditView', () => {
         expect(view.costDrift?.rate).toBeCloseTo(-0.25, 6);
     });
 
-    it('task 目标：聚合多步漂移，diff 为 null', () => {
+    it('会话线：跨 run/task/step 全局编号与 context delta', () => {
+        const run1 = snapshotOf(
+            [
+                stepView('a1', 'thinking', 1, withTotal(1000)),
+                stepView('a2', 'tool_call', 2, withTotal(1200)),
+            ],
+            't1',
+        );
+        const run2 = snapshotOf(
+            [stepView('b1', 'thinking', 3, withTotal(1500), 't2')],
+            't2',
+            'Second task',
+        );
+        const runs = [
+            { rootGoalId: 'r1', input: 'q1', snapshot: run1 },
+            { rootGoalId: 'r2', input: 'q2', snapshot: run2 },
+        ];
+        const conversation = buildAuditView({ runs });
+        expect(conversation.kind).toBe('conversation');
+        expect(conversation.rows.map((r) => r.lineIndex)).toEqual([1, 2, 3]);
+        expect(conversation.rows.map((r) => r.runIndex)).toEqual([1, 1, 2]);
+        expect(conversation.rows.map((r) => r.contextDelta)).toEqual([null, 200, 300]);
+        expect(conversation.rows[2]?.contextTotal).toBe(1500);
+
+        const step = buildAuditView({ runs, stepId: 'b1' });
+        expect(step.kind).toBe('step');
+        expect(step.diff).toEqual({ delta: 300, from: 1200, to: 1500 });
+    });
+
+    it('task 目标：只列本任务步骤，diff 为 null', () => {
         const snapshot = snapshotOf([
             stepView('s1', 'thinking', 1, stepUsage()),
             stepView('s2', 'tool_call', 2, null),
@@ -287,11 +326,14 @@ describe('audit buildAuditView', () => {
         expect(view.rows.map((r) => r.contextTotal)).toEqual([1000, null]);
     });
 
-    it('run 目标 / stale / live 回退', () => {
+    it('会话汇总 / stale / live 回退', () => {
         const snapshot = snapshotOf([stepView('s1', 'thinking', 1, stepUsage())]);
-        const run = buildAuditView({ snapshot, runInput: 'hello' });
-        expect(run.kind).toBe('run');
-        expect(run.subtitle).toBe('hello');
+        const conversation = buildAuditView({
+            runs: [{ rootGoalId: 'r1', input: 'q1', snapshot }],
+            conversationTitle: 'hello',
+        });
+        expect(conversation.kind).toBe('conversation');
+        expect(conversation.subtitle).toBe('hello');
         const stale = buildAuditView({ snapshot, stepId: 'missing' });
         expect(stale.kind).toBe('none');
         expect(stale.stale).toBe(true);

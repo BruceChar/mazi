@@ -31,6 +31,8 @@ export interface GoalExecutorDeps {
     invoker?: GoalToolInvoker;
     /** Task 允许的工具白名单（缺省：全部允许） */
     allowedTools?: string[];
+    /** Conversation 共享上下文：本轮任务前置的历史消息 */
+    history?: LLMMessage[];
     maxSteps?: number;
     now?: () => number;
     /** Step 落库后即时回调（流式上报：思考/工具/观察），供事件总线实时推送给 UI */
@@ -62,7 +64,8 @@ export async function executeTask(
     const maxSteps = deps.maxSteps ?? 50;
     const invoker = deps.invoker;
     const allowed = new Set(deps.allowedTools ?? []);
-    const messages: LLMMessage[] = [toUserMessage(goal.statement)];
+    const history = deps.history ?? [];
+    const messages: LLMMessage[] = [...history, toUserMessage(goal.statement)];
     const steps: Step[] = [];
 
     // Persist the task before the first round. Live observers rebuild the tree via
@@ -77,6 +80,7 @@ export async function executeTask(
             taskId: task.taskId,
             model: deps.model ?? { providerId: 'default', modelId: 'default' },
             messages,
+            baseMessageCount: history.length,
             ...(deps.systemPrompt ? { systemPrompt: deps.systemPrompt } : {}),
             tools: deps.tools ?? [],
         });

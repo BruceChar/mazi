@@ -5,6 +5,11 @@ import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 
+/** Conversation 续聊时携带的最大历史轮数（防止上下文无界增长）。 */
+const HISTORY_MAX_RUNS = 10;
+/** 单条历史助手回答的截断上限（字符）。 */
+const HISTORY_ANSWER_MAX_CHARS = 4000;
+
 /**
  * SessionsService：Goal 会话（= 一棵 Goal 树）的创建/执行/详情/反馈编排。
  * C5 迁移后本层全部走 HarnessRuntime Goal 坐标系：sessionId 语义 = rootGoalId；
@@ -55,7 +60,11 @@ export class SessionsService {
             targetContext?.workspace ?? bodyWorkspace ?? this.runtime.selectedWorkspaceRoot;
         const userId =
             (typeof body.userId === 'string' ? body.userId : undefined) ?? targetContext?.userId;
-        const created = await this.runtime.harness().createGoalSession(input, { userId });
+        const history = conversationId ? await this.conversationHistory(conversationId) : [];
+        const created = await this.runtime.harness().createGoalSession(input, {
+            userId,
+            ...(history.length > 0 ? { history } : {}),
+        });
         this.logger.log(
             `createSession ${created.rootGoalId} input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'} workspace=${workspace ?? '-'}`,
         );
@@ -83,6 +92,43 @@ export class SessionsService {
             state: 'active',
             conversationId: createdConversationId,
         };
+    }
+
+    /**
+     * 组装同一 Conversation 的此前轮次（用户输入 + 助手最终回答）作为新 Session 的共享上下文。
+     * 只取最近 HISTORY_MAX_RUNS 轮；助手回答截断，避免上下文无界增长。
+     */
+    private async conversationHistory(
+        conversationId: string,
+    ): Promise<Array<{ role: 'user' | 'assistant'; text: string }>> {
+        const runs = this.conversations.runs(conversationId).slice(-HISTORY_MAX_RUNS);
+        const history: Array<{ role: 'user' | 'assistant'; text: string }> = [];
+        for (const run of runs) {
+            history.push({ role: 'user', text: run.input });
+            const answer = await this.finalAnswerOf(run.rootGoalId);
+            if (answer.length > 0) {
+                history.push({ role: 'assistant', text: answer });
+            }
+        }
+        return history;
+    }
+
+    /** 取一次 Goal run 的最终回答（最后一个 intent step 的正文）。 */
+    private async finalAnswerOf(rootGoalId: string): Promise<string> {
+        try {
+            const snapshot = await this.runtime.harness().goalSnapshot(rootGoalId);
+            const intents = snapshot.goals
+                .flatMap((goal) => goal.tasks)
+                .flatMap((task) => task.steps)
+                .filter((step) => step.kind === 'intent');
+            const last = intents[intents.length - 1];
+            const text = last?.content ?? last?.payloadText ?? '';
+            return text.length > HISTORY_ANSWER_MAX_CHARS
+                ? text.slice(0, HISTORY_ANSWER_MAX_CHARS)
+                : text;
+        } catch {
+            return '';
+        }
     }
 
     /** POST /api/run：一站式创建 + 执行（Goal 树），进程内串行 */

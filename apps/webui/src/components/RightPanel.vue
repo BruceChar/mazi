@@ -271,9 +271,11 @@ function toggleDiff() {
                         <div v-else class="audit-muted">暂无耗时</div>
                     </section>
 
-                    <!-- 步骤明细 -->
+                    <!-- 步骤明细（会话流全局线 / 单个 Task） -->
                     <section v-if="audit.rows.length" class="audit-section">
-                        <div class="audit-section-title">步骤明细（{{ audit.rows.length }}）</div>
+                        <div class="audit-section-title">
+                            {{ audit.kind === 'task' ? '步骤' : '会话步骤' }}（{{ audit.rows.length }}）
+                        </div>
                         <button
                             v-for="row in audit.rows"
                             :key="row.stepId"
@@ -281,7 +283,8 @@ function toggleDiff() {
                             :class="{ selected: row.selected }"
                             @click="emit('select-step', { stepId: row.stepId })"
                         >
-                            <span class="audit-step-tag">S#{{ row.index }}</span>
+                            <span class="audit-step-tag">S#{{ row.lineIndex }}</span>
+                            <span v-if="audit.kind !== 'task'" class="audit-run-tag">R#{{ row.runIndex }}</span>
                             <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
                             <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
                             <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
@@ -831,6 +834,15 @@ function toggleDiff() {
     padding: 0 4px;
     width: 32px;
     text-align: center;
+    flex-shrink: 0;
+}
+.audit-run-tag {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    background: var(--bg-hover);
+    border-radius: 3px;
+    padding: 0 3px;
     flex-shrink: 0;
 }
 .audit-step-kind {

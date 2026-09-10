@@ -2,11 +2,11 @@ import 'reflect-metadata';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ulid } from '@mazi/core';
+import type { Conversation, GoalRunRef } from '@mazi/libs';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
-import type { GoalRunRef, Conversation } from '@mazi/libs';
 
 interface ConversationsFile {
     conversations: Conversation[];
@@ -116,6 +116,18 @@ export class ConversationsService {
             workspace: conversation.workspace,
             projectId: conversation.projectId,
         };
+    }
+
+    /** 读取 Conversation 的 run 引用（按时间顺序），供续聊时组装共享上下文。 */
+    runs(conversationId: string): GoalRunRef[] {
+        this.read();
+        const conversation = this.state.conversations.find(
+            (item) => item.conversationId === conversationId,
+        );
+        if (!conversation) {
+            throw new ApiError(404, 'conversation not found');
+        }
+        return conversation.runs;
     }
 
     /** 更新 Conversation 展示名或 */

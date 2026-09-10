@@ -13,7 +13,7 @@ import PromptDialog from './components/PromptDialog.vue';
 import UserPreferencesPage from './components/UserPreferencesPage.vue';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
 import { goalFromRunSettings } from './scripts/run-settings.ts';
-import { buildAuditView, emptyAuditView } from './scripts/audit.ts';
+import { buildAuditView } from './scripts/audit.ts';
 import { API_BASE } from './api.js';
 import {
     activeLiveStream,
@@ -203,21 +203,24 @@ const rootOutcome = computed(() => (current.value ? runOutcomes[current.value] :
  * append-only steps while the run is still executing.
  */
 const auditView = computed(() => {
-    if (!selectedStepId.value && !selectedTaskId.value) {
-        return emptyAuditView();
-    }
     const rootGoalId = current.value;
+    // 审计以 Conversation 为单位：整条会话流（全部 run）共享同一条 context 线。
+    const conversationRuns = runs.value.map((run) => ({
+        rootGoalId: run.rootGoalId,
+        input: run.input || '',
+        snapshot: runDetails[run.rootGoalId] ?? null,
+    }));
     const snapshot = rootGoalId
         ? runDetails[rootGoalId] ?? detail.value ?? null
         : detail.value ?? null;
     const live = rootGoalId ? liveSteps[rootGoalId] || [] : [];
-    const run = runs.value.find((item) => item.rootGoalId === rootGoalId);
     return buildAuditView({
+        runs: conversationRuns,
         snapshot,
         liveSteps: live,
         stepId: selectedStepId.value,
         taskId: selectedTaskId.value,
-        runInput: run?.input || '',
+        conversationTitle: conversationTitle(activeConversation.value),
     });
 });
 

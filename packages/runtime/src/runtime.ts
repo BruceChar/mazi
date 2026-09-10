@@ -6,6 +6,7 @@ import type {
     CostBreakdown,
     EventBus,
     Goal,
+    LLMMessage,
     LLMProvider,
     LLMRequest,
     RuntimeContextBreakdown,
@@ -45,12 +46,33 @@ export interface FeedbackInput {
     timestamp: number;
 }
 
+/** Conversation 内此前轮次（共享上下文的最小形态：用户输入 + 助手最终回答） */
+export interface ConversationTurn {
+    role: 'user' | 'assistant';
+    text: string;
+}
+
 export interface RunOptions {
     userId?: string;
     /** 工作区根路径；文件工具只允许读取该目录内文件 */
     workspaceRoot?: string;
     /** providerId → LLMProvider 覆盖（离线测试注入；优先生效） */
     llmProviders?: Record<string, LLMProvider>;
+    /** 同一 Conversation 内此前轮次，作为本轮前置消息（共享上下文） */
+    history?: ConversationTurn[];
+}
+
+/** ConversationTurn[] → LLMMessage[]（user/assistant 文本消息）。 */
+function conversationMessages(turns: ConversationTurn[] | undefined): LLMMessage[] {
+    if (turns === undefined || turns.length === 0) {
+        return [];
+    }
+    return turns.map(
+        (turn): LLMMessage =>
+            turn.role === 'user'
+                ? { role: 'user', content: [{ type: 'text', text: turn.text }] }
+                : { role: 'assistant', content: [{ type: 'text', text: turn.text }] },
+    );
 }
 
 function fsReadToolImpl(
@@ -486,6 +508,8 @@ export class HarnessRuntime {
     private lastMessageCount?: number;
     /** 最近一次计量的 taskId（跨 Task 时重置基线） */
     private lastTaskId?: string;
+    /** 待执行 Session 的 Conversation 前置消息（create → execute 之间传递） */
+    private readonly pendingHistory = new Map<string, LLMMessage[]>();
     /** Steps already announced via step.started (a step persists several times). */
     private readonly startedStepIds = new Set<string>();
     private readonly llmProviders: Map<string, LLMProvider>;
@@ -529,6 +553,10 @@ export class HarnessRuntime {
         opts: RunOptions = {},
     ): Promise<{ rootGoalId: string; goalId: string }> {
         const rootGoalId = ulid();
+        const history = conversationMessages(opts.history);
+        if (history.length > 0) {
+            this.pendingHistory.set(rootGoalId, history);
+        }
         const goalId = ulid();
         const ceiling = this.config.goal?.permissionCeiling ?? 'read-only';
         const intake: Goal = {
@@ -606,6 +634,8 @@ export class HarnessRuntime {
         this.lastContextTotal = undefined;
         this.lastMessageCount = undefined;
         this.lastTaskId = undefined;
+        const history = this.pendingHistory.get(rootGoalId) ?? [];
+        this.pendingHistory.delete(rootGoalId);
         const exec = this.goalExecutionConfig();
         const result = await runGoalTree(
             {
@@ -615,6 +645,7 @@ export class HarnessRuntime {
                 tools: exec.tools,
                 invoker: exec.invoker,
                 allowedTools: exec.allowedTools,
+                ...(history.length > 0 ? { history } : {}),
                 onStep: (step) => this.emitStep(rootGoalId, step),
             },
             goals,
@@ -845,7 +876,7 @@ export class HarnessRuntime {
         const contextUsage = measureContext(
             ctx,
             sameTask ? this.lastContextTotal : undefined,
-            sameTask ? this.lastMessageCount : undefined,
+            sameTask ? this.lastMessageCount : ctx.baseMessageCount,
             this.config.contextWindow ?? 64000,
         );
         const streamId = ulid();
