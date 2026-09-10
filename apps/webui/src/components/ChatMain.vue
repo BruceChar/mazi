@@ -45,7 +45,7 @@ function fmtClock(ts) {
 </script>
 
 <template>
-    <main class="workspace">
+    <div class="chat-main">
         <div v-if="activeConversation" class="goal-conv-head">
             <span class="goal-conv-title">{{ conversationTitle(activeConversation) }}</span>
             <span v-if="workspaceRoot" class="goal-conv-ws">{{ workspaceRoot }}</span>
@@ -125,11 +125,11 @@ function fmtClock(ts) {
             <span class="stat">{{ 0 }} outputs</span>
             <span class="stat">{{ 0 }} costs</span>
         </div>
-    </main>
+    </div>
 </template>
 
 <style scoped>
-.workspace {
+.chat-main {
     flex: 1;
     display: flex;
     flex-direction: column;

@@ -56,7 +56,7 @@ const rightWidth = ref(320);
 const MIN_PANEL_W = 240;
 const MAX_PANEL_W = 640;
 const searchOpen = ref(false);
-const projectCollapsed = ref({});
+const projectCollapsed = ref(new Set());
 const projectMenuFor = ref('');
 const accountOpen = ref(false);
 const selectedModel = ref('');
@@ -408,11 +408,13 @@ async function submitNew(exec) {
 }
 
 function isProjectOpen(path) {
-    return projectCollapsed.value[path] !== true;
+    return !projectCollapsed.value.has(path);
 }
 
 function toggleProject(path) {
-    projectCollapsed.value[path] = !projectCollapsed.value[path];
+    const s = new Set(projectCollapsed.value);
+    s.has(path) ? s.delete(path) : s.add(path);
+    projectCollapsed.value = s;
 }
 
 function statusClass(status) {
