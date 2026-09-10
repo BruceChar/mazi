@@ -31,6 +31,15 @@ export interface RoundToolCall {
     arguments: Record<string, unknown>;
 }
 
+/** Runtime 输出侧估算与漂移（core UsageEstimate 的轮次形态） */
+export interface RoundEstimate {
+    /** 非 reasoning 输出文本的 token 估算 */
+    outputTokens: number;
+    /** outputTokens − (vendor.output − vendor.reasoning) */
+    outputDriftTokens?: number;
+    outputDriftRate?: number;
+}
+
 /** 一轮执行结果（Step 回注所需的最小事实面；provider-runtime 或测试 fake 映射后注入） */
 export interface RoundResult {
     text: string;
@@ -40,8 +49,12 @@ export interface RoundResult {
     vendorUsage?: VendorUsage;
     /** 本轮成本拆分（provider 层计价；无计价表时缺省） */
     cost?: CostBreakdown;
-    /** Runtime 上下文分段估算（C3e：system/history/tool/input/observation token） */
+    /** Runtime 输入估算（system/user/assistant/tool-call/schema/input/observation） */
     contextUsage?: RuntimeContextBreakdown;
+    /** Runtime 输出估算与漂移 */
+    estimate?: RoundEstimate;
+    /** 以估算 token 重算的成本（对照） */
+    estimatedCost?: CostBreakdown;
     finishReason?: string;
     ttftMs: number;
     totalMs: number;

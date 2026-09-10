@@ -97,12 +97,17 @@ export async function executeTask(
             const hasRoundFacts =
                 round.vendorUsage !== undefined ||
                 round.contextUsage !== undefined ||
+                round.estimate !== undefined ||
                 round.cost !== undefined;
             const roundUsage = hasRoundFacts
                 ? {
                       ...(round.vendorUsage !== undefined ? { vendor: round.vendorUsage } : {}),
                       ...(round.contextUsage !== undefined ? { runtime: round.contextUsage } : {}),
+                      ...(round.estimate !== undefined ? { estimate: round.estimate } : {}),
                       ...(round.cost !== undefined ? { cost: round.cost } : {}),
+                      ...(round.estimatedCost !== undefined
+                          ? { estimatedCost: round.estimatedCost }
+                          : {}),
                       timing: {
                           ttftMs: round.ttftMs,
                           totalMs: round.totalMs,

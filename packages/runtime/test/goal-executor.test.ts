@@ -216,6 +216,19 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
                 currency: 'USD',
                 calculatedAt: 1,
             },
+            estimate: { outputTokens: 18, outputDriftTokens: 3, outputDriftRate: 0.2 },
+            estimatedCost: {
+                inputCostUsd: 0.0008,
+                outputCostUsd: 0.0016,
+                cacheWriteCostUsd: 0,
+                cacheReadCostUsd: 0,
+                reasoningCostUsd: 0,
+                totalCostUsd: 0.0024,
+                priceTierApplied: 'base',
+                pricingVersion: 'v1',
+                currency: 'USD',
+                calculatedAt: 1,
+            },
         };
         await executeTask({ store, requestRound: async () => round }, t, g);
         const steps = await store.listSteps(t.taskId);
@@ -224,11 +237,15 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         const usage = thinking?.usage as {
             timing?: { tokensPerSecond?: number };
             cost?: { totalCostUsd?: number };
+            estimatedCost?: { totalCostUsd?: number };
+            estimate?: { outputTokens?: number };
             vendor?: { inputTokens?: number };
         };
         expect(usage?.vendor?.inputTokens).toBe(10);
         expect(usage?.timing?.tokensPerSecond).toBeCloseTo((20 / 200) * 1000, 6);
         expect(usage?.cost?.totalCostUsd).toBeCloseTo(0.003, 12);
+        expect(usage?.estimate?.outputTokens).toBe(18);
+        expect(usage?.estimatedCost?.totalCostUsd).toBeCloseTo(0.0024, 12);
         expect(intent?.usage).toBeUndefined();
     });
 

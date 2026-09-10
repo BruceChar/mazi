@@ -87,6 +87,8 @@ export interface RuntimeConfig {
     systemPrompt?: string;
     /** 模型上下文窗口（token），runtime 上下文计量与利用率用 */
     contextWindow?: number;
+    /** token 估算编码（js-tiktoken，缺省 o200k_base；仅近似厂商 tokenizer） */
+    tokenizerEncoding?: string;
     consoleEnabled?: boolean;
 }
 

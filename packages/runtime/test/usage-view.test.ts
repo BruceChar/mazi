@@ -47,4 +47,45 @@ describe('usageViewOf（StepUsage 线协议投影）', () => {
             tokensPerSecond: 0,
         });
     });
+
+    it('vendor totalTokens = input + output', () => {
+        const view = usageViewOf({ vendor: { inputTokens: 30, outputTokens: 12 } });
+        expect(view?.vendor?.totalTokens).toBe(42);
+    });
+
+    it('runtime 细分段（user/assistant/tool-call）与漂移率投影', () => {
+        const view = usageViewOf({
+            runtime: {
+                totalContextTokens: 1000,
+                systemPromptTokens: 400,
+                historyTokens: 300,
+                historyUserTokens: 100,
+                historyAssistantTokens: 150,
+                toolCallTokens: 50,
+                toolSchemaTokens: 100,
+                newInputTokens: 100,
+                observationTokens: 100,
+                estimationDriftTokens: -50,
+                estimationDriftRate: -0.05,
+            },
+        });
+        expect(view?.runtime?.historyUserTokens).toBe(100);
+        expect(view?.runtime?.historyAssistantTokens).toBe(150);
+        expect(view?.runtime?.toolCallTokens).toBe(50);
+        expect(view?.runtime?.estimationDriftTokens).toBe(-50);
+        expect(view?.runtime?.estimationDriftRate).toBe(-0.05);
+    });
+
+    it('estimate 由 outputTokens 判定存在性；estimatedCost 与 cost 同形', () => {
+        expect(usageViewOf({ estimate: { outputDriftTokens: 1 } })).toBeUndefined();
+        const view = usageViewOf({
+            estimate: { outputTokens: 45, outputDriftTokens: 10, outputDriftRate: 0.28 },
+            estimatedCost: { totalCostUsd: 0.0009, priceTierApplied: 'base' },
+        });
+        expect(view?.estimate?.outputTokens).toBe(45);
+        expect(view?.estimate?.outputDriftTokens).toBe(10);
+        expect(view?.estimate?.outputDriftRate).toBe(0.28);
+        expect(view?.estimatedCost?.totalCostUsd).toBeCloseTo(0.0009, 12);
+        expect(view?.estimatedCost?.currency).toBe('USD');
+    });
 });

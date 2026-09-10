@@ -1,7 +1,7 @@
 /**
- * audit —— 观测看板的纯计算层（docs/web/观测看板设计.md）。
- * 只做「快照/实时步骤 → 面板视图」的投影：聚合 token/cost/timing、计算 context 分段占比与逐步骤 diff。
- * 无副作用，不依赖 Vue，便于单测。
+ * audit —— 观测看板的纯计算层（docs/web/观测看板设计.md v2）。
+ * 只做「快照/实时步骤 → 面板视图」投影：vendor / 输入估算 / 输出估算 / 成本双口径聚合、
+ * 输入分段占比、逐步骤 context diff。无副作用，不依赖 Vue，便于单测。
  */
 
 import type { GoalTreeSnapshot, StepRuntimeUsage, StepUsage } from '../types.ts';
@@ -23,7 +23,7 @@ export interface AuditLiveStep {
     usage?: StepUsage | null;
 }
 
-/** Context 装填的一段（stacked bar / 图例）。 */
+/** Context 装填的一段（环形图 / 图例）。 */
 export interface AuditSegment {
     key: string;
     label: string;
@@ -32,7 +32,32 @@ export interface AuditSegment {
     colorVar: string;
 }
 
-/** 聚合后的用量事实（Task/Run 为多步之和；runtime 取最新一轮）。 */
+/** 成本聚合（vendor token 口径或估算 token 口径）。 */
+export interface CostAggregate {
+    total: number;
+    input: number;
+    output: number;
+    cacheWrite: number;
+    cacheRead: number;
+    reasoning: number;
+    tier: string;
+}
+
+/** 估算聚合与漂移。 */
+export interface EstimateAggregate {
+    /** Σ 每轮 input 估算 */
+    inputTotal: number;
+    /** inputTotal − Σ vendor.input（有符号） */
+    inputDrift: number | null;
+    inputDriftRate: number | null;
+    /** Σ 每轮 output 估算 */
+    outputTotal: number;
+    /** outputTotal − Σ (vendor.output − vendor.reasoning) */
+    outputDrift: number | null;
+    outputDriftRate: number | null;
+}
+
+/** 聚合后的用量事实。 */
 export interface AggregatedUsage {
     vendor: {
         input: number;
@@ -42,16 +67,11 @@ export interface AggregatedUsage {
         reasoning: number;
         total: number;
     } | null;
+    /** 最新一轮的 input 分段（用于占比环形图） */
     runtime: StepRuntimeUsage | null;
-    cost: {
-        total: number;
-        input: number;
-        output: number;
-        cacheWrite: number;
-        cacheRead: number;
-        reasoning: number;
-        tier: string;
-    } | null;
+    estimate: EstimateAggregate | null;
+    cost: CostAggregate | null;
+    estimatedCost: CostAggregate | null;
     timing: { ttftMs: number; totalMs: number; tokensPerSecond: number } | null;
 }
 
@@ -76,6 +96,12 @@ export interface AuditDiff {
     to: number;
 }
 
+/** 成本漂移。 */
+export interface CostDrift {
+    usd: number;
+    rate: number | null;
+}
+
 /** 面板视图。 */
 export interface AuditView {
     kind: 'step' | 'task' | 'run' | 'none';
@@ -89,8 +115,13 @@ export interface AuditView {
     strategies: string[];
     budgetPressureAction: string;
     rows: AuditStepRow[];
-    /** 选中 Step 的正文预览（step 目标才有）。 */
     text: string;
+    /** 估算成本 − vendor 成本 */
+    costDrift: CostDrift | null;
+    /** Σ估算总量（input+output） */
+    estimatedTotal: number | null;
+    /** Σvendor total */
+    vendorTotal: number | null;
 }
 
 export interface AuditInput {
@@ -118,21 +149,52 @@ interface ResolvedStep {
     text: string;
 }
 
-// ============================================================
-// Aggregation
-// ============================================================
-
 interface UsageBearingStep {
     startedAt: number;
     usage?: StepUsage | null;
 }
 
-/** 多步用量聚合：vendor/cost 求和，runtime 取时间最新，timing 求和 + TTFT 平均。 */
+// ============================================================
+// Aggregation
+// ============================================================
+
+function addCost(current: CostAggregate | null, next: StepUsage['cost']): CostAggregate {
+    const base: CostAggregate = current ?? {
+        total: 0,
+        input: 0,
+        output: 0,
+        cacheWrite: 0,
+        cacheRead: 0,
+        reasoning: 0,
+        tier: '',
+    };
+    if (!next) {
+        return base;
+    }
+    base.total += next.totalCostUsd ?? 0;
+    base.input += next.inputCostUsd ?? 0;
+    base.output += next.outputCostUsd ?? 0;
+    base.cacheWrite += next.cacheWriteCostUsd ?? 0;
+    base.cacheRead += next.cacheReadCostUsd ?? 0;
+    base.reasoning += next.reasoningCostUsd ?? 0;
+    if (next.priceTierApplied) {
+        base.tier = next.priceTierApplied;
+    }
+    return base;
+}
+
+/** 多步用量聚合：vendor/cost/estimate 求和；runtime 取时间最新一轮；timing 求和 + TTFT 平均。 */
 export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
     let vendor: AggregatedUsage['vendor'] = null;
-    let cost: AggregatedUsage['cost'] = null;
+    let cost: CostAggregate | null = null;
+    let estimatedCost: CostAggregate | null = null;
     let runtime: StepRuntimeUsage | null = null;
     let runtimeAt = Number.NEGATIVE_INFINITY;
+    let estimateInput = 0;
+    let estimateOutput = 0;
+    let hasEstimate = false;
+    let vendorInput = 0;
+    let vendorOutputNonReasoning = 0;
     let totalMs = 0;
     let ttftSum = 0;
     let ttftCount = 0;
@@ -154,36 +216,29 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
             }
             const input = usage.vendor.inputTokens ?? 0;
             const output = usage.vendor.outputTokens ?? 0;
+            const reasoning = usage.vendor.reasoningOutputTokens ?? 0;
             vendor.input += input;
             vendor.output += output;
             vendor.cacheRead += usage.vendor.cacheReadInputTokens ?? 0;
             vendor.cacheCreation += usage.vendor.cacheCreationInputTokens ?? 0;
-            vendor.reasoning += usage.vendor.reasoningOutputTokens ?? 0;
+            vendor.reasoning += reasoning;
             vendor.total += input + output;
+            vendorInput += input;
+            vendorOutputNonReasoning += Math.max(0, output - reasoning);
         }
-        if (usage.cost) {
-            if (!cost) {
-                cost = {
-                    total: 0,
-                    input: 0,
-                    output: 0,
-                    cacheWrite: 0,
-                    cacheRead: 0,
-                    reasoning: 0,
-                    tier: '',
-                };
+        if (usage.cost) cost = addCost(cost, usage.cost);
+        if (usage.estimatedCost) estimatedCost = addCost(estimatedCost, usage.estimatedCost);
+        if (usage.runtime) {
+            estimateInput += usage.runtime.totalContextTokens ?? 0;
+            hasEstimate = true;
+            if (step.startedAt >= runtimeAt) {
+                runtime = usage.runtime;
+                runtimeAt = step.startedAt;
             }
-            cost.total += usage.cost.totalCostUsd ?? 0;
-            cost.input += usage.cost.inputCostUsd ?? 0;
-            cost.output += usage.cost.outputCostUsd ?? 0;
-            cost.cacheWrite += usage.cost.cacheWriteCostUsd ?? 0;
-            cost.cacheRead += usage.cost.cacheReadCostUsd ?? 0;
-            cost.reasoning += usage.cost.reasoningCostUsd ?? 0;
-            if (usage.cost.priceTierApplied) cost.tier = usage.cost.priceTierApplied;
         }
-        if (usage.runtime && step.startedAt >= runtimeAt) {
-            runtime = usage.runtime;
-            runtimeAt = step.startedAt;
+        if (usage.estimate) {
+            estimateOutput += usage.estimate.outputTokens ?? 0;
+            hasEstimate = true;
         }
         if (usage.timing) {
             hasTiming = true;
@@ -193,6 +248,20 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
             outputTokens += usage.vendor?.outputTokens ?? 0;
         }
     }
+    const estimate: EstimateAggregate | null = hasEstimate
+        ? {
+              inputTotal: estimateInput,
+              inputDrift: vendor ? estimateInput - vendorInput : null,
+              inputDriftRate:
+                  vendor && vendorInput > 0 ? (estimateInput - vendorInput) / vendorInput : null,
+              outputTotal: estimateOutput,
+              outputDrift: vendor ? estimateOutput - vendorOutputNonReasoning : null,
+              outputDriftRate:
+                  vendor && vendorOutputNonReasoning > 0
+                      ? (estimateOutput - vendorOutputNonReasoning) / vendorOutputNonReasoning
+                      : null,
+          }
+        : null;
     const timing = hasTiming
         ? {
               ttftMs: ttftCount > 0 ? ttftSum / ttftCount : 0,
@@ -203,7 +272,7 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
                       : 0,
           }
         : null;
-    return { vendor, runtime, cost, timing };
+    return { vendor, runtime, estimate, cost, estimatedCost, timing };
 }
 
 // ============================================================
@@ -219,64 +288,115 @@ interface SegmentDef {
     pick: (runtime: StepRuntimeUsage) => number;
 }
 
-const SEGMENT_DEFS: SegmentDef[] = [
-    {
-        key: 'system',
-        label: 'system prompt',
-        colorVar: '--thinking',
-        pick: (r) => r.systemPromptTokens ?? 0,
-    },
-    { key: 'history', label: 'history', colorVar: '--tool', pick: (r) => r.historyTokens ?? 0 },
-    {
+function segmentDefs(runtime: StepRuntimeUsage): SegmentDef[] {
+    const defs: SegmentDef[] = [
+        {
+            key: 'system',
+            label: 'system prompt',
+            colorVar: '--seg-system',
+            pick: (r) => r.systemPromptTokens ?? 0,
+        },
+    ];
+    const hasSplit =
+        runtime.historyUserTokens !== undefined ||
+        runtime.historyAssistantTokens !== undefined ||
+        runtime.toolCallTokens !== undefined;
+    if (hasSplit) {
+        defs.push({
+            key: 'historyUser',
+            label: 'user history',
+            colorVar: '--seg-user',
+            pick: (r) => r.historyUserTokens ?? 0,
+        });
+        defs.push({
+            key: 'historyAssistant',
+            label: 'assistant',
+            colorVar: '--seg-assistant',
+            pick: (r) => r.historyAssistantTokens ?? 0,
+        });
+        defs.push({
+            key: 'toolCall',
+            label: 'tool-call args',
+            colorVar: '--seg-toolcall',
+            pick: (r) => r.toolCallTokens ?? 0,
+        });
+    } else if ((runtime.historyTokens ?? 0) > 0) {
+        defs.push({
+            key: 'history',
+            label: 'history',
+            colorVar: '--seg-user',
+            pick: (r) => r.historyTokens ?? 0,
+        });
+    }
+    defs.push({
         key: 'toolSchema',
         label: 'tool schema',
-        colorVar: '--warn',
+        colorVar: '--seg-schema',
         pick: (r) => r.toolSchemaTokens ?? 0,
-    },
-    {
+    });
+    defs.push({
         key: 'newInput',
         label: 'user input',
-        colorVar: '--accent',
+        colorVar: '--seg-input',
         pick: (r) => r.newInputTokens ?? 0,
-    },
-    {
+    });
+    defs.push({
         key: 'observation',
         label: 'observation',
-        colorVar: '--ok',
+        colorVar: '--seg-observation',
         pick: (r) => r.observationTokens ?? 0,
-    },
-    {
+    });
+    defs.push({
         key: 'retrieved',
         label: 'retrieved',
-        colorVar: '--fg-tertiary',
+        colorVar: '--seg-optional',
         pick: (r) => r.retrievedTokens ?? 0,
-    },
-    {
+    });
+    defs.push({
         key: 'example',
         label: 'examples',
-        colorVar: '--fg-tertiary',
+        colorVar: '--seg-optional',
         pick: (r) => r.exampleTokens ?? 0,
-    },
-];
+    });
+    return defs;
+}
 
-/** Runtime 分段 → 占比段（分母 totalContextTokens，缺省回落到分段和；可选段为 0 时省略）。 */
+/** Runtime input 分段 → 占比段（分母 totalContextTokens，缺省回落分段和）。 */
 export function contextSegments(runtime: StepRuntimeUsage | null | undefined): AuditSegment[] {
     if (!runtime) return [];
-    const sum = SEGMENT_DEFS.reduce((total, def) => total + def.pick(runtime), 0);
+    const defs = segmentDefs(runtime);
+    const sum = defs.reduce((total, def) => total + def.pick(runtime), 0);
     const denominator =
         (runtime.totalContextTokens ?? 0) > 0 ? (runtime.totalContextTokens ?? 0) : sum;
-    return SEGMENT_DEFS.filter(
-        (def) => !OPTIONAL_SEGMENTS.has(def.key) || def.pick(runtime) > 0,
-    ).map((def) => {
-        const tokens = def.pick(runtime);
-        return {
-            key: def.key,
-            label: def.label,
-            tokens,
-            ratio: denominator > 0 ? tokens / denominator : 0,
-            colorVar: def.colorVar,
-        };
-    });
+    return defs
+        .filter((def) => !OPTIONAL_SEGMENTS.has(def.key) || def.pick(runtime) > 0)
+        .map((def) => {
+            const tokens = def.pick(runtime);
+            return {
+                key: def.key,
+                label: def.label,
+                tokens,
+                ratio: denominator > 0 ? tokens / denominator : 0,
+                colorVar: def.colorVar,
+            };
+        });
+}
+
+/** 占比段 → CSS conic-gradient（环形饼图）。 */
+export function conicGradient(segments: AuditSegment[]): string {
+    const total = segments.reduce((sum, seg) => sum + seg.ratio, 0);
+    if (total <= 0) {
+        return 'conic-gradient(var(--border) 0% 100%)';
+    }
+    let acc = 0;
+    const stops: string[] = [];
+    for (const seg of segments) {
+        const start = (acc / total) * 100;
+        acc += seg.ratio;
+        const end = (acc / total) * 100;
+        stops.push(`var(${seg.colorVar}) ${start.toFixed(3)}% ${end.toFixed(3)}%`);
+    }
+    return `conic-gradient(${stops.join(', ')})`;
 }
 
 // ============================================================
@@ -384,7 +504,52 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
     };
 }
 
-const EMPTY_USAGE: AggregatedUsage = { vendor: null, runtime: null, cost: null, timing: null };
+function driftOf(cost: CostAggregate | null, estimated: CostAggregate | null): CostDrift | null {
+    if (!cost || !estimated || cost.total <= 0) return null;
+    const usd = estimated.total - cost.total;
+    return { usd, rate: usd / cost.total };
+}
+
+function extrasOf(
+    usage: AggregatedUsage,
+): Pick<AuditView, 'costDrift' | 'estimatedTotal' | 'vendorTotal'> {
+    return {
+        costDrift: driftOf(usage.cost, usage.estimatedCost),
+        estimatedTotal: usage.estimate
+            ? usage.estimate.inputTotal + usage.estimate.outputTotal
+            : null,
+        vendorTotal: usage.vendor ? usage.vendor.total : null,
+    };
+}
+
+const EMPTY_USAGE: AggregatedUsage = {
+    vendor: null,
+    runtime: null,
+    estimate: null,
+    cost: null,
+    estimatedCost: null,
+    timing: null,
+};
+
+function noneView(stale: boolean): AuditView {
+    return {
+        kind: 'none',
+        stale,
+        title: stale ? '目标已失效' : '未选择',
+        subtitle: stale ? '请重新选择 Step 或 Task' : '点击对话流中的 Step 或 Task 查看审计',
+        usage: EMPTY_USAGE,
+        segments: [],
+        utilization: null,
+        diff: null,
+        strategies: [],
+        budgetPressureAction: '',
+        rows: [],
+        text: '',
+        costDrift: null,
+        estimatedTotal: null,
+        vendorTotal: null,
+    };
+}
 
 /** 目标解析：step 优先于 task；两者都无 → run 汇总。 */
 export function buildAuditView(input: AuditInput): AuditView {
@@ -400,36 +565,10 @@ export function buildAuditView(input: AuditInput): AuditView {
         : false;
 
     if (stepId && !selected) {
-        return {
-            kind: 'none',
-            stale: true,
-            title: '目标已失效',
-            subtitle: '请重新选择 Step 或 Task',
-            usage: EMPTY_USAGE,
-            segments: [],
-            utilization: null,
-            diff: null,
-            strategies: [],
-            budgetPressureAction: '',
-            rows: [],
-            text: '',
-        };
+        return noneView(true);
     }
     if (taskId && taskRows.length === 0 && !taskExists) {
-        return {
-            kind: 'none',
-            stale: true,
-            title: '目标已失效',
-            subtitle: '请重新选择 Step 或 Task',
-            usage: EMPTY_USAGE,
-            segments: [],
-            utilization: null,
-            diff: null,
-            strategies: [],
-            budgetPressureAction: '',
-            rows: [],
-            text: '',
-        };
+        return noneView(true);
     }
 
     if (selected) {
@@ -447,7 +586,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             kind: 'step',
             stale: false,
             title: `S#${selected.index} · ${kindLabel(selected.kind)}${toolSuffix}`,
-            subtitle: `${formatDuration(selected.durationMs)}${statusSuffix}`,
+            subtitle: formatDuration(selected.durationMs) + statusSuffix,
             usage,
             segments: contextSegments(runtime),
             utilization: runtime?.contextWindowUtilization ?? null,
@@ -457,6 +596,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             budgetPressureAction: runtime?.budgetPressureAction ?? '',
             rows: siblingRows,
             text: selected.text,
+            ...extrasOf(usage),
         };
     }
 
@@ -478,6 +618,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             budgetPressureAction: runtime?.budgetPressureAction ?? '',
             rows: taskRows.map((row) => toRow(row, stepId)),
             text: '',
+            ...extrasOf(usage),
         };
     }
 
@@ -496,25 +637,13 @@ export function buildAuditView(input: AuditInput): AuditView {
         budgetPressureAction: runtime?.budgetPressureAction ?? '',
         rows: rows.map((row) => toRow(row, stepId)),
         text: '',
+        ...extrasOf(usage),
     };
 }
 
 /** 空视图（未选择目标）。 */
 export function emptyAuditView(): AuditView {
-    return {
-        kind: 'none',
-        stale: false,
-        title: '未选择',
-        subtitle: '点击对话流中的 Step 或 Task 查看审计',
-        usage: EMPTY_USAGE,
-        segments: [],
-        utilization: null,
-        diff: null,
-        strategies: [],
-        budgetPressureAction: '',
-        rows: [],
-        text: '',
-    };
+    return noneView(false);
 }
 
 // ============================================================
@@ -529,8 +658,8 @@ export function kindLabel(kind: string): string {
 export function formatTokens(value: number | null | undefined): string {
     const n = value ?? 0;
     if (n < 1000) return String(n);
-    if (n < 1_000_000) return `${trimZero(n / 1000)}K`;
-    return `${trimZero(n / 1_000_000)}M`;
+    if (n < 1000000) return `${trimZero(n / 1000)}K`;
+    return `${trimZero(n / 1000000)}M`;
 }
 
 function trimZero(value: number): string {
@@ -555,7 +684,14 @@ export function formatDuration(ms: number | null | undefined): string {
     return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
-export function formatDrift(drift: number | null | undefined): string {
-    if (drift === null || drift === undefined) return '';
-    return (drift >= 0 ? '+' : '') + String(drift);
+/** 有符号整数展示（漂移 token 数）。 */
+export function formatSigned(value: number | null | undefined): string {
+    if (value === null || value === undefined || !Number.isFinite(value)) return '-';
+    return (value > 0 ? '+' : '') + String(Math.round(value));
+}
+
+/** 有符号比率展示（漂移率）。 */
+export function formatRate(rate: number | null | undefined): string {
+    if (rate === null || rate === undefined || !Number.isFinite(rate)) return '-';
+    return `${(rate > 0 ? '+' : '') + (rate * 100).toFixed(1)}%`;
 }

@@ -11,6 +11,7 @@ import type {
     RuntimeContextBreakdown,
     Step,
     Task,
+    TokenUsage,
     ToolSchema,
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
@@ -18,7 +19,7 @@ import type { GoalTreeSnapshot } from '@mazi/libs';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './gts/goal-executor.js';
-import type { ExecutorRoundContext, RoundResult } from './gts/round-types.js';
+import type { ExecutorRoundContext, RoundEstimate, RoundResult } from './gts/round-types.js';
 import { type GoalStore, SqliteGoalStore } from './memory/goal-store.js';
 import {
     ConsoleSink,
@@ -33,6 +34,7 @@ import {
     type RoundOutcome,
 } from './provider/index.js';
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
+import { configureTokenizer, estimateTokens } from './token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from './tool-gateway/builtin.js';
 
 /** 用户反馈载荷（core 旧 UserInteractionRecord 已删；事件契约只取展示字段） */
@@ -260,12 +262,10 @@ async function runCliTool(
     }
 }
 
-/** 粗估文本 token（chars/4，与 provider-runtime estimateInputTokens 同口径） */
-function estTokens(text: string): number {
-    return Math.max(0, Math.ceil(text.length / 4));
-}
-
-/** 上下文分段计量（C3e runtime 维度）：system/history/tool/input/observation → RuntimeContextBreakdown */
+/**
+ * 上下文分段计量（runtime input 估算）：system / user history / assistant / tool-call args /
+ * tool schema / new input / observation → RuntimeContextBreakdown。文本用真实 tokenizer 估算。
+ */
 function measureContext(
     ctx: {
         messages: LLMRequest['messages'];
@@ -280,33 +280,36 @@ function measureContext(
     const messages = ctx.messages;
     let newInputTokens = 0;
     let observationTokens = 0;
-    let historyTokens = 0;
+    let historyUserTokens = 0;
+    let historyAssistantTokens = 0;
+    let toolCallTokens = 0;
     for (let i = 0; i < messages.length; i += 1) {
         const message = messages[i];
         if (message === undefined) continue;
         if (message.role === 'user') {
             if (i === messages.length - 1) {
-                newInputTokens = estTokens(textOf(message.content));
+                newInputTokens = estimateTokens(textOf(message.content));
             } else {
-                historyTokens += estTokens(textOf(message.content));
+                historyUserTokens += estimateTokens(textOf(message.content));
             }
         } else if (message.role === 'tool') {
             for (const result of message.results) {
-                observationTokens += estTokens(
+                observationTokens += estimateTokens(
                     typeof result.output === 'string'
                         ? result.output
                         : JSON.stringify(result.output),
                 );
             }
         } else if (message.role === 'assistant') {
-            historyTokens += estTokens(textOf(message.content));
+            historyAssistantTokens += estimateTokens(textOf(message.content));
             for (const call of message.toolCalls ?? []) {
-                historyTokens += estTokens(JSON.stringify(call));
+                toolCallTokens += estimateTokens(JSON.stringify(call));
             }
         }
     }
-    const systemPromptTokens = estTokens(ctx.systemPrompt ?? '');
-    const toolSchemaTokens = estTokens(JSON.stringify(ctx.tools ?? []));
+    const systemPromptTokens = estimateTokens(ctx.systemPrompt ?? '');
+    const toolSchemaTokens = estimateTokens(JSON.stringify(ctx.tools ?? []));
+    const historyTokens = historyUserTokens + historyAssistantTokens + toolCallTokens;
     const totalContextTokens =
         systemPromptTokens + historyTokens + toolSchemaTokens + newInputTokens + observationTokens;
     const contextWindowUtilization =
@@ -315,6 +318,9 @@ function measureContext(
         systemPromptTokens,
         systemPromptRatio: totalContextTokens > 0 ? systemPromptTokens / totalContextTokens : 0,
         historyTokens,
+        historyUserTokens,
+        historyAssistantTokens,
+        toolCallTokens,
         toolSchemaTokens,
         newInputTokens,
         observationTokens,
@@ -434,6 +440,7 @@ export class HarnessRuntime {
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
+        configureTokenizer(config.tokenizerEncoding);
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
         this.goalStoreDb = new SqliteGoalStore(config.dbPath ?? ':memory:');
@@ -811,15 +818,23 @@ export class HarnessRuntime {
         );
         const result: RoundResult = toRoundResult(outcome);
         this.lastContextTotal = contextUsage.totalContextTokens;
-        // 估算漂移：|runtime total − vendor.inputTokens|（vendor 已上报时回填）
+        // 输入漂移：有符号（breakdown total − vendor.input），并给出漂移率
         const vendorInput = result.vendorUsage?.inputTokens;
         if (vendorInput !== undefined) {
-            contextUsage.estimationDriftTokens = Math.abs(
-                contextUsage.totalContextTokens - vendorInput,
-            );
+            const drift = contextUsage.totalContextTokens - vendorInput;
+            contextUsage.estimationDriftTokens = drift;
+            contextUsage.estimationDriftRate = vendorInput > 0 ? drift / vendorInput : undefined;
         }
+        const estimate = this.roundEstimate(result);
         const cost = this.roundCost(outcome);
-        return { ...result, contextUsage, ...(cost !== undefined ? { cost } : {}) };
+        const estimatedCost = this.roundEstimatedCost(outcome, contextUsage, estimate);
+        return {
+            ...result,
+            contextUsage,
+            ...(estimate !== undefined ? { estimate } : {}),
+            ...(cost !== undefined ? { cost } : {}),
+            ...(estimatedCost !== undefined ? { estimatedCost } : {}),
+        };
     }
 
     /** 本轮成本拆分：仅当厂商上报 usage 且候选命中计价表时产出。 */
@@ -830,5 +845,49 @@ export class HarnessRuntime {
             return undefined;
         }
         return computeCostBreakdown(usage, pricing, new Date());
+    }
+
+    /** 输出估算与漂移：estimate.output − (vendor.output − vendor.reasoning)。 */
+    private roundEstimate(result: RoundResult): RoundEstimate | undefined {
+        const outputTokens = estimateTokens(result.text);
+        if (result.vendorUsage === undefined && outputTokens === 0) {
+            return undefined;
+        }
+        const vendorNonReasoning = Math.max(
+            0,
+            (result.vendorUsage?.outputTokens ?? 0) -
+                (result.vendorUsage?.reasoningOutputTokens ?? 0),
+        );
+        const drift = outputTokens - vendorNonReasoning;
+        return {
+            outputTokens,
+            ...(result.vendorUsage !== undefined
+                ? {
+                      outputDriftTokens: drift,
+                      outputDriftRate:
+                          vendorNonReasoning > 0 ? drift / vendorNonReasoning : undefined,
+                  }
+                : {}),
+        };
+    }
+
+    /** 以 runtime 估算 token 重算成本（与 vendor 成本对照）；未配计价或缺估算时缺省。 */
+    private roundEstimatedCost(
+        outcome: RoundOutcome,
+        contextUsage: RuntimeContextBreakdown,
+        estimate: RoundEstimate | undefined,
+    ): CostBreakdown | undefined {
+        const pricing = this.pricingOf(outcome.metrics.providerId);
+        if (pricing === undefined || estimate === undefined) {
+            return undefined;
+        }
+        const estimatedUsage: TokenUsage = {
+            inputTokens: contextUsage.totalContextTokens,
+            cachedInputTokens: 0,
+            outputTokens: estimate.outputTokens,
+            reasoningTokens: 0,
+            totalTokens: contextUsage.totalContextTokens + estimate.outputTokens,
+        };
+        return computeCostBreakdown(estimatedUsage, pricing, new Date());
     }
 }

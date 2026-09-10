@@ -248,7 +248,7 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
         }
     });
 
-    it('Step.usage 全路径：vendor + runtime 装填 + timing + cost 同时进入快照与 step.ended 载荷', async () => {
+    it('Step.usage 全路径：vendor + input 估算 + output 估算 + 双口径 cost 同时进入快照与 SSE 载荷', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'mazi-stream-'));
         dirs.push(dir);
 
@@ -309,15 +309,23 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
             expect(usage?.runtime?.totalContextTokens).toBeGreaterThan(0);
             expect(usage?.runtime?.contextWindowUtilization).toBeGreaterThan(0);
             expect(usage?.runtime?.contextDeltaFromPrev).toBe(0);
+            expect(usage?.vendor?.totalTokens).toBe(42);
+            expect(typeof usage?.runtime?.estimationDriftTokens).toBe('number');
+            expect(typeof usage?.runtime?.estimationDriftRate).toBe('number');
+            expect(usage?.runtime?.historyUserTokens).toBeDefined();
             expect(typeof usage?.timing?.totalMs).toBe('number');
             expect(usage?.cost?.totalCostUsd).toBeGreaterThan(0);
             expect(usage?.cost?.priceTierApplied).toBe('base');
+            expect(usage?.estimate?.outputTokens).toBeGreaterThan(0);
+            expect(usage?.estimatedCost?.totalCostUsd).toBeGreaterThan(0);
 
             const payloadUsage = stepEvents
                 .map((event) => (event.payload as { usage?: typeof usage }).usage)
                 .find((item) => item !== undefined);
             expect(payloadUsage?.runtime?.totalContextTokens).toBeGreaterThan(0);
             expect(payloadUsage?.cost?.totalCostUsd).toBeGreaterThan(0);
+            expect(payloadUsage?.estimate?.outputTokens).toBeGreaterThan(0);
+            expect(payloadUsage?.estimatedCost?.totalCostUsd).toBeGreaterThan(0);
             expect(payloadUsage?.timing).toBeDefined();
         } finally {
             unsubscribe();

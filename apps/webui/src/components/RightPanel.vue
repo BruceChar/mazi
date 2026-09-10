@@ -1,6 +1,13 @@
 <script setup>
 import LineIcon from '../assets/LineIcon.vue';
-import { formatCost, formatDrift, formatPercent, formatTokens } from '../scripts/audit.ts';
+import {
+    conicGradient,
+    formatCost,
+    formatPercent,
+    formatRate,
+    formatSigned,
+    formatTokens,
+} from '../scripts/audit.ts';
 
 defineProps({
     open: { type: Boolean, default: false },
@@ -68,19 +75,20 @@ function eventSummary(e) {
     return '';
 }
 
-/* ---- Audit panel helpers (docs/web/观测看板设计.md §4) ---- */
+/* ---- Audit panel helpers (docs/web/观测看板设计.md v2) ---- */
 function cacheHitRate(vendor) {
     const input = Number(vendor?.input ?? 0);
     return input > 0 ? formatPercent(Number(vendor?.cacheRead ?? 0) / input) : '0.0%';
 }
 function diffClass(delta) {
-    if (delta > 0) return 'up';
-    if (delta < 0) return 'down';
-    return 'flat';
+    if (delta === null || delta === undefined || delta === 0) return 'flat';
+    return delta > 0 ? 'up' : 'down';
 }
-function formatDelta(delta) {
-    if (delta === null || delta === undefined) return '-';
-    return (delta > 0 ? '+' : '') + String(delta);
+function donutStyle(segments) {
+    return { background: conicGradient(segments) };
+}
+function vendorNonReasoning(vendor) {
+    return Math.max(0, Number(vendor?.output ?? 0) - Number(vendor?.reasoning ?? 0));
 }
 function toFixed1(value) {
     const n = Number(value ?? 0);
@@ -122,106 +130,111 @@ function toFixed1(value) {
                 </div>
 
                 <template v-else>
+                    <!-- Vendor 实际 -->
                     <section class="audit-section">
-                        <div class="audit-section-title">Token 用量</div>
+                        <div class="audit-section-title">Vendor 用量</div>
                         <template v-if="audit.usage.vendor">
-                            <div class="audit-row">
-                                <span class="audit-key">Vendor</span>
-                                <span class="audit-val">in {{ formatTokens(audit.usage.vendor.input) }} · out {{ formatTokens(audit.usage.vendor.output) }}</span>
-                            </div>
+                            <div class="audit-row"><span class="audit-key">input</span><span class="audit-val">{{ formatTokens(audit.usage.vendor.input) }}</span></div>
+                            <div class="audit-row"><span class="audit-key">output</span><span class="audit-val">{{ formatTokens(audit.usage.vendor.output) }}</span></div>
                             <div v-if="audit.usage.vendor.cacheRead" class="audit-row">
-                                <span class="audit-key">cache read</span>
-                                <span class="audit-val">{{ formatTokens(audit.usage.vendor.cacheRead) }} · 命中 {{ cacheHitRate(audit.usage.vendor) }}</span>
+                                <span class="audit-key">cached input</span>
+                                <span class="audit-val">{{ formatTokens(audit.usage.vendor.cacheRead) }} <span class="audit-note-inline">{{ cacheHitRate(audit.usage.vendor) }}</span></span>
                             </div>
-                            <div v-if="audit.usage.vendor.cacheCreation" class="audit-row">
-                                <span class="audit-key">cache write</span>
-                                <span class="audit-val">{{ formatTokens(audit.usage.vendor.cacheCreation) }}</span>
-                            </div>
-                            <div v-if="audit.usage.vendor.reasoning" class="audit-row">
-                                <span class="audit-key">reasoning</span>
-                                <span class="audit-val">{{ formatTokens(audit.usage.vendor.reasoning) }}</span>
-                            </div>
+                            <div v-if="audit.usage.vendor.cacheCreation" class="audit-row"><span class="audit-key">cache write</span><span class="audit-val">{{ formatTokens(audit.usage.vendor.cacheCreation) }}</span></div>
+                            <div class="audit-row"><span class="audit-key">reasoning output</span><span class="audit-val">{{ formatTokens(audit.usage.vendor.reasoning) }}</span></div>
+                            <div class="audit-row audit-total"><span class="audit-key">total</span><span class="audit-val">{{ formatTokens(audit.usage.vendor.total) }}</span></div>
                         </template>
                         <div v-else class="audit-muted">厂商未上报</div>
-                        <div v-if="audit.usage.runtime" class="audit-row">
-                            <span class="audit-key">Context</span>
-                            <span class="audit-val">{{ formatTokens(audit.usage.runtime.totalContextTokens) }} tok</span>
-                        </div>
-                        <div v-if="audit.usage.runtime && audit.usage.runtime.estimationDriftTokens != null" class="audit-row">
-                            <span class="audit-key">估算漂移</span>
-                            <span class="audit-val audit-warn">{{ formatDrift(audit.usage.runtime.estimationDriftTokens) }}</span>
-                        </div>
                     </section>
 
+                    <!-- Input 估算（breakdown）：环形饼图 + 占比 + diff + 漂移 -->
                     <section class="audit-section">
                         <div class="audit-section-title">
-                            Context 装填
+                            Input 估算（breakdown）
                             <span v-if="audit.utilization != null" class="audit-pct">窗口 {{ formatPercent(audit.utilization) }}</span>
                         </div>
+                        <template v-if="audit.segments.length">
+                            <div class="donut-wrap">
+                                <div class="donut" :style="donutStyle(audit.segments)">
+                                    <div class="donut-hole">
+                                        <span class="donut-num">{{ formatTokens(audit.usage.runtime ? audit.usage.runtime.totalContextTokens : null) }}</span>
+                                        <span class="donut-cap">估算 input</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-for="seg in audit.segments" :key="seg.key" class="seg-row">
+                                <span class="seg-dot" :style="{ background: 'var(' + seg.colorVar + ')' }"></span>
+                                <span class="seg-label">{{ seg.label }}</span>
+                                <span class="seg-tokens">{{ formatTokens(seg.tokens) }}</span>
+                                <span class="seg-ratio">{{ formatPercent(seg.ratio) }}</span>
+                            </div>
+                        </template>
+                        <div v-else class="audit-muted">Runtime 未采集</div>
+
                         <div v-if="audit.utilization != null" class="context-bar">
                             <div class="context-bar-fill" :style="{ width: Math.min(100, audit.utilization * 100) + '%' }"></div>
                         </div>
-                        <div v-if="audit.segments.length" class="seg-stack">
-                            <span
-                                v-for="seg in audit.segments"
-                                :key="seg.key"
-                                class="seg"
-                                :style="{ width: seg.ratio * 100 + '%', background: 'var(' + seg.colorVar + ')' }"
-                            ></span>
+
+                        <div v-if="audit.diff" class="audit-row">
+                            <span class="audit-key">context diff</span>
+                            <span class="audit-val audit-diff" :class="diffClass(audit.diff.delta)">{{ formatSigned(audit.diff.delta) }}（{{ formatTokens(audit.diff.from) }} → {{ formatTokens(audit.diff.to) }}）</span>
                         </div>
-                        <div v-for="seg in audit.segments" :key="seg.key" class="seg-row">
-                            <span class="seg-dot" :style="{ background: 'var(' + seg.colorVar + ')' }"></span>
-                            <span class="seg-label">{{ seg.label }}</span>
-                            <span class="seg-tokens">{{ formatTokens(seg.tokens) }}</span>
-                            <span class="seg-ratio">{{ formatPercent(seg.ratio) }}</span>
+
+                        <div v-if="audit.usage.estimate" class="audit-row">
+                            <span class="audit-key">input 漂移</span>
+                            <span class="audit-val" :class="diffClass(audit.usage.estimate.inputDrift)">
+                                {{ formatSigned(audit.usage.estimate.inputDrift) }}
+                                <span class="audit-note-inline">{{ formatRate(audit.usage.estimate.inputDriftRate) }}</span>
+                            </span>
                         </div>
-                        <div v-if="!audit.segments.length" class="audit-muted">Runtime 未采集</div>
+
                         <div v-if="audit.strategies.length" class="audit-note">策略：{{ audit.strategies.join(' · ') }}</div>
                         <div v-if="audit.budgetPressureAction" class="audit-note audit-warn">预算压力：{{ audit.budgetPressureAction }}</div>
                     </section>
 
+                    <!-- 输出估算 -->
                     <section class="audit-section">
-                        <div class="audit-section-title">Context Diff</div>
-                        <template v-if="audit.diff">
+                        <div class="audit-section-title">输出估算</div>
+                        <template v-if="audit.usage.estimate">
+                            <div class="audit-row"><span class="audit-key">estimate output</span><span class="audit-val">{{ formatTokens(audit.usage.estimate.outputTotal) }}</span></div>
+                            <div v-if="audit.usage.vendor" class="audit-row"><span class="audit-key">vendor output（非 reasoning）</span><span class="audit-val">{{ formatTokens(vendorNonReasoning(audit.usage.vendor)) }}</span></div>
                             <div class="audit-row">
-                                <span class="audit-key">相对上一轮</span>
-                                <span class="audit-val audit-diff" :class="diffClass(audit.diff.delta)">{{ formatDelta(audit.diff.delta) }}</span>
+                                <span class="audit-key">output 漂移</span>
+                                <span class="audit-val" :class="diffClass(audit.usage.estimate.outputDrift)">
+                                    {{ formatSigned(audit.usage.estimate.outputDrift) }}
+                                    <span class="audit-note-inline">{{ formatRate(audit.usage.estimate.outputDriftRate) }}</span>
+                                </span>
                             </div>
-                            <div class="audit-row">
-                                <span class="audit-key">上一轮 → 本轮</span>
-                                <span class="audit-val">{{ formatTokens(audit.diff.from) }} → {{ formatTokens(audit.diff.to) }}</span>
+                            <div v-if="audit.estimatedTotal != null" class="audit-row audit-total">
+                                <span class="audit-key">估算总量 / vendor total</span>
+                                <span class="audit-val">{{ formatTokens(audit.estimatedTotal) }} / {{ audit.vendorTotal != null ? formatTokens(audit.vendorTotal) : '-' }}</span>
                             </div>
                         </template>
-                        <div v-else class="audit-muted">逐步骤 diff 见下方明细</div>
+                        <div v-else class="audit-muted">无输出估算</div>
                     </section>
 
+                    <!-- Cost 双口径 -->
                     <section class="audit-section">
                         <div class="audit-section-title">Cost</div>
                         <template v-if="audit.usage.cost">
-                            <div class="audit-row">
-                                <span class="audit-key">Total</span>
-                                <span class="audit-val audit-strong">{{ formatCost(audit.usage.cost.total) }}</span>
+                            <div class="audit-row"><span class="audit-key">vendor</span><span class="audit-val">{{ formatCost(audit.usage.cost.total) }}</span></div>
+                            <div v-if="audit.usage.estimatedCost" class="audit-row"><span class="audit-key">估算</span><span class="audit-val">{{ formatCost(audit.usage.estimatedCost.total) }}</span></div>
+                            <div v-if="audit.costDrift" class="audit-row">
+                                <span class="audit-key">漂移</span>
+                                <span class="audit-val" :class="diffClass(audit.costDrift.usd)">
+                                    {{ formatCost(audit.costDrift.usd) }}
+                                    <span class="audit-note-inline">{{ formatRate(audit.costDrift.rate) }}</span>
+                                </span>
                             </div>
-                            <div class="audit-row">
-                                <span class="audit-key">in / out</span>
-                                <span class="audit-val">{{ formatCost(audit.usage.cost.input) }} / {{ formatCost(audit.usage.cost.output) }}</span>
-                            </div>
-                            <div v-if="audit.usage.cost.cacheRead || audit.usage.cost.cacheWrite" class="audit-row">
-                                <span class="audit-key">cache</span>
-                                <span class="audit-val">{{ formatCost(audit.usage.cost.cacheRead + audit.usage.cost.cacheWrite) }}</span>
-                            </div>
-                            <div v-if="audit.usage.cost.reasoning" class="audit-row">
-                                <span class="audit-key">reasoning</span>
-                                <span class="audit-val">{{ formatCost(audit.usage.cost.reasoning) }}</span>
-                            </div>
-                            <div v-if="audit.usage.cost.tier" class="audit-row">
-                                <span class="audit-key">tier</span>
-                                <span class="audit-val">{{ audit.usage.cost.tier }}</span>
-                            </div>
+                            <div class="audit-row"><span class="audit-key">in / out</span><span class="audit-val">{{ formatCost(audit.usage.cost.input) }} / {{ formatCost(audit.usage.cost.output) }}</span></div>
+                            <div v-if="audit.usage.cost.cacheRead || audit.usage.cost.cacheWrite" class="audit-row"><span class="audit-key">cache</span><span class="audit-val">{{ formatCost(audit.usage.cost.cacheRead + audit.usage.cost.cacheWrite) }}</span></div>
+                            <div v-if="audit.usage.cost.reasoning" class="audit-row"><span class="audit-key">reasoning</span><span class="audit-val">{{ formatCost(audit.usage.cost.reasoning) }}</span></div>
+                            <div v-if="audit.usage.cost.tier" class="audit-row"><span class="audit-key">tier</span><span class="audit-val">{{ audit.usage.cost.tier }}</span></div>
                         </template>
                         <div v-else class="audit-muted">未计价</div>
                     </section>
 
+                    <!-- Timing -->
                     <section class="audit-section">
                         <div class="audit-section-title">Timing</div>
                         <template v-if="audit.usage.timing">
@@ -232,6 +245,7 @@ function toFixed1(value) {
                         <div v-else class="audit-muted">暂无耗时</div>
                     </section>
 
+                    <!-- 步骤明细 -->
                     <section v-if="audit.rows.length" class="audit-section">
                         <div class="audit-section-title">步骤明细（{{ audit.rows.length }}）</div>
                         <button
@@ -244,7 +258,7 @@ function toFixed1(value) {
                             <span class="audit-step-tag">S#{{ row.index }}</span>
                             <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
                             <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
-                            <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatDelta(row.contextDelta) }}</span>
+                            <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
                             <span class="audit-step-tokens">{{ formatTokens(row.tokens) }}</span>
                         </button>
                     </section>
@@ -833,5 +847,49 @@ function toFixed1(value) {
     color: var(--fg-secondary);
     white-space: pre-wrap;
     word-break: break-word;
+}
+/* Donut (conic-gradient pie) for input breakdown */
+.donut-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+.donut {
+    width: 108px;
+    height: 108px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+}
+.donut-hole {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+}
+.donut-num {
+    font-size: 14px;
+    font-weight: 600;
+    font-family: ui-monospace, monospace;
+    color: var(--fg);
+}
+.donut-cap {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.audit-note-inline {
+    margin-left: 4px;
+    color: var(--fg-tertiary);
+    font-size: 11px;
+}
+.audit-total .audit-key,
+.audit-total .audit-val {
+    font-weight: 600;
+    color: var(--fg);
 }
 </style>

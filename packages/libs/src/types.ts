@@ -79,16 +79,29 @@ export interface StepVendorUsage {
     cacheCreationInputTokens?: number;
     cacheReadInputTokens?: number;
     reasoningOutputTokens?: number;
+    /** input + output */
+    totalTokens?: number;
     reportedByVendor?: boolean;
 }
 
-/** Runtime 层上下文分段、占比与装填（core RuntimeContextBreakdown 的线协议投影）。 */
+/**
+ * Runtime 层 input 估算分段（core RuntimeContextBreakdown 的线协议投影）。
+ * 各段之和 = totalContextTokens。
+ */
 export interface StepRuntimeUsage {
     totalContextTokens: number;
     systemPromptTokens: number;
+    /** 聚合 = 下面三个之和（旧数据可能只有该字段） */
     historyTokens: number;
+    /** 历史用户消息 */
+    historyUserTokens?: number;
+    /** 历史 assistant 内容（思考 + 正文） */
+    historyAssistantTokens?: number;
+    /** 历史 assistant 工具调用参数 */
+    toolCallTokens?: number;
     toolSchemaTokens: number;
     newInputTokens: number;
+    /** 工具结果回注（input） */
     observationTokens: number;
     retrievedTokens?: number;
     exampleTokens?: number;
@@ -100,8 +113,19 @@ export interface StepRuntimeUsage {
     contextDeltaFromPrev?: number;
     strategyApplied?: string[];
     budgetPressureAction?: string;
-    /** |runtime.totalContextTokens − vendor.inputTokens| */
+    /** totalContextTokens − vendor.inputTokens（有符号） */
     estimationDriftTokens?: number;
+    /** estimationDriftTokens / vendor.inputTokens */
+    estimationDriftRate?: number;
+}
+
+/** Runtime 输出估算与漂移（core UsageEstimate 的线协议投影）。 */
+export interface StepEstimateUsage {
+    /** 非 reasoning 输出文本的 token 估算 */
+    outputTokens: number;
+    /** outputTokens − (vendor.output − vendor.reasoning) */
+    outputDriftTokens?: number;
+    outputDriftRate?: number;
 }
 
 /** 成本拆分（core CostBreakdown 的线协议投影）。 */
@@ -124,11 +148,17 @@ export interface StepTimingUsage {
     tokensPerSecond: number;
 }
 
-/** Token usage attached to a step (vendor + runtime + cost + timing). */
+/** Token usage attached to a step (vendor + input estimate + output estimate + cost + timing). */
 export interface StepUsage {
     vendor?: StepVendorUsage;
+    /** input 估算（breakdown） */
     runtime?: StepRuntimeUsage;
+    /** output 估算 */
+    estimate?: StepEstimateUsage;
+    /** vendor token 口径成本 */
     cost?: StepCostUsage;
+    /** 估算 token 口径成本（对照） */
+    estimatedCost?: StepCostUsage;
     timing?: StepTimingUsage;
 }
 

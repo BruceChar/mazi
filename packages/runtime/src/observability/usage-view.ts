@@ -33,6 +33,7 @@ function vendorView(source: Record<string, unknown>): StepUsage['vendor'] | unde
     const view: NonNullable<StepUsage['vendor']> = {
         inputTokens: inputTokens ?? 0,
         outputTokens: outputTokens ?? 0,
+        totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
     };
     const cacheCreation = numberOf(source.cacheCreationInputTokens);
     if (cacheCreation !== undefined) view.cacheCreationInputTokens = cacheCreation;
@@ -58,6 +59,12 @@ function runtimeView(source: Record<string, unknown>): StepUsage['runtime'] | un
         newInputTokens: numberOf(source.newInputTokens) ?? 0,
         observationTokens: numberOf(source.observationTokens) ?? 0,
     };
+    const historyUser = numberOf(source.historyUserTokens);
+    if (historyUser !== undefined) view.historyUserTokens = historyUser;
+    const historyAssistant = numberOf(source.historyAssistantTokens);
+    if (historyAssistant !== undefined) view.historyAssistantTokens = historyAssistant;
+    const toolCall = numberOf(source.toolCallTokens);
+    if (toolCall !== undefined) view.toolCallTokens = toolCall;
     const retrieved = numberOf(source.retrievedTokens);
     if (retrieved !== undefined) view.retrievedTokens = retrieved;
     const examples = numberOf(source.exampleTokens);
@@ -74,6 +81,21 @@ function runtimeView(source: Record<string, unknown>): StepUsage['runtime'] | un
     if (pressure !== undefined) view.budgetPressureAction = pressure;
     const drift = numberOf(source.estimationDriftTokens);
     if (drift !== undefined) view.estimationDriftTokens = drift;
+    const driftRate = numberOf(source.estimationDriftRate);
+    if (driftRate !== undefined) view.estimationDriftRate = driftRate;
+    return view;
+}
+
+function estimateView(source: Record<string, unknown>): StepUsage['estimate'] | undefined {
+    const outputTokens = numberOf(source.outputTokens);
+    if (outputTokens === undefined) {
+        return undefined;
+    }
+    const view: NonNullable<StepUsage['estimate']> = { outputTokens };
+    const drift = numberOf(source.outputDriftTokens);
+    if (drift !== undefined) view.outputDriftTokens = drift;
+    const rate = numberOf(source.outputDriftRate);
+    if (rate !== undefined) view.outputDriftRate = rate;
     return view;
 }
 
@@ -127,14 +149,20 @@ export function usageViewOf(usage: unknown): StepUsage | undefined {
     if (vendor !== undefined) view.vendor = vendorView(vendor);
     const runtime = subRecord(root.runtime);
     if (runtime !== undefined) view.runtime = runtimeView(runtime);
+    const estimate = subRecord(root.estimate);
+    if (estimate !== undefined) view.estimate = estimateView(estimate);
     const cost = subRecord(root.cost);
     if (cost !== undefined) view.cost = costView(cost);
+    const estimatedCost = subRecord(root.estimatedCost);
+    if (estimatedCost !== undefined) view.estimatedCost = costView(estimatedCost);
     const timing = subRecord(root.timing);
     if (timing !== undefined) view.timing = timingView(timing);
     if (
         view.vendor === undefined &&
         view.runtime === undefined &&
+        view.estimate === undefined &&
         view.cost === undefined &&
+        view.estimatedCost === undefined &&
         view.timing === undefined
     ) {
         return undefined;
