@@ -16,6 +16,7 @@ import { ulid } from '@mazi/core';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { PricingSchedule, RoundOutcome } from '@mazi/provider-runtime';
 import { RoundExecutor } from '@mazi/provider-runtime';
+import type { GoalTreeSnapshot } from '@mazi/libs';
 import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './executor/goal-executor.js';
 import type { RoundResult } from './executor/round-types.js';
@@ -553,7 +554,7 @@ export class HarnessRuntime {
     ): Promise<{
         rootGoalId: string;
         result: GoalRunResult;
-        snapshot: import('./observability/goal-snapshot.js').GoalTreeSnapshot;
+        snapshot: GoalTreeSnapshot;
     }> {
         const created = await this.createGoalSession(input, opts);
         const result = await this.executeGoalTree(created.rootGoalId);
@@ -564,7 +565,7 @@ export class HarnessRuntime {
     /** 重建 Goal 树四元组快照（审计/展示视图） */
     async goalSnapshot(
         rootGoalId: string,
-    ): Promise<import('./observability/goal-snapshot.js').GoalTreeSnapshot> {
+    ): Promise<GoalTreeSnapshot> {
         const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
         const tasks: Task[] = [];
         const steps: Step[] = [];

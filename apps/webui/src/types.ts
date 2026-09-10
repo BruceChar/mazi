@@ -1,114 +1,67 @@
-/** Shared domain types for the webui layer. */
+/**
+ * UI-layer types. Shared API contracts (Conversation, Project, ProviderOverview,
+ * GoalTreeSnapshot, EventItem, etc.) are imported from @mazi/libs; this file
+ * only holds UI-specific derived types and local state shapes.
+ */
+import type {
+    Conversation,
+    EventItem,
+    GoalNodeView,
+    GoalRunRef,
+    GoalTreeSnapshot,
+    Project,
+    ProviderModel,
+    ProviderOverview,
+    StepView,
+    TaskNodeView,
+} from '@mazi/libs';
 
-export interface GoalRunRef {
-    rootGoalId: string;
-    input: string;
-    createdAt: number;
-}
+// Re-export shared types for convenience within the webui package.
+export type {
+    Conversation,
+    EventItem,
+    GoalNodeView,
+    GoalRunRef,
+    GoalTreeSnapshot,
+    Project,
+    ProviderModel,
+    ProviderOverview,
+    StepView,
+    TaskNodeView,
+};
 
-export interface Conversation {
-    conversationId: string;
-    title: string;
-    userId?: string;
-    runs: GoalRunRef[];
-    workspace?: string;
-    projectId?: string;
-    createdAt: number;
-    updatedAt: number;
-    archived?: boolean;
-}
+/** GET /api/config response (re-exported from libs as ConfigOverview). */
+export type { ConfigOverview } from '@mazi/libs';
 
-export interface Project {
-    title: string;
-    path: string;
-}
+// ============================================================
+// UI-derived types (not part of the API contract)
+// ============================================================
 
-export interface ProviderModel {
-    id: string;
-    name?: string;
-}
-
-export interface Provider {
-    id: string;
-    vendor?: string;
-    models?: ProviderModel[];
-}
-
-export interface ConfigOverview {
-    home: string;
-    providers: Provider[];
-    hasProvidersFile: boolean;
-}
-
-export interface StepUsage {
-    vendor?: {
-        inputTokens?: number;
-        outputTokens?: number;
-        cacheReadInputTokens?: number;
-        reasoningOutputTokens?: number;
-    };
-    runtime?: {
-        totalContextTokens?: number;
-    };
-}
-
-export interface StepRow {
-    key: string;
-    stepId: string;
+/** A flattened step row for timeline rendering (includes goal/task context). */
+export interface StepRow extends StepView {
     goalId: string;
     taskId: string;
-    at?: number;
-    time: string;
-    kind: string;
-    kindLabel: string;
-    status?: string;
-    toolName: string;
-    text: string;
-    durationMs?: number;
-    duration: string;
-    usage?: StepUsage;
+    goalStatement: string;
+    taskTitle: string;
+    goalIndex: number;
+    taskIndex: number;
+    stepIndex: number;
 }
 
-export interface TaskNode {
-    taskId: string;
-    title: string;
-    status?: string;
-    steps: StepRow[];
-}
-
-export interface GoalNode {
+/** UI task node (wraps libs TaskNodeView with display metadata). */
+export interface TaskNode extends TaskNodeView {
     goalId: string;
-    statement: string;
-    status?: string;
-    tasks: TaskNode[];
+    goalStatement: string;
+    goalIndex: number;
+    taskIndex: number;
 }
 
-export interface TimelineDetail {
-    goals?: Array<{
-        goalId: string;
-        statement: string;
-        status?: string;
-        tasks?: Array<{
-            taskId: string;
-            title: string;
-            status?: string;
-            steps?: Array<{
-                stepId: string;
-                goalId: string;
-                taskId: string;
-                kind: string;
-                status?: string;
-                toolName?: string;
-                content?: string;
-                payloadText?: string;
-                startedAt?: number;
-                endedAt?: number;
-                usage?: StepUsage;
-            }>;
-        }>;
-    }>;
+/** UI goal node (wraps libs GoalNodeView with display metadata). */
+export interface GoalNode extends GoalNodeView {
+    goalIndex: number;
 }
 
+/** Per-run outcome stored in memory (POST /api/sessions/:id/run response summary). */
 export interface RunOutcome {
     ok: boolean;
     finalMessage: string;
@@ -117,12 +70,7 @@ export interface RunOutcome {
     taskCount: number;
 }
 
-export interface EventItem {
-    eventId: string;
-    type: string;
-    [key: string]: unknown;
-}
-
+/** Local user preferences (stored in localStorage). */
 export interface UserPreferences {
     displayName: string;
     favoriteTools: string;

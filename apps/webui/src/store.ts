@@ -4,9 +4,9 @@ import type {
     Conversation,
     ConfigOverview,
     EventItem,
+    GoalTreeSnapshot,
     Project,
     RunOutcome,
-    TimelineDetail,
     UserPreferences,
 } from './types';
 
@@ -113,9 +113,9 @@ export const busy = ref<boolean>(false);
 export const current = ref<string | null>(null);
 export const currentConversation = ref<string | null>(null);
 /** 当前 run 的 Goal 树快照（GET /api/sessions/:id/timeline） */
-export const detail = ref<TimelineDetail | null>(null);
+export const detail = ref<GoalTreeSnapshot | null>(null);
 /** Per-run timeline cache (rootGoalId -> snapshot) for displaying old runs */
-export const runDetails = reactive<Record<string, TimelineDetail | null>>({});
+export const runDetails = reactive<Record<string, GoalTreeSnapshot | null>>({});
 /** 本会话内存中的 run 结果（POST run 响应 tasks 摘要；不持久化） */
 export const runOutcomes = reactive<Record<string, RunOutcome>>({});
 export const events = reactive<{ list: EventItem[]; types: string }>({ list: [], types: 'all' });

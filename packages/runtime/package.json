@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@mazi/core": "workspace:*",
+    "@mazi/libs": "workspace:*",
     "@mazi/provider": "workspace:*",
     "@mazi/provider-runtime": "workspace:*"
   }

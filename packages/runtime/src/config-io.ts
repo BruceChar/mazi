@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import type { ProviderOverview } from '@mazi/libs';
 import type { ProviderConfig, RuntimeConfig, ToolConfig } from './config.js';
 import { ensureMaziDirs, maziPaths } from './paths.js';
 
@@ -44,12 +45,6 @@ export function toRuntimeConfig(
         dbPath: opts.dbPath ?? paths.dbPath,
         consoleEnabled: opts.consoleEnabled ?? false,
     };
-}
-
-export interface ProviderOverview {
-    id: string;
-    vendor?: string;
-    models: Array<{ id: string; name?: string }>;
 }
 
 export function configOverview(): { home: string; providers: ProviderOverview[]; hasProvidersFile: boolean } {

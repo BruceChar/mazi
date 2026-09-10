@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mazi/libs": "workspace:*",
     "vue": "^3.5.13"
   },
   "devDependencies": {

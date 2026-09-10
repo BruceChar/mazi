@@ -2,68 +2,23 @@
  * goal-snapshot —— Goal 树观测投影（C3f，OBS v1 的最小落地）。
  * 纯函数：goals/tasks/steps → 四元组（rootGoalId/goalId/taskId/stepId）层级快照，
  * 供审计/API/WebUI 消费；事实来自 GoalStore，本模块只投影不存储。
+ *
+ * 视图类型（GoalNodeView / TaskNodeView / StepView / GoalTreeSnapshot / StepUsage）
+ * 已上移到 @mazi/libs，供 apps/api 与 apps/webui 共享；本文件仅保留投影函数。
  */
 
 import type { Goal, Step, Task } from '@mazi/core';
-
-export interface GoalNodeView {
-    goalId: string;
-    kind: 'intake' | 'work';
-    status: Goal['status'];
-    statement: string;
-    tasks: TaskNodeView[];
-}
-
-export interface TaskNodeView {
-    taskId: string;
-    status: Task['status'];
-    title: string;
-    steps: StepView[];
-}
-
-export interface StepView {
-    stepId: string;
-    goalId: string;
-    taskId: string;
-    kind: Step['kind'];
-    status: Step['status'];
-    startedAt: number;
-    endedAt?: number;
-    /** Full payload content (thinking/intent text, tool output) */
-    content?: string;
-    /** Tool name (for tool_call steps) */
-    toolName?: string;
-    /** payload 摘要（≤240 字符）：思考内容 / 工具名+参数 / 观察内容（审计与日志用） */
-    payloadText?: string;
-    /** 两维度 token 统计：vendor（厂商上报）+ runtime（上下文估算） */
-    usage?: {
-        vendor?: {
-            inputTokens: number;
-            outputTokens: number;
-            cacheReadInputTokens?: number;
-            reasoningOutputTokens?: number;
-        };
-        runtime?: {
-            totalContextTokens: number;
-            systemPromptTokens: number;
-            historyTokens: number;
-            toolSchemaTokens: number;
-            newInputTokens: number;
-            observationTokens: number;
-            estimationDriftTokens?: number;
-        };
-    };
-}
+import type { GoalNodeView, GoalTreeSnapshot, StepUsage, StepView, TaskNodeView } from '@mazi/libs';
 
 /** Step.usage（unknown）→ 视图（vendor/runtime 摘要） */
-function usageViewOf(step: Step): StepView['usage'] {
+function usageViewOf(step: Step): StepUsage | undefined {
     const usage = step.usage as
         | { vendor?: Record<string, number>; runtime?: Record<string, number> }
         | undefined;
     if (!usage) {
         return undefined;
     }
-    const view: StepView['usage'] = {};
+    const view: StepUsage = {};
     if (usage.vendor) {
         view.vendor = {
             inputTokens: usage.vendor.inputTokens ?? 0,
@@ -113,13 +68,6 @@ function payloadTextOf(step: Step): string | undefined {
                     }`;
                 })();
     return text.length > 240 ? `${text.slice(0, 240)}…` : text;
-}
-
-export interface GoalTreeSnapshot {
-    rootGoalId: string;
-    goals: GoalNodeView[];
-    taskCount: number;
-    stepCount: number;
 }
 
 export function snapshotGoalTree(
