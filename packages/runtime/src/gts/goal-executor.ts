@@ -67,6 +67,8 @@ export async function executeTask(
 
     const roundRequest = (): Promise<RoundResult> =>
         deps.requestRound({
+            goalId: task.goalId,
+            taskId: task.taskId,
             model: deps.model ?? { providerId: 'default', modelId: 'default' },
             messages,
             ...(deps.systemPrompt ? { systemPrompt: deps.systemPrompt } : {}),

@@ -13,6 +13,10 @@ export interface ExecutorRoundContext {
     systemPrompt?: string;
     tools: ToolSchema[];
     signal?: AbortSignal;
+    /** 归因：本轮所属 work goal（流式事件 rootGoalId 之外的 goalId） */
+    goalId?: string;
+    /** 归因：本轮所属 task（llm.stream_event 为 Task 级事件，必须携带） */
+    taskId?: string;
 }
 
 export interface RoundToolCall {

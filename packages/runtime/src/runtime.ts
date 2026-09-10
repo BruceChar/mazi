@@ -19,7 +19,7 @@ import { RoundExecutor } from './provider/index.js';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './gts/goal-executor.js';
-import type { RoundResult } from './gts/round-types.js';
+import type { ExecutorRoundContext, RoundResult } from './gts/round-types.js';
 import { type GoalStore, SqliteGoalStore } from './memory/goal-store.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/index.js';
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
@@ -521,7 +521,7 @@ export class HarnessRuntime {
         const result = await runGoalTree(
             {
                 store: this.goalStoreDb,
-                requestRound: (ctx) => this.requestRound(ctx),
+                requestRound: (ctx) => this.requestRound(rootGoalId, ctx),
                 systemPrompt: this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT,
                 tools: exec.tools,
                 invoker: exec.invoker,
@@ -712,14 +712,15 @@ export class HarnessRuntime {
         return this.defaultModelOf(id) || provider.defaultModel || undefined;
     }
 
-    /** 单次 LLM 轮次：经 provider-runtime RoundExecutor（重试/failover 在 provider-runtime 内） */
-    private async requestRound(ctx: {
-        model: { providerId: string; modelId: string };
-        messages: LLMRequest['messages'];
-        systemPrompt?: string;
-        tools: ToolSchema[];
-        signal?: AbortSignal;
-    }): Promise<RoundResult> {
+    /**
+     * 单次 LLM 轮次：经 provider-runtime RoundExecutor（重试/failover 在 provider-runtime 内）。
+     * 具备 goalId/taskId 时，把 provider 原始流式增量包装成 llm.stream_event 实时发到事件总线
+     * （docs/web/流式响应设计.md §2）；同一轮的多次网络尝试共享 streamId，attempt 区分重试。
+     */
+    private async requestRound(
+        rootGoalId: string,
+        ctx: ExecutorRoundContext,
+    ): Promise<RoundResult> {
         const orderedIds = [
             ctx.model.providerId,
             ...[...this.llmProviders.keys()].filter((id) => id !== ctx.model.providerId),
@@ -749,7 +750,33 @@ export class HarnessRuntime {
             this.lastContextTotal,
             this.config.contextWindow ?? 64000,
         );
-        const outcome = await this.roundExecutor.execute(request, candidates);
+        const streamId = ulid();
+        const streamable = ctx.goalId !== undefined && ctx.taskId !== undefined;
+        const outcome = await this.roundExecutor.execute(
+            request,
+            candidates,
+            streamable
+                ? (streamEvent) => {
+                      this.bus.emit(
+                          newHarnessEvent({
+                              type: 'llm.stream_event',
+                              rootGoalId,
+                              goalId: ctx.goalId,
+                              taskId: ctx.taskId,
+                              attributes: {
+                                  'gen_ai.provider.name': streamEvent.providerId,
+                                  'gen_ai.request.model': streamEvent.modelId,
+                              },
+                              payload: {
+                                  streamId,
+                                  attempt: streamEvent.attempt,
+                                  event: streamEvent.event,
+                              },
+                          }),
+                      );
+                  }
+                : undefined,
+        );
         const result: RoundResult = toRoundResult(outcome);
         this.lastContextTotal = contextUsage.totalContextTokens;
         // 估算漂移：|runtime total − vendor.inputTokens|（vendor 已上报时回填）
