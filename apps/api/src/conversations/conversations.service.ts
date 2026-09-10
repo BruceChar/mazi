@@ -167,18 +167,21 @@ export class ConversationsService {
     /** 删除工作区项目后：解除该项目下 Conversation 的归属（记录保留，回到普通会话区） */
     detachWorkspace(workspace: string): void {
         this.read();
-        let changed = false;
+        let detached = 0;
         for (const conversation of this.state.conversations) {
             if (conversation.workspace === workspace) {
-                conversation.workspace = undefined;
-                conversation.projectId = undefined;
+                delete conversation.workspace;
+                delete conversation.projectId;
                 conversation.updatedAt = Date.now();
-                changed = true;
+                detached++;
             }
         }
-        if (changed) {
+        if (detached > 0) {
             this.write();
         }
+        this.logger.log(
+            `detachWorkspace workspace=${JSON.stringify(workspace)} detached=${detached} conversations`,
+        );
     }
 
     /** 删除 Conversation，并级联删除其包含的 Goal 树（goal-store） */
