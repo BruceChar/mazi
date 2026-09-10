@@ -1144,7 +1144,7 @@ onBeforeUnmount(() => {
                                         @click="workspaceMenu = !workspaceMenu"
                                     >
                                         <LineIcon name="folder" size="13" />
-                                        <span>{{ workspaceDisplayName || 'No workspace' }}</span>
+                                        <span>No workspace</span>
                                     </button>
                                     <div v-if="workspaceMenu" class="ws-menu">
                                         <div class="ws-menu-section">Projects</div>
