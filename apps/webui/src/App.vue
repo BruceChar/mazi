@@ -4,6 +4,7 @@ import LineIcon from './LineIcon.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
+import RightPanel from './components/RightPanel.vue';
 import { defaultConversations, projectConversations } from './sidebar.ts';
 import {
     busy,
@@ -1269,99 +1270,26 @@ onBeforeUnmount(() => {
             title="拖拽调整宽度"
             @pointerdown="startResize"
         ></div>
-        <aside
-            class="right-panel"
-            :class="{ open: ui.rightOpen, maximized: panelMaximized }"
-            :style="ui.rightOpen && !panelMaximized ? { width: rightWidth + 'px', minWidth: rightWidth + 'px' } : {}"
-        >
-            <button v-if="ui.rightOpen && !panelMaximized" class="right-panel-handle" title="收起面板" @click="ui.rightOpen = false">
-                <LineIcon name="chevronRight" size="12" />
-            </button>
-            <div class="right-panel-inner">
-                <div class="drawer-head">
-                    <div class="drawer-tabs">
-                        <button :class="{ on: drawerTab === 'log' }" @click="drawerTab = 'log'">日志</button>
-                        <button :class="{ on: drawerTab === 'events' }" @click="drawerTab = 'events'">事件</button>
-                    </div>
-                    <div class="drawer-head-actions">
-                        <button class="icon-btn" :title="panelMaximized ? '还原' : '最大化'" @click="togglePanelMax">
-                            <LineIcon :name="panelMaximized ? 'minimize' : 'maximize'" size="14" />
-                        </button>
-                    </div>
-                </div>
-
-                <div v-if="drawerTab === 'log'" class="drawer-body">
-                    <div v-if="current" class="exec-log">
-                        <div v-if="rootOutcome" class="log-result" :class="rootOutcome.ok ? 'ok' : 'fail'">
-                            <div class="log-line">
-                                <span class="log-tag">{{ rootOutcome.ok ? '成功' : '失败' }}</span>
-                                <span class="log-reason">reason: {{ rootOutcome.reason || '-' }}</span>
-                            </div>
-                            <div class="log-msg">{{ rootOutcome.ok ? rootOutcome.finalMessage : rootOutcome.errorMessage }}</div>
-                        </div>
-                        <div v-if="busy && !rootOutcome" class="empty-hint">执行中…（流式步骤实时到达）</div>
-
-                        <template v-if="stepEventRows.length">
-                            <div class="log-head">
-                                <span>步骤（{{ stepEventRows.length }}）</span>
-                                <span class="log-head-total">
-                                    总耗时 {{ formatDuration(stepEventRows.reduce((s, r) => s + (r.durationMs || 0), 0)) }}
-                                </span>
-                            </div>
-                            <div v-for="line in stepEventRows" :key="line.key" class="kanban-card" :class="`kanban-${line.kind}`">
-                                <div class="kanban-head">
-                                    <span class="kanban-kind">{{ line.kindLabel }}</span>
-                                    <span class="kanban-status" :class="line.status">{{ line.statusLabel }}</span>
-                                    <span class="kanban-time">{{ line.time }}</span>
-                                    <span v-if="line.duration" class="kanban-duration">{{ line.duration }}</span>
-                                </div>
-                                <div v-if="line.toolName" class="kanban-tool">{{ line.toolName }}</div>
-                                <pre v-if="line.text" class="kanban-content">{{ line.text }}</pre>
-                                <div v-if="usageStats(line.usage)?.hasData" class="kanban-usage">
-                                    <div class="usage-row">
-                                        <span class="usage-label">tokens</span>
-                                        <span class="usage-value">{{ usageStats(line.usage).total }}</span>
-                                        <span class="usage-breakdown">
-                                            in {{ usageStats(line.usage).input }} · out {{ usageStats(line.usage).output }}
-                                            <template v-if="usageStats(line.usage).cache"> · cache {{ usageStats(line.usage).cache }}</template>
-                                            <template v-if="usageStats(line.usage).reasoning"> · reasoning {{ usageStats(line.usage).reasoning }}</template>
-                                        </span>
-                                    </div>
-                                    <div v-if="usageStats(line.usage).context != null" class="usage-row">
-                                        <span class="usage-label">context</span>
-                                        <span class="usage-value">{{ usageStats(line.usage).context }}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                        <div v-else-if="!busy" class="empty-hint">暂无步骤事件</div>
-                    </div>
-                    <div v-else class="empty-hint">选择一个 Goal run 后在此查看执行日志</div>
-                </div>
-
-                <div v-else class="drawer-body">
-                    <div class="drawer-tabs sub">
-                        <select v-model="ui.eventTypes" title="事件类型">
-                            <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
-                        </select>
-                        <button class="ev-toggle" :class="{ on: showAllEvents }" @click="showAllEvents = !showAllEvents">
-                            {{ showAllEvents ? '全部' : '仅关键' }}
-                        </button>
-                    </div>
-                    <div class="event-log">
-                        <div v-for="e in filteredEvents" :key="e.eventId" class="event-row">
-                            <span class="ev-dot" :class="eventColorClass(e.type)"></span>
-                            <span class="event-time">{{ fmtClock(e.timestamp) }}</span>
-                            <span class="event-type" :class="eventColorClass(e.type)">{{ e.type }}</span>
-                            <span class="event-summary" :title="eventSummary(e)">{{ eventSummary(e) }}</span>
-                        </div>
-                        <div v-if="!filteredEvents.length" class="empty-hint">
-                            {{ showAllEvents ? '暂无事件' : '暂无关键事件（切换「全部」查看 step 等细节）' }}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </aside>
+        <RightPanel
+            :open="ui.rightOpen"
+            :maximized="panelMaximized"
+            :width="rightWidth"
+            :active-tab="drawerTab"
+            :current="current"
+            :root-outcome="rootOutcome"
+            :busy="busy"
+            :step-rows="stepEventRows"
+            :events="events"
+            :filtered-events="filteredEvents"
+            :event-types="eventTypes"
+            :active-event-type="ui.eventTypes"
+            :show-all-events="showAllEvents"
+            @update:active-tab="drawerTab = $event"
+            @toggle-maximize="togglePanelMax"
+            @collapse="ui.rightOpen = false"
+            @update:active-event-type="ui.eventTypes = $event"
+            @toggle-show-all="showAllEvents = !showAllEvents"
+        />
     </div>
 
     <div v-if="ui.showNew" class="modal-mask" @click.self="ui.showNew = false">
