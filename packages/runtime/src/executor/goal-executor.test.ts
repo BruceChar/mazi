@@ -41,7 +41,7 @@ function task(): Task {
 }
 const okRound: RoundResult = {
     text: 'README 内容为 AHF 契约。',
-    reasoning: '',
+    reasoning: '先读取 README，再总结其内容。',
     toolCalls: [],
     finishReason: 'stop',
     ttftMs: 1,
@@ -49,7 +49,7 @@ const okRound: RoundResult = {
 };
 
 describe('goal-executor（C3c：Task 单轮执行）', () => {
-    it('执行产 thinking Step（归因 taskId/goalId）并持久化；Task 置 succeeded', async () => {
+    it('执行产 thinking + intent Step（推理与模型输出分离）并持久化；Task 置 succeeded', async () => {
         const store = new MemoryGoalStore();
         const t = task();
         const g = goal();
@@ -66,9 +66,10 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(outcome.reason).toBe('final-answer');
         expect(outcome.finalMessage).toContain('README');
         const steps = await store.listSteps(t.taskId);
-        expect(steps).toHaveLength(1);
+        expect(steps).toHaveLength(2);
         expect(steps[0]?.goalId).toBe(t.goalId);
         expect(steps[0]?.kind).toBe('thinking');
+        expect(steps[1]?.kind).toBe('intent');
         expect((await store.loadTask(t.taskId))?.status).toBe('succeeded');
     });
 
@@ -137,7 +138,8 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(kinds).not.toContain('observation');
         const toolStep = steps.find((s) => s.kind === 'tool_call');
         expect(toolStep?.payload).toHaveProperty('output');
-        expect(kinds.filter((k) => k === 'thinking').length).toBe(2);
+        expect(kinds.filter((k) => k === 'thinking').length).toBe(1);
+        expect(kinds.filter((k) => k === 'intent').length).toBe(1);
     });
 
     it('白名单外工具 → blocked-tool，工具不执行（C5-1）', async () => {

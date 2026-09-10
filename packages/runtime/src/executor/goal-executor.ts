@@ -80,30 +80,53 @@ export async function executeTask(
     try {
         for (let roundIndex = 0; roundIndex < maxSteps; roundIndex += 1) {
             const round = await roundRequest();
-            const text = round.text.length > 0 ? round.text : round.reasoning;
-            const thinking: Step = {
-                stepId: ulid(),
-                taskId: task.taskId,
-                goalId: task.goalId,
-                kind: 'thinking',
-                payload: {
-                    content: text,
-                    ...(text.length > 200 ? { contextContent: text.slice(0, 200) } : {}),
-                },
-                status: 'ok',
-                startedAt: now(),
-                endedAt: now(),
-            };
-            // C3e：两维度 token 统计挂到模型轮 Step —— vendor（厂商上报）+ runtime（上下文估算）
-            if (round.vendorUsage !== undefined || round.contextUsage !== undefined) {
-                thinking.usage = {
-                    ...(round.vendorUsage !== undefined ? { vendor: round.vendorUsage } : {}),
-                    ...(round.contextUsage !== undefined ? { runtime: round.contextUsage } : {}),
+
+            // thinking step: reasoning process only (not model output)
+            if (round.reasoning.length > 0) {
+                const thinking: Step = {
+                    stepId: ulid(),
+                    taskId: task.taskId,
+                    goalId: task.goalId,
+                    kind: 'thinking',
+                    payload: {
+                        content: round.reasoning,
+                        ...(round.reasoning.length > 200 ? { contextContent: round.reasoning.slice(0, 200) } : {}),
+                    },
+                    status: 'ok',
+                    startedAt: now(),
+                    endedAt: now(),
                 };
+                // C3e：两维度 token 统计挂到模型轮 Step —— vendor（厂商上报）+ runtime（上下文估算）
+                if (round.vendorUsage !== undefined || round.contextUsage !== undefined) {
+                    thinking.usage = {
+                        ...(round.vendorUsage !== undefined ? { vendor: round.vendorUsage } : {}),
+                        ...(round.contextUsage !== undefined ? { runtime: round.contextUsage } : {}),
+                    };
+                }
+                steps.push(thinking);
+                await deps.store.saveStep(thinking);
+                deps.onStep?.(thinking);
             }
-            steps.push(thinking);
-            await deps.store.saveStep(thinking);
-            deps.onStep?.(thinking);
+
+            // intent step: model output / final answer (distinct from reasoning)
+            if (round.text.length > 0) {
+                const intent: Step = {
+                    stepId: ulid(),
+                    taskId: task.taskId,
+                    goalId: task.goalId,
+                    kind: 'intent',
+                    payload: {
+                        content: round.text,
+                        ...(round.text.length > 200 ? { contextContent: round.text.slice(0, 200) } : {}),
+                    },
+                    status: 'ok',
+                    startedAt: now(),
+                    endedAt: now(),
+                };
+                steps.push(intent);
+                await deps.store.saveStep(intent);
+                deps.onStep?.(intent);
+            }
 
             if (round.toolCalls.length === 0) {
                 task.status = 'succeeded';
@@ -113,7 +136,7 @@ export async function executeTask(
                     steps,
                     ok: true,
                     reason: 'final-answer',
-                    ...(text.length > 0 ? { finalMessage: text } : {}),
+                    ...(round.text.length > 0 ? { finalMessage: round.text } : {}),
                 };
             }
 
@@ -222,7 +245,7 @@ export async function executeTask(
             // 避免模型在后续轮次“失忆”而重复发起相同工具调用
             messages.push({
                 role: 'assistant',
-                content: text.length > 0 ? [{ type: 'text', text: text.slice(0, 4000) }] : [],
+                content: round.text.length > 0 ? [{ type: 'text', text: round.text.slice(0, 4000) }] : [],
                 toolCalls: round.toolCalls.map((c) => ({
                     callId: c.callId,
                     name: c.toolName,

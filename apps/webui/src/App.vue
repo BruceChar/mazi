@@ -221,6 +221,7 @@ function toggleStepCollapse(key) {
 /** 内容是否超过单行（>80 字符或含换行），仅长内容支持折叠 */
 function isStepLong(row) {
     if (!row.text) return false;
+    if (row.kind === 'intent') return false; // intent is always fully visible, never collapsed
     return row.text.length > 80 || row.text.includes('\n');
 }
 function toggleGoal(goalId) {
@@ -346,6 +347,7 @@ function kindGlyph(kind) {
 
 function kindLabel(kind) {
     if (kind === 'thinking') return 'thinking';
+    if (kind === 'intent') return 'intent';
     if (kind === 'tool_call') return 'tool';
     return kind || '-';
 }
@@ -933,7 +935,7 @@ onBeforeUnmount(() => {
                                                     >
                                                         <div class="exec-step-head" :class="{ clickable: isStepLong(row) }" @click="isStepLong(row) && toggleStepCollapse(row.key)">
                                                             <span class="step-dot" :class="{ collapsed: collapsedSteps.has(row.key), interactive: isStepLong(row) }"></span>
-                                                            <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="16" />
+                                                            <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : row.kind === 'intent' ? 'userMessage' : 'hammer'" size="16" />
                                                             <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                                                             <span class="exec-step-name">{{ row.toolName || row.kind }}</span>
                                                             <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
@@ -943,6 +945,7 @@ onBeforeUnmount(() => {
                                                         <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
                                                             <pre class="exec-step-code-inner">{{ row.text }}</pre>
                                                         </div>
+                                                        <div v-if="row.kind === 'intent' && row.text" class="exec-step-intent-text">{{ row.text }}</div>
                                                         <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
                                                             {{ usageStats(row.usage).total }} tokens
                                                             <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
@@ -1737,9 +1740,21 @@ onBeforeUnmount(() => {
     text-align: center;
 }
 .exec-thinking .exec-step-name { color: var(--thinking); }
+.exec-intent .exec-step-name { color: var(--fg); }
 .exec-tool_call .exec-step-name { color: var(--tool); }
 .exec-observation .exec-step-name { color: var(--observation); }
 .exec-step.error .exec-step-name { color: var(--error); }
+.exec-intent .exec-step-head .line-icon { color: var(--fg); }
+.exec-step-intent-text {
+    margin: 2px 8px 4px 14px;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 80%;
+}
 .exec-step-summary {
     font-size: 13px;
     color: var(--fg-secondary);

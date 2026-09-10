@@ -115,9 +115,15 @@ export interface Task {
 }
 
 /** 归因原子（thinking|tool_call|observation 是决策链三环节，不可砍） */
-export type StepKind = 'thinking' | 'tool_call' | 'observation';
+export type StepKind = 'thinking' | 'intent' | 'tool_call' | 'observation';
 
 export interface ThinkingPayload {
+    content: string;
+    contextContent?: string;
+}
+
+/** Model output / final intent — the answer produced after reasoning */
+export interface IntentPayload {
     content: string;
     contextContent?: string;
 }
@@ -140,7 +146,7 @@ export interface ObservationPayload {
     structured?: Record<string, unknown>;
 }
 
-export type StepPayload = ThinkingPayload | ToolCallPayload | ObservationPayload;
+export type StepPayload = ThinkingPayload | IntentPayload | ToolCallPayload | ObservationPayload;
 
 export interface HarnessError {
     code: string;
