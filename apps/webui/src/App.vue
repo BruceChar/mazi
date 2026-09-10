@@ -839,7 +839,7 @@ onBeforeUnmount(() => {
         </div>
     </header>
 
-    <div class="app-shell">
+    <div class="app-shell" :class="{ 'panel-maximized': panelMaximized }">
         <button v-if="!ui.sidebar" class="sidebar-expand-handle" title="展开侧边栏" @click="ui.sidebar = true">
             <LineIcon name="chevronRight" size="12" />
         </button>

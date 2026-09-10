@@ -1413,17 +1413,16 @@ pre {
     border-left-width: 1px;
 }
 
+.app-shell.panel-maximized .workspace {
+    display: none;
+}
+
 .right-panel.maximized {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    width: 100% !important;
-    flex-basis: 100% !important;
+    flex: 1 1 auto;
+    width: auto !important;
     min-width: 0 !important;
-    z-index: 50;
-    border-left: none;
+    position: static;
+    border-left: 1px solid var(--border);
     background: var(--bg);
 }
 .right-panel.maximized .right-panel-inner {
