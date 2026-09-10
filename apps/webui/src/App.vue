@@ -10,6 +10,7 @@ import Composer from './components/Composer.vue';
 import Sidebar from './components/Sidebar.vue';
 import ChatMain from './components/ChatMain.vue';
 import { defaultConversations, projectConversations } from './sidebar.ts';
+import { API_BASE } from './api.js';
 import {
     busy,
     cfg,
@@ -785,14 +786,15 @@ let latencyTimer = null;
 
 async function pingApi() {
     const start = performance.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        await fetch('/api/config', { signal: controller.signal });
-        clearTimeout(timeout);
+        await fetch(API_BASE + '/api/health', { signal: controller.signal });
         apiLatency.value = Math.round(performance.now() - start);
     } catch {
         apiLatency.value = null;
+    } finally {
+        clearTimeout(timeout);
     }
 }
 

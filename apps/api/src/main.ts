@@ -5,6 +5,7 @@ import { FastifyAdapter } from '@nestjs/platform-fastify';
 import type { FastifyInstance } from 'fastify';
 import { AppModule } from './app.module.js';
 import Logger from './common/log.js';
+import { registerHttpLogging } from './common/http-log.js';
 import dotenv from 'dotenv';
 import { resolve } from 'node:path';
 
@@ -31,22 +32,9 @@ async function bootstrap(): Promise<void> {
     });
     app.setGlobalPrefix('api');
 
-    // HTTP 访问日志：方法/路径/状态码/耗时
+    // HTTP 访问日志：方法/路径/状态码/耗时（/api/health 轮询在 http-log 内过滤，不写日志）
     const fastify = app.getHttpAdapter().getInstance() as FastifyInstance;
-    const withStart = (req: object & { start?: number }): number => {
-        req.start = Date.now();
-        return req.start;
-    };
-    fastify.addHook('onRequest', (req, _reply, done) => {
-        withStart(req as object & { start?: number });
-        done();
-    });
-    fastify.addHook('onResponse', (req, reply, done) => {
-        const started = (req as { start?: number }).start ?? Date.now();
-        const ms = Date.now() - started;
-        logger.log(`[api] ${reply.statusCode} ${req.method} ${req.url} ${ms}ms`);
-        done();
-    });
+    registerHttpLogging(fastify, { logger });
 
     app.enableCors({
         origin: CORS_ORIGIN,

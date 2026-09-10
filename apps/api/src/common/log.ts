@@ -1,4 +1,6 @@
 // logger.ts
+import type { Writable } from 'node:stream';
+
 /** ANSI 颜色常量 */
 const Colors = {
   reset: '\x1b[0m',
@@ -11,16 +13,18 @@ const Colors = {
 
 class Logger {
   private readonly moduleName: string;
+  private readonly out: Writable;
 
-  constructor(moduleName: string) {
+  constructor(moduleName: string, out: Writable = process.stdout) {
     this.moduleName = moduleName;
+    this.out = out;
   }
 
   /** 普通日志 INFO：绿色 */
   log(msg: string): void {
     const ts = new Date().toISOString();
     const line = `${ts} ${this.moduleName} ${Colors.green}[INFO]${Colors.reset} ${msg}\n`;
-    process.stdout.write(line);
+    this.out.write(line);
   }
 
   /** DEBUG：灰色，仅 local/dev 输出 */
@@ -30,14 +34,14 @@ class Logger {
 
     const ts = new Date().toISOString();
     const line = `${ts} ${this.moduleName} ${Colors.blue}[DEBUG]${Colors.reset} ${msg}\n`;
-    process.stdout.write(line);
+    this.out.write(line);
   }
 
   /** WARN：黄色（额外新增） */
   warn(msg: string): void {
     const ts = new Date().toISOString();
     const line = `${ts} ${this.moduleName} ${Colors.yellow}[WARN]${Colors.reset} ${msg}\n`;
-    process.stdout.write(line);
+    this.out.write(line);
   }
 
   /** ERROR：红色，stdout（如果你想stderr可以改成 process.stderr.write） */
