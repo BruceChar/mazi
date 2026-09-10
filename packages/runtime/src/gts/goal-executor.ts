@@ -65,6 +65,12 @@ export async function executeTask(
     const messages: LLMMessage[] = [toUserMessage(goal.statement)];
     const steps: Step[] = [];
 
+    // Persist the task before the first round. Live observers rebuild the tree via
+    // GoalStore.listTasks(); without an early row the task (and all its in-progress
+    // steps) stays invisible to /timeline until the task finishes.
+    task.status = 'running';
+    await deps.store.saveTask(task);
+
     const roundRequest = (): Promise<RoundResult> =>
         deps.requestRound({
             goalId: task.goalId,

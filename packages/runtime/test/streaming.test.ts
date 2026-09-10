@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { HarnessEvent, LLMProvider, StreamCompletionEvent } from '@mazi/core';
+import type { HarnessEvent, LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
@@ -89,6 +89,80 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
             expect(events.some((event) => event.type === 'step.ended')).toBe(true);
         } finally {
             unsubscribe();
+            await runtime.close();
+        }
+    });
+
+    it('多步工具调用期间，goalSnapshot 已包含进行中的 task 与 step（供 /timeline 实时观测）', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-stream-'));
+        dirs.push(dir);
+
+        let runtimeRef: HarnessRuntime | undefined;
+        let rootGoalId = '';
+        let observed: string[] = [];
+
+        const toolProvider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new ProviderError('unknown', 'ask unused');
+            },
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                const hasTool = request.messages.some((message) => message.role === 'tool');
+                if (!hasTool) {
+                    yield { type: 'start', model: 'faux-model' };
+                    yield { type: 'reasoning_delta', reasoning: 'calling tool' };
+                    yield { type: 'tool_call_start', index: 0, callId: 'c1', name: 'probe.tool' };
+                    yield { type: 'tool_call_delta', index: 0, argumentsDelta: '{}' };
+                    yield { type: 'tool_call_stop', index: 0 };
+                    yield { type: 'finish', finishReason: 'tool_calls' };
+                } else {
+                    yield { type: 'start', model: 'faux-model' };
+                    yield { type: 'text_delta', text: 'done' };
+                    yield { type: 'finish', finishReason: 'stop' };
+                }
+            },
+        };
+
+        const config: RuntimeConfig = {
+            providers: [],
+            tools: [
+                {
+                    name: 'probe.tool',
+                    description: 'probe tool',
+                    parameters: {},
+                    minPermission: 'read-only',
+                    sideEffects: [],
+                    impl: async () => {
+                        const snapshot = await runtimeRef!.goalSnapshot(rootGoalId);
+                        observed = snapshot.goals.flatMap((goal) =>
+                            goal.tasks.flatMap((task) =>
+                                task.steps.map((step) => step.kind + ':' + step.status),
+                            ),
+                        );
+                        return { ok: true, content: 'tool result' };
+                    },
+                },
+            ],
+            dbPath: ':memory:',
+            eventDir: dir,
+            goal: { allowedTools: ['probe.tool'], permissionCeiling: 'read-only' },
+            contextWindow: 64000,
+        };
+
+        const runtime = new HarnessRuntime(config, { llmProviders: { default: toolProvider } });
+        runtimeRef = runtime;
+        try {
+            const created = await runtime.createGoalSession('probe');
+            rootGoalId = created.rootGoalId;
+            await runtime.executeGoalTree(rootGoalId);
+            // While the tool was still executing, the snapshot must already expose the
+            // running task and the steps produced so far.
+            expect(observed).toContain('thinking:ok');
+            expect(observed).toContain('tool_call:running');
+        } finally {
             await runtime.close();
         }
     });

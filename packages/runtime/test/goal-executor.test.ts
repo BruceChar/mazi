@@ -73,6 +73,26 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect((await store.loadTask(t.taskId))?.status).toBe('succeeded');
     });
 
+    it('执行前先落库 running Task：进行中的 task/step 可被 timeline 观测', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        let duringRun: Task[] = [];
+        await executeTask(
+            {
+                store,
+                requestRound: async () => {
+                    duringRun = await store.listTasks(t.goalId);
+                    return okRound;
+                },
+            },
+            t,
+            g,
+        );
+        expect(duringRun.map((x) => x.taskId)).toContain(t.taskId);
+        expect(duringRun[0]?.status).toBe('running');
+    });
+
     it('requestRound 抛错 → driver-error，不落 Step', async () => {
         const store = new MemoryGoalStore();
         const t = task();
