@@ -2,6 +2,8 @@ import 'reflect-metadata';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { get } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { newHarnessEvent } from '@mazi/runtime';
+import { ApiRuntimeService } from '../src/common/runtime.service.js';
 import { createTestApp, type TestAppHandle } from '../src/testing/test-app.js';
 
 function collectSse(
@@ -73,5 +75,39 @@ describe('events SSE follow（NG-4）', () => {
         expect(result.matched).toBe(true);
         expect(result.text).toContain('event: goal.started');
         expect(result.text).toContain('event: user.feedback.captured');
+    });
+
+    it('follow=1：llm.stream_event（token 级流式增量）实时转发', async () => {
+        const created = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '打个招呼' },
+        });
+        const sessionId = created.json().sessionId;
+
+        const stream = collectSse(port, '/api/events/' + sessionId + '?follow=1', [
+            'event: llm.stream_event',
+        ]);
+        await new Promise((r) => setTimeout(r, 300)); // 让回放帧先写
+        h.app.get(ApiRuntimeService)
+            .harness()
+            .eventBus.emit(
+                newHarnessEvent({
+                    type: 'llm.stream_event',
+                    rootGoalId: sessionId,
+                    goalId: 'g-stream',
+                    taskId: 't-stream',
+                    payload: {
+                        streamId: 's-stream',
+                        attempt: 1,
+                        event: { type: 'text_delta', text: '你' },
+                    },
+                }),
+            );
+        const result = await stream;
+        expect(result.matched).toBe(true);
+        expect(result.text).toContain('event: llm.stream_event');
+        expect(result.text).toContain('text_delta');
     });
 });
