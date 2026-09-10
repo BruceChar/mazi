@@ -6,6 +6,8 @@ import { renderMarkdown } from '../scripts/markdown.ts';
 defineProps({
     runDetail: { type: Object, default: null },
     busy: { type: Boolean, default: false },
+    /** 正在生成的活动流（token 级）；来自 store.activeLiveStream */
+    liveStream: { type: Object, default: null },
 });
 
 /* ---- Time formatting ---- */
@@ -241,6 +243,16 @@ function stepTitleSummary(row) {
         </div>
     </div>
     <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
+    <!-- Live streaming answer (token by token) -->
+    <div v-if="liveStream && (liveStream.text || liveStream.reasoning)" class="live-stream">
+        <div v-if="liveStream.reasoning" class="live-reasoning">{{ liveStream.reasoning }}</div>
+        <div
+            v-if="liveStream.text"
+            class="live-text markdown-body"
+            v-html="renderMarkdown(liveStream.text)"
+        ></div>
+        <span class="live-cursor">▍</span>
+    </div>
 </template>
 
 <style scoped>
@@ -703,5 +715,37 @@ function stepTitleSummary(row) {
 .markdown-body :deep(img) {
     max-width: 100%;
     border-radius: 6px;
+}
+
+/* ---------- Live streaming answer ---------- */
+.live-stream {
+    margin: 8px 0 4px;
+    padding: 0;
+}
+.live-reasoning {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg-tertiary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    opacity: 0.85;
+    margin-bottom: 8px;
+}
+.live-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg);
+    word-break: break-word;
+}
+.live-cursor {
+    display: inline-block;
+    color: var(--accent);
+    animation: live-blink 1s steps(2, start) infinite;
+    margin-left: 1px;
+}
+@keyframes live-blink {
+    to {
+        visibility: hidden;
+    }
 }
 </style>

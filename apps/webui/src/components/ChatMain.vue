@@ -11,6 +11,7 @@ const props = defineProps({
     runDetails: { type: Object, default: () => ({}) },
     current: { type: String, default: '' },
     busy: { type: Boolean, default: false },
+    liveStream: { type: Object, default: null },
     suggestionCards: { type: Array, default: () => [] },
     feedbackSent: { type: Boolean, default: false },
     prompt: { type: String, default: '' },
@@ -67,6 +68,7 @@ function fmtClock(ts) {
                     <ExecStream
                         :run-detail="runDetails[run.rootGoalId]"
                         :busy="busy && run.rootGoalId === current"
+                        :live-stream="run.rootGoalId === current ? liveStream : null"
                     />
                 </div>
             </template>

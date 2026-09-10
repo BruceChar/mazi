@@ -10,6 +10,7 @@ import ChatMain from './components/ChatMain.vue';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
 import { API_BASE } from './api.js';
 import {
+    activeLiveStream,
     busy,
     cfg,
     conversations,
@@ -907,6 +908,7 @@ onBeforeUnmount(() => {
                     :run-details="runDetails"
                     :current="current"
                     :busy="busy"
+                    :live-stream="activeLiveStream"
                     :suggestion-cards="suggestionCards"
                     :feedback-sent="feedbackSent"
                     :prompt="prompt"

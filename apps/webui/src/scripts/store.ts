@@ -1,24 +1,35 @@
-import { reactive, ref } from 'vue';
-import { api, API_BASE } from '../api.js';
+import { computed, reactive, ref } from 'vue';
+import { API_BASE, api } from '../api.js';
 import type {
-    Conversation,
     ConfigOverview,
+    Conversation,
     EventItem,
     GoalTreeSnapshot,
     Project,
     RunOutcome,
     UserPreferences,
 } from '../types.js';
+import {
+    activeStream,
+    applyStreamEvent,
+    clearStreamsForTask,
+    type LiveStream,
+    type LiveStreamMap,
+    taskIdOf,
+} from './stream.js';
 
 const THEME_KEY = 'mazi.web.theme';
 /** Goal 会话事件 + Step 流式事件（step.ended：思考/工具/观察实时推送） */
 const LIVE_EVENT_TYPES = [
     'session.started',
     'session.ended',
+    'goal.started',
+    'goal.ended',
     'user.feedback.captured',
     'step.ended',
+    'llm.stream_event',
 ] as const;
-const REFRESH_EVENT_TYPES = new Set<string>(['session.ended']);
+const REFRESH_EVENT_TYPES = new Set<string>(['session.ended', 'goal.ended']);
 
 function systemPrefersDark(): boolean {
     return (
@@ -122,6 +133,10 @@ export const runDetails = reactive<Record<string, GoalTreeSnapshot | null>>({});
 /** 本会话内存中的 run 结果（POST run 响应 tasks 摘要；不持久化） */
 export const runOutcomes = reactive<Record<string, RunOutcome>>({});
 export const events = reactive<{ list: EventItem[]; types: string }>({ list: [], types: 'all' });
+/** 活动流式应答（token 级）；key = streamId（docs/web/流式响应设计.md §5） */
+export const liveStreams = ref<LiveStreamMap>({});
+/** 当前 run 最新一段活动流（updatedAt 最大者） */
+export const activeLiveStream = computed<LiveStream | null>(() => activeStream(liveStreams.value));
 
 export const esc = (s: unknown): string =>
     String(s ?? '').replace(
@@ -302,6 +317,7 @@ export function stopEvents(): void {
         clearTimeout(refreshTimer);
         refreshTimer = null;
     }
+    liveStreams.value = {};
 }
 
 export function watchEvents(rootGoalId: string): void {
@@ -315,10 +331,21 @@ export function watchEvents(rootGoalId: string): void {
     const consume = (raw: MessageEvent): void => {
         try {
             const event = JSON.parse(raw.data) as EventItem;
+            // token 级增量只更新活动流，不进事件列表（避免海量流式帧挤爆日志面板）
+            if (event.type === 'llm.stream_event') {
+                liveStreams.value = applyStreamEvent(liveStreams.value, event);
+                return;
+            }
             if (!events.list.some((e) => e.eventId === event.eventId)) {
                 events.list.push(event);
             }
+            if (event.type === 'step.ended') {
+                liveStreams.value = clearStreamsForTask(liveStreams.value, taskIdOf(event));
+                refreshLater(rootGoalId);
+                return;
+            }
             if (REFRESH_EVENT_TYPES.has(event.type)) {
+                liveStreams.value = {};
                 refreshLater(rootGoalId);
             }
         } catch {
@@ -333,7 +360,11 @@ export function watchEvents(rootGoalId: string): void {
 
 export async function loadEvents(rootGoalId: string): Promise<void> {
     try {
-        events.list = await api(`/api/events/${rootGoalId}?limit=5000`);
+        const list = (await api(`/api/events/${rootGoalId}?limit=5000`)) as EventItem[];
+        // 回放同样排除 token 级流式帧（只用于实时渲染，不进入日志面板）
+        events.list = Array.isArray(list)
+            ? list.filter((event) => event.type !== 'llm.stream_event')
+            : [];
     } catch {
         events.list = [];
     }
