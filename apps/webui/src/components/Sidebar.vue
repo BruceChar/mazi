@@ -149,9 +149,20 @@ function latencyText() {
                 <span class="group-title" :title="project.path" @click="toggleProject(project.path)">
                     {{ project.title }}
                 </span>
-                <div class="menu-wrap">
-                    <button class="menu-btn" title="更多" @click.stop="openMenu($event, 'project', project)">
-                        <LineIcon name="more" size="14" />
+                <div class="row-actions">
+                    <button
+                        class="action-btn"
+                        title="添加新会话"
+                        @click.stop="emit('start-project-conversation', project)"
+                    >
+                        <LineIcon name="plus" size="15" />
+                    </button>
+                    <button
+                        class="action-btn"
+                        title="更多"
+                        @click.stop="openMenu($event, 'project', project)"
+                    >
+                        <LineIcon name="more" size="16" />
                     </button>
                 </div>
             </div>
@@ -164,9 +175,9 @@ function latencyText() {
                 >
                     <div class="session-title">{{ conversationTitle(c) }}</div>
                     <div class="session-time">{{ relTime(c.updatedAt || c.createdAt) }}</div>
-                    <div class="menu-wrap session-menu-wrap">
-                        <button class="menu-btn" title="更多" @click.stop="openMenu($event, 'conversation', c)">
-                            <LineIcon name="more" size="13" />
+                    <div class="row-actions session-menu-wrap">
+                        <button class="action-btn" title="更多" @click.stop="openMenu($event, 'conversation', c)">
+                            <LineIcon name="more" size="15" />
                         </button>
                     </div>
                 </li>
@@ -203,9 +214,9 @@ function latencyText() {
                 >
                     <div class="session-title">{{ conversationTitle(c) }}</div>
                     <div class="session-time">{{ relTime(c.updatedAt || c.createdAt) }}</div>
-                    <div class="menu-wrap session-menu-wrap">
-                        <button class="menu-btn" title="更多" @click.stop="openMenu($event, 'conversation', c)">
-                            <LineIcon name="more" size="13" />
+                    <div class="row-actions session-menu-wrap">
+                        <button class="action-btn" title="更多" @click.stop="openMenu($event, 'conversation', c)">
+                            <LineIcon name="more" size="15" />
                         </button>
                     </div>
                 </li>
@@ -380,36 +391,38 @@ function latencyText() {
     color: var(--fg-tertiary);
     padding-right: 4px;
 }
-/* "..." trigger: hidden until the row is hovered or its menu is open. */
-.menu-wrap {
-    position: relative;
-    flex-shrink: 0;
+/* Row actions: project row shows "+" and "..."; conversation rows show "...".
+   Hidden until the row is hovered (or its menu is open), then high-contrast. */
+.row-actions {
     display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
 }
-.menu-btn {
-    width: 22px;
-    height: 22px;
+.action-btn {
+    width: 24px;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     border: none;
     background: transparent;
-    color: var(--fg-tertiary);
-    border-radius: 4px;
+    color: var(--fg-secondary);
+    border-radius: 5px;
     cursor: pointer;
     padding: 0;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.1s ease;
+    transition: opacity 0.1s ease, background 0.1s ease, color 0.1s ease;
 }
-.group-head:hover .menu-btn,
-.session-list li:hover .menu-btn,
-.group-head.menu-open .menu-btn,
-.session-list li.menu-open .menu-btn {
+.group-head:hover .action-btn,
+.session-list li:hover .action-btn,
+.group-head.menu-open .action-btn,
+.session-list li.menu-open .action-btn {
     opacity: 1;
     pointer-events: auto;
 }
-.menu-btn:hover {
+.action-btn:hover {
     background: var(--bg-hover);
     color: var(--fg);
 }
