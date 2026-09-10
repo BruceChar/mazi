@@ -10,7 +10,7 @@ import {
     formatTokens,
 } from '../scripts/audit.ts';
 
-defineProps({
+const props = defineProps({
     open: { type: Boolean, default: false },
     maximized: { type: Boolean, default: false },
     width: { type: Number, default: 320 },
@@ -91,9 +91,9 @@ const donutWrap = ref(null);
 const hoverKey = ref('');
 const tipX = ref(0);
 const tipY = ref(0);
-const donutArcList = computed(() => donutArcs(audit.value?.segments || []));
+const donutArcList = computed(() => donutArcs(props.audit?.segments || []));
 const hoveredSegment = computed(
-    () => (audit.value?.segments || []).find((seg) => seg.key === hoverKey.value) || null,
+    () => (props.audit?.segments || []).find((seg) => seg.key === hoverKey.value) || null,
 );
 function onArcMove(event) {
     const el = donutWrap.value;
@@ -206,8 +206,10 @@ function toggleDiff() {
                                         class="donut-arc"
                                         :class="{ dim: hoverKey && hoverKey !== arc.key }"
                                         :d="arc.path"
-                                        :fill="'var(' + arc.colorVar + ')'"
-                                        :style="hoverKey === arc.key ? { transform: 'translate(' + arc.offset.x + 'px,' + arc.offset.y + 'px)' } : {}"
+                                        :style="{
+                                            '--arc-color': 'var(' + arc.colorVar + ')',
+                                            ...(hoverKey === arc.key ? { transform: 'translate(' + arc.offset.x + 'px,' + arc.offset.y + 'px)' } : {}),
+                                        }"
                                         @mouseenter="onArcEnter(arc, $event)"
                                         @mousemove="onArcMove"
                                     />
@@ -973,6 +975,7 @@ function toggleDiff() {
     overflow: visible;
 }
 .donut-arc {
+    fill: var(--arc-color);
     cursor: pointer;
     transition: transform 0.12s ease, opacity 0.12s ease;
     transform-origin: 50px 50px;

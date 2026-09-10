@@ -516,7 +516,18 @@ const stats = computed(() => buildExecStats(props.runDetail));
     display: block;
     flex-shrink: 0;
     color: var(--fg-tertiary);
-    margin-left: -21px; /* pull icon center onto the vertical timeline line */
+    /* 竖线只在节点之间连接：图标带背景遮罩，遮住穿过的线 */
+    box-sizing: content-box;
+    padding: 2px;
+    border-radius: 50%;
+    background: var(--bg);
+    margin-left: -23px; /* pull icon center onto the vertical timeline line */
+}
+.exec-step-head:hover .line-icon {
+    background: var(--bg-hover);
+}
+.exec-step-head.selected .line-icon {
+    background: var(--accent-soft);
 }
 .exec-step-head:hover {
     background: var(--bg-hover);
@@ -653,6 +664,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
     border: 2px solid var(--border);
     border-top-color: var(--accent);
     border-radius: 50%;
+    background: var(--bg); /* 遮罩：竖线不穿过转圈 */
     animation: exec-spin 0.7s linear infinite;
     margin-left: -20px; /* align with the timeline line, replacing the icon */
 }
