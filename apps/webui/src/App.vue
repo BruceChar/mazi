@@ -756,6 +756,30 @@ function eventColorClass(type) {
     return 'ev-other';
 }
 
+/** API connectivity latency (ms); null = unreachable/timeout */
+const apiLatency = ref(null);
+let latencyTimer = null;
+
+async function pingApi() {
+    const start = performance.now();
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        await fetch('/api/config', { signal: controller.signal });
+        clearTimeout(timeout);
+        apiLatency.value = Math.round(performance.now() - start);
+    } catch {
+        apiLatency.value = null;
+    }
+}
+
+function latencyColor() {
+    if (apiLatency.value == null) return 'var(--fg-tertiary)';
+    if (apiLatency.value < 100) return '#22c55e';
+    if (apiLatency.value < 1000) return '#eab308';
+    return '#ef4444';
+}
+
 onMounted(async () => {
     document.addEventListener('click', () => {
         accountOpen.value = false;
@@ -772,10 +796,13 @@ onMounted(async () => {
     } catch (error) {
         ui.err = String(error);
     }
+    pingApi();
+    latencyTimer = setInterval(pingApi, 5000);
 });
 
 onBeforeUnmount(() => {
     stopEvents();
+    if (latencyTimer) clearInterval(latencyTimer);
 });
 </script>
 
@@ -922,6 +949,10 @@ onBeforeUnmount(() => {
                     <LineIcon name="settings" size="15" />
                     系统设置
                 </button>
+                <span class="api-latency" :style="{ color: latencyColor() }">
+                    <span class="latency-dot" :style="{ background: latencyColor() }"></span>
+                    {{ apiLatency == null ? 'offline' : `${apiLatency}ms` }}
+                </span>
             </div>
         </aside>
 

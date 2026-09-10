@@ -544,6 +544,21 @@ pre {
     background: var(--bg-active);
 }
 
+.api-latency {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 10px 8px;
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+}
+.latency-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
 /* ---------- Center Workspace ---------- */
 
 .workspace {
