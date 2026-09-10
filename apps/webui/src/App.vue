@@ -26,6 +26,7 @@ import {
     renameProject,
     runOutcomes,
     saveUserPreferences,
+    selectWorkspace,
     sendFeedback,
     setTheme,
     short,
@@ -62,6 +63,25 @@ const feedbackSent = ref(false);
 const feedbackModal = ref(false);
 const feedbackRating = ref(5);
 const feedbackContent = ref('');
+/** 工作区选择菜单 */
+const workspaceMenu = ref(false);
+/** 推荐卡片（空状态展示） */
+const suggestionCards = [
+    { icon: 'search', title: 'Explore and understand code', color: '#3b82f6', prompt: '帮我探索和理解这个代码库的结构和核心逻辑' },
+    { icon: 'hammer', title: 'Build a new feature, app, or tool', color: '#8b5cf6', prompt: '帮我构建一个新功能、应用或工具' },
+    { icon: 'refresh', title: 'Review code and suggest changes', color: '#10b981', prompt: '帮我审查代码并提出改进建议' },
+    { icon: 'bug', title: 'Fix issues and failures', color: '#f97316', prompt: '帮我定位并修复问题和故障' },
+];
+/** 当前工作区显示名（取路径最后一段） */
+const workspaceDisplayName = computed(() => {
+    const p = workspaceRoot.value;
+    if (!p) return '';
+    const parts = p.replace(/\/+$/, '').split('/');
+    return parts[parts.length - 1] || p;
+});
+function useSuggestion(card) {
+    prompt.value = card.prompt;
+}
 /** 自定义确认弹窗（替代 window.confirm） */
 const confirmDialog = ref({ open: false, title: '', message: '', confirmText: '确认', danger: false, action: null });
 async function runConfirmAction() {
@@ -456,6 +476,16 @@ async function openSystemPicker() {
     } catch (error) {
         ui.err = String(error);
     }
+}
+
+async function exitWorkspace() {
+    await selectWorkspace('');
+    workspaceMenu.value = false;
+}
+
+async function switchProject(path) {
+    await selectWorkspace(path);
+    workspaceMenu.value = false;
 }
 
 async function openConversation(conversation) {
@@ -942,7 +972,27 @@ onBeforeUnmount(() => {
                     <div v-else-if="activeConversation" class="empty-hint">
                         暂无 run，输入任务开始
                     </div>
-                    <div v-else class="empty-hint">暂无会话，点击「新会话」开始</div>
+                    <div v-else class="welcome-screen">
+                        <div class="welcome-icon">
+                            <LineIcon name="userMessage" size="36" />
+                        </div>
+                        <h2 class="welcome-title">
+                            What should we build{{ workspaceDisplayName ? ` in ${workspaceDisplayName}` : '' }}?
+                        </h2>
+                        <div class="welcome-cards">
+                            <button
+                                v-for="card in suggestionCards"
+                                :key="card.title"
+                                class="welcome-card"
+                                @click="useSuggestion(card)"
+                            >
+                                <span class="welcome-card-icon" :style="{ color: card.color }">
+                                    <LineIcon :name="card.icon" size="18" />
+                                </span>
+                                <span class="welcome-card-title">{{ card.title }}</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
@@ -950,9 +1000,6 @@ onBeforeUnmount(() => {
                 <div class="input-area">
                     <div class="input-composer">
                         <div class="input-top">
-                            <button class="input-add" title="选择/创建工作区" @click="openSystemPicker">
-                                <LineIcon name="plus" size="16" />
-                            </button>
                             <textarea
                                 v-model="prompt"
                                 rows="1"
@@ -961,7 +1008,41 @@ onBeforeUnmount(() => {
                             ></textarea>
                         </div>
                         <div class="input-footer">
-                            <div class="input-footer-left"></div>
+                            <div class="input-footer-left">
+                                <div class="ws-picker-wrap">
+                                    <div v-if="workspaceMenu" class="picker-backdrop" @click="workspaceMenu = false"></div>
+                                    <button
+                                        class="ws-btn"
+                                        :class="{ active: workspaceMenu }"
+                                        @click="workspaceMenu = !workspaceMenu"
+                                    >
+                                        <LineIcon name="folder" size="13" />
+                                        <span>{{ workspaceDisplayName || 'No workspace' }}</span>
+                                    </button>
+                                    <div v-if="workspaceMenu" class="ws-menu">
+                                        <div class="ws-menu-section">Projects</div>
+                                        <button
+                                            v-for="p in projects"
+                                            :key="p.path"
+                                            class="ws-menu-item"
+                                            :class="{ active: p.path === workspaceRoot }"
+                                            @click="switchProject(p.path)"
+                                        >
+                                            <LineIcon name="folder" size="13" />
+                                            <span>{{ p.title || p.path }}</span>
+                                        </button>
+                                        <div class="ws-menu-divider"></div>
+                                        <button class="ws-menu-item" @click="openSystemPicker(); workspaceMenu = false">
+                                            <LineIcon name="plus" size="13" />
+                                            <span>Open other folder…</span>
+                                        </button>
+                                        <button v-if="workspaceRoot" class="ws-menu-item danger" @click="exitWorkspace">
+                                            <LineIcon name="close" size="13" />
+                                            <span>Exit workspace</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                             <div class="input-footer-right">
                                 <div class="picker-wrap">
                                     <div v-if="pickerType === 'model'" class="picker-backdrop" @click="pickerType = null"></div>

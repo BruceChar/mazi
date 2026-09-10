@@ -920,24 +920,6 @@ pre {
     padding: 10px 10px 4px 12px;
 }
 
-.input-add {
-    display: inline-grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--fg-secondary);
-    cursor: pointer;
-    flex-shrink: 0;
-    margin-top: 2px;
-}
-.input-add:hover {
-    background: var(--bg-hover);
-    color: var(--accent);
-}
-
 .input-composer textarea {
     flex: 1;
     max-height: 160px;
@@ -1634,5 +1616,145 @@ pre {
     .statusbar {
         gap: 14px;
         font-size: 10px;
+    }
+}
+
+/* ---------- Workspace picker (composer footer-left) ---------- */
+.ws-picker-wrap {
+    position: relative;
+}
+.ws-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--fg-tertiary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+.ws-btn:hover,
+.ws-btn.active {
+    background: var(--bg-hover);
+    color: var(--fg-secondary);
+}
+.ws-menu {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    min-width: 220px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 6px;
+    z-index: 100;
+}
+.ws-menu-section {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-tertiary);
+    padding: 6px 8px 4px;
+}
+.ws-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+}
+.ws-menu-item:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+.ws-menu-item.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+.ws-menu-item.danger {
+    color: var(--error);
+}
+.ws-menu-item.danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+.ws-menu-divider {
+    height: 1px;
+    background: var(--border-soft);
+    margin: 4px 2px;
+}
+
+/* ---------- Welcome / empty state suggestion cards ---------- */
+.welcome-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    padding: 40px 20px;
+    gap: 24px;
+}
+.welcome-icon {
+    color: var(--fg-tertiary);
+    opacity: 0.6;
+}
+.welcome-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--fg);
+    margin: 0;
+    text-align: center;
+}
+.welcome-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    max-width: 720px;
+    width: 100%;
+}
+.welcome-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-panel);
+    cursor: pointer;
+    transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+    text-align: left;
+}
+.welcome-card:hover {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
+}
+.welcome-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.welcome-card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg);
+    line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+    .welcome-cards {
+        grid-template-columns: repeat(2, 1fr);
     }
 }
