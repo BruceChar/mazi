@@ -193,6 +193,13 @@ const execStats = computed(() => {
         totalTokens,
     };
 });
+/** Final summary: model's last intent output (shown at end of exec stream, goal-level) */
+const finalSummary = computed(() => {
+    const intentRows = stepEventRows.value.filter((r) => r.kind === 'intent');
+    if (intentRows.length > 0) return intentRows[intentRows.length - 1].text || '';
+    const outcome = current.value ? runOutcomes[current.value] : null;
+    return outcome?.finalMessage || '';
+});
 /** 执行流分层：goal → task → step（元信息来自 goalSnapshot，steps 来自事件流） */
 const execTree = computed(() => {
     const goals = detail.value?.goals || [];
@@ -204,7 +211,7 @@ const execTree = computed(() => {
             taskId: task.taskId,
             title: task.title,
             status: task.status,
-            steps: stepEventRows.value.filter((s) => s.taskId === task.taskId),
+            steps: stepEventRows.value.filter((s) => s.taskId === task.taskId && s.kind !== 'intent'),
         })),
     }));
 });
@@ -934,8 +941,7 @@ onBeforeUnmount(() => {
                                                         :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
                                                     >
                                                         <div class="exec-step-head" :class="{ clickable: isStepLong(row) }" @click="isStepLong(row) && toggleStepCollapse(row.key)">
-                                                            <span class="step-dot" :class="{ collapsed: collapsedSteps.has(row.key), interactive: isStepLong(row) }"></span>
-                                                            <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : row.kind === 'intent' ? 'userMessage' : 'hammer'" size="16" />
+                                                            <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="16" />
                                                             <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                                                             <span class="exec-step-name">{{ row.toolName || row.kind }}</span>
                                                             <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
@@ -965,6 +971,14 @@ onBeforeUnmount(() => {
                                         <span>工具 {{ execStats.toolTime }}</span>
                                         <span>·</span>
                                         <span>{{ execStats.totalTokens }} tokens</span>
+                                    </div>
+                                    <!-- Final summary (goal-level, not a step) -->
+                                    <div v-if="finalSummary" class="exec-summary">
+                                        <div class="exec-summary-head">
+                                            <LineIcon name="userMessage" size="14" />
+                                            <span>Summary</span>
+                                        </div>
+                                        <div class="exec-summary-text">{{ finalSummary }}</div>
                                     </div>
                                 </div>
                                 <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
@@ -1708,6 +1722,7 @@ onBeforeUnmount(() => {
     display: block;
     flex-shrink: 0;
     color: var(--fg-tertiary);
+    margin-left: -21px; /* pull icon center onto the vertical timeline line */
 }
 .exec-step-head.clickable {
     cursor: pointer;
@@ -1864,6 +1879,31 @@ onBeforeUnmount(() => {
     font-size: 11px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
+}
+
+/* Final summary (goal-level, sits after all goals/tasks/steps) */
+.exec-summary {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-panel);
+}
+.exec-summary-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 8px;
+}
+.exec-summary-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg);
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .goal-card {
