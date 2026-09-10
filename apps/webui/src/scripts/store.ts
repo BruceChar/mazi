@@ -299,7 +299,11 @@ function refreshLater(rootGoalId: string): void {
 
 async function refreshDetail(rootGoalId: string): Promise<void> {
     try {
-        detail.value = await api(`/api/sessions/${rootGoalId}/timeline`);
+        const snapshot = await api(`/api/sessions/${rootGoalId}/timeline`);
+        // The chat renders runDetails[rootGoalId]; without this the live step
+        // refresh only touched `detail` and steps appeared only after the run ended.
+        detail.value = snapshot;
+        runDetails[rootGoalId] = snapshot;
         await loadConversations();
     } catch {
         // Keep the previous snapshot when the session is gone or the backend is briefly unavailable.

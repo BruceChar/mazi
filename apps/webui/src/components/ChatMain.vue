@@ -48,6 +48,21 @@ function runTitle(run) {
     const text = String(run?.input || '').trim();
     return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
+/**
+ * True while the run has not produced a visible step yet. The chat shows the
+ * "执行中…" placeholder only in this window; afterwards the live step stream
+ * (and token stream) speak for themselves.
+ */
+function isAwaitingFirstStep(rootGoalId) {
+    const snapshot = props.runDetails[rootGoalId];
+    if (!snapshot) return true;
+    for (const goal of snapshot.goals || []) {
+        for (const task of goal.tasks || []) {
+            if ((task.steps || []).length > 0) return false;
+        }
+    }
+    return true;
+}
 
 /* ---------- Auto-follow + right-hand conversation rail (docs/webui.md §3.4) ---------- */
 const chatScroll = ref(null);
@@ -160,8 +175,11 @@ onMounted(() => {
                                 <div class="msg-bubble">{{ run.input }}</div>
                                 <span class="msg-time">{{ fmtClock(run.createdAt) }}</span>
                             </div>
-                            <!-- Executing indicator -->
-                            <div v-if="run.rootGoalId === current && busy" class="msg msg-assistant">
+                            <!-- Placeholder shown only until the first live step arrives. -->
+                            <div
+                                v-if="run.rootGoalId === current && busy && isAwaitingFirstStep(run.rootGoalId)"
+                                class="msg msg-assistant"
+                            >
                                 <div class="msg-bubble thinking-bubble">执行中…</div>
                             </div>
                             <!-- Execution stream -->
