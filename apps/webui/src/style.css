@@ -565,6 +565,139 @@ pre {
     font-family: ui-monospace, monospace;
     white-space: nowrap;
 }
+
+/* ---------- Settings page layout ---------- */
+.settings-sidebar {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.settings-nav {
+    flex: 1;
+    padding: 12px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow-y: auto;
+}
+.settings-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: none;
+    background: transparent;
+    color: var(--fg-secondary);
+    font-size: 13px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+}
+.settings-nav-item:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+.settings-nav-item.active {
+    background: var(--bg-active);
+    color: var(--fg);
+    font-weight: 500;
+}
+.settings-back {
+    flex: 0 0 auto;
+    padding: 8px 10px;
+    border-top: 1px solid var(--border-soft);
+}
+.settings-back-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: none;
+    background: transparent;
+    color: var(--fg-secondary);
+    font-size: 13px;
+    border-radius: 6px;
+    cursor: pointer;
+    width: 100%;
+}
+.settings-back-btn:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+
+.settings-page {
+    flex: 1;
+    padding: 32px 48px;
+    overflow-y: auto;
+    max-width: 720px;
+}
+.settings-title {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 24px;
+    color: var(--fg);
+}
+.settings-group {
+    margin-bottom: 28px;
+}
+.settings-group-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 8px;
+}
+.setting-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-soft);
+    gap: 16px;
+}
+.setting-item:last-child {
+    border-bottom: none;
+}
+.setting-info {
+    flex: 1;
+    min-width: 0;
+}
+.setting-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg);
+}
+.setting-desc {
+    font-size: 12px;
+    color: var(--fg-secondary);
+    margin-top: 2px;
+    word-break: break-all;
+}
+.setting-select {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    color: var(--fg);
+    font-size: 13px;
+    cursor: pointer;
+}
+.setting-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+.setting-badge.ok {
+    background: rgba(34, 197, 94, 0.12);
+    color: #22c55e;
+}
+.setting-empty {
+    padding: 16px 0;
+    font-size: 13px;
+    color: var(--fg-tertiary);
+}
 .latency-dot {
     width: 6px;
     height: 6px;

@@ -184,6 +184,13 @@ const workedFor = computed(() => '');
 const expandedRunId = ref(null);
 /** 右侧面板最大化（覆盖主页面） */
 const panelMaximized = ref(false);
+const settingsTab = ref('general');
+const SETTINGS_TABS = [
+    { id: 'general', label: 'General', icon: 'settings' },
+    { id: 'model', label: 'Model', icon: 'cpu' },
+    { id: 'providers', label: 'Providers', icon: 'plug' },
+    { id: 'about', label: 'About', icon: 'info' },
+];
 function togglePanelMax() {
     panelMaximized.value = !panelMaximized.value;
 }
@@ -841,6 +848,31 @@ onBeforeUnmount(() => {
 
     <div class="app-shell">
         <aside class="sidebar" :class="{ show: ui.sidebar }">
+            <!-- Settings mode: category nav -->
+            <template v-if="ui.view === 'system-settings'">
+                <div class="settings-sidebar">
+                    <div class="settings-nav">
+                        <button
+                            v-for="tab in SETTINGS_TABS"
+                            :key="tab.id"
+                            class="settings-nav-item"
+                            :class="{ active: settingsTab === tab.id }"
+                            @click="settingsTab = tab.id"
+                        >
+                            <LineIcon :name="tab.icon" size="15" />
+                            <span>{{ tab.label }}</span>
+                        </button>
+                    </div>
+                    <div class="settings-back">
+                        <button class="settings-back-btn" @click="backToChat">
+                            <LineIcon name="chevronLeft" size="15" />
+                            <span>Back to app</span>
+                        </button>
+                    </div>
+                </div>
+            </template>
+            <!-- Chat mode: conversation list -->
+            <template v-else>
             <div class="sidebar-new">
                 <button class="primary new-session" @click="startTopConversation">
                     <LineIcon name="plus" size="15" />
@@ -960,6 +992,7 @@ onBeforeUnmount(() => {
                     <span class="latency-value" :style="{ color: latencyColor() }">{{ latencyText() }}</span>
                 </span>
             </div>
+            </template>
         </aside>
 
         <main class="workspace">
@@ -1197,27 +1230,126 @@ onBeforeUnmount(() => {
             </template>
 
             <template v-else-if="ui.view === 'system-settings'">
-                <div class="page-card">
-                    <div class="page-heading">
-                        <button class="icon-btn back-btn" title="返回会话" @click="backToChat">
-                            <LineIcon name="chevronRight" size="16" />
-                        </button>
-                        <h1>系统设置</h1>
-                    </div>
-                    <div class="field-row"><label>数据目录</label><input :value="cfg ? cfg.home : ''" readonly /></div>
-                    <div class="field-row"><label>存储</label><input :value="cfg ? `${cfg.storage.driver} · ${cfg.storage.db}` : ''" readonly /></div>
-                    <div class="field-row"><label>事件目录</label><input :value="cfg ? cfg.storage.events : ''" readonly /></div>
-                    <div class="field-row"><label>Provider</label><div class="value-text">{{ cfg ? cfg.providers.join(', ') : '-' }}</div></div>
-                    <div class="field-row">
-                        <label>主题</label>
-                        <select :value="theme" @change="setTheme($event.target.value)">
-                            <option value="light">浅色</option>
-                            <option value="dark">深色</option>
-                            <option value="system">跟随系统</option>
-                        </select>
-                    </div>
-                    <div class="field-row"><label>工作区</label><input :value="workspaceRoot || '（未选择）'" readonly /></div>
-                    <div class="muted-block">配置保存在 ~/.mazi（providers/tools.json）。Goal 会话存储于 mazi.db（goal_nodes/goal_tasks/goal_steps）。</div>
+                <div class="settings-page">
+                    <!-- General -->
+                    <template v-if="settingsTab === 'general'">
+                        <h1 class="settings-title">General</h1>
+                        <div class="settings-group">
+                            <div class="settings-group-title">Appearance</div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">Theme</div>
+                                    <div class="setting-desc">UI color theme</div>
+                                </div>
+                                <select :value="theme" @change="setTheme($event.target.value)" class="setting-select">
+                                    <option value="light">Light</option>
+                                    <option value="dark">Dark</option>
+                                    <option value="system">System</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="settings-group">
+                            <div class="settings-group-title">Workspace</div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">Current workspace</div>
+                                    <div class="setting-desc">{{ workspaceRoot || 'No workspace selected' }}</div>
+                                </div>
+                                <button class="ghost" @click="openSystemPicker">Change</button>
+                            </div>
+                        </div>
+                        <div class="settings-group">
+                            <div class="settings-group-title">Storage</div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">Data directory</div>
+                                    <div class="setting-desc">{{ cfg ? cfg.home : '-' }}</div>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">Database</div>
+                                    <div class="setting-desc">{{ cfg ? `${cfg.storage.driver} · ${cfg.storage.db}` : '-' }}</div>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">Events directory</div>
+                                    <div class="setting-desc">{{ cfg ? cfg.storage.events : '-' }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Model -->
+                    <template v-else-if="settingsTab === 'model'">
+                        <h1 class="settings-title">Model</h1>
+                        <div class="settings-group">
+                            <div class="settings-group-title">Default model</div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">Model</div>
+                                    <div class="setting-desc">Default model for new sessions</div>
+                                </div>
+                                <select v-model="selectedModel" class="setting-select">
+                                    <template v-for="p in cfg?.providers || []" :key="p.id">
+                                        <option v-for="m in p.models || []" :key="m.id" :value="m.id">{{ p.vendor || p.id }} / {{ m.name || m.id }}</option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">Reasoning level</div>
+                                    <div class="setting-desc">Default reasoning effort</div>
+                                </div>
+                                <select v-model="reasoningLevel" class="setting-select">
+                                    <option v-for="lvl in REASONING_LEVELS" :key="lvl" :value="lvl">{{ lvl }}</option>
+                                </select>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Providers -->
+                    <template v-else-if="settingsTab === 'providers'">
+                        <h1 class="settings-title">Providers</h1>
+                        <div class="settings-group">
+                            <div class="settings-group-title">Configured providers</div>
+                            <div v-for="p in cfg?.providers || []" :key="p.id" class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">{{ p.vendor || p.id }}</div>
+                                    <div class="setting-desc">{{ (p.models || []).map(m => m.name || m.id).join(', ') || 'No models' }}</div>
+                                </div>
+                                <span class="setting-badge ok">configured</span>
+                            </div>
+                            <div v-if="!cfg?.providers?.length" class="setting-empty">No providers configured. Add API keys in ~/.mazi/providers.json</div>
+                        </div>
+                    </template>
+
+                    <!-- About -->
+                    <template v-else-if="settingsTab === 'about'">
+                        <h1 class="settings-title">About</h1>
+                        <div class="settings-group">
+                            <div class="settings-group-title">Application</div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">mazi</div>
+                                    <div class="setting-desc">Goal-oriented agent runtime</div>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">Config location</div>
+                                    <div class="setting-desc">~/.mazi (providers.json, tools.json)</div>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <div class="setting-name">Session storage</div>
+                                    <div class="setting-desc">mazi.db (goal_nodes / goal_tasks / goal_steps)</div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </template>
 
