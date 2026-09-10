@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
-import type { Conversation } from './conversation.js';
+import type { Conversation } from '@mazi/libs';
 import { ConversationsService } from './conversations.service.js';
 
 /** /api/conversations：会话业务抽象列表（普通会话与工作区会话同构） */

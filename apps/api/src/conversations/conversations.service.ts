@@ -6,14 +6,10 @@ import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
-import {
-    type Conversation,
-    type ConversationRecord,
-    conversationFromRecord,
-} from './conversation.js';
+import type { GoalRunRef, Conversation } from '@mazi/libs';
 
 interface ConversationsFile {
-    conversations: ConversationRecord[];
+    conversations: Conversation[];
 }
 
 /** recordNewSession / appendSession 入参（一次 Goal 会话的引用信息） */
@@ -29,9 +25,9 @@ export interface NewConversationRun {
  * 归一化历史 conversations.json：旧版记录以 sessionIds[] 承载（其 Session 数据已随 C5 迁移删除），
  * 保留会话壳（标题/归属/时间）并清空 run 引用，避免 list() 等按 runs[] 投影时崩溃。
  */
-function normalizeRecords(records: ConversationRecord[]): ConversationRecord[] {
+function normalizeRecords(records: Conversation[]): Conversation[] {
     return records.map((record) => {
-        const next: ConversationRecord = {
+        const next: Conversation = {
             conversationId: record.conversationId,
             title: record.title,
             userId: record.userId,
@@ -106,7 +102,7 @@ export class ConversationsService {
         if (!conversation) {
             throw new ApiError(404, 'conversation not found');
         }
-        if (!conversation.runs.some((run) => run.rootGoalId === input.rootGoalId)) {
+        if (!conversation.runs.some((run: GoalRunRef) => run.rootGoalId === input.rootGoalId)) {
             conversation.runs.push({
                 rootGoalId: input.rootGoalId,
                 input: input.input,
@@ -221,7 +217,7 @@ export class ConversationsService {
             records = records.filter(
                 (record) =>
                     record.title.toLowerCase().includes(key) ||
-                    record.runs.some((run) => run.input.toLowerCase().includes(key)),
+                    record.runs.some((run: GoalRunRef) => run.input.toLowerCase().includes(key)),
             );
         }
         const offset = Math.max(0, options.offset ?? 0);
@@ -230,6 +226,6 @@ export class ConversationsService {
         this.logger.debug(
             `list offset=${offset} limit=${limit ?? '-'} q=${options.q ? JSON.stringify(options.q) : '-'} → ${records.length} conversations`,
         );
-        return records.map(conversationFromRecord);
+        return records;
     }
 }

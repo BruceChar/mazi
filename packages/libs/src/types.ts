@@ -32,19 +32,6 @@ export interface Conversation {
     archived?: boolean;
 }
 
-/** Persisted record shape (identical to Conversation; kept for clarity). */
-export interface ConversationRecord {
-    conversationId: string;
-    title: string;
-    userId?: string;
-    runs: GoalRunRef[];
-    workspace?: string;
-    projectId?: string;
-    createdAt: number;
-    updatedAt: number;
-    archived?: boolean;
-}
-
 // ============================================================
 // Workspace / project configuration
 // ============================================================
