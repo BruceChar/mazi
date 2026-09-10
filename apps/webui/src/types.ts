@@ -12,10 +12,14 @@ import type {
     Project,
     ProviderModel,
     ProviderOverview,
+    StepRuntimeUsage,
+    StepUsage,
     StepView,
     TaskNodeView,
 } from '@mazi/libs';
 
+/** GET /api/config response (re-exported from libs as ConfigOverview). */
+export type { ConfigOverview } from '@mazi/libs';
 // Re-export shared types for convenience within the webui package.
 export type {
     Conversation,
@@ -26,12 +30,11 @@ export type {
     Project,
     ProviderModel,
     ProviderOverview,
+    StepRuntimeUsage,
+    StepUsage,
     StepView,
     TaskNodeView,
 };
-
-/** GET /api/config response (re-exported from libs as ConfigOverview). */
-export type { ConfigOverview } from '@mazi/libs';
 
 // ============================================================
 // UI-derived types (not part of the API contract)

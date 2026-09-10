@@ -92,15 +92,27 @@ export async function executeTask(
             // Token usage belongs to the model round; attach to the first step
             // created in this round (thinking → intent → tool_call fallback),
             // so runs without reasoning still carry usage data.
-            const roundUsage =
-                round.vendorUsage !== undefined || round.contextUsage !== undefined
-                    ? {
-                          ...(round.vendorUsage !== undefined ? { vendor: round.vendorUsage } : {}),
-                          ...(round.contextUsage !== undefined
-                              ? { runtime: round.contextUsage }
-                              : {}),
-                      }
-                    : undefined;
+            const generationMs = round.totalMs - round.ttftMs;
+            const outputTokens = round.vendorUsage?.outputTokens ?? 0;
+            const hasRoundFacts =
+                round.vendorUsage !== undefined ||
+                round.contextUsage !== undefined ||
+                round.cost !== undefined;
+            const roundUsage = hasRoundFacts
+                ? {
+                      ...(round.vendorUsage !== undefined ? { vendor: round.vendorUsage } : {}),
+                      ...(round.contextUsage !== undefined ? { runtime: round.contextUsage } : {}),
+                      ...(round.cost !== undefined ? { cost: round.cost } : {}),
+                      timing: {
+                          ttftMs: round.ttftMs,
+                          totalMs: round.totalMs,
+                          tokensPerSecond:
+                              outputTokens > 0 && generationMs > 0
+                                  ? (outputTokens / generationMs) * 1000
+                                  : 0,
+                      },
+                  }
+                : undefined;
             let usageAttached = false;
             const attachUsage = (step: Step) => {
                 if (!usageAttached && roundUsage) {

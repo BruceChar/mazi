@@ -1,5 +1,6 @@
 <script setup>
 import LineIcon from '../assets/LineIcon.vue';
+import { formatCost, formatDrift, formatPercent, formatTokens } from '../scripts/audit.ts';
 
 defineProps({
     open: { type: Boolean, default: false },
@@ -15,6 +16,8 @@ defineProps({
     eventTypes: { type: Array, default: () => [] },
     activeEventType: { type: String, default: 'all' },
     showAllEvents: { type: Boolean, default: false },
+    /** buildAuditView() result for the selected Step/Task (docs/web/观测看板设计.md). */
+    audit: { type: Object, default: null },
 });
 const emit = defineEmits([
     'update:activeTab',
@@ -22,6 +25,7 @@ const emit = defineEmits([
     'collapse',
     'update:activeEventType',
     'toggleShowAll',
+    'select-step',
 ]);
 
 function fmtClock(ts) {
@@ -63,6 +67,25 @@ function eventSummary(e) {
     if (p.outcome?.status) return String(p.outcome.status);
     return '';
 }
+
+/* ---- Audit panel helpers (docs/web/观测看板设计.md §4) ---- */
+function cacheHitRate(vendor) {
+    const input = Number(vendor?.input ?? 0);
+    return input > 0 ? formatPercent(Number(vendor?.cacheRead ?? 0) / input) : '0.0%';
+}
+function diffClass(delta) {
+    if (delta > 0) return 'up';
+    if (delta < 0) return 'down';
+    return 'flat';
+}
+function formatDelta(delta) {
+    if (delta === null || delta === undefined) return '-';
+    return (delta > 0 ? '+' : '') + String(delta);
+}
+function toFixed1(value) {
+    const n = Number(value ?? 0);
+    return Number.isFinite(n) ? n.toFixed(1) : '0.0';
+}
 </script>
 
 <template>
@@ -77,6 +100,7 @@ function eventSummary(e) {
         <div class="right-panel-inner">
             <div class="drawer-head">
                 <div class="drawer-tabs">
+                    <button :class="{ on: activeTab === 'audit' }" @click="emit('update:activeTab', 'audit')">审计</button>
                     <button :class="{ on: activeTab === 'log' }" @click="emit('update:activeTab', 'log')">日志</button>
                     <button :class="{ on: activeTab === 'events' }" @click="emit('update:activeTab', 'events')">事件</button>
                 </div>
@@ -87,7 +111,151 @@ function eventSummary(e) {
                 </div>
             </div>
 
-            <div v-if="activeTab === 'log'" class="drawer-body">
+            <div v-if="activeTab === 'audit' && audit" class="drawer-body audit-body">
+                <div class="audit-head">
+                    <div class="audit-title">{{ audit.title }}</div>
+                    <div v-if="audit.subtitle" class="audit-subtitle">{{ audit.subtitle }}</div>
+                </div>
+
+                <div v-if="audit.kind === 'none'" class="empty-hint">
+                    {{ audit.stale ? '目标已失效，请重新选择 Step 或 Task' : '点击对话流中的 Step 或 Task 查看审计' }}
+                </div>
+
+                <template v-else>
+                    <section class="audit-section">
+                        <div class="audit-section-title">Token 用量</div>
+                        <template v-if="audit.usage.vendor">
+                            <div class="audit-row">
+                                <span class="audit-key">Vendor</span>
+                                <span class="audit-val">in {{ formatTokens(audit.usage.vendor.input) }} · out {{ formatTokens(audit.usage.vendor.output) }}</span>
+                            </div>
+                            <div v-if="audit.usage.vendor.cacheRead" class="audit-row">
+                                <span class="audit-key">cache read</span>
+                                <span class="audit-val">{{ formatTokens(audit.usage.vendor.cacheRead) }} · 命中 {{ cacheHitRate(audit.usage.vendor) }}</span>
+                            </div>
+                            <div v-if="audit.usage.vendor.cacheCreation" class="audit-row">
+                                <span class="audit-key">cache write</span>
+                                <span class="audit-val">{{ formatTokens(audit.usage.vendor.cacheCreation) }}</span>
+                            </div>
+                            <div v-if="audit.usage.vendor.reasoning" class="audit-row">
+                                <span class="audit-key">reasoning</span>
+                                <span class="audit-val">{{ formatTokens(audit.usage.vendor.reasoning) }}</span>
+                            </div>
+                        </template>
+                        <div v-else class="audit-muted">厂商未上报</div>
+                        <div v-if="audit.usage.runtime" class="audit-row">
+                            <span class="audit-key">Context</span>
+                            <span class="audit-val">{{ formatTokens(audit.usage.runtime.totalContextTokens) }} tok</span>
+                        </div>
+                        <div v-if="audit.usage.runtime && audit.usage.runtime.estimationDriftTokens != null" class="audit-row">
+                            <span class="audit-key">估算漂移</span>
+                            <span class="audit-val audit-warn">{{ formatDrift(audit.usage.runtime.estimationDriftTokens) }}</span>
+                        </div>
+                    </section>
+
+                    <section class="audit-section">
+                        <div class="audit-section-title">
+                            Context 装填
+                            <span v-if="audit.utilization != null" class="audit-pct">窗口 {{ formatPercent(audit.utilization) }}</span>
+                        </div>
+                        <div v-if="audit.utilization != null" class="context-bar">
+                            <div class="context-bar-fill" :style="{ width: Math.min(100, audit.utilization * 100) + '%' }"></div>
+                        </div>
+                        <div v-if="audit.segments.length" class="seg-stack">
+                            <span
+                                v-for="seg in audit.segments"
+                                :key="seg.key"
+                                class="seg"
+                                :style="{ width: seg.ratio * 100 + '%', background: 'var(' + seg.colorVar + ')' }"
+                            ></span>
+                        </div>
+                        <div v-for="seg in audit.segments" :key="seg.key" class="seg-row">
+                            <span class="seg-dot" :style="{ background: 'var(' + seg.colorVar + ')' }"></span>
+                            <span class="seg-label">{{ seg.label }}</span>
+                            <span class="seg-tokens">{{ formatTokens(seg.tokens) }}</span>
+                            <span class="seg-ratio">{{ formatPercent(seg.ratio) }}</span>
+                        </div>
+                        <div v-if="!audit.segments.length" class="audit-muted">Runtime 未采集</div>
+                        <div v-if="audit.strategies.length" class="audit-note">策略：{{ audit.strategies.join(' · ') }}</div>
+                        <div v-if="audit.budgetPressureAction" class="audit-note audit-warn">预算压力：{{ audit.budgetPressureAction }}</div>
+                    </section>
+
+                    <section class="audit-section">
+                        <div class="audit-section-title">Context Diff</div>
+                        <template v-if="audit.diff">
+                            <div class="audit-row">
+                                <span class="audit-key">相对上一轮</span>
+                                <span class="audit-val audit-diff" :class="diffClass(audit.diff.delta)">{{ formatDelta(audit.diff.delta) }}</span>
+                            </div>
+                            <div class="audit-row">
+                                <span class="audit-key">上一轮 → 本轮</span>
+                                <span class="audit-val">{{ formatTokens(audit.diff.from) }} → {{ formatTokens(audit.diff.to) }}</span>
+                            </div>
+                        </template>
+                        <div v-else class="audit-muted">逐步骤 diff 见下方明细</div>
+                    </section>
+
+                    <section class="audit-section">
+                        <div class="audit-section-title">Cost</div>
+                        <template v-if="audit.usage.cost">
+                            <div class="audit-row">
+                                <span class="audit-key">Total</span>
+                                <span class="audit-val audit-strong">{{ formatCost(audit.usage.cost.total) }}</span>
+                            </div>
+                            <div class="audit-row">
+                                <span class="audit-key">in / out</span>
+                                <span class="audit-val">{{ formatCost(audit.usage.cost.input) }} / {{ formatCost(audit.usage.cost.output) }}</span>
+                            </div>
+                            <div v-if="audit.usage.cost.cacheRead || audit.usage.cost.cacheWrite" class="audit-row">
+                                <span class="audit-key">cache</span>
+                                <span class="audit-val">{{ formatCost(audit.usage.cost.cacheRead + audit.usage.cost.cacheWrite) }}</span>
+                            </div>
+                            <div v-if="audit.usage.cost.reasoning" class="audit-row">
+                                <span class="audit-key">reasoning</span>
+                                <span class="audit-val">{{ formatCost(audit.usage.cost.reasoning) }}</span>
+                            </div>
+                            <div v-if="audit.usage.cost.tier" class="audit-row">
+                                <span class="audit-key">tier</span>
+                                <span class="audit-val">{{ audit.usage.cost.tier }}</span>
+                            </div>
+                        </template>
+                        <div v-else class="audit-muted">未计价</div>
+                    </section>
+
+                    <section class="audit-section">
+                        <div class="audit-section-title">Timing</div>
+                        <template v-if="audit.usage.timing">
+                            <div class="audit-row"><span class="audit-key">TTFT</span><span class="audit-val">{{ formatDuration(audit.usage.timing.ttftMs) }}</span></div>
+                            <div class="audit-row"><span class="audit-key">Total</span><span class="audit-val">{{ formatDuration(audit.usage.timing.totalMs) }}</span></div>
+                            <div class="audit-row"><span class="audit-key">速率</span><span class="audit-val">{{ toFixed1(audit.usage.timing.tokensPerSecond) }} tok/s</span></div>
+                        </template>
+                        <div v-else class="audit-muted">暂无耗时</div>
+                    </section>
+
+                    <section v-if="audit.rows.length" class="audit-section">
+                        <div class="audit-section-title">步骤明细（{{ audit.rows.length }}）</div>
+                        <button
+                            v-for="row in audit.rows"
+                            :key="row.stepId"
+                            class="audit-step-row"
+                            :class="{ selected: row.selected }"
+                            @click="emit('select-step', { stepId: row.stepId })"
+                        >
+                            <span class="audit-step-tag">S#{{ row.index }}</span>
+                            <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
+                            <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
+                            <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatDelta(row.contextDelta) }}</span>
+                            <span class="audit-step-tokens">{{ formatTokens(row.tokens) }}</span>
+                        </button>
+                    </section>
+
+                    <section v-if="audit.text" class="audit-section">
+                        <div class="audit-section-title">正文</div>
+                        <pre class="audit-text">{{ audit.text }}</pre>
+                    </section>
+                </template>
+            </div>
+            <div v-else-if="activeTab === 'log'" class="drawer-body">
                 <div v-if="current" class="exec-log">
                     <div v-if="rootOutcome" class="log-result" :class="rootOutcome.ok ? 'ok' : 'fail'">
                         <div class="log-line">
@@ -457,5 +625,213 @@ function eventSummary(e) {
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
+}
+
+/* ---------- Audit panel (docs/web/观测看板设计.md) ---------- */
+.audit-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.audit-head {
+    border-bottom: 1px solid var(--border-soft);
+    padding-bottom: 8px;
+}
+.audit-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+    word-break: break-word;
+}
+.audit-subtitle {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+}
+.audit-section {
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    background: var(--bg-panel);
+}
+.audit-section-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--fg-tertiary);
+    margin-bottom: 6px;
+}
+.audit-pct {
+    text-transform: none;
+    font-weight: 500;
+    color: var(--accent-text);
+    font-family: ui-monospace, monospace;
+}
+.audit-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    margin: 3px 0;
+}
+.audit-key {
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.audit-val {
+    color: var(--fg);
+    font-family: ui-monospace, monospace;
+    text-align: right;
+    word-break: break-word;
+}
+.audit-strong {
+    font-weight: 600;
+}
+.audit-muted {
+    color: var(--fg-tertiary);
+    font-size: 12px;
+}
+.audit-warn {
+    color: var(--warn);
+}
+.audit-note {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.audit-diff.up { color: var(--ok); }
+.audit-diff.down { color: var(--warn); }
+.audit-diff.flat { color: var(--fg-tertiary); }
+
+/* Context fill bar + stacked segments */
+.context-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-code);
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+.context-bar-fill {
+    height: 100%;
+    background: var(--accent);
+}
+.seg-stack {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--bg-code);
+    margin-bottom: 6px;
+}
+.seg {
+    display: block;
+    height: 100%;
+    min-width: 0;
+}
+.seg-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    margin: 2px 0;
+}
+.seg-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+.seg-label {
+    flex: 1;
+    color: var(--fg-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.seg-tokens,
+.seg-ratio {
+    font-family: ui-monospace, monospace;
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.seg-ratio {
+    min-width: 46px;
+    text-align: right;
+}
+
+/* Step detail rows (click to re-select) */
+.audit-step-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 6px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-secondary);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+}
+.audit-step-row:hover {
+    background: var(--bg-hover);
+    color: var(--fg-secondary);
+}
+.audit-step-row.selected {
+    background: var(--accent-soft);
+}
+.audit-step-tag {
+    font-family: ui-monospace, monospace;
+    font-weight: 700;
+    color: var(--fg-tertiary);
+    background: var(--bg-code);
+    border-radius: 3px;
+    padding: 0 4px;
+    width: 32px;
+    text-align: center;
+    flex-shrink: 0;
+}
+.audit-step-kind {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg);
+}
+.audit-step-ctx,
+.audit-step-delta,
+.audit-step-tokens {
+    font-family: ui-monospace, monospace;
+    flex-shrink: 0;
+}
+.audit-step-delta {
+    min-width: 44px;
+    text-align: right;
+}
+.audit-step-delta.up { color: var(--ok); }
+.audit-step-delta.down { color: var(--warn); }
+.audit-step-delta.flat { color: var(--fg-tertiary); }
+.audit-step-tokens {
+    min-width: 48px;
+    text-align: right;
+    color: var(--fg-tertiary);
+}
+.audit-text {
+    margin: 0;
+    max-height: 260px;
+    overflow: auto;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--fg-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 </style>

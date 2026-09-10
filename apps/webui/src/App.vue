@@ -13,6 +13,7 @@ import PromptDialog from './components/PromptDialog.vue';
 import UserPreferencesPage from './components/UserPreferencesPage.vue';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
 import { goalFromRunSettings } from './scripts/run-settings.ts';
+import { buildAuditView, emptyAuditView } from './scripts/audit.ts';
 import { API_BASE } from './api.js';
 import {
     activeLiveStream,
@@ -37,7 +38,11 @@ import {
     projects,
     renameProject,
     runOutcomes,
+    selectStep,
+    selectTask,
     selectWorkspace,
+    selectedStepId,
+    selectedTaskId,
     sendFeedback,
     setTheme,
     short,
@@ -51,7 +56,7 @@ import {
 
 const prompt = ref('');
 const q = ref('');
-const drawerTab = ref('log');
+const drawerTab = ref('audit');
 const rightWidth = ref(320);
 const MIN_PANEL_W = 240;
 const MAX_PANEL_W = 640;
@@ -191,6 +196,43 @@ const stepCount = computed(() => {
     return detail.value?.stepCount ?? 0;
 });
 const rootOutcome = computed(() => (current.value ? runOutcomes[current.value] : null));
+
+/**
+ * Right-panel audit view of the selected Step/Task (docs/web/观测看板设计.md).
+ * Resolves the target against the run snapshot, falling back to the live
+ * append-only steps while the run is still executing.
+ */
+const auditView = computed(() => {
+    if (!selectedStepId.value && !selectedTaskId.value) {
+        return emptyAuditView();
+    }
+    const rootGoalId = current.value;
+    const snapshot = rootGoalId
+        ? runDetails[rootGoalId] ?? detail.value ?? null
+        : detail.value ?? null;
+    const live = rootGoalId ? liveSteps[rootGoalId] || [] : [];
+    const run = runs.value.find((item) => item.rootGoalId === rootGoalId);
+    return buildAuditView({
+        snapshot,
+        liveSteps: live,
+        stepId: selectedStepId.value,
+        taskId: selectedTaskId.value,
+        runInput: run?.input || '',
+    });
+});
+
+function onSelectStep(target) {
+    if (!target?.stepId) return;
+    selectStep(target.stepId, target.taskId);
+    drawerTab.value = 'audit';
+}
+
+function onSelectTask(taskId) {
+    if (!taskId) return;
+    selectTask(taskId);
+    drawerTab.value = 'audit';
+}
+
 /** Whether the right panel is maximized over the workspace. */
 const panelMaximized = ref(false);
 const settingsTab = ref('general');
@@ -648,6 +690,10 @@ onBeforeUnmount(() => {
                     :reasoning-levels="REASONING_LEVELS"
                     :task-count="taskCount"
                     :step-count="stepCount"
+                    :selected-step-id="selectedStepId"
+                    :selected-task-id="selectedTaskId"
+                    @select-step="onSelectStep"
+                    @select-task="onSelectTask"
                     @use-suggestion="useSuggestion"
                     @update:prompt="prompt = $event"
                     @submit="submitPrompt"
@@ -696,6 +742,8 @@ onBeforeUnmount(() => {
             :event-types="eventTypes"
             :active-event-type="ui.eventTypes"
             :show-all-events="showAllEvents"
+            :audit="auditView"
+            @select-step="onSelectStep"
             @update:active-tab="drawerTab = $event"
             @toggle-maximize="togglePanelMax"
             @collapse="ui.rightOpen = false"

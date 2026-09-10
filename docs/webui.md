@@ -376,7 +376,9 @@
 
 ### 3.8 审计抽屉/面板（Audit Panel）
 
-从右侧滑出的抽屉（而非固定右栏），点击消息或 Step 时展开。
+固定右侧边栏的「审计」页（与「日志」「事件」并列），点击主对话区的 Step 或 Task 时切换并展示
+该 Step / Task 的 token 用量（Vendor + Runtime）、成本、Context 装填与逐步骤 Context Diff。
+完整数据契约、面板结构、计算规则与降级策略见 docs/web/观测看板设计.md。
 
 ```
 ┌─ Audit Drawer (右侧滑出) ─────────────────────────────────┐

@@ -14,7 +14,7 @@
  * BillingLedger：进程内累计账本（§5.4 本期形态），供经济画像与账单展示。
  */
 
-import type { TokenUsage } from '@mazi/core';
+import type { CostBreakdown, TokenUsage } from '@mazi/core';
 
 export type CostComponent = 'input' | 'output' | 'cache-write' | 'cache-read' | 'reasoning';
 
@@ -116,20 +116,63 @@ export function tierMultiplier(
     return 1;
 }
 
+/** 命中的档位名：第一个窗口命中的 tier；无命中回落 base。 */
+function appliedTierName(pricing: PricingSchedule, hourUtc: number): string {
+    for (const tier of pricing.tiers) {
+        const [start, end] = tier.windowHoursUtc;
+        const inWindow =
+            start > end ? hourUtc >= start || hourUtc < end : hourUtc >= start && hourUtc < end;
+        if (inWindow) {
+            return tier.name;
+        }
+    }
+    return 'base';
+}
+
+/** 计算一次调用的成本拆分（USD）。now 缺省取当前时间；小时取 UTC。 */
+export function computeCostBreakdown(
+    usage: TokenUsage,
+    pricing: PricingSchedule,
+    now: Date = new Date(),
+): CostBreakdown {
+    const units = deriveComponentUnits(usage, pricing);
+    const hourUtc = now.getUTCHours();
+    const costOf = (component: CostComponent): number =>
+        tierMultiplier(pricing, hourUtc, component) *
+        unitPricePerToken(pricing, component) *
+        units[component];
+    const costs: Record<CostComponent, number> = {
+        input: costOf('input'),
+        output: costOf('output'),
+        'cache-read': costOf('cache-read'),
+        'cache-write': costOf('cache-write'),
+        reasoning: costOf('reasoning'),
+    };
+    let totalCostUsd = 0;
+    for (const component of ALL_COMPONENTS) {
+        totalCostUsd += costs[component];
+    }
+    return {
+        inputCostUsd: costs.input,
+        outputCostUsd: costs.output,
+        cacheWriteCostUsd: costs['cache-write'],
+        cacheReadCostUsd: costs['cache-read'],
+        reasoningCostUsd: costs.reasoning,
+        totalCostUsd,
+        priceTierApplied: appliedTierName(pricing, hourUtc),
+        pricingVersion: pricing.version,
+        currency: 'USD',
+        calculatedAt: now.getTime(),
+    };
+}
+
 /** 计算一次调用成本（USD）。now 缺省取当前时间；小时取 UTC。 */
 export function computeCostUsd(
     usage: TokenUsage,
     pricing: PricingSchedule,
     now: Date = new Date(),
 ): number {
-    const units = deriveComponentUnits(usage, pricing);
-    const hourUtc = now.getUTCHours();
-    let cost = 0;
-    for (const component of ALL_COMPONENTS) {
-        const price = unitPricePerToken(pricing, component);
-        cost += tierMultiplier(pricing, hourUtc, component) * price * units[component];
-    }
-    return cost;
+    return computeCostBreakdown(usage, pricing, now).totalCostUsd;
 }
 
 // ------------------------------------------------------------

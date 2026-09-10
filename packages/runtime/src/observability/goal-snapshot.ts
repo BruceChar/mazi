@@ -8,44 +8,8 @@
  */
 
 import type { Goal, Step, Task } from '@mazi/core';
-import type { GoalNodeView, GoalTreeSnapshot, StepUsage, StepView, TaskNodeView } from '@mazi/libs';
-
-/** Step.usage（unknown）→ 视图（vendor/runtime 摘要） */
-function usageViewOf(step: Step): StepUsage | undefined {
-    const usage = step.usage as
-        | { vendor?: Record<string, number>; runtime?: Record<string, number> }
-        | undefined;
-    if (!usage) {
-        return undefined;
-    }
-    const view: StepUsage = {};
-    if (usage.vendor) {
-        view.vendor = {
-            inputTokens: usage.vendor.inputTokens ?? 0,
-            outputTokens: usage.vendor.outputTokens ?? 0,
-            ...(usage.vendor.cacheReadInputTokens !== undefined
-                ? { cacheReadInputTokens: usage.vendor.cacheReadInputTokens }
-                : {}),
-            ...(usage.vendor.reasoningOutputTokens !== undefined
-                ? { reasoningOutputTokens: usage.vendor.reasoningOutputTokens }
-                : {}),
-        };
-    }
-    if (usage.runtime) {
-        view.runtime = {
-            totalContextTokens: usage.runtime.totalContextTokens ?? 0,
-            systemPromptTokens: usage.runtime.systemPromptTokens ?? 0,
-            historyTokens: usage.runtime.historyTokens ?? 0,
-            toolSchemaTokens: usage.runtime.toolSchemaTokens ?? 0,
-            newInputTokens: usage.runtime.newInputTokens ?? 0,
-            observationTokens: usage.runtime.observationTokens ?? 0,
-            ...(usage.runtime.estimationDriftTokens !== undefined
-                ? { estimationDriftTokens: usage.runtime.estimationDriftTokens }
-                : {}),
-        };
-    }
-    return view.vendor !== undefined || view.runtime !== undefined ? view : undefined;
-}
+import type { GoalNodeView, GoalTreeSnapshot, StepView, TaskNodeView } from '@mazi/libs';
+import { usageViewOf } from './usage-view.js';
 
 /** Step payload → 可读文本摘要（按 kind 投影；长内容截断） */
 function payloadTextOf(step: Step): string | undefined {
@@ -118,7 +82,9 @@ export function snapshotGoalTree(
                         ...(payloadTextOf(step) !== undefined
                             ? { payloadText: payloadTextOf(step) }
                             : {}),
-                        ...(usageViewOf(step) !== undefined ? { usage: usageViewOf(step) } : {}),
+                        ...(usageViewOf(step.usage) !== undefined
+                            ? { usage: usageViewOf(step.usage) }
+                            : {}),
                     };
                 });
             stepCount += stepViews.length;

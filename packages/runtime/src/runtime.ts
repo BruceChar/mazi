@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type {
+    CostBreakdown,
     EventBus,
     Goal,
     LLMProvider,
@@ -19,9 +20,18 @@ import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './gts/goal-executor.js';
 import type { ExecutorRoundContext, RoundResult } from './gts/round-types.js';
 import { type GoalStore, SqliteGoalStore } from './memory/goal-store.js';
-import { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/index.js';
-import type { PricingSchedule, RoundOutcome } from './provider/index.js';
-import { RoundExecutor } from './provider/index.js';
+import {
+    ConsoleSink,
+    DefaultEventBus,
+    newHarnessEvent,
+    usageViewOf,
+} from './observability/index.js';
+import {
+    computeCostBreakdown,
+    type PricingSchedule,
+    RoundExecutor,
+    type RoundOutcome,
+} from './provider/index.js';
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
 import { BUILTIN_TOOL_PRESET } from './tool-gateway/builtin.js';
 
@@ -530,6 +540,8 @@ export class HarnessRuntime {
         if (goals.length === 0) {
             throw new Error(`Goal 树不存在：${rootGoalId}`);
         }
+        // 每轮 run 重置上下文基线：首个 round 的 delta 从 0 起算，不与上一个会话串味。
+        this.lastContextTotal = undefined;
         const exec = this.goalExecutionConfig();
         const result = await runGoalTree(
             {
@@ -609,9 +621,7 @@ export class HarnessRuntime {
 
     /** Step 落库即时事件：经事件总线实时推送（SSE/UI 流式展示） */
     private emitStep(rootGoalId: string, step: Step): void {
-        const usage = step.usage as
-            | { vendor?: Record<string, number>; runtime?: Record<string, number> }
-            | undefined;
+        const usage = usageViewOf(step.usage);
         const payload: Record<string, unknown> = {
             kind: step.kind,
             status: step.status,
@@ -619,30 +629,8 @@ export class HarnessRuntime {
             taskId: step.taskId,
             content: stepText(step),
         };
-        if (usage?.vendor || usage?.runtime) {
-            payload.usage = {
-                vendor: {
-                    inputTokens: usage.vendor?.inputTokens ?? 0,
-                    outputTokens: usage.vendor?.outputTokens ?? 0,
-                    ...(usage.vendor?.cacheReadInputTokens !== undefined
-                        ? { cacheReadInputTokens: usage.vendor.cacheReadInputTokens }
-                        : {}),
-                    ...(usage.vendor?.reasoningOutputTokens !== undefined
-                        ? { reasoningOutputTokens: usage.vendor.reasoningOutputTokens }
-                        : {}),
-                },
-                runtime: {
-                    totalContextTokens: usage.runtime?.totalContextTokens ?? 0,
-                    systemPromptTokens: usage.runtime?.systemPromptTokens ?? 0,
-                    historyTokens: usage.runtime?.historyTokens ?? 0,
-                    toolSchemaTokens: usage.runtime?.toolSchemaTokens ?? 0,
-                    newInputTokens: usage.runtime?.newInputTokens ?? 0,
-                    observationTokens: usage.runtime?.observationTokens ?? 0,
-                    ...(usage.runtime?.estimationDriftTokens !== undefined
-                        ? { estimationDriftTokens: usage.runtime.estimationDriftTokens }
-                        : {}),
-                },
-            };
+        if (usage !== undefined) {
+            payload.usage = usage;
         }
         // Announce the step once when it first reaches the store, then emit an
         // ended event on every persist (tool calls: running -> ok updates).
@@ -830,6 +818,17 @@ export class HarnessRuntime {
                 contextUsage.totalContextTokens - vendorInput,
             );
         }
-        return { ...result, contextUsage };
+        const cost = this.roundCost(outcome);
+        return { ...result, contextUsage, ...(cost !== undefined ? { cost } : {}) };
+    }
+
+    /** 本轮成本拆分：仅当厂商上报 usage 且候选命中计价表时产出。 */
+    private roundCost(outcome: RoundOutcome): CostBreakdown | undefined {
+        const usage = outcome.metrics.usage;
+        const pricing = this.pricingOf(outcome.metrics.providerId);
+        if (usage === undefined || pricing === undefined) {
+            return undefined;
+        }
+        return computeCostBreakdown(usage, pricing, new Date());
     }
 }

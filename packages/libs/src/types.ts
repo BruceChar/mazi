@@ -72,23 +72,64 @@ export interface ConfigOverview {
 /** Step kind (aligned with core StepKind). */
 export type SnapshotStepKind = 'thinking' | 'intent' | 'tool_call' | 'observation';
 
-/** Token usage attached to a step (vendor + runtime dimensions). */
+/** 厂商层 token 用量（core VendorUsage 的线协议投影）。 */
+export interface StepVendorUsage {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationInputTokens?: number;
+    cacheReadInputTokens?: number;
+    reasoningOutputTokens?: number;
+    reportedByVendor?: boolean;
+}
+
+/** Runtime 层上下文分段、占比与装填（core RuntimeContextBreakdown 的线协议投影）。 */
+export interface StepRuntimeUsage {
+    totalContextTokens: number;
+    systemPromptTokens: number;
+    historyTokens: number;
+    toolSchemaTokens: number;
+    newInputTokens: number;
+    observationTokens: number;
+    retrievedTokens?: number;
+    exampleTokens?: number;
+    /** systemPromptTokens / totalContextTokens */
+    systemPromptRatio?: number;
+    /** 0-1，相对 contextWindow */
+    contextWindowUtilization?: number;
+    /** 相对上一步上下文总量；< 0 表示压缩；每轮首次调用为 0 */
+    contextDeltaFromPrev?: number;
+    strategyApplied?: string[];
+    budgetPressureAction?: string;
+    /** |runtime.totalContextTokens − vendor.inputTokens| */
+    estimationDriftTokens?: number;
+}
+
+/** 成本拆分（core CostBreakdown 的线协议投影）。 */
+export interface StepCostUsage {
+    inputCostUsd: number;
+    outputCostUsd: number;
+    cacheWriteCostUsd: number;
+    cacheReadCostUsd: number;
+    reasoningCostUsd: number;
+    totalCostUsd: number;
+    priceTierApplied?: string;
+    pricingVersion?: string;
+    currency?: 'USD';
+}
+
+/** 调用耗时（core UsageTiming 的线协议投影）。 */
+export interface StepTimingUsage {
+    ttftMs: number;
+    totalMs: number;
+    tokensPerSecond: number;
+}
+
+/** Token usage attached to a step (vendor + runtime + cost + timing). */
 export interface StepUsage {
-    vendor?: {
-        inputTokens: number;
-        outputTokens: number;
-        cacheReadInputTokens?: number;
-        reasoningOutputTokens?: number;
-    };
-    runtime?: {
-        totalContextTokens: number;
-        systemPromptTokens: number;
-        historyTokens: number;
-        toolSchemaTokens: number;
-        newInputTokens: number;
-        observationTokens: number;
-        estimationDriftTokens?: number;
-    };
+    vendor?: StepVendorUsage;
+    runtime?: StepRuntimeUsage;
+    cost?: StepCostUsage;
+    timing?: StepTimingUsage;
 }
 
 /** A single step in the goal-tree snapshot. */

@@ -10,7 +10,12 @@ const props = defineProps({
     liveStream: { type: Object, default: null },
     /** Append-only live steps of the executing run (store.liveSteps[run]). */
     liveSteps: { type: Array, default: () => [] },
+    /** Audit selection highlight (store.selectedStepId / selectedTaskId). */
+    selectedStepId: { type: String, default: '' },
+    selectedTaskId: { type: String, default: '' },
 });
+/** Open the right-side audit panel for the clicked Step/Task. */
+const emit = defineEmits(['select-step', 'select-task']);
 
 /* ---- Time formatting ---- */
 const pad = (n, w = 2) => String(n).padStart(w, '0');
@@ -198,7 +203,8 @@ const stats = computed(() => buildExecStats(props.runDetail));
             v-for="(step, i) in liveSteps"
             :key="step.stepId"
             class="exec-step"
-            :class="[`exec-${step.kind}`, { error: step.status === 'error' || step.status === 'failed' }]"
+            :class="[`exec-${step.kind}`, { error: step.status === 'error' || step.status === 'failed', selected: step.stepId === selectedStepId }]"
+            @click="emit('select-step', { stepId: step.stepId, taskId: step.taskId })"
         >
             <div class="exec-step-head">
                 <span v-if="step.status === 'running'" class="exec-spinner"></span>
@@ -227,8 +233,16 @@ const stats = computed(() => buildExecStats(props.runDetail));
             </div>
             <div v-if="!collapsedGoals.has(goal.goalId)" class="exec-goal-body">
                 <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
-                    <div class="exec-task-head" @click="toggleTask(task.taskId)">
-                        <span class="exec-dot task-dot" :class="{ collapsed: collapsedTasks.has(task.taskId) }"></span>
+                    <div
+                        class="exec-task-head"
+                        :class="{ selected: task.taskId === selectedTaskId }"
+                        @click="emit('select-task', task.taskId)"
+                    >
+                        <span
+                            class="exec-dot task-dot interactive"
+                            :class="{ collapsed: collapsedTasks.has(task.taskId) }"
+                            @click.stop="toggleTask(task.taskId)"
+                        ></span>
                         <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
                         <span class="exec-task-title">{{ task.title }}</span>
                         <span class="exec-task-count">{{ task.steps.length }} steps</span>
@@ -241,13 +255,25 @@ const stats = computed(() => buildExecStats(props.runDetail));
                             class="exec-step"
                             :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
                         >
-                            <div class="exec-step-head" :class="{ clickable: isStepLong(row) }" @click="isStepLong(row) && toggleStepCollapse(row.key)">
+                            <div
+                                class="exec-step-head"
+                                :class="{ selected: row.stepId === selectedStepId }"
+                                @click="emit('select-step', { stepId: row.stepId, taskId: row.taskId })"
+                            >
                                 <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="16" />
                                 <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                                 <span class="exec-step-name">{{ row.toolName || row.kind }}</span>
                                 <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
                                 <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
                                 <span class="exec-step-time">{{ row.time }}</span>
+                                <button
+                                    v-if="isStepLong(row)"
+                                    class="exec-step-caret"
+                                    :title="collapsedSteps.has(row.key) ? '展开' : '折叠'"
+                                    @click.stop="toggleStepCollapse(row.key)"
+                                >
+                                    <LineIcon :name="collapsedSteps.has(row.key) ? 'chevronRight' : 'chevronDown'" size="12" />
+                                </button>
                             </div>
                             <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
                                 <pre class="exec-step-code-inner">{{ row.text }}</pre>
@@ -492,11 +518,34 @@ const stats = computed(() => buildExecStats(props.runDetail));
     color: var(--fg-tertiary);
     margin-left: -21px; /* pull icon center onto the vertical timeline line */
 }
-.exec-step-head.clickable {
-    cursor: pointer;
-}
-.exec-step-head.clickable:hover {
+.exec-step-head:hover {
     background: var(--bg-hover);
+}
+.exec-task-head.selected,
+.exec-step-head.selected {
+    background: var(--accent-soft);
+    border-radius: var(--radius-sm);
+}
+.exec-step-head.selected .exec-step-name,
+.exec-task-head.selected .exec-task-title {
+    color: var(--accent-text);
+}
+.exec-step-caret {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--fg-tertiary);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.exec-step-caret:hover {
+    color: var(--fg);
+    background: var(--bg-hover);
+    border-radius: 4px;
 }
 .exec-thinking .exec-step-head .line-icon { color: var(--thinking); }
 .exec-tool_call .exec-step-head .line-icon { color: var(--tool); }

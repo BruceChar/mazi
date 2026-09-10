@@ -1,7 +1,13 @@
 import type { TokenUsage } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import type { PricingSchedule } from '../../src/provider/pricing.js';
-import { BillingLedger, computeCostUsd, deriveComponentUnits, tierMultiplier } from '../../src/provider/pricing.js';
+import {
+    BillingLedger,
+    computeCostBreakdown,
+    computeCostUsd,
+    deriveComponentUnits,
+    tierMultiplier,
+} from '../../src/provider/pricing.js';
 
 function baseSchedule(over: Partial<PricingSchedule['base']> = {}): PricingSchedule {
     return {
@@ -93,6 +99,45 @@ describe('Pricer（AHF_RUNTIME_PROVIDER §5）', () => {
         );
         expect(units.input).toBe(0);
         expect(units['cache-write']).toBe(0);
+    });
+
+    it('computeCostBreakdown：成分拆分与总额一致，档位名回落 base', () => {
+        const schedule = baseSchedule({ inputPerMTok: 2, outputPerMTok: 10, cacheReadPerMTok: 1 });
+        const breakdown = computeCostBreakdown(
+            usage({
+                inputTokens: 1000,
+                cachedInputTokens: 200,
+                outputTokens: 300,
+                totalTokens: 1300,
+            }),
+            schedule,
+            new Date('2026-01-01T12:00:00Z'),
+        );
+        expect(breakdown.inputCostUsd).toBeCloseTo((800 * 2) / 1e6, 12);
+        expect(breakdown.cacheReadCostUsd).toBeCloseTo((200 * 1) / 1e6, 12);
+        expect(breakdown.outputCostUsd).toBeCloseTo((300 * 10) / 1e6, 12);
+        expect(breakdown.cacheWriteCostUsd).toBe(0);
+        expect(breakdown.reasoningCostUsd).toBe(0);
+        expect(breakdown.totalCostUsd).toBeCloseTo(
+            breakdown.inputCostUsd +
+                breakdown.outputCostUsd +
+                breakdown.cacheWriteCostUsd +
+                breakdown.cacheReadCostUsd +
+                breakdown.reasoningCostUsd,
+            12,
+        );
+        expect(breakdown.priceTierApplied).toBe('base');
+        expect(breakdown.currency).toBe('USD');
+    });
+
+    it('computeCostBreakdown：命中档位名写入 priceTierApplied，且与 computeCostUsd 一致', () => {
+        const schedule = baseSchedule();
+        schedule.tiers.push({ name: 'off-peak', windowHoursUtc: [0, 24], multiplier: 0.5 });
+        const at = new Date('2026-01-01T12:00:00Z');
+        const payload = usage({ inputTokens: 100, outputTokens: 0, totalTokens: 100 });
+        const breakdown = computeCostBreakdown(payload, schedule, at);
+        expect(breakdown.priceTierApplied).toBe('off-peak');
+        expect(computeCostUsd(payload, schedule, at)).toBeCloseTo(breakdown.totalCostUsd, 12);
     });
 
     it('BillingLedger：进程内累计', () => {

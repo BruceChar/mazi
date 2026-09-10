@@ -25,6 +25,9 @@ const props = defineProps({
     reasoningLevels: { type: Array, default: () => [] },
     taskCount: { type: Number, default: 0 },
     stepCount: { type: Number, default: 0 },
+    /** Audit selection highlight (store.selectedStepId / selectedTaskId). */
+    selectedStepId: { type: String, default: '' },
+    selectedTaskId: { type: String, default: '' },
 });
 const emit = defineEmits([
     'use-suggestion',
@@ -35,6 +38,8 @@ const emit = defineEmits([
     'exit-workspace',
     'update:selectedModel',
     'update:reasoningLevel',
+    'select-step',
+    'select-task',
 ]);
 
 function conversationTitle(conversation) {
@@ -202,6 +207,10 @@ onMounted(() => {
                                 :busy="busy && run.rootGoalId === current"
                                 :live-stream="run.rootGoalId === current ? liveStream : null"
                                 :live-steps="liveSteps[run.rootGoalId] || []"
+                                :selected-step-id="run.rootGoalId === current ? selectedStepId : ''"
+                                :selected-task-id="run.rootGoalId === current ? selectedTaskId : ''"
+                                @select-step="emit('select-step', $event)"
+                                @select-task="emit('select-task', $event)"
                             />
                         </div>
                     </template>

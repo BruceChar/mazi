@@ -192,6 +192,46 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(invoked).toBe(false);
     });
 
+    it('usage 归属：vendor/runtime/cost/timing 挂到本轮首个 Step，后续 Step 不带', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        const round: RoundResult = {
+            text: 'answer',
+            reasoning: 'think',
+            toolCalls: [],
+            finishReason: 'stop',
+            ttftMs: 100,
+            totalMs: 300,
+            vendorUsage: { inputTokens: 10, outputTokens: 20, reportedByVendor: true },
+            cost: {
+                inputCostUsd: 0.001,
+                outputCostUsd: 0.002,
+                cacheWriteCostUsd: 0,
+                cacheReadCostUsd: 0,
+                reasoningCostUsd: 0,
+                totalCostUsd: 0.003,
+                priceTierApplied: 'base',
+                pricingVersion: 'v1',
+                currency: 'USD',
+                calculatedAt: 1,
+            },
+        };
+        await executeTask({ store, requestRound: async () => round }, t, g);
+        const steps = await store.listSteps(t.taskId);
+        const thinking = steps.find((s) => s.kind === 'thinking');
+        const intent = steps.find((s) => s.kind === 'intent');
+        const usage = thinking?.usage as {
+            timing?: { tokensPerSecond?: number };
+            cost?: { totalCostUsd?: number };
+            vendor?: { inputTokens?: number };
+        };
+        expect(usage?.vendor?.inputTokens).toBe(10);
+        expect(usage?.timing?.tokensPerSecond).toBeCloseTo((20 / 200) * 1000, 6);
+        expect(usage?.cost?.totalCostUsd).toBeCloseTo(0.003, 12);
+        expect(intent?.usage).toBeUndefined();
+    });
+
     it('连续相同工具调用 → 未收敛中止（防死循环，不烧完 maxSteps）', async () => {
         const store = new MemoryGoalStore();
         let calls = 0;

@@ -7,6 +7,7 @@ import type {
     GoalTreeSnapshot,
     Project,
     RunOutcome,
+    StepUsage,
     UserPreferences,
 } from '../types.js';
 import { activeStream, applyStreamEvent, type LiveStream, type LiveStreamMap } from './stream.js';
@@ -146,10 +147,40 @@ export interface LiveStep {
     status: string;
     startedAt: number;
     endedAt: number | null;
+    /** Vendor/runtime/cost/timing of the round this step belongs to (may be null while running). */
+    usage: StepUsage | null;
 }
 
 /** Live steps per run (rootGoalId -> ordered steps). */
 export const liveSteps = reactive<Record<string, LiveStep[]>>({});
+
+/**
+ * Audit panel selection (docs/web/观测看板设计.md §3). Clicking a Step/Task in
+ * the chat flow sets these; the right panel resolves them against the run
+ * snapshot (and live steps while executing).
+ */
+export const selectedStepId = ref<string>('');
+export const selectedTaskId = ref<string>('');
+
+/** Select a Step (opening the audit panel); taskId keeps sibling context. */
+export function selectStep(stepId: string, taskId?: string): void {
+    selectedStepId.value = stepId;
+    selectedTaskId.value = taskId ?? '';
+    ui.rightOpen = true;
+}
+
+/** Select a Task (aggregates its steps); opening the audit panel. */
+export function selectTask(taskId: string): void {
+    selectedStepId.value = '';
+    selectedTaskId.value = taskId;
+    ui.rightOpen = true;
+}
+
+/** Drop the current audit target (run/session switch). */
+export function clearAuditSelection(): void {
+    selectedStepId.value = '';
+    selectedTaskId.value = '';
+}
 
 export const esc = (s: unknown): string =>
     String(s ?? '').replace(
@@ -339,6 +370,7 @@ function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
         status,
         startedAt: at,
         endedAt: status === 'running' ? null : at,
+        usage: (payload.usage as StepUsage | undefined) ?? null,
     };
 }
 
@@ -470,6 +502,7 @@ export async function loadRunDetail(rootGoalId: string): Promise<void> {
 /** Open a Goal run: load its timeline snapshot and subscribe to live events. */
 export async function openRun(rootGoalId: string): Promise<void> {
     if (!rootGoalId) return;
+    clearAuditSelection();
     current.value = rootGoalId;
     watchEvents(rootGoalId);
     await Promise.all([loadDetail(rootGoalId), loadEvents(rootGoalId)]);
