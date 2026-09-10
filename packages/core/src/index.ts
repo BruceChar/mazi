@@ -8,7 +8,7 @@ export type * from './approval.js';
 export type * from './authorization.js';
 export type * from './gts.js';
 export { validateAttributionChain, validateCeilingMonotonicity } from './gts.js';
-export { ulid } from './id.js';
+export { ulid, ULID } from './id.js';
 export type * from './observability.js';
 export type * from './provider.js';
 export { ProviderError } from './provider.js';

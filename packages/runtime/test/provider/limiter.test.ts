@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EndpointLimiter, msUntilTokens, refillBucket } from './limiter.js';
+import { EndpointLimiter, msUntilTokens, refillBucket } from '../../src/provider/limiter.js';
 
 const limits = new Map<string, { rpm?: number; tpm?: number; concurrency?: number }>();
 const fakeLimits = (providerId: string) => limits.get(providerId);

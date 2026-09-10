@@ -1,9 +1,9 @@
 import type { LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { HealthTracker } from './health.js';
-import { estimateInputTokens, type RoundCandidate, RoundExecutor } from './orchestrator.js';
-import { CircuitBreaker, DEFAULT_RETRY_POLICY, type RetryPolicyTable } from './retry.js';
+import { HealthTracker } from '../../src/provider/health.js';
+import { estimateInputTokens, type RoundCandidate, RoundExecutor } from '../../src/provider/orchestrator.js';
+import { CircuitBreaker, DEFAULT_RETRY_POLICY, type RetryPolicyTable } from '../../src/provider/retry.js';
 
 /** 测试用策略表：关闭指数退避等待，保持测试即时 */
 const FAST_POLICY: RetryPolicyTable = {

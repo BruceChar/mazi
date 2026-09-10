@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HealthTracker } from './health.js';
+import { HealthTracker } from '../../src/provider/health.js';
 
 describe('HealthTracker（§8）', () => {
     it('初始 100；成功 +1 上限 100', () => {

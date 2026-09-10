@@ -1,8 +1,8 @@
 import type { ContentType } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import type { ProviderConfig } from './config.js';
-import { ConfigValidationError, KNOWN_SPECIALTIES, validateProviderConfig } from './config.js';
-import type { PricingSchedule } from './pricing.js';
+import type { ProviderConfig } from '../../src/provider/config.js';
+import { ConfigValidationError, KNOWN_SPECIALTIES, validateProviderConfig } from '../../src/provider/config.js';
+import type { PricingSchedule } from '../../src/provider/pricing.js';
 
 const caps = (over = {}) => ({
     supportsToolCalls: true,

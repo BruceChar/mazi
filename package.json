@@ -6,6 +6,8 @@
   "packageManager": "pnpm@10.3.0",
   "scripts": {
     "build": "turbo run build",
+    "clean": "turbo run clean",
+    "clear": "turbo run clean",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest --passWithNoTests",
     "lint": "biome check .",

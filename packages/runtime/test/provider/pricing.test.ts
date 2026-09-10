@@ -1,7 +1,7 @@
 import type { TokenUsage } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import type { PricingSchedule } from './pricing.js';
-import { BillingLedger, computeCostUsd, deriveComponentUnits, tierMultiplier } from './pricing.js';
+import type { PricingSchedule } from '../../src/provider/pricing.js';
+import { BillingLedger, computeCostUsd, deriveComponentUnits, tierMultiplier } from '../../src/provider/pricing.js';
 
 function baseSchedule(over: Partial<PricingSchedule['base']> = {}): PricingSchedule {
     return {

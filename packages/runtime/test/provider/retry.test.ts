@@ -5,7 +5,7 @@ import {
     classifyFinishReason,
     decisionForErrorCode,
     retryDelayMs,
-} from './retry.js';
+} from '../../src/provider/retry.js';
 
 describe('RetryPolicyTable（§6.1）', () => {
     it('每个错误码都有决策行（含默认回退 unknown）', () => {

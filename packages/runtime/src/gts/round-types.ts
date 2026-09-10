@@ -1,12 +1,12 @@
 /**
- * round-types —— 单次 LLM 轮次的契约类型（goal 路径与旧 executor 共用）。
- * 仅依赖 core provider 契约（LLMMessage/ToolSchema/VendorUsage），不依附 Session/Turn 旧模型。
+ * round-types —— 单次 LLM 轮次的契约类型。
+ * 仅依赖 core provider 契约（LLMMessage/ToolSchema/VendorUsage）。
  * goal-executor 从旧 executor.ts 迁出后只依赖本模块。
  */
 
 import type { LLMMessage, RuntimeContextBreakdown, ToolSchema, VendorUsage } from '@mazi/core';
 
-/** 单次 LLM 轮次请求（新 provider 契约 Block 消息；容量中的模型已选定） */
+/** 单次 LLM 轮次请求 */
 export interface ExecutorRoundContext {
     model: { providerId: string; modelId: string };
     messages: LLMMessage[];

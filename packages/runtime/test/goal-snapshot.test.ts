@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { Goal, Step, Task } from '../../../core/src/goal-coordinate.js';
-import { snapshotGoalTree } from './goal-snapshot.js';
+import type { Goal, Step, Task, ULID } from '@mazi/core';
+import { ulid } from '@mazi/core';
+import { snapshotGoalTree } from '../src/observability/goal-snapshot.js';
 
-const goal = (id: string, kind: 'intake' | 'work' = 'work'): Goal => ({
+const goal = (id: ULID, kind: 'intake' | 'work' = 'work'): Goal => ({
     goalId: id,
-    rootGoalId: 'root',
+    rootGoalId: ulid(),
     origin: kind === 'intake' ? { kind: 'human' } : undefined,
     kind,
     statement: `s-${id}`,
@@ -25,14 +26,14 @@ const goal = (id: string, kind: 'intake' | 'work' = 'work'): Goal => ({
     status: 'active',
     createdAt: 1,
 });
-const task = (id: string, goalId: string): Task => ({
+const task = (id: ULID, goalId: ULID): Task => ({
     taskId: id,
     goalId,
     title: `t-${id}`,
     acceptance: { conditions: [] },
     status: 'pending',
 });
-const step = (id: string, taskId: string, goalId: string): Step => ({
+const step = (id: ULID, taskId: ULID, goalId: ULID): Step => ({
     stepId: id,
     taskId,
     goalId,
@@ -45,17 +46,17 @@ const step = (id: string, taskId: string, goalId: string): Step => ({
 describe('goal-snapshot（C3f：四元组层级投影）', () => {
     it('intake+work → 树视图含 tasks/steps 计数', () => {
         const snap = snapshotGoalTree(
-            'root',
-            [goal('root', 'intake'), goal('a'), goal('b')],
-            [task('t1', 'a'), task('t2', 'b')],
-            [step('s1', 't1', 'a')],
+            ulid(),
+            [goal(ulid(), 'intake'), goal(ulid()), goal(ulid())],
+            [task(ulid(), ulid()), task(ulid(), ulid())],
+            [step(ulid(), ulid(), ulid())],
         );
         expect(snap.goals).toHaveLength(3);
         expect(snap.taskCount).toBe(2);
         expect(snap.stepCount).toBe(1);
-        const goalA = snap.goals.find((g) => g.goalId === 'a');
-        expect(goalA?.tasks[0]?.taskId).toBe('t1');
-        expect(goalA?.tasks[0]?.steps[0]?.goalId).toBe('a');
+        const goalA = snap.goals.find((g: Goal) => g.goalId === ulid());
+        expect(goalA?.tasks[0]?.taskId).toBe(ulid());
+        expect(goalA?.tasks[0]?.steps[0]?.goalId).toBe(ulid());
         expect(snap.goals[0]?.kind).toBe('intake');
     });
 });

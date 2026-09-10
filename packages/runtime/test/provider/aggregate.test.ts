@@ -1,7 +1,7 @@
 import type { StreamCompletionEvent, TokenUsage } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { aggregateStream } from './aggregate.js';
+import { aggregateStream } from '../../src/provider/aggregate.js';
 
 function streamOf(events: StreamCompletionEvent[]): AsyncIterable<StreamCompletionEvent> {
     return (async function* () {

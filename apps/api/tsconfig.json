@@ -8,7 +8,7 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "test/conversations.controller.test.ts"],
   "exclude": ["src/**/*.test.ts"],
   "references": [
     { "path": "../../packages/core" },

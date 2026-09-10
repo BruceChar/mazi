@@ -1,11 +1,11 @@
 import type { ContentType, LLMProvider, LLMRequest } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import type { ProviderConfig } from './config.js';
-import { ConfigValidationError } from './config.js';
-import type { EconomicsProfile, PerformanceProfile } from './profile.js';
-import { ProviderRegistry } from './registry.js';
-import { RoutingSupply } from './supply.js';
+import type { ProviderConfig } from '../../src/provider/config.js';
+import { ConfigValidationError } from '../../src/provider/config.js';
+import type { EconomicsProfile, PerformanceProfile } from '../../src/provider/profile.js';
+import { ProviderRegistry } from '../../src/provider/registry.js';
+import { RoutingSupply } from '../../src/provider/supply.js';
 
 const caps = {
     supportsToolCalls: true,

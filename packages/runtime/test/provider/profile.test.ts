@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CollectableMetrics } from './profile.js';
-import { ProfileCollector } from './profile.js';
+import type { CollectableMetrics } from '../../src/provider/profile.js';
+import { ProfileCollector } from '../../src/provider/profile.js';
 
 let t = 0;
 const now = (): number => t;

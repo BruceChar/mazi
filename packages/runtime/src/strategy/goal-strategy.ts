@@ -5,10 +5,10 @@
  */
 
 import type { Goal } from '@mazi/core';
-import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../executor/goal-executor.js';
-import { executeTask } from '../executor/goal-executor.js';
+import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../gts/goal-executor.js';
+import { executeTask } from '../gts/goal-executor.js';
 import type { GoalStore } from '../memory/goal-store.js';
-import { planGoalTree } from '../planner/goal-planner.js';
+import { planGoalTree } from '../gts/goal-planner.js';
 
 export interface GoalRunDeps {
     store: GoalStore;

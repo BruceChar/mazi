@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_TOOL_PRESET } from './preset.js';
+import { BUILTIN_TOOL_PRESET } from '../src/tools/preset.js';
 
 describe('BUILTIN_TOOL_PRESET（CLI 工具预设）', () => {
     it('覆盖结构/搜索/查看类命令且名称唯一', () => {

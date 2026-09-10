@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { ProfileSnapshot } from './profile.js';
-import { FileProfileStore } from './store.js';
+import type { ProfileSnapshot } from '../../src/provider/profile.js';
+import { FileProfileStore } from '../../src/provider/store.js';
 
 let dir: string;
 let file: string;

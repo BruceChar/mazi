@@ -18,12 +18,12 @@ import type { PricingSchedule, RoundOutcome } from '@mazi/provider-runtime';
 import { RoundExecutor } from '@mazi/provider-runtime';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
-import type { GoalToolInvoker } from './executor/goal-executor.js';
-import type { RoundResult } from './executor/round-types.js';
+import type { GoalToolInvoker } from './gts/goal-executor.js';
+import type { RoundResult } from './gts/round-types.js';
 import { type GoalStore, SqliteGoalStore } from './memory/goal-store.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/index.js';
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
-import { BUILTIN_TOOL_PRESET } from './tools/preset.js';
+import { BUILTIN_TOOL_PRESET } from './tool-gateway/builtin.js';
 
 /** 用户反馈载荷（core 旧 UserInteractionRecord 已删；事件契约只取展示字段） */
 export interface FeedbackInput {

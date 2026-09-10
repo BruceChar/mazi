@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { createTestApp, type TestAppHandle } from '../testing/test-app.js';
+import { createTestApp, type TestAppHandle } from '../src/testing/test-app.js';
 
 describe('conversations（Goal run 会话业务抽象列表）', () => {
     let handle: TestAppHandle;

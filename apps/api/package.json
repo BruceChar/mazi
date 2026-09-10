@@ -18,6 +18,7 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
+    "clean": "rm -rf dist",
     "start": "node dist/main.js",
     "dev": "tsc -b && (tsc -b --watch & node --watch dist/main.js)"
   },

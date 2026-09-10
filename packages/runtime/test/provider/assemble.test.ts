@@ -4,9 +4,9 @@ import { join } from 'node:path';
 import type { ContentType, LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { assembleProviderStack } from './assemble.js';
-import type { ProviderConfig } from './config.js';
-import { FileProfileStore } from './store.js';
+import { assembleProviderStack } from '../../src/provider/assemble.js';
+import type { ProviderConfig } from '../../src/provider/config.js';
+import { FileProfileStore } from '../../src/provider/store.js';
 
 const caps = {
     supportsToolCalls: true,

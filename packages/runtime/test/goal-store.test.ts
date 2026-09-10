@@ -2,10 +2,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Goal, Step, Task } from '../../../core/src/goal-coordinate.js';
-import { MemoryGoalStore, SqliteGoalStore } from './goal-store.js';
+import type { Goal, Step, Task, ULID } from '@mazi/core';
+import { ulid } from '@mazi/core';
+import { MemoryGoalStore, SqliteGoalStore } from '../src/memory/goal-store.js';
 
-function goal(id: string, root = id): Goal {
+function goal(id: ULID, root = id): Goal {
     return {
         goalId: id,
         rootGoalId: root,
@@ -30,10 +31,10 @@ function goal(id: string, root = id): Goal {
         createdAt: 1,
     };
 }
-function task(id: string, goalId: string): Task {
+function task(id: ULID, goalId: ULID): Task {
     return { taskId: id, goalId, title: 't', acceptance: { conditions: [] }, status: 'pending' };
 }
-function step(id: string, taskId: string, goalId: string): Step {
+function step(id: ULID, taskId: ULID, goalId: ULID): Step {
     return {
         stepId: id,
         taskId,
@@ -50,22 +51,24 @@ describe('GoalStore（并存存储，C3a）', () => {
         it(`deleteGoalTree 级联删除 goals/tasks/steps（${make().constructor.name}）`, async () => {
             const store = make();
             try {
-                const root = goal('root');
-                const child = goal('w', 'root');
-                const other = goal('other');
+                const root = goal(ulid());
+                const child = goal(ulid(), root.goalId);
+                const other = goal(ulid());
                 await store.saveGoal(root);
                 await store.saveGoal(child);
                 await store.saveGoal(other);
-                await store.saveTask(task('t1', 'w'));
-                await store.saveTask(task('t2', 'other'));
-                await store.saveStep(step('s1', 't1', 'w'));
-                await store.saveStep(step('s2', 't2', 'other'));
-                await store.deleteGoalTree('root');
-                expect(await store.listGoalsByRoot('root')).toEqual([]);
-                expect((await store.loadGoal('other'))?.goalId).toBe('other');
-                expect(await store.listTasks('w')).toEqual([]);
-                expect(await store.listSteps('t1')).toEqual([]);
-                expect((await store.loadStep('s2'))?.stepId).toBe('s2');
+                const task1 = task(ulid(), child.goalId);
+                const task2 = task(ulid(), other.goalId);
+                await store.saveTask(task1);
+                await store.saveTask(task2);
+                await store.saveStep(step(ulid(), task1.taskId, child.goalId));
+                await store.saveStep(step(ulid(), task2.taskId, other.goalId));
+                await store.deleteGoalTree(root.goalId);
+                expect(await store.listGoalsByRoot(root.goalId)).toEqual([]);
+                expect((await store.loadGoal(other.goalId))?.goalId).toBe(other.goalId);
+                expect(await store.listTasks(child.goalId)).toEqual([]);
+                expect(await store.listSteps(task1.taskId)).toEqual([]);
+                expect((await store.loadStep(step(ulid(), task1.taskId, child.goalId).stepId))?.stepId).toBe(step(ulid(), task1.taskId, child.goalId).stepId);
             } finally {
                 store.close();
             }
@@ -74,24 +77,24 @@ describe('GoalStore（并存存储，C3a）', () => {
         it(`round-trip + 按 root/goal/task 投影（${make().constructor.name}）`, async () => {
             const store = make();
             try {
-                const root = goal('root');
-                const child = goal('w', 'root');
+                const root = goal(ulid());
+                const child = goal(ulid(), root.goalId);
                 await store.saveGoal(root);
                 await store.saveGoal(child);
-                expect((await store.listGoalsByRoot('root')).map((g) => g.goalId).sort()).toEqual([
-                    'root',
-                    'w',
+                expect((await store.listGoalsByRoot(root.goalId)).map((g) => g.goalId).sort()).toEqual([
+                    root.goalId,
+                    child.goalId,
                 ]);
-                expect((await store.loadGoal('w'))?.rootGoalId).toBe('root');
+                expect((await store.loadGoal(child.goalId))?.rootGoalId).toBe(root.goalId);
 
-                const t1 = task('t1', 'w');
+                const t1 = task(ulid(), child.goalId);
                 await store.saveTask(t1);
-                expect((await store.listTasks('w'))[0]?.taskId).toBe('t1');
+                expect((await store.listTasks(child.goalId))[0]?.taskId).toBe(t1.taskId);
 
-                const s1 = step('s1', 't1', 'w');
+                const s1 = step(ulid(), t1.taskId, child.goalId);
                 await store.saveStep(s1);
-                expect((await store.loadStep('s1'))?.goalId).toBe('w');
-                expect((await store.listSteps('t1'))[0]?.stepId).toBe('s1');
+                expect((await store.loadStep(s1.stepId))?.goalId).toBe(child.goalId);
+                expect((await store.listSteps(t1.taskId))[0]?.stepId).toBe(s1.stepId);
             } finally {
                 store.close();
             }
@@ -112,7 +115,7 @@ describe('SqliteGoalStore 文件持久化', () => {
 
     it('重开连接后数据可读', async () => {
         const a = new SqliteGoalStore(file);
-        await a.saveGoal(goal('persist'));
+        await a.saveGoal(goal(ulid()));
         a.close();
         const b = new SqliteGoalStore(file);
         expect((await b.loadGoal('persist'))?.goalId).toBe('persist');

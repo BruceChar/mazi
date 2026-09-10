@@ -15,7 +15,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -b tsconfig.json"
+    "build": "tsc -b tsconfig.json",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.85.0",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { runcli } from './exec';
+import { runcli } from '../src/tools/exec';
 
 describe('runcli', () => {
     it('returns stdout and stderr as strings', async () => {
