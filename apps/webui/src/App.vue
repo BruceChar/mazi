@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './LineIcon.vue';
+import ConfirmDialog from './components/ConfirmDialog.vue';
 import { defaultConversations, projectConversations } from './sidebar.ts';
 import {
     busy,
@@ -1519,16 +1520,15 @@ onBeforeUnmount(() => {
         </div>
     </div>
 
-    <div v-if="confirmDialog.open" class="modal-mask" @click.self="cancelConfirm">
-        <div class="modal confirm-modal">
-            <h1>{{ confirmDialog.title }}</h1>
-            <p class="confirm-message">{{ confirmDialog.message }}</p>
-            <div class="modal-actions">
-                <button class="ghost" @click="cancelConfirm">取消</button>
-                <button :class="confirmDialog.danger ? 'danger' : 'primary'" @click="runConfirmAction">{{ confirmDialog.confirmText }}</button>
-            </div>
-        </div>
-    </div>
+    <ConfirmDialog
+        :open="confirmDialog.open"
+        :title="confirmDialog.title"
+        :message="confirmDialog.message"
+        :confirm-text="confirmDialog.confirmText"
+        :danger="confirmDialog.danger"
+        @cancel="cancelConfirm"
+        @confirm="runConfirmAction"
+    />
 </template>
 
 <style>
