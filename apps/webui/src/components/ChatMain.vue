@@ -146,53 +146,55 @@ onMounted(() => {
 
         <div class="chat-body">
             <div ref="chatScroll" class="chat-scroll" @scroll.passive="onScroll">
-                <template v-if="activeConversation && runs.length">
-                    <div
-                        v-for="run in runs"
-                        :key="run.rootGoalId"
-                        class="run-block"
-                        :class="{ current: run.rootGoalId === current }"
-                        :data-run-id="run.rootGoalId"
-                    >
-                        <!-- User message -->
-                        <div class="msg msg-user">
-                            <div class="msg-bubble">{{ run.input }}</div>
-                            <span class="msg-time">{{ fmtClock(run.createdAt) }}</span>
-                        </div>
-                        <!-- Executing indicator -->
-                        <div v-if="run.rootGoalId === current && busy" class="msg msg-assistant">
-                            <div class="msg-bubble thinking-bubble">执行中…</div>
-                        </div>
-                        <!-- Execution stream -->
-                        <ExecStream
-                            :run-detail="runDetails[run.rootGoalId]"
-                            :busy="busy && run.rootGoalId === current"
-                            :live-stream="run.rootGoalId === current ? liveStream : null"
-                        />
-                    </div>
-                </template>
-                <div v-else-if="activeConversation" class="empty-hint">
-                    暂无 run，输入任务开始
-                </div>
-                <div v-else class="welcome-screen">
-                    <div class="welcome-icon">
-                        <LineIcon name="userMessage" size="36" />
-                    </div>
-                    <h2 class="welcome-title">
-                        What should we build?
-                    </h2>
-                    <div class="welcome-cards">
-                        <button
-                            v-for="card in suggestionCards"
-                            :key="card.title"
-                            class="welcome-card"
-                            @click="emit('use-suggestion', card)"
+                <div class="chat-content">
+                    <template v-if="activeConversation && runs.length">
+                        <div
+                            v-for="run in runs"
+                            :key="run.rootGoalId"
+                            class="run-block"
+                            :class="{ current: run.rootGoalId === current }"
+                            :data-run-id="run.rootGoalId"
                         >
-                            <span class="welcome-card-icon" :style="{ color: card.color }">
-                                <LineIcon :name="card.icon" size="18" />
-                            </span>
-                            <span class="welcome-card-title">{{ card.title }}</span>
-                        </button>
+                            <!-- User message -->
+                            <div class="msg msg-user">
+                                <div class="msg-bubble">{{ run.input }}</div>
+                                <span class="msg-time">{{ fmtClock(run.createdAt) }}</span>
+                            </div>
+                            <!-- Executing indicator -->
+                            <div v-if="run.rootGoalId === current && busy" class="msg msg-assistant">
+                                <div class="msg-bubble thinking-bubble">执行中…</div>
+                            </div>
+                            <!-- Execution stream -->
+                            <ExecStream
+                                :run-detail="runDetails[run.rootGoalId]"
+                                :busy="busy && run.rootGoalId === current"
+                                :live-stream="run.rootGoalId === current ? liveStream : null"
+                            />
+                        </div>
+                    </template>
+                    <div v-else-if="activeConversation" class="empty-hint">
+                        暂无 run，输入任务开始
+                    </div>
+                    <div v-else class="welcome-screen">
+                        <div class="welcome-icon">
+                            <LineIcon name="userMessage" size="36" />
+                        </div>
+                        <h2 class="welcome-title">
+                            What should we build?
+                        </h2>
+                        <div class="welcome-cards">
+                            <button
+                                v-for="card in suggestionCards"
+                                :key="card.title"
+                                class="welcome-card"
+                                @click="emit('use-suggestion', card)"
+                            >
+                                <span class="welcome-card-icon" :style="{ color: card.color }">
+                                    <LineIcon :name="card.icon" size="18" />
+                                </span>
+                                <span class="welcome-card-title">{{ card.title }}</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -258,6 +260,8 @@ onMounted(() => {
 
 <style scoped>
 .chat-main {
+    /* Message column width; kept a bit wider than the composer (760px). */
+    --chat-max: 880px;
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -300,10 +304,21 @@ onMounted(() => {
     width: 0;
     height: 0;
 }
+/* Centered message column: never wider than --chat-max, so it keeps clear of both edges. */
+.chat-content {
+    width: 100%;
+    max-width: var(--chat-max);
+    min-height: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
 .chat-rail {
     position: absolute;
     top: 50%;
-    right: 6px;
+    /* Sit just outside the message column, with a floor margin on narrow viewports. */
+    right: max(20px, calc((100% - var(--chat-max)) / 2 - 22px));
     transform: translateY(-50%);
     display: flex;
     flex-direction: column;
