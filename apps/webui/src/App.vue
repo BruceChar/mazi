@@ -564,6 +564,9 @@ async function openSystemPicker() {
         await pickWorkspace();
         await loadWorkspace();
     } catch (error) {
+        const msg = String(error).toLowerCase();
+        // User cancelling the picker is normal flow, not an error
+        if (msg.includes('cancel') || msg.includes('abort') || msg.includes('取消')) return;
         ui.err = String(error);
     }
 }

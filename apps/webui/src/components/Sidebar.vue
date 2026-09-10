@@ -197,14 +197,15 @@ function latencyText() {
 
 <style scoped>
 .sidebar-new {
-    padding: 2px 0 8px;
+    padding: 8px 12px 10px;
 }
 .new-session {
-    width: 100%;
+    width: auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
+    padding: 6px 14px;
 }
 .workspace-head {
     display: flex;
@@ -213,7 +214,7 @@ function latencyText() {
     padding: 8px 14px 4px;
     font-size: 14px;
     font-weight: 600;
-    color: var(--fg);
+    color: var(--fg-secondary);
     text-transform: none;
     letter-spacing: 0;
     height: 36px;
@@ -271,7 +272,7 @@ function latencyText() {
     padding: 6px 14px;
     font-size: 14px;
     font-weight: 600;
-    color: var(--fg);
+    color: var(--fg-secondary);
     text-transform: none;
     letter-spacing: 0;
 }
@@ -300,10 +301,11 @@ function latencyText() {
 .session-list li {
     display: flex;
     flex-direction: column;
-    padding: 6px 8px;
+    padding: 7px 8px;
     border-radius: 6px;
     cursor: pointer;
-    gap: 2px;
+    gap: 0;
+    position: relative;
 }
 .session-list li:hover {
     background: var(--bg-hover);
@@ -317,10 +319,18 @@ function latencyText() {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    padding-right: 52px;
 }
 .session-actions {
+    position: absolute;
+    top: 5px;
+    right: 6px;
     display: none;
     gap: 2px;
+    background: var(--bg-panel);
+    padding: 2px;
+    border-radius: 4px;
+    border: 1px solid var(--border-soft);
 }
 .session-list li:hover .session-actions {
     display: flex;
@@ -343,8 +353,20 @@ function latencyText() {
     color: var(--fg);
 }
 .session-time {
-    font-size: 11px;
+    position: absolute;
+    bottom: 4px;
+    right: 8px;
+    display: none;
+    font-size: 10px;
     color: var(--fg-tertiary);
+    background: var(--bg-panel);
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid var(--border-soft);
+    white-space: nowrap;
+}
+.session-list li:hover .session-time {
+    display: block;
 }
 .empty-sidebar {
     padding: 8px;
