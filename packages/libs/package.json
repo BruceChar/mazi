@@ -16,8 +16,5 @@
   ],
   "scripts": {
     "build": "tsc -b tsconfig.json"
-  },
-  "dependencies": {
-    "@mazi/core": "workspace:*"
   }
 }

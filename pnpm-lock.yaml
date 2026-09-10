@@ -37,7 +37,7 @@ importers:
         version: link:../../packages/core
       '@mazi/libs':
         specifier: workspace:*
-        version: link:../libs
+        version: link:../../packages/libs
       '@mazi/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
@@ -70,17 +70,11 @@ importers:
         specifier: ^4.23.13
         version: 4.23.13
 
-  apps/libs:
-    dependencies:
-      '@mazi/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-
   apps/webui:
     dependencies:
       '@mazi/libs':
         specifier: workspace:*
-        version: link:../libs
+        version: link:../../packages/libs
       dompurify:
         specifier: ^3.4.15
         version: 3.4.15
@@ -106,6 +100,8 @@ importers:
 
   packages/core: {}
 
+  packages/libs: {}
+
   packages/provider:
     dependencies:
       '@earendil-works/pi-ai':
@@ -128,7 +124,7 @@ importers:
         version: link:../core
       '@mazi/libs':
         specifier: workspace:*
-        version: link:../../apps/libs
+        version: link:../libs
       '@mazi/provider':
         specifier: workspace:*
         version: link:../provider

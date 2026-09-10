@@ -10,7 +10,7 @@
   "exclude": ["src/**/*.test.ts"],
   "references": [
     { "path": "../core" },
-    { "path": "../../apps/libs" },
+    { "path": "../libs" },
     { "path": "../provider" },
     { "path": "../provider-runtime" }
   ]
