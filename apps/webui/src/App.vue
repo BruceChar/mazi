@@ -198,24 +198,27 @@ function conversationTitle(conversation) {
     return conversation?.title || run?.input || '';
 }
 
-/**
- * Pending workspace for the next new conversation. Set by the project "+" menu
- * and consumed by submitPrompt when the conversation is actually created.
- */
-const pendingWorkspace = ref('');
-
 function startTopConversation() {
     // Jump to the blank welcome screen; the composer creates the conversation.
     currentConversation.value = null;
     current.value = null;
     detail.value = null;
     stopEvents();
-    pendingWorkspace.value = '';
 }
 
-function startProjectConversation(project) {
+/**
+ * Start a new conversation inside a project: select that project's workspace so
+ * the composer shows it, then open the blank screen. The run is created on
+ * submit with the currently selected workspace.
+ */
+async function startProjectConversation(project) {
+    try {
+        await selectWorkspace(project.path);
+    } catch (error) {
+        ui.err = String(error);
+        return;
+    }
     startTopConversation();
-    pendingWorkspace.value = project.path;
 }
 
 function toggleProject(path) {
@@ -376,18 +379,15 @@ async function submitPrompt() {
         return;
     }
     prompt.value = '';
-    const isNewConversation = !currentConversation.value;
-    // New conversations use the pending project (if any); existing ones keep theirs.
-    const workspacePath = isNewConversation
-        ? pendingWorkspace.value || undefined
-        : workspaceRoot.value;
+    // New conversations run in the workspace currently shown in the composer;
+    // continuing a conversation keeps using the selected workspace too.
+    const workspacePath = workspaceRoot.value || undefined;
     await createAndRunGoal(
         goalFromRunSettings(text),
         workspacePath,
         currentConversation.value || undefined,
         true,
     );
-    pendingWorkspace.value = '';
 }
 
 function openRenameConversation(conversation) {

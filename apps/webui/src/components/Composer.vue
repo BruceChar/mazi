@@ -40,6 +40,15 @@ function reasoningLabel() {
     const r = props.reasoningLevels.find((r) => r.value === props.reasoningLevel);
     return r?.label || props.reasoningLevel || 'Reasoning';
 }
+/** Human-readable workspace for the picker: project title, else folder name. */
+function workspaceLabel() {
+    const path = props.workspaceRoot;
+    if (!path) return 'No workspace';
+    const project = props.projects.find((p) => p.path === path);
+    if (project) return project.title;
+    const parts = path.replace(/\/+$/, '').split('/');
+    return parts[parts.length - 1] || path;
+}
 
 function onInput(e) {
     emit('update:modelValue', e.target.value);
@@ -116,7 +125,7 @@ function doExitWorkspace() {
                                 @click="workspaceMenu = !workspaceMenu"
                             >
                                 <LineIcon name="folder" size="13" />
-                                <span>No workspace</span>
+                                <span>{{ workspaceLabel() }}</span>
                             </button>
                             <div v-if="workspaceMenu" class="ws-menu">
                                 <div class="ws-menu-section">Projects</div>
