@@ -70,11 +70,18 @@ export class SessionsService {
                 : typeof body.reasoningLevel === 'string'
                   ? body.reasoningLevel
                   : undefined;
+        const modelId =
+            typeof goalBody?.modelId === 'string'
+                ? goalBody.modelId
+                : typeof body.modelId === 'string'
+                  ? body.modelId
+                  : undefined;
         const history = conversationId ? await this.conversationHistory(conversationId) : [];
         const created = await this.runtime.harness().createGoalSession(input, {
             userId,
             ...(history.length > 0 ? { history } : {}),
             ...(reasoningLevel ? { reasoningLevel } : {}),
+            ...(modelId ? { modelId } : {}),
         });
         this.logger.log(
             `createSession ${created.rootGoalId} input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'} workspace=${workspace ?? '-'}`,

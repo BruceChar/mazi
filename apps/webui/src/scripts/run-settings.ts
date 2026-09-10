@@ -8,11 +8,16 @@ import {
 /** localStorage key holding the global run defaults. */
 const STORAGE_KEY = 'mazi.web.run-settings';
 
-/** GoalContract fields that are configured globally (System Settings → Run defaults). */
+/** GoalContract fields configured globally (System Settings → Run defaults) + model defaults. */
 export type RunSettings = Pick<
     GoalContractDraft,
     'permission' | 'budgetUsd' | 'maxSteps' | 'loopMode'
->;
+> & {
+    /** 默认模型 id（空 = provider 默认）。 */
+    model: string;
+    /** 默认推理等级（off/low/medium/high）。 */
+    reasoningLevel: string;
+};
 
 function defaultRunSettings(): RunSettings {
     const draft = createGoalContractDraft();
@@ -21,6 +26,8 @@ function defaultRunSettings(): RunSettings {
         budgetUsd: draft.budgetUsd,
         maxSteps: draft.maxSteps,
         loopMode: draft.loopMode,
+        model: '',
+        reasoningLevel: 'high',
     };
 }
 
@@ -36,6 +43,11 @@ function readRunSettings(): RunSettings {
             budgetUsd: typeof parsed.budgetUsd === 'number' ? parsed.budgetUsd : base.budgetUsd,
             maxSteps: typeof parsed.maxSteps === 'number' ? parsed.maxSteps : base.maxSteps,
             loopMode: typeof parsed.loopMode === 'string' ? parsed.loopMode : base.loopMode,
+            model: typeof parsed.model === 'string' ? parsed.model : base.model,
+            reasoningLevel:
+                typeof parsed.reasoningLevel === 'string'
+                    ? parsed.reasoningLevel
+                    : base.reasoningLevel,
         };
     } catch {
         return base;

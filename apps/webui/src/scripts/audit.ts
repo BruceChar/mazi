@@ -132,6 +132,8 @@ export interface AuditStepRow {
     diffContent: string;
     /** 相对上一步各段新增内容（Context 追踪按段展开） */
     diffParts: AuditDiffPart[];
+    /** 该步的 context 分段（Context 追踪堆叠条） */
+    segments: AuditSegment[];
     selected: boolean;
 }
 
@@ -756,6 +758,7 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         contextDelta: step.contextDelta,
         diffContent: step.diffContent,
         diffParts: contextDiffParts(step.diffContents),
+        segments: contextSegments(runtime),
         selected: step.stepId === selectedId,
     };
 }

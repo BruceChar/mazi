@@ -126,6 +126,56 @@ describe('Conversation 共享上下文', () => {
         }
     });
 
+    it('modelId → 解析 provider 并以候选模型下发（request.model）', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-conv-'));
+        dirs.push(dir);
+        const models: Array<string | undefined> = [];
+        const provider: LLMProvider = {
+            id: 'ds',
+            name: 'deepseek',
+            defaultModel: 'deepseek-v4-flash',
+            models: [],
+            async ask() {
+                throw new ProviderError('unknown', 'ask unused');
+            },
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                models.push(request.model);
+                yield { type: 'start', model: 'faux-model' };
+                yield { type: 'text_delta', text: 'ok' };
+                yield { type: 'finish', finishReason: 'stop' };
+            },
+        };
+        const config: RuntimeConfig = {
+            providers: [
+                {
+                    id: 'ds',
+                    driver: { type: 'pi-ai', provider: 'deepseek', model: 'deepseek-v4-flash' },
+                    models: [{ id: 'deepseek-v4-flash' }, { id: 'deepseek-v4-pro' }],
+                    pricing: {
+                        currency: 'USD',
+                        base: { inputPerMTok: 1, outputPerMTok: 2 },
+                        tiers: [],
+                        effectiveAt: 0,
+                        version: 'test',
+                    },
+                },
+            ],
+            tools: [],
+            dbPath: ':memory:',
+            eventDir: dir,
+            goal: { allowedTools: [], permissionCeiling: 'read-only' },
+            contextWindow: 64000,
+        };
+        const runtime = new HarnessRuntime(config, { llmProviders: { ds: provider } });
+        try {
+            const created = await runtime.createGoalSession('q', { modelId: 'deepseek-v4-pro' });
+            await runtime.executeGoalTree(created.rootGoalId);
+            expect(models[0]).toBe('deepseek-v4-pro');
+        } finally {
+            await runtime.close();
+        }
+    });
+
     it('无 history → messages 只有本轮输入', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'mazi-conv-'));
         dirs.push(dir);

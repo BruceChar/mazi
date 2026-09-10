@@ -70,7 +70,11 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
         },
         minPermission: 'read-only',
         sideEffects: [],
-        command: { bin: 'fd', args: ['--json', '{pattern?}', '{path?}'], installPackage: 'fd' },
+        command: {
+            bin: 'fd',
+            args: ['--color=never', '{pattern?}', '{path?}'],
+            installPackage: 'fd',
+        },
     },
     {
         name: 'bat',
@@ -109,7 +113,8 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
         sideEffects: [],
         command: {
             bin: 'eza',
-            args: ['--color', 'never', '--all', '--group-directories-first', '{path?}'],
+            // -1 单列输出、--git-ignore 跳过被忽略的大目录，避免 1MB 缓冲/超时
+            args: ['--color=never', '-1', '--group-directories-first', '--git-ignore', '{path?}'],
             installPackage: 'eza',
         },
     },
@@ -271,5 +276,28 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
         minPermission: 'read-only',
         sideEffects: [],
         command: { bin: 'git', args: ['{args?}'] },
+    },
+    {
+        name: 'shell.run',
+        description:
+            'Run a shell command (bash -lc) inside the workspace: node / npm / pnpm / python / bash, or any script (*.sh, *.js, *.ts, *.py). Use for building, testing, installing dependencies, and executing code. stdout+stderr are returned; long output is truncated. Requires permission ceiling >= draft.',
+        parameters: {
+            type: 'object',
+            properties: {
+                command: {
+                    type: 'string',
+                    description:
+                        'Shell command, executed with cwd = workspace root (e.g. "pnpm install", "node scripts/build.js", "python main.py")',
+                },
+                timeoutMs: {
+                    type: 'number',
+                    description: 'Timeout in ms (default 120000, max 600000)',
+                },
+            },
+            required: ['command'],
+        },
+        minPermission: 'draft',
+        irreversible: true,
+        sideEffects: ['fs', 'net'],
     },
 ];

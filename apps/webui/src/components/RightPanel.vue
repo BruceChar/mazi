@@ -136,6 +136,46 @@ function toggleContext(key) {
     next.has(key) ? next.delete(key) : next.add(key);
     openContext.value = next;
 }
+
+/* ---- Context 追踪：分段堆叠增长条 ---- */
+const contextRowList = computed(() => props.contextRows || []);
+const contextUtil = computed(() => props.audit?.utilization ?? null);
+const contextPeak = computed(() =>
+    contextRowList.value.reduce((max, row) => Math.max(max, row.contextTotal || 0), 0),
+);
+const contextLatest = computed(() => {
+    const rows = contextRowList.value;
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+        const total = rows[i]?.contextTotal;
+        if (total != null) return total;
+    }
+    return 0;
+});
+const contextLegend = computed(() => {
+    const seen = new Map();
+    for (const row of contextRowList.value) {
+        for (const seg of row.segments || []) {
+            if (!seen.has(seg.key)) {
+                seen.set(seg.key, { key: seg.key, label: seg.label, colorVar: seg.colorVar });
+            }
+        }
+    }
+    return [...seen.values()];
+});
+const contextChart = computed(() => {
+    const max = Math.max(1, contextPeak.value);
+    return contextRowList.value.map((row) => ({
+        ...row,
+        barWidth: Math.min(100, ((row.contextTotal || 0) / max) * 100),
+        segs: (row.segments || []).map((seg) => ({
+            key: seg.key,
+            label: seg.label,
+            colorVar: seg.colorVar,
+            tokens: seg.tokens,
+            width: row.contextTotal ? (seg.tokens / row.contextTotal) * 100 : 0,
+        })),
+    }));
+});
 </script>
 
 <template>
@@ -359,22 +399,48 @@ function toggleContext(key) {
             <div v-else-if="activeTab === 'context'" class="drawer-body audit-body">
                 <section class="audit-section">
                     <div class="audit-section-title">
-                        Context 追踪（会话流）
-                        <span class="audit-pct">{{ contextRows.length }} 步</span>
+                        Context 追踪
+                        <span class="audit-pct">{{ contextRowList.length }} 步</span>
                     </div>
-                    <div v-for="row in contextRows" :key="row.stepId" class="ctx-item">
-                        <button
-                            class="ctx-head"
-                            :class="{ selected: row.selected }"
-                            @click="toggleContext(row.stepId)"
-                        >
+                    <div class="ctx-summary">
+                        <span>峰值 {{ formatTokens(contextPeak) }}</span>
+                        <span>最新 {{ formatTokens(contextLatest) }}</span>
+                        <span v-if="contextUtil != null">窗口 {{ formatPercent(contextUtil) }}</span>
+                    </div>
+                    <div class="ctx-legend">
+                        <span v-for="seg in contextLegend" :key="seg.key" class="ctx-legend-item">
+                            <span class="seg-dot" :style="{ background: 'var(' + seg.colorVar + ')' }"></span>{{ seg.label }}
+                        </span>
+                    </div>
+                </section>
+
+                <section class="audit-section">
+                    <div v-for="row in contextChart" :key="row.stepId" class="ctx-item">
+                        <div class="ctx-row" :class="{ selected: row.selected }">
+                            <button
+                                class="ctx-caret-btn"
+                                :title="openContext.has(row.stepId) ? '收起 diff' : '展开该步 diff'"
+                                @click="toggleContext(row.stepId)"
+                            >
+                                {{ openContext.has(row.stepId) ? '−' : '+' }}
+                            </button>
                             <span class="audit-step-tag">S#{{ row.lineIndex }}</span>
-                            <span class="audit-run-tag">R#{{ row.runIndex }}</span>
-                            <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
-                            <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
-                            <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
-                            <span class="ctx-caret">{{ openContext.has(row.stepId) ? '−' : '+' }}</span>
-                        </button>
+                            <span class="ctx-run">R#{{ row.runIndex }}</span>
+                            <span class="ctx-kind">{{ row.toolName || row.kind }}</span>
+                            <div class="ctx-bar" @click="toggleContext(row.stepId)">
+                                <div class="ctx-bar-fill" :style="{ width: row.barWidth + '%' }">
+                                    <span
+                                        v-for="seg in row.segs"
+                                        :key="seg.key"
+                                        class="ctx-seg"
+                                        :style="{ width: seg.width + '%', background: 'var(' + seg.colorVar + ')' }"
+                                        :title="seg.label + ' · ' + formatTokens(seg.tokens)"
+                                    ></span>
+                                </div>
+                            </div>
+                            <span class="ctx-total">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
+                            <span class="ctx-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
+                        </div>
                         <div v-if="openContext.has(row.stepId)" class="ctx-diff">
                             <template v-for="part in row.diffParts" :key="part.key">
                                 <div class="ctx-diff-label">{{ part.label }}</div>
@@ -383,7 +449,7 @@ function toggleContext(key) {
                             <div v-if="!row.diffParts.length" class="audit-muted">（本步无新增内容）</div>
                         </div>
                     </div>
-                    <div v-if="!contextRows.length" class="audit-muted">暂无可追踪的步骤</div>
+                    <div v-if="!contextChart.length" class="audit-muted">暂无可追踪的步骤</div>
                 </section>
             </div>
             <div v-else-if="activeTab === 'log'" class="drawer-body">
@@ -1103,36 +1169,100 @@ function toggleContext(key) {
     color: var(--fg-tertiary);
     flex-shrink: 0;
 }
-/* Context 追踪列表 */
+/* Context 追踪：分段堆叠增长条 */
+.ctx-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+    font-family: ui-monospace, monospace;
+}
+.ctx-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.ctx-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
 .ctx-item {
     margin-bottom: 2px;
 }
-.ctx-head {
-    display: flex;
+.ctx-row {
+    display: grid;
+    grid-template-columns: 18px 34px 26px minmax(52px, 84px) 1fr 52px 44px;
     align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 4px 6px;
+    gap: 4px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-size: 11px;
+}
+.ctx-row:hover,
+.ctx-row.selected {
+    background: var(--bg-hover);
+}
+.ctx-caret-btn {
+    width: 18px;
+    height: 18px;
+    padding: 0;
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: var(--fg-secondary);
-    font-size: 11px;
-    text-align: left;
+    color: var(--fg-tertiary);
+    font-weight: 700;
+    line-height: 1;
     cursor: pointer;
 }
-.ctx-head:hover,
-.ctx-head.selected {
-    background: var(--bg-hover);
+.ctx-caret-btn:hover {
+    background: var(--bg-code);
+    color: var(--fg);
 }
-.ctx-caret {
-    margin-left: auto;
-    width: 16px;
-    text-align: center;
-    font-weight: 700;
+.ctx-run {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
     color: var(--fg-tertiary);
-    flex-shrink: 0;
 }
+.ctx-kind {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg);
+}
+.ctx-bar {
+    height: 12px;
+    border-radius: 3px;
+    background: var(--bg-code);
+    overflow: hidden;
+    cursor: pointer;
+}
+.ctx-bar-fill {
+    display: flex;
+    height: 100%;
+    border-radius: 3px;
+    overflow: hidden;
+    transition: width 0.15s ease;
+}
+.ctx-seg {
+    display: block;
+    height: 100%;
+}
+.ctx-total,
+.ctx-delta {
+    font-family: ui-monospace, monospace;
+    text-align: right;
+}
+.ctx-total {
+    color: var(--fg-secondary);
+}
+.ctx-delta.up { color: var(--ok); }
+.ctx-delta.down { color: var(--warn); }
+.ctx-delta.flat { color: var(--fg-tertiary); }
 .ctx-diff {
     padding: 2px 0 6px 6px;
 }

@@ -12,7 +12,7 @@ import FeedbackModal from './components/FeedbackModal.vue';
 import PromptDialog from './components/PromptDialog.vue';
 import UserPreferencesPage from './components/UserPreferencesPage.vue';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
-import { goalFromRunSettings } from './scripts/run-settings.ts';
+import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
 import { buildAuditView } from './scripts/audit.ts';
 import { API_BASE } from './api.js';
 import {
@@ -65,14 +65,24 @@ const MAX_PANEL_W = 640;
 const searchOpen = ref(false);
 const projectCollapsed = ref(new Set());
 const accountOpen = ref(false);
-const selectedModel = ref('');
+const selectedModel = ref(runSettings.model || '');
 const REASONING_LEVELS = [
     { value: 'off', label: 'Off' },
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
 ];
-const reasoningLevel = ref('high');
+const reasoningLevel = ref(runSettings.reasoningLevel || 'high');
+
+/** Persist model / reasoning defaults so every new session uses them. */
+function setSelectedModel(value) {
+    selectedModel.value = value;
+    saveRunSettings({ model: value });
+}
+function setReasoningLevel(value) {
+    reasoningLevel.value = value;
+    saveRunSettings({ reasoningLevel: value });
+}
 const feedbackSent = ref(false);
 const feedbackModal = ref(false);
 /** Workspace switch menu visibility. */
@@ -142,7 +152,12 @@ watch(
     modelOptions,
     (options) => {
         if (!options.some((option) => option.id === selectedModel.value)) {
-            selectedModel.value = options[0]?.id || '';
+            // 优先保留已保存的默认模型；不在列表时回落到第一个
+            const saved = runSettings.model;
+            selectedModel.value =
+                saved && options.some((option) => option.id === saved)
+                    ? saved
+                    : options[0]?.id || '';
         }
     },
     { immediate: true },
@@ -497,6 +512,7 @@ async function createAndRunGoal({ statement, permissionCeiling, maxCostUsd, maxS
             maxSteps,
             loopMode,
             reasoningLevel: reasoningLevel.value,
+            modelId: selectedModel.value,
         },
     });
     if (rootGoalId) {
@@ -768,8 +784,8 @@ onBeforeUnmount(() => {
                     @switch-project="switchProject"
                     @open-system-picker="openSystemPicker"
                     @exit-workspace="exitWorkspace"
-                    @update:selected-model="selectedModel = $event"
-                    @update:reasoning-level="reasoningLevel = $event"
+                    @update:selected-model="setSelectedModel"
+                    @update:reasoning-level="setReasoningLevel"
                 />
             </template>
 
@@ -783,8 +799,8 @@ onBeforeUnmount(() => {
                     :reasoning-levels="REASONING_LEVELS"
                     :syncing="syncingModels"
                     @update:theme="setTheme"
-                    @update:selected-model="selectedModel = $event"
-                    @update:reasoning-level="reasoningLevel = $event"
+                    @update:selected-model="setSelectedModel"
+                    @update:reasoning-level="setReasoningLevel"
                     @sync-models="syncModels"
                 />
             </template>

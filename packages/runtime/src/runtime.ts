@@ -62,6 +62,8 @@ export interface RunOptions {
     history?: ConversationTurn[];
     /** 推理强度（off/low/medium/high...），透传 provider 的 reasoningEffort */
     reasoningLevel?: string;
+    /** 指定模型 id（provider 内 model id；缺省用 provider 默认模型） */
+    modelId?: string;
 }
 
 /** ConversationTurn[] → LLMMessage[]（user/assistant 文本消息）。 */
@@ -234,8 +236,8 @@ async function runCliTool(
     try {
         const { stdout } = await promisify(execFile)(spec.bin, argv, {
             cwd: rootAbs,
-            timeout: spec.timeoutMs ?? 30_000,
-            maxBuffer: 1_048_576,
+            timeout: spec.timeoutMs ?? 60_000,
+            maxBuffer: 8 * 1_048_576,
             encoding: 'utf8',
         });
         const text = String(stdout ?? '').trim();
@@ -282,7 +284,60 @@ async function runCliTool(
             }
         }
         const stderr = String(err.stderr ?? '').trim();
-        return { ok: false, error: stderr || String(err.message ?? error) };
+        return { ok: false, error: stderr.slice(0, 2000) || String(err.message ?? error) };
+    }
+}
+
+/**
+ * 通用脚本/命令执行：bash -lc，cwd = workspace（缺省进程 cwd）。
+ * 支持 node / npm / pnpm / python / bash 及任意 *.sh/*.js/*.ts/*.py；输出截断。
+ */
+export async function runShellTool(
+    args: Record<string, unknown>,
+    workspaceRoot?: string,
+): Promise<{ ok: boolean; content?: string; error?: string }> {
+    const command = typeof args.command === 'string' ? args.command.trim() : '';
+    if (!command) {
+        return { ok: false, error: '缺少 command' };
+    }
+    const requested = Number(args.timeoutMs);
+    const timeoutMs = Number.isFinite(requested)
+        ? Math.min(600_000, Math.max(1_000, requested))
+        : 120_000;
+    const cwd = resolve(workspaceRoot ?? process.cwd());
+    const MAX = 60_000;
+    try {
+        const { stdout, stderr } = await promisify(execFile)('bash', ['-lc', command], {
+            cwd,
+            timeout: timeoutMs,
+            maxBuffer: 16 * 1_048_576,
+            encoding: 'utf8',
+        });
+        const stderrText = String(stderr ?? '').trim();
+        const merged = (String(stdout ?? '') + (stderrText ? '\n[stderr]\n' + stderrText : '')).trim();
+        const content = merged.length > 0 ? merged : '(no output)';
+        return {
+            ok: true,
+            content: content.length > MAX ? content.slice(0, MAX) + '\n…（输出已截断）' : content,
+        };
+    } catch (error) {
+        const err = error as {
+            killed?: boolean;
+            code?: number | string;
+            signal?: string;
+            stdout?: string;
+            stderr?: string;
+            message?: string;
+        };
+        const head: string[] = [];
+        if (err.killed) head.push('command timed out after ' + timeoutMs + 'ms');
+        if (typeof err.code === 'number') head.push('exit code ' + err.code);
+        if (err.signal) head.push('signal ' + err.signal);
+        const detail = [String(err.stdout ?? '').trim(), String(err.stderr ?? '').trim()]
+            .filter(Boolean)
+            .join('\n');
+        const message = [head.join(', '), detail].filter(Boolean).join('\n').slice(0, 2000);
+        return { ok: false, error: message || String(err.message ?? error) };
     }
 }
 
@@ -557,6 +612,8 @@ export class HarnessRuntime {
     private readonly pendingHistory = new Map<string, LLMMessage[]>();
     /** 待执行 Session 的推理强度（create → execute 之间传递） */
     private readonly pendingReasoning = new Map<string, string>();
+    /** 待执行 Session 的模型 id（create → execute 之间传递） */
+    private readonly pendingModel = new Map<string, string>();
     /** Steps already announced via step.started (a step persists several times). */
     private readonly startedStepIds = new Set<string>();
     private readonly llmProviders: Map<string, LLMProvider>;
@@ -606,6 +663,9 @@ export class HarnessRuntime {
         }
         if (opts.reasoningLevel) {
             this.pendingReasoning.set(rootGoalId, opts.reasoningLevel);
+        }
+        if (opts.modelId) {
+            this.pendingModel.set(rootGoalId, opts.modelId);
         }
         const goalId = ulid();
         const ceiling = this.config.goal?.permissionCeiling ?? 'read-only';
@@ -688,6 +748,9 @@ export class HarnessRuntime {
         this.pendingHistory.delete(rootGoalId);
         const reasoningLevel = this.pendingReasoning.get(rootGoalId);
         this.pendingReasoning.delete(rootGoalId);
+        const modelId = this.pendingModel.get(rootGoalId);
+        this.pendingModel.delete(rootGoalId);
+        const model = this.resolveModelChoice(modelId);
         const exec = this.goalExecutionConfig();
         const result = await runGoalTree(
             {
@@ -698,6 +761,7 @@ export class HarnessRuntime {
                 invoker: exec.invoker,
                 allowedTools: exec.allowedTools,
                 ...(history.length > 0 ? { history } : {}),
+                ...(model ? { model } : {}),
                 onStep: (step) => this.emitStep(rootGoalId, step),
             },
             goals,
@@ -852,6 +916,12 @@ export class HarnessRuntime {
                     ? { ok: true, content: String(res.content ?? '') }
                     : { ok: false, content: '', error: res.error ?? 'tool failed' };
             }
+            if (toolName === 'shell.run') {
+                const res = await runShellTool(args, this.workspaceRoot);
+                return res.ok
+                    ? { ok: true, content: res.content ?? '' }
+                    : { ok: false, content: '', error: res.error ?? 'tool failed' };
+            }
             if (tool?.command) {
                 const res = await runCliTool(tool.command, args, this.workspaceRoot);
                 return res.ok
@@ -868,6 +938,19 @@ export class HarnessRuntime {
                 : { ok: false, content: '', error: res.error ?? 'tool failed' };
         };
         return { tools: selected, invoker: { invoke }, allowedTools: names };
+    }
+
+    /** 由模型 id 解析所属 provider（配置内取第一个匹配）；未命中 → undefined。 */
+    private resolveModelChoice(
+        modelId?: string,
+    ): { providerId: string; modelId: string } | undefined {
+        if (!modelId) {
+            return undefined;
+        }
+        const provider = this.config.providers.find((item) =>
+            (item.models ?? []).some((model) => model.id === modelId),
+        );
+        return provider ? { providerId: provider.id, modelId } : undefined;
     }
 
     private defaultModelOf(providerId: string): string {

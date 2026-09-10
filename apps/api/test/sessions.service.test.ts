@@ -71,8 +71,12 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
             }),
         };
         const service = new SessionsService(runtime as never, conversations as never);
-        await service.createSession({ input: 'hi', goal: { reasoningLevel: 'high' } });
+        await service.createSession({
+            input: 'hi',
+            goal: { reasoningLevel: 'high', modelId: 'deepseek-v4-pro' },
+        });
         expect(captured[0]?.reasoningLevel).toBe('high');
+        expect(captured[0]?.modelId).toBe('deepseek-v4-pro');
     });
 
     it('无最终回答时只输出 user 输入', async () => {
