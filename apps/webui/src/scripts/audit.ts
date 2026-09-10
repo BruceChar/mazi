@@ -92,6 +92,8 @@ export interface AuditStepRow {
     tokens: number;
     contextTotal: number | null;
     contextDelta: number | null;
+    /** 相对上一步新增的上下文内容（截断；可在 Context 追踪里展开） */
+    diffContent: string;
     selected: boolean;
 }
 
@@ -166,6 +168,8 @@ interface ResolvedStep {
     durationMs: number | null;
     usage: StepUsage | null;
     text: string;
+    /** 相对上一轮新增的上下文内容（截断） */
+    diffContent: string;
     /** 会话流中的全局序号（collectRows 结束后赋值） */
     lineIndex: number;
     /** 会话流中相对上一步的上下文 delta / 上一步总量（collectRows 结束后赋值） */
@@ -613,6 +617,7 @@ function collectSnapshotSteps(
                         step.endedAt && step.startedAt ? step.endedAt - step.startedAt : null,
                     usage: step.usage ?? null,
                     text: step.content ?? step.payloadText ?? '',
+                    diffContent: step.usage?.runtime?.diffContent ?? '',
                     lineIndex: 0,
                     contextDelta: null,
                     previousContextTotal: null,
@@ -672,6 +677,7 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             durationMs: step.endedAt ? step.endedAt - step.startedAt : null,
             usage: step.usage ?? null,
             text: step.content,
+            diffContent: step.usage?.runtime?.diffContent ?? '',
             lineIndex: 0,
             contextDelta: null,
             previousContextTotal: null,
@@ -706,6 +712,7 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         tokens,
         contextTotal: runtime?.totalContextTokens ?? null,
         contextDelta: step.contextDelta,
+        diffContent: step.diffContent,
         selected: step.stepId === selectedId,
     };
 }

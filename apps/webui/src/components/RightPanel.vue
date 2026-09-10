@@ -26,6 +26,8 @@ const props = defineProps({
     showAllEvents: { type: Boolean, default: false },
     /** buildAuditView() result for the selected Step/Task (docs/web/观测看板设计.md). */
     audit: { type: Object, default: null },
+    /** 整条会话流的步骤行（Context 追踪用，不随选择变化）。 */
+    contextRows: { type: Array, default: () => [] },
 });
 const emit = defineEmits([
     'update:activeTab',
@@ -120,6 +122,7 @@ function toFixed1(value) {
 /* ---- 分段落原文 / diff 展开 ---- */
 const openSegments = ref(new Set());
 const openDiff = ref(false);
+const openContext = ref(new Set());
 function toggleSegment(key) {
     const next = new Set(openSegments.value);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -127,6 +130,11 @@ function toggleSegment(key) {
 }
 function toggleDiff() {
     openDiff.value = !openDiff.value;
+}
+function toggleContext(key) {
+    const next = new Set(openContext.value);
+    next.has(key) ? next.delete(key) : next.add(key);
+    openContext.value = next;
 }
 </script>
 
@@ -143,6 +151,7 @@ function toggleDiff() {
             <div class="drawer-head">
                 <div class="drawer-tabs">
                     <button :class="{ on: activeTab === 'audit' }" @click="emit('update:activeTab', 'audit')">审计</button>
+                    <button :class="{ on: activeTab === 'context' }" @click="emit('update:activeTab', 'context')">Context</button>
                     <button :class="{ on: activeTab === 'log' }" @click="emit('update:activeTab', 'log')">日志</button>
                     <button :class="{ on: activeTab === 'events' }" @click="emit('update:activeTab', 'events')">事件</button>
                 </div>
@@ -346,6 +355,30 @@ function toggleDiff() {
                         </button>
                     </section>
                 </template>
+            </div>
+            <div v-else-if="activeTab === 'context'" class="drawer-body audit-body">
+                <section class="audit-section">
+                    <div class="audit-section-title">
+                        Context 追踪（会话流）
+                        <span class="audit-pct">{{ contextRows.length }} 步</span>
+                    </div>
+                    <div v-for="row in contextRows" :key="row.stepId" class="ctx-item">
+                        <button
+                            class="ctx-head"
+                            :class="{ selected: row.selected }"
+                            @click="toggleContext(row.stepId)"
+                        >
+                            <span class="audit-step-tag">S#{{ row.lineIndex }}</span>
+                            <span class="audit-run-tag">R#{{ row.runIndex }}</span>
+                            <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
+                            <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
+                            <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
+                            <span class="ctx-caret">{{ openContext.has(row.stepId) ? '−' : '+' }}</span>
+                        </button>
+                        <pre v-if="openContext.has(row.stepId)" class="seg-content">{{ row.diffContent || '（本步无新增内容）' }}</pre>
+                    </div>
+                    <div v-if="!contextRows.length" class="audit-muted">暂无可追踪的步骤</div>
+                </section>
             </div>
             <div v-else-if="activeTab === 'log'" class="drawer-body">
                 <div v-if="current" class="exec-log">
@@ -1061,6 +1094,36 @@ function toggleDiff() {
 .seg-caret {
     display: inline-grid;
     place-items: center;
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+/* Context 追踪列表 */
+.ctx-item {
+    margin-bottom: 2px;
+}
+.ctx-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 6px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-secondary);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+}
+.ctx-head:hover,
+.ctx-head.selected {
+    background: var(--bg-hover);
+}
+.ctx-caret {
+    margin-left: auto;
+    width: 16px;
+    text-align: center;
+    font-weight: 700;
     color: var(--fg-tertiary);
     flex-shrink: 0;
 }

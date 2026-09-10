@@ -326,6 +326,8 @@ describe('audit buildAuditView', () => {
         expect(conversation.rows.map((r) => r.runIndex)).toEqual([1, 1, 2]);
         expect(conversation.rows.map((r) => r.contextDelta)).toEqual([null, 200, 300]);
         expect(conversation.rows[2]?.contextTotal).toBe(1500);
+        // 每步的 diff 原文随行带出（Context 追踪用）
+        expect(conversation.rows[0]?.diffContent).toContain('NI');
 
         const step = buildAuditView({ runs, stepId: 'b1' });
         expect(step.kind).toBe('step');

@@ -813,6 +813,7 @@ onBeforeUnmount(() => {
             :active-event-type="ui.eventTypes"
             :show-all-events="showAllEvents"
             :audit="auditView"
+            :context-rows="conversationAudit.rows"
             @select-step="onSelectStep"
             @select-conversation="onSelectConversation"
             @update:active-tab="drawerTab = $event"
