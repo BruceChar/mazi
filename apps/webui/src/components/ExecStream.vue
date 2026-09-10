@@ -589,11 +589,6 @@ function stepTitleSummary(row) {
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
 }
-.exec-stats-fb {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
 
 /* Final summary (goal-level, sits after all goals/tasks/steps) */
 .exec-summary {
@@ -621,6 +616,23 @@ function stepTitleSummary(row) {
     align-items: center;
     gap: 2px;
     margin-right: 4px;
+}
+/* Thumb up / down feedback buttons in the per-run stats row. */
+.fb-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-tertiary);
+    cursor: pointer;
+    padding: 0;
+}
+.fb-btn:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
 }
 
 /* ---------- Markdown-rendered model output ---------- */

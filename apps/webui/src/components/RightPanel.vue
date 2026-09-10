@@ -341,6 +341,13 @@ function eventSummary(e) {
     color: var(--fg-secondary);
     padding: 4px 0;
 }
+/* Secondary part of the log header, e.g. the aggregated step duration. */
+.log-head-total {
+    text-transform: none;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    font-weight: 500;
+}
 .kanban-card {
     border: 1px solid var(--border-soft);
     border-radius: 8px;
