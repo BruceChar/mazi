@@ -216,6 +216,8 @@ function latencyText() {
     color: var(--fg-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    height: 32px;
+    box-sizing: border-box;
 }
 .head-icons {
     display: flex;
@@ -240,14 +242,16 @@ function latencyText() {
 }
 .search-input {
     flex: 1;
-    padding: 3px 8px;
+    height: 22px;
+    padding: 0 8px;
     border: 1px solid var(--border);
     border-radius: 5px;
     background: var(--bg-panel);
     color: var(--fg);
-    font-size: 12px;
+    font-size: 11px;
     outline: none;
     min-width: 0;
+    box-sizing: border-box;
 }
 .search-input:focus {
     border-color: var(--accent);
