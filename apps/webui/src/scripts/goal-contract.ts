@@ -37,9 +37,7 @@ export function createGoalContractDraft(): GoalContractDraft {
 }
 
 /** Map a draft onto the GoalContract payload accepted by POST /api/sessions. */
-export function toGoalContractPayload(
-    draft: GoalContractDraft,
-): Record<string, unknown> {
+export function toGoalContractPayload(draft: GoalContractDraft): Record<string, unknown> {
     return {
         permissionCeiling: draft.permission,
         maxCostUsd: draft.budgetUsd,
