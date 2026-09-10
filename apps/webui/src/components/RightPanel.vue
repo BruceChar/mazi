@@ -96,9 +96,13 @@ function toFixed1(value) {
     return Number.isFinite(n) ? n.toFixed(1) : '0.0';
 }
 
-/* ---- 分段落原文与 diff 展开状态 ---- */
+/* ---- 分段落原文 / diff 展开 / 审计说明 ---- */
 const openSegments = ref(new Set());
 const openDiff = ref(false);
+const showHelp = ref(false);
+function toggleHelp() {
+    showHelp.value = !showHelp.value;
+}
 function toggleSegment(key) {
     const next = new Set(openSegments.value);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -126,6 +130,9 @@ function toggleDiff() {
                     <button :class="{ on: activeTab === 'events' }" @click="emit('update:activeTab', 'events')">事件</button>
                 </div>
                 <div class="drawer-head-actions">
+                    <button class="icon-btn" :title="showHelp ? '隐藏审计说明' : '审计说明'" @click="toggleHelp">
+                        <LineIcon name="info" size="14" />
+                    </button>
                     <button class="icon-btn" :title="maximized ? '还原' : '最大化'" @click="emit('toggleMaximize')">
                         <LineIcon :name="maximized ? 'minimize' : 'maximize'" size="14" />
                     </button>
@@ -136,6 +143,12 @@ function toggleDiff() {
                 <div class="audit-head">
                     <div class="audit-title">{{ audit.title }}</div>
                     <div v-if="audit.subtitle" class="audit-subtitle">{{ audit.subtitle }}</div>
+                </div>
+
+                <div v-if="showHelp" class="audit-help">
+                    <p>Vendor 用量为厂商上报的权威口径；Input 估算（breakdown）是按真实 tokenizer 对上下文各段的估算。</p>
+                    <p>context diff 贯穿整个 Conversation（跨 run/task/step）；点击分段可查看该段原文，点击「新增内容」查看与上一轮对比。</p>
+                    <p>Cost 分 vendor 与估算双口径；漂移率反映估算与厂商实际的偏离。</p>
                 </div>
 
                 <div v-if="audit.kind === 'none'" class="empty-hint">
@@ -674,6 +687,21 @@ function toggleDiff() {
 .audit-head {
     border-bottom: 1px solid var(--border-soft);
     padding-bottom: 8px;
+}
+.audit-help {
+    padding: 8px 10px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-hover);
+    color: var(--fg-secondary);
+    font-size: 11px;
+    line-height: 1.6;
+}
+.audit-help p {
+    margin: 0 0 6px;
+}
+.audit-help p:last-child {
+    margin-bottom: 0;
 }
 .audit-title {
     font-size: 13px;

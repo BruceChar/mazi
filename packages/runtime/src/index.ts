@@ -2,6 +2,7 @@
  * @mazi/runtime —— Goal/Task/Step 坐标系的执行实现聚合包（C5 收口）。
  */
 
+export type { ProviderModelInfo, ProviderModelPricing } from '@mazi/core';
 // Goal/Task/Step 坐标投影（审计/API/WebUI 消费；类型已上移到 @mazi/libs，此处 re-export 保持兼容）
 export type {
     GoalNodeView,

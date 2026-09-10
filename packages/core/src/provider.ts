@@ -383,11 +383,35 @@ export interface ProviderModel {
     vendor?: string;
 }
 
+/** 模型平台价格(USD / 百万 token;缺省 = 厂商未披露) */
+export interface ProviderModelPricing {
+    inputPerMTok?: number;
+    outputPerMTok?: number;
+    cacheReadPerMTok?: number;
+    cacheWritePerMTok?: number;
+    reasoningPerMTok?: number;
+    currency?: 'USD';
+}
+
+/** Provider 目录的运行时模型视图:能力 + 平台价格。 */
+export interface ProviderModelInfo {
+    id: string;
+    name: string;
+    vendor?: string;
+    capabilities: ProviderCapabilities;
+    pricing?: ProviderModelPricing;
+}
+
 export interface LLMProvider {
     readonly id: string;
     readonly name: string;
     readonly defaultModel?: string;
     readonly models: ProviderModel[];
+
+    /** 列出该 provider 当前可用模型(能力 + 平台价格);纯查询、无副作用。 */
+    listModels(): ProviderModelInfo[];
+    /** 单个模型详情;未知 id → undefined。 */
+    modelDetail(id: string): ProviderModelInfo | undefined;
 
     /**
      * 非流式调用(对应厂商 chat complete 端点)。

@@ -211,6 +211,8 @@ export function createProviderClient(options: ProviderClientOptions): ProviderCl
         name: inner.name,
         models: inner.models,
         ...(inner.defaultModel !== undefined ? { defaultModel: inner.defaultModel } : {}),
+        listModels: () => inner.listModels(),
+        modelDetail: (id) => inner.modelDetail(id),
         stats,
 
         async ask(request) {

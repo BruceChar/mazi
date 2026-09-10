@@ -56,14 +56,22 @@ export function deepseekAdapter(
         );
     }
     const env = options.env ?? process.env;
-    const catalog = new Set(knownDeepseekModels());
-    for (const model of config.models) {
-        if (!catalog.has(model.id)) {
-            throw new Error(
-                `deepseekAdapter: model '${model.id}' not in pi-ai deepseek catalog (known: ${[...catalog].join(', ')})`,
-            );
-        }
-    }
+    const baseProvider = deepseekProvider();
+    const catalogModels = baseProvider.getModels();
+    const catalog = new Set(catalogModels.map((model) => model.id));
+    // 目录外模型（厂商新模型 / 自定义）：克隆目录模板元数据，仅替换 id/name，
+    // 使其可被 getModel 解析并按真实 id 发往厂商（能力/价格以目录模板为近似）。
+    const template = catalogModels[0];
+    const custom = config.models
+        .filter((model) => !catalog.has(model.id))
+        .map(
+            (model) =>
+                ({
+                    ...(template as object),
+                    id: model.id,
+                    name: model.id,
+                }) as unknown as (typeof catalogModels)[number],
+        );
     const defaultModel = config.models[0]?.id;
     if (defaultModel === undefined) {
         throw new Error('deepseekAdapter: at least one model required');
@@ -71,7 +79,11 @@ export function deepseekAdapter(
     const apiKey = config.apiKeyEnv ? env[config.apiKeyEnv] : env.DEEPSEEK_API_KEY;
 
     const models = createModels();
-    models.setProvider(deepseekProvider());
+    models.setProvider(
+        custom.length > 0
+            ? { ...baseProvider, getModels: () => [...catalogModels, ...custom] }
+            : baseProvider,
+    );
     return createPiProvider({
         models,
         providerId: 'deepseek',

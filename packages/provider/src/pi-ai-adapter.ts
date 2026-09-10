@@ -38,6 +38,8 @@ import type {
     LLMRequest,
     LLMResponse,
     ProviderModel,
+    ProviderModelInfo,
+    ProviderModelPricing,
     ReasoningBlock,
     StreamCompletionEvent,
     TextBlock,
@@ -97,9 +99,10 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
     const providerId = options.providerId;
     const defaultModel = options.defaultModel ?? options.models.getModels(providerId)[0]?.id;
 
-    const providerModels: ProviderModel[] = options.models.getModels(providerId).map((model) => ({
+    const modelInfos: ProviderModelInfo[] = options.models.getModels(providerId).map((model) => ({
         id: model.id,
         name: model.name,
+        vendor: providerId,
         capabilities: {
             supportsToolCalls: true, // pi-ai 目录只收录支持工具调用的模型
             supportsStreaming: true,
@@ -110,6 +113,12 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
             // LLM 模型输出文本；工具调用经 toolCalls 字段返回，不属于内容类型
             outputTypes: ['text'],
         },
+        pricing: toModelPricing(model),
+    }));
+    const providerModels: ProviderModel[] = modelInfos.map((info) => ({
+        id: info.id,
+        name: info.name,
+        capabilities: info.capabilities,
     }));
 
     return {
@@ -117,6 +126,14 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
         name: options.models.getProvider(providerId)?.name ?? providerId,
         ...(defaultModel !== undefined ? { defaultModel } : {}),
         models: providerModels,
+
+        /** 目录能力的运行时视图（能力 + 平台价格）。 */
+        listModels(): ProviderModelInfo[] {
+            return modelInfos.slice();
+        },
+        modelDetail(id: string): ProviderModelInfo | undefined {
+            return modelInfos.find((model) => model.id === id);
+        },
 
         /** 非流式调用：pi-ai complete → LLMResponse（EQUIV，§9.2）。 */
         async ask(request: LLMRequest): Promise<LLMResponse> {
@@ -594,6 +611,20 @@ function toContentTypes(input: readonly string[]): ContentType[] {
     const types: ContentType[] = ['text'];
     if (input.includes('image')) types.push('image');
     return types;
+}
+
+/** pi-ai 模型成本($/MTok) → 平台价格视图。 */
+function toModelPricing(model: Model<Api>): ProviderModelPricing {
+    const cost = model.cost as
+        | { input?: number; output?: number; cacheRead?: number; cacheWrite?: number }
+        | undefined;
+    return {
+        ...(cost?.input !== undefined ? { inputPerMTok: cost.input } : {}),
+        ...(cost?.output !== undefined ? { outputPerMTok: cost.output } : {}),
+        ...(cost?.cacheRead !== undefined ? { cacheReadPerMTok: cost.cacheRead } : {}),
+        ...(cost?.cacheWrite !== undefined ? { cacheWritePerMTok: cost.cacheWrite } : {}),
+        currency: 'USD',
+    };
 }
 
 function mapStopReason(reason: PiAssistantMessage['stopReason']): LLMFinishReason {

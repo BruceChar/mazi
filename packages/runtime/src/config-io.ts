@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { ProviderOverview } from '@mazi/libs';
+import { builtinModelsFor } from '@mazi/provider';
 import type { ProviderConfig, RuntimeConfig, ToolConfig } from './config.js';
 import { ensureMaziDirs, maziPaths } from './paths.js';
 
@@ -58,11 +59,38 @@ export function configOverview(): {
         | undefined;
     return {
         home: paths.home,
-        providers: (providersJson?.providers ?? []).map((p) => ({
-            id: p.id,
-            vendor: p.vendor,
-            models: (p.models ?? []).map((m) => ({ id: m.id, name: m.name })),
-        })),
+        providers: (providersJson?.providers ?? []).map((p) => {
+            // 目录（能力 + 平台价格）按 vendor 读取并按 id 合并到配置模型上。
+            const infos = builtinModelsFor(p.driver?.provider ?? '');
+            const byId = new Map(infos.map((info) => [info.id, info]));
+            return {
+                id: p.id,
+                vendor: p.vendor,
+                models: (p.models ?? []).map((m) => {
+                    const info = byId.get(m.id);
+                    return {
+                        id: m.id,
+                        name: m.name,
+                        ...(m.contextWindow !== undefined
+                            ? { contextWindow: m.contextWindow }
+                            : {}),
+                        ...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
+                        ...(info?.pricing ? { pricing: info.pricing } : {}),
+                        ...(info !== undefined
+                            ? {
+                                  capabilities: {
+                                      supportsTools: info.capabilities.supportsToolCalls,
+                                      supportsReasoning:
+                                          info.capabilities.supportsReasoning === true,
+                                      supportsVision:
+                                          info.capabilities.inputTypes.includes('image'),
+                                  },
+                              }
+                            : {}),
+                    };
+                }),
+            };
+        }),
         hasProvidersFile: providersJson !== undefined,
     };
 }

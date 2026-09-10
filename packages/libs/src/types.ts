@@ -49,6 +49,21 @@ export interface Project {
 export interface ProviderModel {
     id: string;
     name?: string;
+    contextWindow?: number;
+    maxTokens?: number;
+    /** 平台价格（USD / 百万 token） */
+    pricing?: {
+        inputPerMTok?: number;
+        outputPerMTok?: number;
+        cacheReadPerMTok?: number;
+        cacheWritePerMTok?: number;
+        currency?: 'USD';
+    };
+    capabilities?: {
+        supportsTools?: boolean;
+        supportsReasoning?: boolean;
+        supportsVision?: boolean;
+    };
 }
 
 /** Provider overview returned by configOverview(). */

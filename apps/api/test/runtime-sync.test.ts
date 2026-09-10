@@ -49,11 +49,21 @@ describe('ApiRuntimeService 模型同步（pi-ai 目录）', () => {
         new ApiRuntimeService();
 
         const parsed = JSON.parse(readFileSync(join(home, 'providers.json'), 'utf8')) as {
-            providers: Array<{ id: string; models: Array<{ id: string }> }>;
+            providers: Array<{
+                id: string;
+                models: Array<{ id: string }>;
+                pricing?: { base?: { cacheReadPerMTok?: number } };
+            }>;
         };
         const ds = parsed.providers.find((provider) => provider.id === 'ds');
+        // 目录模型被加入
         expect(ds?.models.some((model) => model.id === 'deepseek-v4-flash')).toBe(true);
-        expect(ds?.models.some((model) => model.id === 'stale-model')).toBe(false);
+        // 目录外模型保留（合并，不删除）
+        expect(ds?.models.some((model) => model.id === 'stale-model')).toBe(true);
+        // 目录补充模型（deepseek-v41-flash）被写入
+        expect(ds?.models.some((model) => model.id === 'deepseek-v41-flash')).toBe(true);
+        // 平台价格从目录补全（cacheRead）
+        expect(ds?.pricing?.base?.cacheReadPerMTok).toBeCloseTo(0.0028, 10);
         const faux = parsed.providers.find((provider) => provider.id === 'faux');
         expect(faux?.models).toEqual([{ id: 'keep-model' }]);
     });

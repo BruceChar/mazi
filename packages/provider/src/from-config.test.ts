@@ -27,13 +27,18 @@ describe('deepseekAdapter（真实厂商 adapter 目录，离线）', () => {
         ]);
     });
 
-    it('配置模型不在目录 → 装配错误（带已知列表）', () => {
-        expect(() =>
-            deepseekAdapter(
-                { id: 'ds', adapter: 'deepseek', models: [{ id: 'not-a-model' }] },
-                { env: {} },
-            ),
-        ).toThrow(/not in pi-ai deepseek catalog/);
+    it('配置模型不在目录 → 以目录模板合成（可解析、可发往厂商）', () => {
+        const provider = deepseekAdapter(
+            { id: 'ds', adapter: 'deepseek', models: [{ id: 'deepseek-v41-flash' }] },
+            { env: {} },
+        );
+        expect(provider.defaultModel).toBe('deepseek-v41-flash');
+        expect(provider.listModels().some((m) => m.id === 'deepseek-v41-flash')).toBe(true);
+        expect(provider.modelDetail('deepseek-v41-flash')?.capabilities.supportsReasoning).toBe(
+            true,
+        );
+        // 目录模型仍在
+        expect(provider.listModels().some((m) => m.id === 'deepseek-v4-flash')).toBe(true);
     });
 
     it('adapter 标识不符 → 报错', () => {

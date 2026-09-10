@@ -1,7 +1,12 @@
 import 'reflect-metadata';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { MaziPaths, RuntimeConfig } from '@mazi/runtime';
+import type {
+    MaziPaths,
+    ProviderModelInfo,
+    ProviderModelPricing,
+    RuntimeConfig,
+} from '@mazi/runtime';
 import {
     builtinModelsFor,
     configOverview,
@@ -13,6 +18,59 @@ import {
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ApiError } from './api-error.js';
 import Logger from './log.js';
+
+/** ProviderModelInfo → providers.json models 条目。 */
+function modelEntryOf(info: ProviderModelInfo): Record<string, unknown> {
+    const caps = info.capabilities;
+    return {
+        id: info.id,
+        name: info.name,
+        ...(caps.maxInputTokens !== undefined ? { contextWindow: caps.maxInputTokens } : {}),
+        ...(caps.maxOutputTokens !== undefined ? { maxTokens: caps.maxOutputTokens } : {}),
+        supportsTools: caps.supportsToolCalls,
+        supportsThinking: caps.supportsReasoning === true,
+        supportsVision: caps.inputTypes.includes('image'),
+    };
+}
+
+/** 用目录默认模型价格刷新 provider 级 pricing.base（保留 tiers/version，缺失补默认）。 */
+function applyCatalogPricing(
+    provider: Record<string, unknown>,
+    pricing: ProviderModelPricing,
+): boolean {
+    const current = (provider.pricing ?? {}) as {
+        currency?: string;
+        base?: Record<string, number>;
+        tiers?: unknown[];
+        effectiveAt?: number;
+        version?: string;
+    };
+    const next = {
+        ...current,
+        currency: 'USD' as const,
+        base: {
+            ...(current.base ?? {}),
+            ...(pricing.inputPerMTok !== undefined ? { inputPerMTok: pricing.inputPerMTok } : {}),
+            ...(pricing.outputPerMTok !== undefined
+                ? { outputPerMTok: pricing.outputPerMTok }
+                : {}),
+            ...(pricing.cacheReadPerMTok !== undefined
+                ? { cacheReadPerMTok: pricing.cacheReadPerMTok }
+                : {}),
+            ...(pricing.cacheWritePerMTok !== undefined
+                ? { cacheWritePerMTok: pricing.cacheWritePerMTok }
+                : {}),
+        },
+        tiers: current.tiers ?? [],
+        effectiveAt: current.effectiveAt ?? 0,
+        version: current.version ?? 'catalog',
+    };
+    if (JSON.stringify(next) === JSON.stringify(current)) {
+        return false;
+    }
+    provider.pricing = next;
+    return true;
+}
 
 /**
  * ApiRuntimeService：API 侧组合根（docs/后端与存储设计.md v0.2 §10.2）。
@@ -66,16 +124,29 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         for (const provider of providers) {
             const vendor = (provider.driver as { provider?: string } | undefined)?.provider;
             if (!vendor) continue;
-            const models = builtinModelsFor(vendor);
-            if (models.length === 0) continue;
-            if (JSON.stringify(models) !== JSON.stringify(provider.models ?? [])) {
-                provider.models = models;
+            const infos = builtinModelsFor(vendor);
+            if (infos.length === 0) continue;
+            const existing = Array.isArray(provider.models)
+                ? (provider.models as Array<Record<string, unknown>>)
+                : [];
+            const existingById = new Map(existing.map((model) => [String(model.id), model]));
+            // 目录模型优先；目录外（厂商新模型 / 自定义）保留在尾部，绝不删除
+            const merged = [
+                ...infos.map((info) => existingById.get(info.id) ?? modelEntryOf(info)),
+                ...existing.filter((model) => !infos.some((info) => info.id === model.id)),
+            ];
+            if (JSON.stringify(merged) !== JSON.stringify(existing)) {
+                provider.models = merged;
+                changed = true;
+            }
+            const pricing = infos[0]?.pricing;
+            if (pricing && applyCatalogPricing(provider, pricing)) {
                 changed = true;
             }
         }
         if (changed) {
             writeFileSync(file, JSON.stringify(parsed, null, 2));
-            this.logger.log('syncProviderModels: models updated from pi-ai catalog');
+            this.logger.log('syncProviderModels: models/pricing updated from provider catalog');
         }
         return changed;
     }

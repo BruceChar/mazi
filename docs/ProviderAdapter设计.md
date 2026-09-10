@@ -67,3 +67,19 @@
 | PA-A3 | 凭据失败语义 | `apiKeyEnv` 配置但缺失 → 首次调用抛含变量名的错误；未配置不阻塞（本地端点）              |
 | PA-A4 | 注册分派     | `DefaultDriverRegistry`：type=pi-ai 建 PiAiDriver；缺失或未知 type 抛错                   |
 | PA-A5 | 运行时可切换 | runtime 装配使用 DefaultDriverRegistry，真实厂商配置回归                                    |
+
+---
+
+## 5. 模型目录（listModels / modelDetail）
+
+core `LLMProvider` 新增两个只读查询（能力 + 平台价格，USD / 百万 token）：
+
+- `listModels(): ProviderModelInfo[]` —— 当前可用模型；
+- `modelDetail(id): ProviderModelInfo | undefined` —— 单模型详情。
+
+pi-ai 适配层从内置目录（含 `model.cost`）映射实现，`client` 包装层透传。**目录外模型**
+（厂商新模型 / 自定义，如 `deepseek-v41-flash`）以目录模板克隆元数据后注册，可被
+`Models.getModel` 解析并按真实 id 发往厂商；`catalog.ts` 维护本地补充清单并缓存。
+
+API 侧：`ApiRuntimeService.syncProviderModels()` 用该接口把模型（目录 + 保留自定义，合并）
+与平台价格写回 `providers.json`；`POST /api/config/sync` 手动触发，设置→模型有「同步模型」按钮。

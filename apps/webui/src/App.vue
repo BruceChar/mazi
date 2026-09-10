@@ -38,7 +38,6 @@ import {
     projects,
     renameProject,
     runOutcomes,
-    clearAuditSelection,
     selectStep,
     selectTask,
     selectWorkspace,
@@ -258,13 +257,6 @@ const conversationStats = computed(() => {
         costUsd: usage.cost?.total ?? 0,
     };
 });
-
-/** TopBar「审计」：清空选择直接展示整条会话汇总。 */
-function openAuditPanel() {
-    clearAuditSelection();
-    ui.rightOpen = true;
-    drawerTab.value = 'audit';
-}
 
 const syncingModels = ref(false);
 async function syncModels() {
@@ -680,7 +672,6 @@ onBeforeUnmount(() => {
         :right-open="ui.rightOpen"
         @toggle-sidebar="ui.sidebar = !ui.sidebar"
         @toggle-right="ui.rightOpen = !ui.rightOpen"
-        @open-audit="openAuditPanel"
     />
 
     <div class="app-shell" :class="{ 'panel-maximized': panelMaximized }">

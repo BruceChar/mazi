@@ -169,10 +169,18 @@ const emit = defineEmits([
             <h1 class="settings-title">Providers</h1>
             <div class="settings-group">
                 <div class="settings-group-title">Configured providers</div>
-                <div v-for="p in cfg?.providers || []" :key="p.id" class="setting-item">
+                <div v-for="p in cfg?.providers || []" :key="p.id" class="setting-item provider-item">
                     <div class="setting-info">
                         <div class="setting-name">{{ p.vendor || p.id }}</div>
-                        <div class="setting-desc">{{ (p.models || []).map(m => m.name || m.id).join(', ') || 'No models' }}</div>
+                        <div v-for="m in p.models || []" :key="m.id" class="model-meta">
+                            <span class="model-id">{{ m.name || m.id }}</span>
+                            <span v-if="m.contextWindow" class="model-tag">{{ Math.round(m.contextWindow / 1000) }}K ctx</span>
+                            <span v-if="m.capabilities?.supportsReasoning" class="model-tag">reasoning</span>
+                            <span v-if="m.capabilities?.supportsVision" class="model-tag">vision</span>
+                            <span v-if="m.pricing?.inputPerMTok != null" class="model-tag">${{ m.pricing.inputPerMTok }}/M in</span>
+                            <span v-if="m.pricing?.outputPerMTok != null" class="model-tag">${{ m.pricing.outputPerMTok }}/M out</span>
+                        </div>
+                        <div v-if="!(p.models || []).length" class="setting-desc">No models</div>
                     </div>
                     <span class="setting-badge ok">configured</span>
                 </div>
@@ -305,5 +313,28 @@ const emit = defineEmits([
     padding: 16px 0;
     font-size: 13px;
     color: var(--fg-tertiary);
+}
+.provider-item {
+    align-items: flex-start;
+}
+.model-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 12px;
+}
+.model-id {
+    color: var(--fg);
+    font-family: ui-monospace, monospace;
+}
+.model-tag {
+    color: var(--fg-secondary);
+    background: var(--bg-hover);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
 }
 </style>
