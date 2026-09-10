@@ -26,9 +26,6 @@ defineProps({
     showAllEvents: { type: Boolean, default: false },
     /** buildAuditView() result for the selected Step/Task (docs/web/观测看板设计.md). */
     audit: { type: Object, default: null },
-    /** 会话总览（不随选择变化）。 */
-    conversation: { type: Object, default: null },
-    conversationStats: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
     'update:activeTab',
@@ -37,6 +34,7 @@ const emit = defineEmits([
     'update:activeEventType',
     'toggleShowAll',
     'select-step',
+    'select-conversation',
 ]);
 
 function fmtClock(ts) {
@@ -99,13 +97,9 @@ function toFixed1(value) {
     return Number.isFinite(n) ? n.toFixed(1) : '0.0';
 }
 
-/* ---- 分段落原文 / diff 展开 / 会话总览 ---- */
+/* ---- 分段落原文 / diff 展开 ---- */
 const openSegments = ref(new Set());
 const openDiff = ref(false);
-const showInfo = ref(false);
-function toggleInfo() {
-    showInfo.value = !showInfo.value;
-}
 function toggleSegment(key) {
     const next = new Set(openSegments.value);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -141,39 +135,18 @@ function toggleDiff() {
 
             <div v-if="activeTab === 'audit' && audit" class="drawer-body audit-body">
                 <div class="audit-head">
-                    <div class="audit-title-row">
-                        <span class="audit-title">{{ audit.title }}</span>
-                        <button
-                            class="audit-info-btn"
-                            :class="{ on: showInfo }"
-                            :title="showInfo ? '收起会话总览' : '会话总览'"
-                            @click="toggleInfo"
-                        >
-                            <LineIcon name="info" size="13" />
-                        </button>
+                    <div class="audit-head-main">
+                        <div class="audit-title">{{ audit.title }}</div>
+                        <div v-if="audit.subtitle" class="audit-subtitle">{{ audit.subtitle }}</div>
                     </div>
-                    <div v-if="audit.subtitle" class="audit-subtitle">{{ audit.subtitle }}</div>
-                </div>
-
-                <div v-if="showInfo" class="audit-overview">
-                    <div class="audit-overview-title">{{ conversation?.title || '会话总览' }}</div>
-                    <div class="audit-row">
-                        <span class="audit-key">轮次 / goals / tasks / steps</span>
-                        <span class="audit-val">{{ conversationStats.sessions || 0 }} / {{ conversationStats.goals || 0 }} / {{ conversationStats.tasks || 0 }} / {{ conversationStats.steps || 0 }}</span>
-                    </div>
-                    <template v-if="conversation?.usage?.vendor">
-                        <div class="audit-row"><span class="audit-key">input / output</span><span class="audit-val">{{ formatTokens(conversation.usage.vendor.input) }} / {{ formatTokens(conversation.usage.vendor.output) }}</span></div>
-                        <div v-if="conversation.usage.vendor.cacheRead" class="audit-row"><span class="audit-key">cached input</span><span class="audit-val">{{ formatTokens(conversation.usage.vendor.cacheRead) }}</span></div>
-                        <div v-if="conversation.usage.vendor.reasoning" class="audit-row"><span class="audit-key">reasoning output</span><span class="audit-val">{{ formatTokens(conversation.usage.vendor.reasoning) }}</span></div>
-                        <div class="audit-row audit-total"><span class="audit-key">vendor total</span><span class="audit-val">{{ formatTokens(conversation.usage.vendor.total) }}</span></div>
-                    </template>
-                    <div v-else class="audit-muted">厂商未上报</div>
-                    <div v-if="conversation?.utilization != null" class="audit-row"><span class="audit-key">窗口利用率</span><span class="audit-val">{{ formatPercent(conversation.utilization) }}</span></div>
-                    <template v-if="conversation?.usage?.cost">
-                        <div class="audit-row"><span class="audit-key">vendor cost</span><span class="audit-val">{{ formatCost(conversation.usage.cost.total) }}</span></div>
-                        <div v-if="conversation.usage.estimatedCost" class="audit-row"><span class="audit-key">估算 cost</span><span class="audit-val">{{ formatCost(conversation.usage.estimatedCost.total) }}</span></div>
-                        <div v-if="conversation.costDrift" class="audit-row"><span class="audit-key">cost 漂移</span><span class="audit-val" :class="diffClass(conversation.costDrift.usd)">{{ formatCost(conversation.costDrift.usd) }} <span class="audit-note-inline">{{ formatRate(conversation.costDrift.rate) }}</span></span></div>
-                    </template>
+                    <button
+                        class="audit-info-btn"
+                        :class="{ on: audit.kind === 'conversation' }"
+                        title="会话汇总（清空 Step/Task 选择）"
+                        @click="emit('select-conversation')"
+                    >
+                        <LineIcon name="info" size="14" />
+                    </button>
                 </div>
 
                 <div v-if="audit.kind === 'none'" class="empty-hint">
@@ -710,13 +683,16 @@ function toggleDiff() {
     gap: 12px;
 }
 .audit-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
     border-bottom: 1px solid var(--border-soft);
     padding-bottom: 8px;
 }
-.audit-title-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+.audit-head-main {
+    flex: 1;
+    min-width: 0;
 }
 .audit-info-btn {
     display: inline-grid;
@@ -736,18 +712,7 @@ function toggleDiff() {
     background: var(--bg-hover);
     color: var(--accent);
 }
-.audit-overview {
-    padding: 8px 10px;
-    border: 1px dashed var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-hover);
-}
-.audit-overview-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--fg);
-    margin-bottom: 6px;
-}
+
 .audit-title {
     font-size: 13px;
     font-weight: 600;

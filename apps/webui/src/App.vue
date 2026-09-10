@@ -38,6 +38,7 @@ import {
     projects,
     renameProject,
     runOutcomes,
+    clearAuditSelection,
     selectStep,
     selectTask,
     selectWorkspace,
@@ -289,6 +290,12 @@ function onSelectStep(target) {
 function onSelectTask(taskId) {
     if (!taskId) return;
     selectTask(taskId);
+    drawerTab.value = 'audit';
+}
+
+/** 「会话汇总」：清空 Step/Task 选择，展示整条 Conversation（与点击会话列表一致）。 */
+function onSelectConversation() {
+    clearAuditSelection();
     drawerTab.value = 'audit';
 }
 
@@ -806,9 +813,8 @@ onBeforeUnmount(() => {
             :active-event-type="ui.eventTypes"
             :show-all-events="showAllEvents"
             :audit="auditView"
-            :conversation="conversationAudit"
-            :conversation-stats="conversationStats"
             @select-step="onSelectStep"
+            @select-conversation="onSelectConversation"
             @update:active-tab="drawerTab = $event"
             @toggle-maximize="togglePanelMax"
             @collapse="ui.rightOpen = false"
