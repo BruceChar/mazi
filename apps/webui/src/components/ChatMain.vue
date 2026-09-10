@@ -130,11 +130,17 @@ watch(
     },
 );
 
-/** Streaming deltas / step snapshots: keep following while pinned. */
+/**
+ * Any content change — live steps, the settled tree snapshot, streaming text or
+ * the busy flip — keeps the tail pinned while the user stays at the bottom.
+ */
 watch(
     () => [
+        props.busy,
         props.taskCount,
         props.stepCount,
+        props.runDetails[props.current],
+        props.liveSteps[props.current]?.length,
         props.liveStream?.streamId,
         props.liveStream?.updatedAt,
         props.liveStream?.text?.length,
@@ -142,11 +148,16 @@ watch(
     ],
     async () => {
         await nextTick();
-        if (pinned.value) {
-            scrollToBottom();
-        } else {
+        if (!pinned.value) {
             updateActiveRail();
+            return;
         }
+        scrollToBottom();
+        // Markdown/code blocks can settle one frame later; re-pin after that so the
+        // view ends on the last output instead of leaving the user input at the top.
+        requestAnimationFrame(() => {
+            if (pinned.value) scrollToBottom();
+        });
     },
 );
 
