@@ -1,7 +1,8 @@
 import 'reflect-metadata';
 import { Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ApiExceptionsFilter } from './common/api-error.js';
+import { PostStatus200Interceptor } from './common/post-status.interceptor.js';
 import { RuntimeModule } from './common/runtime.module.js';
 import { ConversationsController } from './conversations/conversations.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
@@ -28,6 +29,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
     ],
     providers: [
         { provide: APP_FILTER, useClass: ApiExceptionsFilter },
+        { provide: APP_INTERCEPTOR, useClass: PostStatus200Interceptor },
         SessionsService,
         GoalsService,
         ConversationsService,

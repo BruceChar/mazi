@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Post } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import Logger from '../common/log.js';
 import { SessionsService } from '../sessions/sessions.service.js';
@@ -12,7 +12,6 @@ export class RunsController {
     constructor(private readonly sessions: SessionsService) {}
 
     @Post('run')
-    @HttpCode(200)
     run(@Body() body: Record<string, unknown>) {
         const input = typeof body.input === 'string' ? body.input.trim() : '';
         if (!input) {
