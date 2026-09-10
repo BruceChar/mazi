@@ -780,6 +780,12 @@ function latencyColor() {
     return '#ef4444';
 }
 
+function latencyText() {
+    if (apiLatency.value == null) return 'offline';
+    if (apiLatency.value > 999) return '999+ms';
+    return `${apiLatency.value}ms`;
+}
+
 onMounted(async () => {
     document.addEventListener('click', () => {
         accountOpen.value = false;
@@ -949,9 +955,9 @@ onBeforeUnmount(() => {
                     <LineIcon name="settings" size="15" />
                     系统设置
                 </button>
-                <span class="api-latency" :style="{ color: latencyColor() }">
+                <span class="api-latency">
                     <span class="latency-dot" :style="{ background: latencyColor() }"></span>
-                    {{ apiLatency == null ? 'offline' : `${apiLatency}ms` }}
+                    <span class="latency-value" :style="{ color: latencyColor() }">{{ latencyText() }}</span>
                 </span>
             </div>
         </aside>

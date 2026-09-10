@@ -560,6 +560,13 @@ pre {
     height: 6px;
     border-radius: 50%;
     display: inline-block;
+    flex-shrink: 0;
+}
+.latency-value {
+    display: inline-block;
+    min-width: 5ch;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Center Workspace ---------- */
