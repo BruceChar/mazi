@@ -84,6 +84,19 @@ export interface StepVendorUsage {
     reportedByVendor?: boolean;
 }
 
+/** 各 context 段落的原文（截断，供 UI 点击查看；不参与计量）。 */
+export interface StepContextContents {
+    systemPrompt: string;
+    historyUser: string;
+    historyAssistant: string;
+    toolCalls: string;
+    toolSchema: string;
+    newInput: string;
+    observation: string;
+    retrieved: string;
+    examples: string;
+}
+
 /**
  * Runtime 层 input 估算分段（core RuntimeContextBreakdown 的线协议投影）。
  * 各段之和 = totalContextTokens。
@@ -117,6 +130,10 @@ export interface StepRuntimeUsage {
     estimationDriftTokens?: number;
     /** estimationDriftTokens / vendor.inputTokens */
     estimationDriftRate?: number;
+    /** 各段原文（截断，供点击查看） */
+    contents?: StepContextContents;
+    /** 相对上一轮新增内容（截断） */
+    diffContent?: string;
 }
 
 /** Runtime 输出估算与漂移（core UsageEstimate 的线协议投影）。 */

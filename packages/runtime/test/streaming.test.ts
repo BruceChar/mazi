@@ -313,6 +313,8 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
             expect(typeof usage?.runtime?.estimationDriftTokens).toBe('number');
             expect(typeof usage?.runtime?.estimationDriftRate).toBe('number');
             expect(usage?.runtime?.historyUserTokens).toBeDefined();
+            expect(usage?.runtime?.contents?.systemPrompt?.length).toBeGreaterThan(0);
+            expect(usage?.runtime?.diffContent).toContain('say hi');
             expect(typeof usage?.timing?.totalMs).toBe('number');
             expect(usage?.cost?.totalCostUsd).toBeGreaterThan(0);
             expect(usage?.cost?.priceTierApplied).toBe('base');
@@ -324,6 +326,7 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
                 .find((item) => item !== undefined);
             expect(payloadUsage?.runtime?.totalContextTokens).toBeGreaterThan(0);
             expect(payloadUsage?.cost?.totalCostUsd).toBeGreaterThan(0);
+            expect(payloadUsage?.runtime?.contents?.systemPrompt?.length).toBeGreaterThan(0);
             expect(payloadUsage?.estimate?.outputTokens).toBeGreaterThan(0);
             expect(payloadUsage?.estimatedCost?.totalCostUsd).toBeGreaterThan(0);
             expect(payloadUsage?.timing).toBeDefined();

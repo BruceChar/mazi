@@ -88,4 +88,21 @@ describe('usageViewOf（StepUsage 线协议投影）', () => {
         expect(view?.estimatedCost?.totalCostUsd).toBeCloseTo(0.0009, 12);
         expect(view?.estimatedCost?.currency).toBe('USD');
     });
+
+    it('contents / diffContent 投影：仅字符串段，至少一段才输出', () => {
+        expect(usageViewOf({ runtime: { totalContextTokens: 1 } })).not.toHaveProperty(
+            'runtime.contents',
+        );
+        const view = usageViewOf({
+            runtime: {
+                totalContextTokens: 1000,
+                contents: { systemPrompt: 'sys', newInput: 'hi', toolCalls: 123 },
+                diffContent: 'NEW',
+            },
+        });
+        expect(view?.runtime?.contents?.systemPrompt).toBe('sys');
+        expect(view?.runtime?.contents?.newInput).toBe('hi');
+        expect(view?.runtime?.contents as Record<string, unknown>).not.toHaveProperty('toolCalls');
+        expect(view?.runtime?.diffContent).toBe('NEW');
+    });
 });

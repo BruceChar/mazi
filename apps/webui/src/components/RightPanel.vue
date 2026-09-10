@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import {
     conicGradient,
@@ -94,6 +95,18 @@ function toFixed1(value) {
     const n = Number(value ?? 0);
     return Number.isFinite(n) ? n.toFixed(1) : '0.0';
 }
+
+/* ---- 分段落原文与 diff 展开状态 ---- */
+const openSegments = ref(new Set());
+const openDiff = ref(false);
+function toggleSegment(key) {
+    const next = new Set(openSegments.value);
+    next.has(key) ? next.delete(key) : next.add(key);
+    openSegments.value = next;
+}
+function toggleDiff() {
+    openDiff.value = !openDiff.value;
+}
 </script>
 
 <template>
@@ -162,12 +175,21 @@ function toFixed1(value) {
                                     </div>
                                 </div>
                             </div>
-                            <div v-for="seg in audit.segments" :key="seg.key" class="seg-row">
-                                <span class="seg-dot" :style="{ background: 'var(' + seg.colorVar + ')' }"></span>
-                                <span class="seg-label">{{ seg.label }}</span>
-                                <span class="seg-tokens">{{ formatTokens(seg.tokens) }}</span>
-                                <span class="seg-ratio">{{ formatPercent(seg.ratio) }}</span>
-                            </div>
+                            <template v-for="seg in audit.segments" :key="seg.key">
+                                <button
+                                    class="seg-row"
+                                    :class="{ open: openSegments.has(seg.key) }"
+                                    :title="'查看 ' + seg.label + ' 原文'"
+                                    @click="toggleSegment(seg.key)"
+                                >
+                                    <span class="seg-dot" :style="{ background: 'var(' + seg.colorVar + ')' }"></span>
+                                    <span class="seg-label">{{ seg.label }}</span>
+                                    <span class="seg-tokens">{{ formatTokens(seg.tokens) }}</span>
+                                    <span class="seg-ratio">{{ formatPercent(seg.ratio) }}</span>
+                                    <span class="seg-caret"><LineIcon :name="openSegments.has(seg.key) ? 'chevronDown' : 'chevronRight'" size="10" /></span>
+                                </button>
+                                <pre v-if="openSegments.has(seg.key)" class="seg-content">{{ seg.content || '（无原文）' }}</pre>
+                            </template>
                         </template>
                         <div v-else class="audit-muted">Runtime 未采集</div>
 
@@ -179,6 +201,10 @@ function toFixed1(value) {
                             <span class="audit-key">context diff</span>
                             <span class="audit-val audit-diff" :class="diffClass(audit.diff.delta)">{{ formatSigned(audit.diff.delta) }}（{{ formatTokens(audit.diff.from) }} → {{ formatTokens(audit.diff.to) }}）</span>
                         </div>
+                        <button v-if="audit.diffContent" class="diff-toggle" @click="toggleDiff">
+                            {{ openDiff ? '收起' : '查看' }}与上一轮相比的新增内容
+                        </button>
+                        <pre v-if="openDiff && audit.diffContent" class="seg-content">{{ audit.diffContent }}</pre>
 
                         <div v-if="audit.usage.estimate" class="audit-row">
                             <span class="audit-key">input 漂移</span>
@@ -261,11 +287,6 @@ function toFixed1(value) {
                             <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
                             <span class="audit-step-tokens">{{ formatTokens(row.tokens) }}</span>
                         </button>
-                    </section>
-
-                    <section v-if="audit.text" class="audit-section">
-                        <div class="audit-section-title">正文</div>
-                        <pre class="audit-text">{{ audit.text }}</pre>
                     </section>
                 </template>
             </div>
@@ -891,5 +912,55 @@ function toFixed1(value) {
 .audit-total .audit-val {
     font-weight: 600;
     color: var(--fg);
+}
+/* Clickable segment rows + original-text expansion */
+.seg-row {
+    width: 100%;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+.seg-row:hover,
+.seg-row.open {
+    background: var(--bg-hover);
+}
+.seg-caret {
+    display: inline-grid;
+    place-items: center;
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.seg-content {
+    margin: 2px 0 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    background: var(--bg-code);
+    color: var(--fg-secondary);
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 240px;
+    overflow: auto;
+}
+.diff-toggle {
+    margin-top: 4px;
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg-secondary);
+    font-size: 11px;
+    cursor: pointer;
+}
+.diff-toggle:hover {
+    color: var(--accent);
+    border-color: var(--accent);
 }
 </style>

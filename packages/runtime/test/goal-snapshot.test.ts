@@ -93,6 +93,18 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
                     strategyApplied: ['sliding-window'],
                     estimationDriftTokens: 15,
                     estimationDriftRate: 0.125,
+                    contents: {
+                        systemPrompt: 'sys',
+                        historyUser: 'u',
+                        historyAssistant: 'a',
+                        toolCalls: '{}',
+                        toolSchema: '[]',
+                        newInput: 'hi',
+                        observation: 'obs',
+                        retrieved: '',
+                        examples: '',
+                    },
+                    diffContent: '[user]\nhi',
                 },
                 estimate: {
                     outputTokens: 45,
@@ -135,6 +147,8 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
         expect(usage?.runtime?.historyAssistantTokens).toBe(900);
         expect(usage?.runtime?.toolCallTokens).toBe(220);
         expect(usage?.runtime?.estimationDriftRate).toBe(0.125);
+        expect(usage?.runtime?.contents?.systemPrompt).toBe('sys');
+        expect(usage?.runtime?.diffContent).toBe('[user]\nhi');
         expect(usage?.vendor?.totalTokens).toBe(165);
         expect(usage?.estimate?.outputTokens).toBe(45);
         expect(usage?.estimate?.outputDriftTokens).toBe(10);

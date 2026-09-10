@@ -24,6 +24,33 @@ function stringOf(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined;
 }
 
+type StepContents = NonNullable<NonNullable<StepUsage['runtime']>['contents']>;
+
+const CONTENT_KEYS = [
+    'systemPrompt',
+    'historyUser',
+    'historyAssistant',
+    'toolCalls',
+    'toolSchema',
+    'newInput',
+    'observation',
+    'retrieved',
+    'examples',
+] as const;
+
+function contentsView(source: Record<string, unknown>): StepContents | undefined {
+    const view = {} as StepContents;
+    let any = false;
+    for (const key of CONTENT_KEYS) {
+        const value = source[key];
+        if (typeof value === 'string') {
+            view[key] = value;
+            any = true;
+        }
+    }
+    return any ? view : undefined;
+}
+
 function vendorView(source: Record<string, unknown>): StepUsage['vendor'] | undefined {
     const inputTokens = numberOf(source.inputTokens);
     const outputTokens = numberOf(source.outputTokens);
@@ -83,6 +110,13 @@ function runtimeView(source: Record<string, unknown>): StepUsage['runtime'] | un
     if (drift !== undefined) view.estimationDriftTokens = drift;
     const driftRate = numberOf(source.estimationDriftRate);
     if (driftRate !== undefined) view.estimationDriftRate = driftRate;
+    const contents = subRecord(source.contents);
+    if (contents !== undefined) {
+        const mapped = contentsView(contents);
+        if (mapped !== undefined) view.contents = mapped;
+    }
+    const diffContent = stringOf(source.diffContent);
+    if (diffContent !== undefined) view.diffContent = diffContent;
     return view;
 }
 

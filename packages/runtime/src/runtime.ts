@@ -262,9 +262,19 @@ async function runCliTool(
     }
 }
 
+/** 单段原文截断上限（字符）；仅审计展示，避免 payload 过大 */
+const SEGMENT_CONTENT_MAX = 4000;
+/** diff 原文截断上限（字符） */
+const DIFF_CONTENT_MAX = 8000;
+
+function truncateText(text: string, max: number): string {
+    return text.length > max ? `${text.slice(0, max)}\n…（已截断）` : text;
+}
+
 /**
  * 上下文分段计量（runtime input 估算）：system / user history / assistant / tool-call args /
- * tool schema / new input / observation → RuntimeContextBreakdown。文本用真实 tokenizer 估算。
+ * tool schema / new input / observation → RuntimeContextBreakdown。文本用真实 tokenizer 估算，
+ * 同时保留各段原文（截断）与相对上一轮新增内容（diffContent，按消息边界取增量）。
  */
 function measureContext(
     ctx: {
@@ -273,6 +283,7 @@ function measureContext(
         tools: ToolSchema[];
     },
     prevTotal: number | undefined,
+    prevMessageCount: number | undefined,
     contextWindow: number,
 ): RuntimeContextBreakdown {
     const textOf = (content: readonly { type: string; text?: string }[]): string =>
@@ -283,32 +294,60 @@ function measureContext(
     let historyUserTokens = 0;
     let historyAssistantTokens = 0;
     let toolCallTokens = 0;
+    const parts = {
+        systemPrompt: '',
+        historyUser: '',
+        historyAssistant: '',
+        toolCalls: '',
+        toolSchema: '',
+        newInput: '',
+        observation: '',
+        retrieved: '',
+        examples: '',
+    };
+    const diffParts: string[] = [];
     for (let i = 0; i < messages.length; i += 1) {
         const message = messages[i];
         if (message === undefined) continue;
+        const added = prevMessageCount === undefined || i >= prevMessageCount;
         if (message.role === 'user') {
+            const text = textOf(message.content);
             if (i === messages.length - 1) {
-                newInputTokens = estimateTokens(textOf(message.content));
+                newInputTokens = estimateTokens(text);
+                parts.newInput += text;
+                diffParts.push(text);
             } else {
-                historyUserTokens += estimateTokens(textOf(message.content));
+                historyUserTokens += estimateTokens(text);
+                parts.historyUser += `${text}\n\n`;
+                if (added) diffParts.push(`[user]\n${text}`);
             }
         } else if (message.role === 'tool') {
             for (const result of message.results) {
-                observationTokens += estimateTokens(
+                const text =
                     typeof result.output === 'string'
                         ? result.output
-                        : JSON.stringify(result.output),
-                );
+                        : JSON.stringify(result.output);
+                observationTokens += estimateTokens(text);
+                parts.observation += `${text}\n\n`;
+                if (added) diffParts.push(`[tool result]\n${text}`);
             }
         } else if (message.role === 'assistant') {
-            historyAssistantTokens += estimateTokens(textOf(message.content));
+            const text = textOf(message.content);
+            historyAssistantTokens += estimateTokens(text);
+            parts.historyAssistant += `${text}\n\n`;
+            if (added) diffParts.push(`[assistant]\n${text}`);
             for (const call of message.toolCalls ?? []) {
-                toolCallTokens += estimateTokens(JSON.stringify(call));
+                const json = JSON.stringify(call);
+                toolCallTokens += estimateTokens(json);
+                parts.toolCalls += `${json}\n`;
+                if (added) diffParts.push(`[tool call]\n${json}`);
             }
         }
     }
-    const systemPromptTokens = estimateTokens(ctx.systemPrompt ?? '');
-    const toolSchemaTokens = estimateTokens(JSON.stringify(ctx.tools ?? []));
+    parts.systemPrompt = ctx.systemPrompt ?? '';
+    parts.toolSchema = JSON.stringify(ctx.tools ?? []);
+    const systemPromptTokens = estimateTokens(parts.systemPrompt);
+    const toolSchemaTokens = estimateTokens(parts.toolSchema);
     const historyTokens = historyUserTokens + historyAssistantTokens + toolCallTokens;
     const totalContextTokens =
         systemPromptTokens + historyTokens + toolSchemaTokens + newInputTokens + observationTokens;
@@ -330,6 +369,18 @@ function measureContext(
         contextWindowUtilization,
         contextDeltaFromPrev: prevTotal === undefined ? 0 : totalContextTokens - prevTotal,
         strategyApplied: [],
+        contents: {
+            systemPrompt: truncateText(parts.systemPrompt, SEGMENT_CONTENT_MAX),
+            historyUser: truncateText(parts.historyUser, SEGMENT_CONTENT_MAX),
+            historyAssistant: truncateText(parts.historyAssistant, SEGMENT_CONTENT_MAX),
+            toolCalls: truncateText(parts.toolCalls, SEGMENT_CONTENT_MAX),
+            toolSchema: truncateText(parts.toolSchema, SEGMENT_CONTENT_MAX),
+            newInput: truncateText(parts.newInput, SEGMENT_CONTENT_MAX),
+            observation: truncateText(parts.observation, SEGMENT_CONTENT_MAX),
+            retrieved: '',
+            examples: '',
+        },
+        diffContent: truncateText(diffParts.join('\n\n'), DIFF_CONTENT_MAX),
     };
 }
 
@@ -429,8 +480,12 @@ function goalRunSummary(result: GoalRunResult): string {
 export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
     private readonly goalStoreDb: GoalStore;
-    /** 上一轮上下文总量（估算跨轮 delta 用） */
+    /** 上一轮上下文总量（估算跨轮 delta 用；仅同一 Task 内有效） */
     private lastContextTotal?: number;
+    /** 上一轮消息条数（取本步新增内容 diff 用；仅同一 Task 内有效） */
+    private lastMessageCount?: number;
+    /** 最近一次计量的 taskId（跨 Task 时重置基线） */
+    private lastTaskId?: string;
     /** Steps already announced via step.started (a step persists several times). */
     private readonly startedStepIds = new Set<string>();
     private readonly llmProviders: Map<string, LLMProvider>;
@@ -549,6 +604,8 @@ export class HarnessRuntime {
         }
         // 每轮 run 重置上下文基线：首个 round 的 delta 从 0 起算，不与上一个会话串味。
         this.lastContextTotal = undefined;
+        this.lastMessageCount = undefined;
+        this.lastTaskId = undefined;
         const exec = this.goalExecutionConfig();
         const result = await runGoalTree(
             {
@@ -783,10 +840,12 @@ export class HarnessRuntime {
             messages: ctx.messages,
             ...(ctx.tools.length > 0 ? { tools: ctx.tools } : {}),
         };
-        // runtime 维度：请求发出前的上下文分段计量（跨轮累计 delta）
+        // runtime 维度：请求发出前的上下文分段计量（同一 Task 内累计 delta / 新增内容）
+        const sameTask = ctx.taskId !== undefined && ctx.taskId === this.lastTaskId;
         const contextUsage = measureContext(
             ctx,
-            this.lastContextTotal,
+            sameTask ? this.lastContextTotal : undefined,
+            sameTask ? this.lastMessageCount : undefined,
             this.config.contextWindow ?? 64000,
         );
         const streamId = ulid();
@@ -818,6 +877,8 @@ export class HarnessRuntime {
         );
         const result: RoundResult = toRoundResult(outcome);
         this.lastContextTotal = contextUsage.totalContextTokens;
+        this.lastMessageCount = ctx.messages.length;
+        this.lastTaskId = ctx.taskId;
         // 输入漂移：有符号（breakdown total − vendor.input），并给出漂移率
         const vendorInput = result.vendorUsage?.inputTokens;
         if (vendorInput !== undefined) {

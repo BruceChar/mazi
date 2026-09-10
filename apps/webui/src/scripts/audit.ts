@@ -30,6 +30,8 @@ export interface AuditSegment {
     tokens: number;
     ratio: number;
     colorVar: string;
+    /** 该段原文（截断；无可展示内容时为 ''） */
+    content: string;
 }
 
 /** 成本聚合（vendor token 口径或估算 token 口径）。 */
@@ -115,7 +117,8 @@ export interface AuditView {
     strategies: string[];
     budgetPressureAction: string;
     rows: AuditStepRow[];
-    text: string;
+    /** 相对上一轮新增内容（截断；无可展示内容时为 ''） */
+    diffContent: string;
     /** 估算成本 − vendor 成本 */
     costDrift: CostDrift | null;
     /** Σ估算总量（input+output） */
@@ -361,6 +364,31 @@ function segmentDefs(runtime: StepRuntimeUsage): SegmentDef[] {
     return defs;
 }
 
+/** 段 key → contents 字段（history 单段特殊处理）。 */
+const SEGMENT_CONTENT_KEY: Record<string, keyof NonNullable<StepRuntimeUsage['contents']>> = {
+    system: 'systemPrompt',
+    historyUser: 'historyUser',
+    historyAssistant: 'historyAssistant',
+    toolCall: 'toolCalls',
+    toolSchema: 'toolSchema',
+    newInput: 'newInput',
+    observation: 'observation',
+    retrieved: 'retrieved',
+    example: 'examples',
+};
+
+function segmentContent(runtime: StepRuntimeUsage, key: string): string {
+    const contents = runtime.contents;
+    if (!contents) return '';
+    if (key === 'history') {
+        return [contents.historyUser, contents.historyAssistant, contents.toolCalls]
+            .filter((part) => part.length > 0)
+            .join('\n\n');
+    }
+    const contentKey = SEGMENT_CONTENT_KEY[key];
+    return contentKey ? (contents[contentKey] ?? '') : '';
+}
+
 /** Runtime input 分段 → 占比段（分母 totalContextTokens，缺省回落分段和）。 */
 export function contextSegments(runtime: StepRuntimeUsage | null | undefined): AuditSegment[] {
     if (!runtime) return [];
@@ -378,23 +406,61 @@ export function contextSegments(runtime: StepRuntimeUsage | null | undefined): A
                 tokens,
                 ratio: denominator > 0 ? tokens / denominator : 0,
                 colorVar: def.colorVar,
+                content: segmentContent(runtime, def.key),
             };
         });
 }
 
-/** 占比段 → CSS conic-gradient（环形饼图）。 */
-export function conicGradient(segments: AuditSegment[]): string {
-    const total = segments.reduce((sum, seg) => sum + seg.ratio, 0);
+/** 非零段保底最小扇区（占比），避免小占比在饼图里不可见。 */
+export const DONUT_MIN_SHARE = 0.03;
+
+/**
+ * 环形图各段扇区占比：按显示段 token 之和归一化，并对非零段保底 minShare
+ * （其余段按比例回缩）。返回数组与 segments 一一对应；0 token 段为 0。
+ */
+export function donutShares(segments: AuditSegment[], minShare = DONUT_MIN_SHARE): number[] {
+    const total = segments.reduce((sum, seg) => sum + Math.max(0, seg.tokens), 0);
+    if (total <= 0) return segments.map(() => 0);
+    let current = segments.map((seg) => (seg.tokens > 0 ? seg.tokens / total : 0));
+    for (let iter = 0; iter < 4; iter += 1) {
+        const below = current
+            .map((value, index) => (value > 0 && value < minShare ? index : -1))
+            .filter((index) => index >= 0);
+        if (below.length === 0) break;
+        const floorSum = below.length * minShare;
+        if (floorSum >= 1) break;
+        const restSum = current.reduce(
+            (sum, value, index) => (below.includes(index) ? sum : sum + value),
+            0,
+        );
+        if (restSum <= 0) break;
+        const budget = 1 - floorSum;
+        current = current.map((value, index) =>
+            below.includes(index) ? minShare : (value / restSum) * budget,
+        );
+    }
+    return current;
+}
+
+/** 占比段 → CSS conic-gradient（环形饼图，按 donutShares 归一化 + 保底）。 */
+export function conicGradient(segments: AuditSegment[], minShare = DONUT_MIN_SHARE): string {
+    if (segments.length === 0) {
+        return 'conic-gradient(var(--border) 0% 100%)';
+    }
+    const shares = donutShares(segments, minShare);
+    const total = shares.reduce((sum, value) => sum + value, 0);
     if (total <= 0) {
         return 'conic-gradient(var(--border) 0% 100%)';
     }
     let acc = 0;
     const stops: string[] = [];
-    for (const seg of segments) {
+    for (let index = 0; index < segments.length; index += 1) {
+        const share = shares[index] ?? 0;
+        if (share <= 0) continue;
         const start = (acc / total) * 100;
-        acc += seg.ratio;
+        acc += share;
         const end = (acc / total) * 100;
-        stops.push(`var(${seg.colorVar}) ${start.toFixed(3)}% ${end.toFixed(3)}%`);
+        stops.push(`var(${segments[index]?.colorVar}) ${start.toFixed(3)}% ${end.toFixed(3)}%`);
     }
     return `conic-gradient(${stops.join(', ')})`;
 }
@@ -544,7 +610,7 @@ function noneView(stale: boolean): AuditView {
         strategies: [],
         budgetPressureAction: '',
         rows: [],
-        text: '',
+        diffContent: '',
         costDrift: null,
         estimatedTotal: null,
         vendorTotal: null,
@@ -574,10 +640,6 @@ export function buildAuditView(input: AuditInput): AuditView {
     if (selected) {
         const usage = aggregateUsage([selected]);
         const runtime = usage.runtime;
-        const siblings = rows.filter((row) => row.taskId === selected.taskId);
-        const siblingRows = (siblings.length > 0 ? siblings : [selected]).map((row) =>
-            toRow(row, stepId),
-        );
         const total = runtime?.totalContextTokens ?? null;
         const delta = runtime?.contextDeltaFromPrev ?? null;
         const toolSuffix = selected.toolName ? ` ${selected.toolName}` : '';
@@ -594,8 +656,8 @@ export function buildAuditView(input: AuditInput): AuditView {
                 total !== null && delta !== null ? { delta, from: total - delta, to: total } : null,
             strategies: runtime?.strategyApplied ?? [],
             budgetPressureAction: runtime?.budgetPressureAction ?? '',
-            rows: siblingRows,
-            text: selected.text,
+            rows: [],
+            diffContent: runtime?.diffContent ?? '',
             ...extrasOf(usage),
         };
     }
@@ -617,7 +679,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             strategies: runtime?.strategyApplied ?? [],
             budgetPressureAction: runtime?.budgetPressureAction ?? '',
             rows: taskRows.map((row) => toRow(row, stepId)),
-            text: '',
+            diffContent: '',
             ...extrasOf(usage),
         };
     }
@@ -636,7 +698,7 @@ export function buildAuditView(input: AuditInput): AuditView {
         strategies: runtime?.strategyApplied ?? [],
         budgetPressureAction: runtime?.budgetPressureAction ?? '',
         rows: rows.map((row) => toRow(row, stepId)),
-        text: '',
+        diffContent: '',
         ...extrasOf(usage),
     };
 }

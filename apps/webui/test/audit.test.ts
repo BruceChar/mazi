@@ -5,6 +5,7 @@ import {
     buildAuditView,
     conicGradient,
     contextSegments,
+    donutShares,
     formatCost,
     formatDuration,
     formatPercent,
@@ -34,6 +35,18 @@ function stepUsage(over: Partial<StepUsage> = {}): StepUsage {
             observationTokens: 100,
             contextDeltaFromPrev: 0,
             contextWindowUtilization: 0.02,
+            contents: {
+                systemPrompt: 'SYS',
+                historyUser: 'UH',
+                historyAssistant: 'AH',
+                toolCalls: 'TC',
+                toolSchema: 'TS',
+                newInput: 'NI',
+                observation: 'OB',
+                retrieved: '',
+                examples: '',
+            },
+            diffContent: '[user]\nNI',
         },
         estimate: { outputTokens: 18 },
         cost: {
@@ -206,9 +219,13 @@ describe('audit contextSegments', () => {
         expect(segments[1]?.tokens).toBe(300);
     });
 
-    it('可选段为 0 时省略；无 runtime → 空数组', () => {
+    it('可选段为 0 时省略；原文按段映射；无 runtime → 空数组', () => {
         const segments = contextSegments(stepUsage().runtime);
         expect(segments.some((s) => s.key === 'retrieved')).toBe(false);
+        const byKey = new Map(segments.map((s) => [s.key, s.content]));
+        expect(byKey.get('system')).toBe('SYS');
+        expect(byKey.get('historyAssistant')).toBe('AH');
+        expect(byKey.get('observation')).toBe('OB');
         expect(contextSegments(null)).toEqual([]);
     });
 });
@@ -225,6 +242,19 @@ describe('audit conicGradient', () => {
     it('空段回落 border', () => {
         expect(conicGradient([])).toBe('conic-gradient(var(--border) 0% 100%)');
     });
+
+    it('归一化 + 保底：极小占比也获得最小扇区，总和为 1', () => {
+        const segments = [
+            { key: 'a', label: 'a', tokens: 9970, ratio: 0.997, colorVar: '--seg-system', content: '' },
+            { key: 'b', label: 'b', tokens: 20, ratio: 0.002, colorVar: '--seg-user', content: '' },
+            { key: 'c', label: 'c', tokens: 10, ratio: 0.001, colorVar: '--seg-input', content: '' },
+        ];
+        const shares = donutShares(segments, 0.03);
+        expect(shares.reduce((sum, value) => sum + value, 0)).toBeCloseTo(1, 6);
+        expect(shares[1]).toBeGreaterThanOrEqual(0.03 - 1e-9);
+        expect(shares[2]).toBeGreaterThanOrEqual(0.03 - 1e-9);
+        expect(shares[0] ?? 0).toBeGreaterThan(0.9);
+    });
 });
 
 describe('audit buildAuditView', () => {
@@ -234,8 +264,9 @@ describe('audit buildAuditView', () => {
         expect(view.kind).toBe('step');
         expect(view.title).toContain('S#1');
         expect(view.diff).toEqual({ delta: 0, from: 1000, to: 1000 });
-        expect(view.rows).toHaveLength(1);
-        expect(view.rows[0]?.selected).toBe(true);
+        // 单步骤不展示步骤明细
+        expect(view.rows).toHaveLength(0);
+        expect(view.diffContent).toContain('NI');
         expect(view.estimatedTotal).toBe(1018);
         expect(view.vendorTotal).toBe(120);
         expect(view.costDrift?.usd).toBeCloseTo(-0.0005, 12);
@@ -282,7 +313,7 @@ describe('audit buildAuditView', () => {
             ],
         });
         expect(live.kind).toBe('step');
-        expect(live.text).toBe('live');
+        expect(live.rows).toHaveLength(0);
         expect(live.usage.vendor?.total).toBe(120);
     });
 });

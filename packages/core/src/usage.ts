@@ -9,6 +9,19 @@ export interface VendorUsage {
     reportedByVendor: boolean;
 }
 
+/** 各 context 段落的原文（按段截断，供 UI 点击查看；不参与计量） */
+export interface ContextSegmentContents {
+    systemPrompt: string;
+    historyUser: string;
+    historyAssistant: string;
+    toolCalls: string;
+    toolSchema: string;
+    newInput: string;
+    observation: string;
+    retrieved: string;
+    examples: string;
+}
+
 /**
  * Runtime 层上下文分段计数（**只描述 input 的估算**）。
  * 各段之和 = totalContextTokens；输出侧估算见 UsageEstimate。
@@ -42,6 +55,10 @@ export interface RuntimeContextBreakdown {
     estimationDriftTokens?: number;
     /** estimationDriftTokens / vendor.inputTokens */
     estimationDriftRate?: number;
+    /** 各段原文（截断，供点击查看） */
+    contents?: ContextSegmentContents;
+    /** 相对上一轮新增内容（截断；首轮为 newInput） */
+    diffContent?: string;
 }
 
 /** Runtime 输出侧估算（非 reasoning 输出文本） */
