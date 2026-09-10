@@ -211,12 +211,12 @@ function latencyText() {
     align-items: center;
     justify-content: space-between;
     padding: 8px 14px 4px;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--fg);
     text-transform: none;
     letter-spacing: 0;
-    height: 34px;
+    height: 36px;
     box-sizing: border-box;
 }
 .head-icons {
@@ -242,13 +242,13 @@ function latencyText() {
 }
 .search-input {
     flex: 1;
-    height: 22px;
+    height: 24px;
     padding: 0 8px;
     border: 1px solid var(--border);
     border-radius: 5px;
     background: var(--bg-panel);
     color: var(--fg);
-    font-size: 11px;
+    font-size: 13px;
     outline: none;
     min-width: 0;
     box-sizing: border-box;
@@ -269,7 +269,7 @@ function latencyText() {
     align-items: center;
     justify-content: space-between;
     padding: 6px 14px;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--fg);
     text-transform: none;
@@ -312,7 +312,7 @@ function latencyText() {
     background: var(--bg-active);
 }
 .session-title {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--fg);
     overflow: hidden;
     text-overflow: ellipsis;
