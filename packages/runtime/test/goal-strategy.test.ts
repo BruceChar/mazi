@@ -64,6 +64,41 @@ describe('goal-strategy（C3d：Goal 树顺序驱动）', () => {
         expect((await store.loadTask(taskIds[0]!))?.status).toBe('succeeded');
     });
 
+    it('多 Task 共享上下文：第二个 Task 前置第一个 Task 的输入与回答', async () => {
+        const store = new MemoryGoalStore();
+        const root = goal(ulid(), 'intake');
+        const a = goal(ulid(), 'work', root.goalId);
+        const b = goal(ulid(), 'work', root.goalId);
+        await store.saveGoal(root);
+        await store.saveGoal(a);
+        await store.saveGoal(b);
+        const seen: string[][] = [];
+        const bases: Array<number | undefined> = [];
+        await runGoalTree(
+            {
+                store,
+                requestRound: async (ctx) => {
+                    seen.push(
+                        ctx.messages.map((message) =>
+                            message.role === 'user' || message.role === 'assistant'
+                                ? message.content
+                                      .map((block) => (block.type === 'text' ? block.text : ''))
+                                      .join('')
+                                : '',
+                        ),
+                    );
+                    bases.push(ctx.baseMessageCount);
+                    return okRound;
+                },
+            },
+            [root, a, b],
+        );
+        expect(seen[0]).toEqual([a.statement]);
+        expect(bases[0]).toBe(0);
+        expect(seen[1]).toEqual([a.statement, '已完成。', b.statement]);
+        expect(bases[1]).toBe(2);
+    });
+
     it('孤儿 Goal 树：拒绝出计划，返回 rejected', async () => {
         const orphan: Goal = goal(ulid(), 'work');
         orphan.parent = { type: 'split', goalId: ulid() };

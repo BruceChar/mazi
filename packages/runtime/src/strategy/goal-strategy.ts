@@ -4,7 +4,7 @@
  * 直接给单 work Goal（跳过切分语义由 HarnessRuntime 上层裁决）。执行事实全部经 GoalStore 留痕。
  */
 
-import type { Goal } from '@mazi/core';
+import type { Goal, LLMMessage } from '@mazi/core';
 import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../gts/goal-executor.js';
 import { executeTask } from '../gts/goal-executor.js';
 import { planGoalTree } from '../gts/goal-planner.js';
@@ -45,6 +45,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         };
     }
     const outcomes: TaskOutcome[] = [];
+    let history: LLMMessage[] = deps.history ?? [];
     for (const goal of plan.workGoals) {
         const task = plan.tasks.find((t) => t.goalId === goal.goalId);
         if (task === undefined) continue;
@@ -57,7 +58,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                 ...(deps.model !== undefined ? { model: deps.model } : {}),
                 ...(deps.invoker !== undefined ? { invoker: deps.invoker } : {}),
                 ...(deps.allowedTools !== undefined ? { allowedTools: deps.allowedTools } : {}),
-                ...(deps.history !== undefined ? { history: deps.history } : {}),
+                ...(history.length > 0 ? { history } : {}),
                 ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
             },
             task,
@@ -65,6 +66,12 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         );
         outcomes.push(outcome);
         if (!outcome.ok) break; // 顺序依赖：首个失败即停（后续可扩展为任务组并行）
+        // Task 之间共享上下文：本 Task 的输入与最终回答并入下一 Task 的前置历史
+        history = [
+            ...history,
+            { role: 'user', content: [{ type: 'text', text: goal.statement }] },
+            { role: 'assistant', content: [{ type: 'text', text: outcome.finalMessage ?? '' }] },
+        ];
     }
     return {
         rootGoalId: root?.rootGoalId ?? goals[0]?.rootGoalId ?? '',
