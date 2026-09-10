@@ -7,6 +7,7 @@ coverage/
 *.tsbuildinfo
 .DS_Store
 .pnpm-store/
+.pnpm-local-store/
 # tsc 误发的源旁产物（正常应仅输出 dist/）
 packages/*/src/**/*.js
 packages/*/src/**/*.js.map
@@ -21,6 +22,6 @@ events/
 events-demo/
 *.mazi.db
 .npm-tmp/
-.pnpm-store/
 *.tgz
 .env
+.obsidian/
