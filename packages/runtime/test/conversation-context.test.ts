@@ -81,6 +81,11 @@ describe('Conversation 共享上下文', () => {
             // diff 只含本步新增输入，不含历史
             expect(usage?.runtime?.diffContent).toContain('second question');
             expect(usage?.runtime?.diffContent).not.toContain('first question');
+            // 按段 diff：首轮 system prompt / tool schema 为全量，newInput 为本轮输入；
+            // 前置历史不属于本轮新增
+            expect(usage?.runtime?.diffContents?.systemPrompt?.length).toBeGreaterThan(0);
+            expect(usage?.runtime?.diffContents?.newInput).toContain('second question');
+            expect(usage?.runtime?.diffContents?.historyUser).toBe('');
         } finally {
             await runtime.close();
         }

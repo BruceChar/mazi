@@ -149,6 +149,8 @@ export interface StepRuntimeUsage {
     contents?: StepContextContents;
     /** 相对上一轮新增内容（截断） */
     diffContent?: string;
+    /** 相对上一轮各段新增内容（截断；首轮含 system prompt / tool schema 全量） */
+    diffContents?: StepContextContents;
 }
 
 /** Runtime 输出估算与漂移（core UsageEstimate 的线协议投影）。 */

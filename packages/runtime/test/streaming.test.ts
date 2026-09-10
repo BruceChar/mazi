@@ -315,6 +315,8 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
             expect(usage?.runtime?.historyUserTokens).toBeDefined();
             expect(usage?.runtime?.contents?.systemPrompt?.length).toBeGreaterThan(0);
             expect(usage?.runtime?.diffContent).toContain('say hi');
+            expect(usage?.runtime?.diffContents?.newInput).toContain('say hi');
+            expect(usage?.runtime?.diffContents?.systemPrompt?.length).toBeGreaterThan(0);
             expect(typeof usage?.timing?.totalMs).toBe('number');
             expect(usage?.cost?.totalCostUsd).toBeGreaterThan(0);
             expect(usage?.cost?.priceTierApplied).toBe('base');

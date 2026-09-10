@@ -4,7 +4,43 @@
  * 输入分段占比、逐步骤 context diff。无副作用，不依赖 Vue，便于单测。
  */
 
-import type { GoalTreeSnapshot, StepRuntimeUsage, StepUsage } from '../types.ts';
+import type {
+    GoalTreeSnapshot,
+    StepContextContents,
+    StepRuntimeUsage,
+    StepUsage,
+} from '../types.ts';
+
+/** 单段 diff（Context 追踪用）。 */
+export interface AuditDiffPart {
+    key: string;
+    label: string;
+    text: string;
+}
+
+const DIFF_SEGMENT_LABELS: Array<{ key: keyof StepContextContents; label: string }> = [
+    { key: 'systemPrompt', label: 'system prompt' },
+    { key: 'historyUser', label: 'user history' },
+    { key: 'historyAssistant', label: 'assistant' },
+    { key: 'toolCalls', label: 'tool-call args' },
+    { key: 'toolSchema', label: 'tool schema' },
+    { key: 'newInput', label: 'user input' },
+    { key: 'observation', label: 'observation' },
+    { key: 'retrieved', label: 'retrieved' },
+    { key: 'examples', label: 'examples' },
+];
+
+/** 每步各段新增内容 → 有序的非空 diff 列表。 */
+export function contextDiffParts(
+    diffContents: StepContextContents | null | undefined,
+): AuditDiffPart[] {
+    if (!diffContents) return [];
+    return DIFF_SEGMENT_LABELS.map(({ key, label }) => ({
+        key,
+        label,
+        text: String(diffContents[key] ?? ''),
+    })).filter((part) => part.text.trim().length > 0);
+}
 
 // ============================================================
 // Types
@@ -92,8 +128,10 @@ export interface AuditStepRow {
     tokens: number;
     contextTotal: number | null;
     contextDelta: number | null;
-    /** 相对上一步新增的上下文内容（截断；可在 Context 追踪里展开） */
+    /** 相对上一步新增的上下文内容（截断；合并文本） */
     diffContent: string;
+    /** 相对上一步各段新增内容（Context 追踪按段展开） */
+    diffParts: AuditDiffPart[];
     selected: boolean;
 }
 
@@ -168,8 +206,10 @@ interface ResolvedStep {
     durationMs: number | null;
     usage: StepUsage | null;
     text: string;
-    /** 相对上一轮新增的上下文内容（截断） */
+    /** 相对上一轮新增的上下文内容（截断，合并） */
     diffContent: string;
+    /** 相对上一轮各段新增内容（截断） */
+    diffContents: StepContextContents | null;
     /** 会话流中的全局序号（collectRows 结束后赋值） */
     lineIndex: number;
     /** 会话流中相对上一步的上下文 delta / 上一步总量（collectRows 结束后赋值） */
@@ -618,6 +658,7 @@ function collectSnapshotSteps(
                     usage: step.usage ?? null,
                     text: step.content ?? step.payloadText ?? '',
                     diffContent: step.usage?.runtime?.diffContent ?? '',
+                    diffContents: step.usage?.runtime?.diffContents ?? null,
                     lineIndex: 0,
                     contextDelta: null,
                     previousContextTotal: null,
@@ -678,6 +719,7 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             usage: step.usage ?? null,
             text: step.content,
             diffContent: step.usage?.runtime?.diffContent ?? '',
+            diffContents: step.usage?.runtime?.diffContents ?? null,
             lineIndex: 0,
             contextDelta: null,
             previousContextTotal: null,
@@ -713,6 +755,7 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         contextTotal: runtime?.totalContextTokens ?? null,
         contextDelta: step.contextDelta,
         diffContent: step.diffContent,
+        diffParts: contextDiffParts(step.diffContents),
         selected: step.stepId === selectedId,
     };
 }

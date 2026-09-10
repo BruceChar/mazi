@@ -59,6 +59,8 @@ export interface RuntimeContextBreakdown {
     contents?: ContextSegmentContents;
     /** 相对上一轮新增内容（截断；首轮为 newInput） */
     diffContent?: string;
+    /** 相对上一轮各段新增内容（截断；首轮含 system prompt / tool schema 全量） */
+    diffContents?: ContextSegmentContents;
 }
 
 /** Runtime 输出侧估算（非 reasoning 输出文本） */

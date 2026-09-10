@@ -117,6 +117,11 @@ function runtimeView(source: Record<string, unknown>): StepUsage['runtime'] | un
     }
     const diffContent = stringOf(source.diffContent);
     if (diffContent !== undefined) view.diffContent = diffContent;
+    const diffContents = subRecord(source.diffContents);
+    if (diffContents !== undefined) {
+        const mapped = contentsView(diffContents);
+        if (mapped !== undefined) view.diffContents = mapped;
+    }
     return view;
 }
 

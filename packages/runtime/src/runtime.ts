@@ -330,6 +330,20 @@ function measureContext(
         examples: '',
     };
     const diffParts: string[] = [];
+    const diffByKey = {
+        systemPrompt: '',
+        historyUser: '',
+        historyAssistant: '',
+        toolCalls: '',
+        toolSchema: '',
+        newInput: '',
+        observation: '',
+        retrieved: '',
+        examples: '',
+    };
+    // 本 Task 首轮（含续聊 Session 的首轮）：prevTotal 为 undefined；
+    // 此时 system prompt / tool schema 视为全量新增。
+    const isFirst = prevTotal === undefined;
     for (let i = 0; i < messages.length; i += 1) {
         const message = messages[i];
         if (message === undefined) continue;
@@ -339,11 +353,15 @@ function measureContext(
             if (i === messages.length - 1) {
                 newInputTokens = estimateTokens(text);
                 parts.newInput += text;
+                diffByKey.newInput += text;
                 diffParts.push(text);
             } else {
                 historyUserTokens += estimateTokens(text);
                 parts.historyUser += `${text}\n\n`;
-                if (added) diffParts.push(`[user]\n${text}`);
+                if (added) {
+                    diffByKey.historyUser += `${text}\n\n`;
+                    diffParts.push(`[user]\n${text}`);
+                }
             }
         } else if (message.role === 'tool') {
             for (const result of message.results) {
@@ -353,23 +371,37 @@ function measureContext(
                         : JSON.stringify(result.output);
                 observationTokens += estimateTokens(text);
                 parts.observation += `${text}\n\n`;
-                if (added) diffParts.push(`[tool result]\n${text}`);
+                if (added) {
+                    diffByKey.observation += `${text}\n\n`;
+                    diffParts.push(`[tool result]\n${text}`);
+                }
             }
         } else if (message.role === 'assistant') {
             const text = textOf(message.content);
             historyAssistantTokens += estimateTokens(text);
             parts.historyAssistant += `${text}\n\n`;
-            if (added) diffParts.push(`[assistant]\n${text}`);
+            if (added) {
+                diffByKey.historyAssistant += `${text}\n\n`;
+                diffParts.push(`[assistant]\n${text}`);
+            }
             for (const call of message.toolCalls ?? []) {
                 const json = JSON.stringify(call);
                 toolCallTokens += estimateTokens(json);
                 parts.toolCalls += `${json}\n`;
-                if (added) diffParts.push(`[tool call]\n${json}`);
+                if (added) {
+                    diffByKey.toolCalls += `${json}\n`;
+                    diffParts.push(`[tool call]\n${json}`);
+                }
             }
         }
     }
     parts.systemPrompt = ctx.systemPrompt ?? '';
     parts.toolSchema = JSON.stringify(ctx.tools ?? []);
+    // 首轮：system prompt / tool schema 视为「全量新增」，之后默认不变
+    if (isFirst) {
+        diffByKey.systemPrompt = parts.systemPrompt;
+        diffByKey.toolSchema = parts.toolSchema;
+    }
     const systemPromptTokens = estimateTokens(parts.systemPrompt);
     const toolSchemaTokens = estimateTokens(parts.toolSchema);
     const historyTokens = historyUserTokens + historyAssistantTokens + toolCallTokens;
@@ -405,6 +437,17 @@ function measureContext(
             examples: '',
         },
         diffContent: truncateText(diffParts.join('\n\n'), DIFF_CONTENT_MAX),
+        diffContents: {
+            systemPrompt: truncateText(diffByKey.systemPrompt, SEGMENT_CONTENT_MAX),
+            historyUser: truncateText(diffByKey.historyUser, SEGMENT_CONTENT_MAX),
+            historyAssistant: truncateText(diffByKey.historyAssistant, SEGMENT_CONTENT_MAX),
+            toolCalls: truncateText(diffByKey.toolCalls, SEGMENT_CONTENT_MAX),
+            toolSchema: truncateText(diffByKey.toolSchema, SEGMENT_CONTENT_MAX),
+            newInput: truncateText(diffByKey.newInput, SEGMENT_CONTENT_MAX),
+            observation: truncateText(diffByKey.observation, SEGMENT_CONTENT_MAX),
+            retrieved: '',
+            examples: '',
+        },
     };
 }
 

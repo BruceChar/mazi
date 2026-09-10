@@ -375,7 +375,13 @@ function toggleContext(key) {
                             <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
                             <span class="ctx-caret">{{ openContext.has(row.stepId) ? '−' : '+' }}</span>
                         </button>
-                        <pre v-if="openContext.has(row.stepId)" class="seg-content">{{ row.diffContent || '（本步无新增内容）' }}</pre>
+                        <div v-if="openContext.has(row.stepId)" class="ctx-diff">
+                            <template v-for="part in row.diffParts" :key="part.key">
+                                <div class="ctx-diff-label">{{ part.label }}</div>
+                                <pre class="seg-content">{{ part.text }}</pre>
+                            </template>
+                            <div v-if="!row.diffParts.length" class="audit-muted">（本步无新增内容）</div>
+                        </div>
                     </div>
                     <div v-if="!contextRows.length" class="audit-muted">暂无可追踪的步骤</div>
                 </section>
@@ -1126,6 +1132,16 @@ function toggleContext(key) {
     font-weight: 700;
     color: var(--fg-tertiary);
     flex-shrink: 0;
+}
+.ctx-diff {
+    padding: 2px 0 6px 6px;
+}
+.ctx-diff-label {
+    margin: 4px 0 2px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-secondary);
+    font-family: ui-monospace, monospace;
 }
 .seg-content {
     margin: 2px 0 6px;
