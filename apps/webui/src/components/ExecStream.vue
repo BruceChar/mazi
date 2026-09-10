@@ -1,9 +1,9 @@
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import { renderMarkdown } from '../scripts/markdown.ts';
 
-defineProps({
+const props = defineProps({
     runDetail: { type: Object, default: null },
     busy: { type: Boolean, default: false },
     /** In-flight streaming answer (token level) from store.activeLiveStream. */
@@ -11,15 +11,20 @@ defineProps({
 });
 
 /* ---- Time formatting ---- */
-function fmtClockMs(ts) {
+const pad = (n, w = 2) => String(n).padStart(w, '0');
+
+/** Time of day with milliseconds (HH:MM:SS.mmm); the date lives on the task header. */
+function fmtTime(ts) {
     if (!ts) return '';
     const d = new Date(ts);
-    const now = new Date();
-    const pad = (n, w = 2) => String(n).padStart(w, '0');
-    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
-    if (d.toDateString() === now.toDateString()) return time;
-    const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    return `${date} ${time}`;
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+}
+
+/** Full date + time (YYYY-MM-DD HH:MM:SS), shown once per task. */
+function fmtDateTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 function formatDuration(ms) {
     if (ms == null) return '';
@@ -64,7 +69,7 @@ function stepToRow(step, idx) {
         goalId: step.goalId,
         taskId: step.taskId,
         at: step.startedAt,
-        time: fmtClockMs(step.startedAt),
+        time: fmtTime(step.startedAt),
         kind: step.kind,
         kindLabel: kindLabel(step.kind),
         status: step.status,
@@ -78,21 +83,42 @@ function stepToRow(step, idx) {
 }
 
 /* ---- Exec tree builders ---- */
+/** Earliest step timestamp of a task; used to date the task header. */
+function taskStartedAt(task) {
+    let earliest = null;
+    for (const step of task.steps || []) {
+        if (step.startedAt && (earliest === null || step.startedAt < earliest)) {
+            earliest = step.startedAt;
+        }
+    }
+    return earliest;
+}
+
+/**
+ * Display tree. Goals without tasks (the internal intake goal) are dropped, and
+ * each task carries one full date/time so its steps only show time-of-day.
+ */
 function buildExecTree(detailObj) {
     const goals = detailObj?.goals || [];
-    return goals.map((goal) => ({
-        goalId: goal.goalId,
-        statement: goal.statement,
-        status: goal.status,
-        tasks: (goal.tasks || []).map((task) => ({
-            taskId: task.taskId,
-            title: task.title,
-            status: task.status,
-            steps: (task.steps || [])
-                .filter((s) => s.kind !== 'intent' && s.kind !== 'observation')
-                .map((s, i) => stepToRow(s, i)),
-        })),
-    }));
+    return goals
+        .filter((goal) => (goal.tasks || []).length > 0)
+        .map((goal) => ({
+            goalId: goal.goalId,
+            statement: goal.statement,
+            status: goal.status,
+            tasks: (goal.tasks || []).map((task) => {
+                const startedAt = taskStartedAt(task);
+                return {
+                    taskId: task.taskId,
+                    title: task.title,
+                    status: task.status,
+                    time: startedAt ? fmtDateTime(startedAt) : '',
+                    steps: (task.steps || [])
+                        .filter((s) => s.kind !== 'intent' && s.kind !== 'observation')
+                        .map((s, i) => stepToRow(s, i)),
+                };
+            }),
+        }));
 }
 function allStepsOf(detailObj) {
     const goals = detailObj?.goals || [];
@@ -120,17 +146,6 @@ function finalSummaryOf(detailObj) {
     const intentRows = allStepsOf(detailObj).filter((r) => r.kind === 'intent');
     if (intentRows.length > 0) return intentRows[intentRows.length - 1].text || '';
     return '';
-}
-function reasoningTextOf(detailObj) {
-    const thinkingRows = allStepsOf(detailObj).filter((r) => r.kind === 'thinking');
-    return thinkingRows.map((r) => r.text).filter(Boolean).join('\n\n');
-}
-function isSimpleExecOf(detailObj) {
-    const tree = buildExecTree(detailObj);
-    if (tree.length !== 1) return false;
-    const tasks = tree[0].tasks;
-    if (tasks.length !== 1) return false;
-    return tasks[0].steps.length === 0;
 }
 
 /* ---- Collapse state ---- */
@@ -166,66 +181,68 @@ function stepTitleSummary(row) {
     }
     return row.text ? row.text.slice(0, 80) : '';
 }
+
+/* ---- Derived view state (computed once per render pass) ---- */
+const tree = computed(() => buildExecTree(props.runDetail));
+const summary = computed(() => finalSummaryOf(props.runDetail));
+const stats = computed(() => buildExecStats(props.runDetail));
 </script>
 
 <template>
     <div v-if="runDetail" class="exec-stream">
-        <!-- Simple run (1 goal / 1 task / 0 steps): show output directly -->
-        <template v-if="isSimpleExecOf(runDetail)">
-            <div v-if="reasoningTextOf(runDetail)" class="exec-reasoning markdown-body" v-html="renderMarkdown(reasoningTextOf(runDetail))"></div>
-            <div v-if="finalSummaryOf(runDetail)" class="exec-summary">
-                <div class="exec-summary-text markdown-body" v-html="renderMarkdown(finalSummaryOf(runDetail))"></div>
+        <!-- Goal → task → step. A single goal hides its own header so the user
+             input is not repeated above the task title. -->
+        <div
+            v-for="(goal, gIdx) in tree"
+            :key="goal.goalId"
+            class="exec-goal"
+            :class="{ single: tree.length === 1 }"
+        >
+            <div v-if="tree.length > 1" class="exec-goal-head" @click="toggleGoal(goal.goalId)">
+                <span class="exec-dot goal-dot" :class="{ collapsed: collapsedGoals.has(goal.goalId) }"></span>
+                <span class="exec-goal-tag">G#{{ gIdx + 1 }}</span>
+                <span class="exec-goal-title">{{ goal.statement }}</span>
+                <span class="exec-goal-count">{{ goal.tasks.length }} tasks · {{ goal.tasks.reduce((s, t) => s + t.steps.length, 0) }} steps</span>
             </div>
-        </template>
-        <!-- Normal run: goal → task → step hierarchy -->
-        <template v-else>
-            <div v-for="(goal, gIdx) in buildExecTree(runDetail)" :key="goal.goalId" class="exec-goal">
-                <div class="exec-goal-head" @click="toggleGoal(goal.goalId)">
-                    <span class="exec-dot goal-dot" :class="{ collapsed: collapsedGoals.has(goal.goalId) }"></span>
-                    <span class="exec-goal-tag">G#{{ gIdx + 1 }}</span>
-                    <span class="exec-goal-title">{{ goal.statement }}</span>
-                    <span class="exec-goal-count">{{ goal.tasks.length }} tasks · {{ goal.tasks.reduce((s, t) => s + t.steps.length, 0) }} steps</span>
-                </div>
-                <div v-if="!collapsedGoals.has(goal.goalId)" class="exec-goal-body">
-                    <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
-                        <div class="exec-task-head" @click="toggleTask(task.taskId)">
-                            <span class="exec-dot task-dot" :class="{ collapsed: collapsedTasks.has(task.taskId) }"></span>
-                            <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
-                            <span class="exec-task-title">{{ task.title }}</span>
-                            <span class="exec-task-count">{{ task.steps.length }} steps</span>
-                        </div>
-                        <div v-if="!collapsedTasks.has(task.taskId)" class="exec-task-body">
-                            <div
-                                v-for="(row, sIdx) in task.steps"
-                                :key="row.key"
-                                class="exec-step"
-                                :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
-                            >
-                                <div class="exec-step-head" :class="{ clickable: isStepLong(row) }" @click="isStepLong(row) && toggleStepCollapse(row.key)">
-                                    <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="16" />
-                                    <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
-                                    <span class="exec-step-name">{{ row.toolName || row.kind }}</span>
-                                    <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
-                                    <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
-                                    <span class="exec-step-time">{{ row.time }}</span>
-                                </div>
-                                <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
-                                    <pre class="exec-step-code-inner">{{ row.text }}</pre>
-                                </div>
-                                <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
-                                    {{ usageStats(row.usage).total }} tokens
-                                    <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
-                                </div>
+            <div v-if="!collapsedGoals.has(goal.goalId)" class="exec-goal-body">
+                <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
+                    <div class="exec-task-head" @click="toggleTask(task.taskId)">
+                        <span class="exec-dot task-dot" :class="{ collapsed: collapsedTasks.has(task.taskId) }"></span>
+                        <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
+                        <span class="exec-task-title">{{ task.title }}</span>
+                        <span class="exec-task-count">{{ task.steps.length }} steps</span>
+                        <span v-if="task.time" class="exec-task-time">{{ task.time }}</span>
+                    </div>
+                    <div v-if="!collapsedTasks.has(task.taskId)" class="exec-task-body">
+                        <div
+                            v-for="(row, sIdx) in task.steps"
+                            :key="row.key"
+                            class="exec-step"
+                            :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
+                        >
+                            <div class="exec-step-head" :class="{ clickable: isStepLong(row) }" @click="isStepLong(row) && toggleStepCollapse(row.key)">
+                                <LineIcon :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="16" />
+                                <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
+                                <span class="exec-step-name">{{ row.toolName || row.kind }}</span>
+                                <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
+                                <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
+                                <span class="exec-step-time">{{ row.time }}</span>
                             </div>
-                            <div v-if="!task.steps.length" class="empty-hint">（该 Task 尚无 Step）</div>
+                            <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
+                                <pre class="exec-step-code-inner">{{ row.text }}</pre>
+                            </div>
+                            <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
+                                {{ usageStats(row.usage).total }} tokens
+                                <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </template>
-        <!-- Final summary (goal-level, not a step) -->
-        <div v-if="finalSummaryOf(runDetail) && !isSimpleExecOf(runDetail)" class="exec-summary">
-            <div class="exec-summary-text markdown-body" v-html="renderMarkdown(finalSummaryOf(runDetail))"></div>
+        </div>
+        <!-- Final model answer (intent step), shown once below the tree. -->
+        <div v-if="summary" class="exec-summary">
+            <div class="exec-summary-text markdown-body" v-html="renderMarkdown(summary)"></div>
         </div>
         <!-- Per-run stats + feedback -->
         <div class="exec-stats">
@@ -233,13 +250,13 @@ function stepTitleSummary(row) {
                 <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
                 <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
             </div>
-            <span>{{ buildExecStats(runDetail).stepCount }} steps</span>
+            <span>{{ stats.stepCount }} steps</span>
             <span>·</span>
-            <span>{{ buildExecStats(runDetail).taskCount }} tasks</span>
+            <span>{{ stats.taskCount }} tasks</span>
             <span>·</span>
-            <span>{{ buildExecStats(runDetail).totalTime }}</span>
+            <span>{{ stats.totalTime }}</span>
             <span>·</span>
-            <span>{{ buildExecStats(runDetail).inputTokens }} in / {{ buildExecStats(runDetail).outputTokens }} out tokens</span>
+            <span>{{ stats.inputTokens }} in / {{ stats.outputTokens }} out tokens</span>
         </div>
     </div>
     <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
@@ -311,6 +328,14 @@ function stepTitleSummary(row) {
     /* Indent the task level so the three timeline lines stay clearly separated. */
     padding-left: 22px;
 }
+/* A run with a single goal drops the goal chrome (line + indent) entirely. */
+.exec-goal.single {
+    border-left: none;
+    margin-bottom: 4px;
+}
+.exec-goal.single > .exec-goal-body {
+    padding-left: 0;
+}
 .exec-task {
     margin: 8px 0;
     position: relative;
@@ -352,6 +377,13 @@ function stepTitleSummary(row) {
 .exec-task-count {
     font-size: 11px;
     color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+/* Full date/time, shown once per task so steps can stay time-of-day only. */
+.exec-task-time {
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
     flex-shrink: 0;
 }
 .exec-task-body {
@@ -605,14 +637,6 @@ function stepTitleSummary(row) {
     line-height: 1.6;
     color: var(--fg);
     word-break: break-word;
-}
-.exec-reasoning {
-    font-size: 13px;
-    line-height: 1.6;
-    color: var(--fg-secondary);
-    word-break: break-word;
-    margin-bottom: 12px;
-    opacity: 0.8;
 }
 .exec-stats-fb {
     display: flex;
