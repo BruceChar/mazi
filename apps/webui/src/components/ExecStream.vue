@@ -555,17 +555,18 @@ const stats = computed(() => buildExecStats(props.runDetail));
 .exec-task-head.selected .exec-task-title {
     color: var(--accent-text);
 }
-/* 可折叠 step：hover 标题行时左侧图标变折叠按钮（与 task 一致） */
+/* 可折叠 step：hover 标题行时左侧图标变折叠按钮（圆角方块，与 task dot 一致；
+   鼠标移开恢复为 kind 图标） */
 .exec-step-toggle {
     display: inline-grid;
     place-items: center;
-    box-sizing: content-box;
+    box-sizing: border-box;
     width: 16px;
     height: 16px;
-    padding: 2px;
-    margin-left: -23px;
+    padding: 0;
+    margin-left: -21px;
     border: none;
-    border-radius: 50%;
+    border-radius: 4px;
     background: var(--bg);
     color: var(--fg-tertiary);
     cursor: pointer;
@@ -583,22 +584,28 @@ const stats = computed(() => buildExecStats(props.runDetail));
 .exec-step-toggle .toggle-icon {
     display: none;
 }
-.exec-step-head:hover .exec-step-toggle .kind-icon,
-.exec-step-toggle.collapsed .kind-icon {
+.exec-step-head:hover .exec-step-toggle .kind-icon {
     display: none;
 }
-.exec-step-head:hover .exec-step-toggle .toggle-icon,
-.exec-step-toggle.collapsed .toggle-icon {
+.exec-step-head:hover .exec-step-toggle .toggle-icon {
     display: block;
-}
-.exec-step-head:hover .exec-step-toggle,
-.exec-step-toggle.collapsed {
-    background: var(--bg-hover);
-    color: var(--fg);
+    color: #fff;
 }
 .exec-step-head.selected .exec-step-toggle {
     background: var(--accent-soft);
-    color: var(--fg);
+}
+/* hover 时按 step 类型着色（与 task dot 的圆角方块一致） */
+.exec-thinking .exec-step-head:hover .exec-step-toggle {
+    background: var(--thinking);
+}
+.exec-tool_call .exec-step-head:hover .exec-step-toggle {
+    background: var(--tool);
+}
+.exec-observation .exec-step-head:hover .exec-step-toggle {
+    background: var(--observation);
+}
+.exec-step.error .exec-step-head:hover .exec-step-toggle {
+    background: var(--error);
 }
 .exec-thinking .exec-step-head .line-icon { color: var(--thinking); }
 .exec-tool_call .exec-step-head .line-icon { color: var(--tool); }
