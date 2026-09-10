@@ -1,0 +1,199 @@
+<script setup>
+defineProps({
+    activeTab: { type: String, default: 'general' },
+    theme: { type: String, default: 'system' },
+    cfg: { type: Object, default: null },
+    selectedModel: { type: String, default: '' },
+    reasoningLevel: { type: String, default: 'high' },
+    reasoningLevels: { type: Array, default: () => ['low', 'medium', 'high'] },
+});
+const emit = defineEmits(['update:theme', 'update:selectedModel', 'update:reasoningLevel']);
+</script>
+
+<template>
+    <div class="settings-page">
+        <!-- General -->
+        <template v-if="activeTab === 'general'">
+            <h1 class="settings-title">General</h1>
+            <div class="settings-group">
+                <div class="settings-group-title">Appearance</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Theme</div>
+                        <div class="setting-desc">UI color theme</div>
+                    </div>
+                    <select :value="theme" @change="emit('update:theme', $event.target.value)" class="setting-select">
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                        <option value="system">System</option>
+                    </select>
+                </div>
+            </div>
+            <div class="settings-group">
+                <div class="settings-group-title">Storage</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Data directory</div>
+                        <div class="setting-desc">{{ cfg ? cfg.home : '-' }}</div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Database</div>
+                        <div class="setting-desc">{{ cfg ? `${cfg.storage.driver} · ${cfg.storage.db}` : '-' }}</div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Events directory</div>
+                        <div class="setting-desc">{{ cfg ? cfg.storage.events : '-' }}</div>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <!-- Model -->
+        <template v-else-if="activeTab === 'model'">
+            <h1 class="settings-title">Model</h1>
+            <div class="settings-group">
+                <div class="settings-group-title">Default model</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Model</div>
+                        <div class="setting-desc">Default model for new sessions</div>
+                    </div>
+                    <select :value="selectedModel" @change="emit('update:selectedModel', $event.target.value)" class="setting-select">
+                        <template v-for="p in cfg?.providers || []" :key="p.id">
+                            <option v-for="m in p.models || []" :key="m.id" :value="m.id">{{ p.vendor || p.id }} / {{ m.name || m.id }}</option>
+                        </template>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Reasoning level</div>
+                        <div class="setting-desc">Default reasoning effort</div>
+                    </div>
+                    <select :value="reasoningLevel" @change="emit('update:reasoningLevel', $event.target.value)" class="setting-select">
+                        <option v-for="lvl in reasoningLevels" :key="lvl" :value="lvl">{{ lvl }}</option>
+                    </select>
+                </div>
+            </div>
+        </template>
+
+        <!-- Providers -->
+        <template v-else-if="activeTab === 'providers'">
+            <h1 class="settings-title">Providers</h1>
+            <div class="settings-group">
+                <div class="settings-group-title">Configured providers</div>
+                <div v-for="p in cfg?.providers || []" :key="p.id" class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">{{ p.vendor || p.id }}</div>
+                        <div class="setting-desc">{{ (p.models || []).map(m => m.name || m.id).join(', ') || 'No models' }}</div>
+                    </div>
+                    <span class="setting-badge ok">configured</span>
+                </div>
+                <div v-if="!cfg?.providers?.length" class="setting-empty">No providers configured. Add API keys in ~/.mazi/providers.json</div>
+            </div>
+        </template>
+
+        <!-- About -->
+        <template v-else-if="activeTab === 'about'">
+            <h1 class="settings-title">About</h1>
+            <div class="settings-group">
+                <div class="settings-group-title">Application</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">mazi</div>
+                        <div class="setting-desc">Goal-oriented agent runtime</div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Config location</div>
+                        <div class="setting-desc">~/.mazi (providers.json, tools.json)</div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Session storage</div>
+                        <div class="setting-desc">mazi.db (goal_nodes / goal_tasks / goal_steps)</div>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</template>
+
+<style scoped>
+.settings-page {
+    flex: 1;
+    padding: 32px 48px;
+    overflow-y: auto;
+    max-width: 720px;
+}
+.settings-title {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 24px;
+    color: var(--fg);
+}
+.settings-group {
+    margin-bottom: 28px;
+}
+.settings-group-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 8px;
+}
+.setting-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border-soft);
+    gap: 16px;
+}
+.setting-item:last-child {
+    border-bottom: none;
+}
+.setting-info {
+    flex: 1;
+    min-width: 0;
+}
+.setting-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg);
+}
+.setting-desc {
+    font-size: 12px;
+    color: var(--fg-secondary);
+    margin-top: 2px;
+    word-break: break-all;
+}
+.setting-select {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    color: var(--fg);
+    font-size: 13px;
+    cursor: pointer;
+}
+.setting-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+.setting-badge.ok {
+    background: rgba(34, 197, 94, 0.12);
+    color: #22c55e;
+}
+.setting-empty {
+    padding: 16px 0;
+    font-size: 13px;
+    color: var(--fg-tertiary);
+}
+</style>

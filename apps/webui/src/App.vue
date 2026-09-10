@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './LineIcon.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
+import SettingsPage from './components/SettingsPage.vue';
 import { defaultConversations, projectConversations } from './sidebar.ts';
 import {
     busy,
@@ -1242,117 +1243,17 @@ onBeforeUnmount(() => {
             </template>
 
             <template v-else-if="ui.view === 'system-settings'">
-                <div class="settings-page">
-                    <!-- General -->
-                    <template v-if="settingsTab === 'general'">
-                        <h1 class="settings-title">General</h1>
-                        <div class="settings-group">
-                            <div class="settings-group-title">Appearance</div>
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">Theme</div>
-                                    <div class="setting-desc">UI color theme</div>
-                                </div>
-                                <select :value="theme" @change="setTheme($event.target.value)" class="setting-select">
-                                    <option value="light">Light</option>
-                                    <option value="dark">Dark</option>
-                                    <option value="system">System</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="settings-group">
-                            <div class="settings-group-title">Storage</div>
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">Data directory</div>
-                                    <div class="setting-desc">{{ cfg ? cfg.home : '-' }}</div>
-                                </div>
-                            </div>
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">Database</div>
-                                    <div class="setting-desc">{{ cfg ? `${cfg.storage.driver} · ${cfg.storage.db}` : '-' }}</div>
-                                </div>
-                            </div>
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">Events directory</div>
-                                    <div class="setting-desc">{{ cfg ? cfg.storage.events : '-' }}</div>
-                                </div>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Model -->
-                    <template v-else-if="settingsTab === 'model'">
-                        <h1 class="settings-title">Model</h1>
-                        <div class="settings-group">
-                            <div class="settings-group-title">Default model</div>
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">Model</div>
-                                    <div class="setting-desc">Default model for new sessions</div>
-                                </div>
-                                <select v-model="selectedModel" class="setting-select">
-                                    <template v-for="p in cfg?.providers || []" :key="p.id">
-                                        <option v-for="m in p.models || []" :key="m.id" :value="m.id">{{ p.vendor || p.id }} / {{ m.name || m.id }}</option>
-                                    </template>
-                                </select>
-                            </div>
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">Reasoning level</div>
-                                    <div class="setting-desc">Default reasoning effort</div>
-                                </div>
-                                <select v-model="reasoningLevel" class="setting-select">
-                                    <option v-for="lvl in REASONING_LEVELS" :key="lvl" :value="lvl">{{ lvl }}</option>
-                                </select>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Providers -->
-                    <template v-else-if="settingsTab === 'providers'">
-                        <h1 class="settings-title">Providers</h1>
-                        <div class="settings-group">
-                            <div class="settings-group-title">Configured providers</div>
-                            <div v-for="p in cfg?.providers || []" :key="p.id" class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">{{ p.vendor || p.id }}</div>
-                                    <div class="setting-desc">{{ (p.models || []).map(m => m.name || m.id).join(', ') || 'No models' }}</div>
-                                </div>
-                                <span class="setting-badge ok">configured</span>
-                            </div>
-                            <div v-if="!cfg?.providers?.length" class="setting-empty">No providers configured. Add API keys in ~/.mazi/providers.json</div>
-                        </div>
-                    </template>
-
-                    <!-- About -->
-                    <template v-else-if="settingsTab === 'about'">
-                        <h1 class="settings-title">About</h1>
-                        <div class="settings-group">
-                            <div class="settings-group-title">Application</div>
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">mazi</div>
-                                    <div class="setting-desc">Goal-oriented agent runtime</div>
-                                </div>
-                            </div>
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">Config location</div>
-                                    <div class="setting-desc">~/.mazi (providers.json, tools.json)</div>
-                                </div>
-                            </div>
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">Session storage</div>
-                                    <div class="setting-desc">mazi.db (goal_nodes / goal_tasks / goal_steps)</div>
-                                </div>
-                            </div>
-                        </div>
-                    </template>
-                </div>
+                <SettingsPage
+                    :active-tab="settingsTab"
+                    :theme="theme"
+                    :cfg="cfg"
+                    :selected-model="selectedModel"
+                    :reasoning-level="reasoningLevel"
+                    :reasoning-levels="REASONING_LEVELS"
+                    @update:theme="setTheme"
+                    @update:selected-model="selectedModel = $event"
+                    @update:reasoning-level="reasoningLevel = $event"
+                />
             </template>
 
             <template v-else-if="ui.view === 'settings'">
