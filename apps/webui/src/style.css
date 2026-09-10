@@ -518,10 +518,13 @@ pre {
 .sidebar-settings {
     flex: 0 0 auto;
     padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
 }
 
 .settings-btn {
-    width: 100%;
     display: flex;
     align-items: center;
     justify-content: flex-start;
@@ -548,9 +551,9 @@ pre {
     display: flex;
     align-items: center;
     gap: 5px;
-    padding: 0 10px 8px;
     font-size: 11px;
     font-family: ui-monospace, monospace;
+    white-space: nowrap;
 }
 .latency-dot {
     width: 6px;
