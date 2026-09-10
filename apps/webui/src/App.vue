@@ -66,16 +66,16 @@ const REASONING_LEVELS = [
 const reasoningLevel = ref('high');
 const feedbackSent = ref(false);
 const feedbackModal = ref(false);
-/** 工作区选择菜单 */
+/** Workspace switch menu visibility. */
 const workspaceMenu = ref(false);
-/** 推荐卡片（空状态展示） */
+/** Suggestion cards shown on the empty welcome screen. */
 const suggestionCards = [
     { icon: 'search', title: 'Explore and understand code', color: '#3b82f6', prompt: '帮我探索和理解这个代码库的结构和核心逻辑' },
     { icon: 'hammer', title: 'Build a new feature, app, or tool', color: '#8b5cf6', prompt: '帮我构建一个新功能、应用或工具' },
     { icon: 'refresh', title: 'Review code and suggest changes', color: '#10b981', prompt: '帮我审查代码并提出改进建议' },
     { icon: 'bug', title: 'Fix issues and failures', color: '#f97316', prompt: '帮我定位并修复问题和故障' },
 ];
-/** 当前工作区显示名（取路径最后一段） */
+/** Display name of the current workspace (last path segment). */
 const workspaceDisplayName = computed(() => {
     const p = workspaceRoot.value;
     if (!p) return '';
@@ -85,7 +85,7 @@ const workspaceDisplayName = computed(() => {
 function useSuggestion(card) {
     prompt.value = card.prompt;
 }
-/** 自定义确认弹窗（替代 window.confirm） */
+/** In-app confirmation dialog (replaces window.confirm). */
 const confirmDialog = ref({ open: false, title: '', message: '', confirmText: '确认', danger: false, action: null });
 async function runConfirmAction() {
     const d = confirmDialog.value;
@@ -159,7 +159,7 @@ watch(
 const taskCount = computed(() => detail.value?.taskCount ?? 0);
 const stepCount = computed(() => detail.value?.stepCount ?? 0);
 const rootOutcome = computed(() => (current.value ? runOutcomes[current.value] : null));
-/** 右侧面板最大化（覆盖主页面） */
+/** Whether the right panel is maximized over the workspace. */
 const panelMaximized = ref(false);
 const settingsTab = ref('general');
 const SETTINGS_TABS = [
@@ -177,9 +177,9 @@ function conversationTitle(conversation) {
     return conversation?.title || run?.input || '';
 }
 
-/** 目标工作区（点项目/会话区 ＋ 后生效），用于新会话归属 */
+/** Pending workspace for the next new conversation (set by the project "+" menu). */
 const pendingWorkspace = ref('');
-/** 会话区 ＋ → 强制普通会话（不挂任何工作区） */
+/** Set when the default "+" was used: force a workspace-less conversation. */
 const noWorkspaceNew = ref(false);
 
 function startTopConversation() {
@@ -231,7 +231,7 @@ function kindLabel(kind) {
     return kind || '-';
 }
 
-/** 步骤流：收集 step.started + step.ended，计算耗时，结构化 usage 用于看板展示 */
+/** Step stream: pair step.started/step.ended, derive duration and expose structured usage. */
 const stepEventRows = computed(() => {
     const startedAt = new Map();
     for (const ev of events.list) {
@@ -271,7 +271,7 @@ const stepEventRows = computed(() => {
     return rows;
 });
 
-/** 带毫秒的时间格式：HH:MM:SS.mmm */
+/** Timestamp formatter with milliseconds (HH:MM:SS.mmm). */
 function fmtClockMs(ts) {
     if (!ts) return '';
     const d = new Date(ts);
@@ -290,7 +290,7 @@ function formatDuration(ms) {
     return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
-/** 两维度 token 统计摘要文本 */
+/** Human-readable summary of vendor + runtime token usage. */
 function formatUsage(usage) {
     if (!usage) return '';
     const parts = [];
@@ -456,7 +456,7 @@ function endResize() {
     document.body.style.cursor = '';
 }
 
-/** 事件面板：默认仅展示关键事件（goal/tool/llm/approval/policy/provider），step.* 噪音可展开 */
+/** Event panel: key events only by default; step.* noise is opt-in. */
 const showAllEvents = ref(false);
 const KEY_EVENT_TYPES = new Set([
     'goal.started', 'goal.ended',

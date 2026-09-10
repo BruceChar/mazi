@@ -2,7 +2,7 @@ const query = new URLSearchParams(location.search);
 
 export const API_BASE = (query.get('api') || '').replace(/\/$/, '');
 
-/** 统一 REST 请求：错误统一抛 Error，API 状态写到顶栏小字（后端不可用时无 UI 崩溃） */
+/** Shared REST helper: rejects with Error and mirrors status into the top-bar log line. */
 export async function api(path: string, init?: RequestInit) {
     const started = Date.now();
     const full = API_BASE + path;

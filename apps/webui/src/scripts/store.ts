@@ -19,7 +19,7 @@ import {
 } from './stream.js';
 
 const THEME_KEY = 'mazi.web.theme';
-/** Goal 会话事件 + Step 流式事件（step.ended：思考/工具/观察实时推送） */
+/** Goal/session lifecycle plus step streaming events (step.ended pushes thinking/tool/observation live). */
 const LIVE_EVENT_TYPES = [
     'session.started',
     'session.ended',
@@ -117,25 +117,25 @@ export function saveUserPreferences(next: Partial<UserPreferences>): void {
     }
 }
 
-/** 会话列表（conversations.json；每条含 Goal run 引用 runs[]） */
+/** Conversation list (conversations.json); each entry carries its Goal runs[]. */
 export const conversations = ref<Conversation[]>([]);
 export const cfg = ref<ConfigOverview | null>(null);
 export const workspaceRoot = ref<string>('');
 export const projects = ref<Project[]>([]);
 export const busy = ref<boolean>(false);
-/** 当前打开的 Goal run（rootGoalId） */
+/** Currently open Goal run (rootGoalId). */
 export const current = ref<string | null>(null);
 export const currentConversation = ref<string | null>(null);
-/** 当前 run 的 Goal 树快照（GET /api/sessions/:id/timeline） */
+/** Goal-tree snapshot of the current run (GET /api/sessions/:id/timeline). */
 export const detail = ref<GoalTreeSnapshot | null>(null);
 /** Per-run timeline cache (rootGoalId -> snapshot) for displaying old runs */
 export const runDetails = reactive<Record<string, GoalTreeSnapshot | null>>({});
-/** 本会话内存中的 run 结果（POST run 响应 tasks 摘要；不持久化） */
+/** In-memory run outcomes (POST /run task summary; never persisted). */
 export const runOutcomes = reactive<Record<string, RunOutcome>>({});
 export const events = reactive<{ list: EventItem[]; types: string }>({ list: [], types: 'all' });
-/** 活动流式应答（token 级）；key = streamId（docs/web/流式响应设计.md §5） */
+/** Active streaming answers (token level); keyed by streamId (docs/web/流式响应设计.md §5). */
 export const liveStreams = ref<LiveStreamMap>({});
-/** 当前 run 最新一段活动流（updatedAt 最大者） */
+/** Most recent active stream of the current run (max updatedAt). */
 export const activeLiveStream = computed<LiveStream | null>(() => activeStream(liveStreams.value));
 
 export const esc = (s: unknown): string =>
@@ -267,7 +267,7 @@ export async function renameProject(path: string, title: string): Promise<void> 
     }
 }
 
-/** 删除工作区项目配置（仅配置；对话记录解除归属后保留） */
+/** Delete a workspace project config only; conversations are detached and kept. */
 export async function deleteWorkspaceProject(path: string): Promise<void> {
     const state = await api('/api/workspaces/project', {
         method: 'DELETE',
@@ -280,7 +280,7 @@ export async function deleteWorkspaceProject(path: string): Promise<void> {
     }
 }
 
-/** Conversation 最新一条 Goal run（按 createdAt） */
+/** Latest Goal run of a conversation (by createdAt). */
 export function latestRun(conversation: Conversation | null | undefined) {
     const runs = conversation?.runs || [];
     return runs.length > 0 ? runs[runs.length - 1] : null;
@@ -304,7 +304,7 @@ async function refreshDetail(rootGoalId: string): Promise<void> {
         detail.value = await api(`/api/sessions/${rootGoalId}/timeline`);
         await loadConversations();
     } catch {
-        // 会话被清理或后端临时不可用时保留旧快照
+        // Keep the previous snapshot when the session is gone or the backend is briefly unavailable.
     }
 }
 
@@ -331,7 +331,7 @@ export function watchEvents(rootGoalId: string): void {
     const consume = (raw: MessageEvent): void => {
         try {
             const event = JSON.parse(raw.data) as EventItem;
-            // token 级增量只更新活动流，不进事件列表（避免海量流式帧挤爆日志面板）
+            // Token deltas only feed the live stream; they never enter the event log.
             if (event.type === 'llm.stream_event') {
                 liveStreams.value = applyStreamEvent(liveStreams.value, event);
                 return;
@@ -349,7 +349,7 @@ export function watchEvents(rootGoalId: string): void {
                 refreshLater(rootGoalId);
             }
         } catch {
-            // 忽略无法解析的帧
+            // Ignore frames that cannot be parsed.
         }
     };
     for (const type of LIVE_EVENT_TYPES) {
@@ -361,7 +361,7 @@ export function watchEvents(rootGoalId: string): void {
 export async function loadEvents(rootGoalId: string): Promise<void> {
     try {
         const list = (await api(`/api/events/${rootGoalId}?limit=5000`)) as EventItem[];
-        // 回放同样排除 token 级流式帧（只用于实时渲染，不进入日志面板）
+        // Replay excludes token deltas too: they are render-only, not log material.
         events.list = Array.isArray(list)
             ? list.filter((event) => event.type !== 'llm.stream_event')
             : [];
@@ -391,7 +391,7 @@ export async function loadRunDetail(rootGoalId: string): Promise<void> {
     }
 }
 
-/** 打开一棵 Goal 树（run）：拉取时间线快照并订阅事件 */
+/** Open a Goal run: load its timeline snapshot and subscribe to live events. */
 export async function openRun(rootGoalId: string): Promise<void> {
     if (!rootGoalId) return;
     current.value = rootGoalId;
@@ -399,7 +399,7 @@ export async function openRun(rootGoalId: string): Promise<void> {
     await Promise.all([loadDetail(rootGoalId), loadEvents(rootGoalId)]);
 }
 
-/** 打开 Conversation（默认选中最新一条 run） */
+/** Open a conversation (selects its latest run by default). */
 export async function openConversation(conversationId: string): Promise<void> {
     currentConversation.value = conversationId;
     const conversation = conversations.value.find((item) => item.conversationId === conversationId);
@@ -423,8 +423,8 @@ export interface CreateRunOptions {
 }
 
 /**
- * 新建 Goal 会话：POST /api/sessions（create）→ 可选立即 POST run。
- * returns rootGoalId
+ * Create a Goal session: POST /api/sessions, then optionally run it right away.
+ * Resolves to the rootGoalId.
  */
 export async function createRun({
     input,
@@ -469,7 +469,7 @@ export async function createRun({
     }
 }
 
-/** 执行当前 Goal run（POST /api/sessions/:id/run），并把 tasks 摘要记入内存 */
+/** Execute a Goal run (POST /api/sessions/:id/run) and cache its task summary. */
 export async function executeRun(rootGoalId: string): Promise<void> {
     if (!rootGoalId) return;
     busy.value = true;

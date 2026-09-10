@@ -49,13 +49,13 @@ function runTitle(run) {
     return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
 
-/* ---------- 自动跟随 + 右侧会话导航（docs/webui.md §3.4） ---------- */
+/* ---------- Auto-follow + right-hand conversation rail (docs/webui.md §3.4) ---------- */
 const chatScroll = ref(null);
-/** 用户是否贴着底部：贴底时新内容自动跟随，不打断向上翻阅 */
+/** Pinned to bottom: new content follows without interrupting scroll-up. */
 const pinned = ref(true);
-/** 未贴底时显示「回到底部」 */
+/** Shows the "back to bottom" button whenever the view is unpinned. */
 const showJump = ref(false);
-/** 当前视口顶部的 run，用于高亮导航点 */
+/** Run currently at the top of the viewport; drives the active rail dot. */
 const activeRailId = ref('');
 const NEAR_BOTTOM_PX = 56;
 
@@ -75,7 +75,7 @@ function scrollToBottom(smooth = false) {
     showJump.value = false;
 }
 
-/** 视口顶部第一个可见 run → 高亮导航点 */
+/** Highlight the rail dot for the run sitting at the top of the viewport. */
 function updateActiveRail() {
     const el = chatScroll.value;
     if (!el) return;
@@ -93,7 +93,7 @@ function updateActiveRail() {
     }
 }
 
-/** 点击导航点：滚动到对应 run 顶部 */
+/** Click a rail dot: scroll the matching run to the top. */
 function scrollToRun(rootGoalId) {
     const el = chatScroll.value;
     const block = el?.querySelector(`[data-run-id="${rootGoalId}"]`);
@@ -103,7 +103,7 @@ function scrollToRun(rootGoalId) {
     activeRailId.value = rootGoalId;
 }
 
-/** 新 run / 切换 run：始终跟随到最新（用户刚发出消息） */
+/** New run or run switch: always follow to the latest output. */
 watch(
     () => [props.runs.length, props.current],
     async () => {
@@ -112,7 +112,7 @@ watch(
     },
 );
 
-/** 流式增量 / step 快照更新：贴底时保持跟随 */
+/** Streaming deltas / step snapshots: keep following while pinned. */
 watch(
     () => [
         props.taskCount,
@@ -280,7 +280,7 @@ onMounted(() => {
     color: var(--fg-secondary);
     font-size: 12px;
 }
-/* 滚动容器 + 右侧导航的定位上下文 */
+/* Positioning context for the scroll container and the rail. */
 .chat-body {
     position: relative;
     flex: 1;
@@ -292,7 +292,7 @@ onMounted(() => {
     min-height: 0;
     overflow-y: auto;
     padding: 16px 20px;
-    /* 隐藏原生滚动条，由 .chat-rail 的间断点替代 */
+    /* Hide the native scrollbar; the .chat-rail dots replace it. */
     scrollbar-width: none;
     -ms-overflow-style: none;
 }

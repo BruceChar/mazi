@@ -6,7 +6,7 @@ import { renderMarkdown } from '../scripts/markdown.ts';
 defineProps({
     runDetail: { type: Object, default: null },
     busy: { type: Boolean, default: false },
-    /** 正在生成的活动流（token 级）；来自 store.activeLiveStream */
+    /** In-flight streaming answer (token level) from store.activeLiveStream. */
     liveStream: { type: Object, default: null },
 });
 

@@ -45,7 +45,7 @@ function onInput(e) {
     emit('update:modelValue', e.target.value);
 }
 
-/* 输入法组合态：组合中的回车用于确认候选，不能当作发送（docs/webui.md §3.5） */
+/* IME composition: Enter confirms a candidate, it must not submit (docs/webui.md §3.5). */
 let composing = false;
 let compositionEndedAt = 0;
 function onCompositionStart() {

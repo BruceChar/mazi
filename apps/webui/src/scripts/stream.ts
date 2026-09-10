@@ -1,20 +1,20 @@
 import type { EventItem } from '../types.js';
 
 /**
- * WebUI 流式响应纯逻辑（docs/web/流式响应设计.md §5）。
- * 把 SSE 的 llm.stream_event 增量归约成按 streamId 分组的活动文本；
- * 不依赖 Vue/DOM，便于单测。
+ * Pure streaming-response logic for the WebUI (docs/web/流式响应设计.md §5).
+ * Reduces SSE llm.stream_event deltas into per-streamId live text;
+ * free of Vue/DOM so it remains unit-testable.
  */
 
-/** 一路正在生成的活动流（一次 requestRound = 一个 streamId）。 */
+/** One in-flight stream (one requestRound = one streamId). */
 export interface LiveStream {
     streamId: string;
     taskId: string;
-    /** 1-based 网络尝试序号；变化即代表重试，需重置增量 */
+    /** 1-based network attempt; a change means a retry and resets the deltas. */
     attempt: number;
-    /** reasoning_delta 累积 */
+    /** Accumulated reasoning_delta text. */
     reasoning: string;
-    /** text_delta 累积 */
+    /** Accumulated text_delta text. */
     text: string;
     startedAt: number;
     updatedAt: number;
@@ -22,7 +22,7 @@ export interface LiveStream {
 
 export type LiveStreamMap = Record<string, LiveStream>;
 
-/** 解析 llm.stream_event 为可累积的增量；非流式或结构非法返回 null。 */
+/** Parse an llm.stream_event into an accumulable delta; null when not a delta. */
 export function parseStreamDelta(event: EventItem): {
     streamId: string;
     attempt: number;
@@ -53,7 +53,7 @@ export function parseStreamDelta(event: EventItem): {
     return null;
 }
 
-/** 归约一条 llm.stream_event；无可累积增量时原样返回同一引用（避免无谓渲染）。 */
+/** Reduce one event; returns the same reference when nothing accumulates (avoids renders). */
 export function applyStreamEvent(
     streams: LiveStreamMap,
     event: EventItem,
@@ -84,7 +84,7 @@ export function applyStreamEvent(
     return { ...streams, [parsed.streamId]: next };
 }
 
-/** 清除某个 task 下的全部活动流（该 task 的轮次已结束，正式 Step 即将渲染）。 */
+/** Drop every stream of a task once its round ends and real steps take over. */
 export function clearStreamsForTask(streams: LiveStreamMap, taskId: string): LiveStreamMap {
     if (!taskId) return {};
     const entries = Object.entries(streams).filter(([, stream]) => stream.taskId !== taskId);
@@ -92,7 +92,7 @@ export function clearStreamsForTask(streams: LiveStreamMap, taskId: string): Liv
     return Object.fromEntries(entries);
 }
 
-/** 当前最新活动流（updatedAt 最大者）；无活动流返回 null。 */
+/** Newest active stream by updatedAt; null when there is none. */
 export function activeStream(streams: LiveStreamMap): LiveStream | null {
     let best: LiveStream | null = null;
     for (const stream of Object.values(streams)) {
@@ -101,7 +101,7 @@ export function activeStream(streams: LiveStreamMap): LiveStream | null {
     return best;
 }
 
-/** 事件归属的 taskId（缺失时为空串）。 */
+/** Owned taskId of an event (empty string when absent). */
 export function taskIdOf(event: EventItem): string {
     return typeof event.taskId === 'string' ? event.taskId : '';
 }

@@ -1,16 +1,16 @@
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 
-/** 将模型输出的 Markdown 文本渲染为安全的 HTML（GFM + DOMPurify 消毒） */
+/** Render model Markdown to sanitized HTML (GFM + DOMPurify). */
 export function renderMarkdown(text: string): string {
     if (!text) return '';
-    // breaks: 保留模型输出中的单换行（渲染为 <br>），避免依赖容器 white-space:pre-wrap
-    // 造成块级元素之间的 HTML 源换行被当成空行（表现为每行都有额外行距）。
+    // breaks: render single newlines as <br> instead of relying on a container
+    // white-space:pre-wrap, which turned HTML-source newlines into extra blank lines.
     const raw = marked.parse(text, { async: false, gfm: true, breaks: true }) as string;
     const clean = DOMPurify.sanitize(raw, {
         USE_PROFILES: { html: true },
     });
-    // 给链接统一加安全的外链属性
+    // Force safe external-link attributes on every anchor.
     const tmp = document.createElement('div');
     tmp.innerHTML = clean;
     tmp.querySelectorAll('a').forEach((a) => {
