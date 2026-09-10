@@ -7,7 +7,12 @@ import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
 import Sidebar from './components/Sidebar.vue';
 import ChatMain from './components/ChatMain.vue';
+import TopBar from './components/TopBar.vue';
+import NewSessionModal from './components/NewSessionModal.vue';
+import FeedbackModal from './components/FeedbackModal.vue';
+import UserPreferencesPage from './components/UserPreferencesPage.vue';
 import { defaultConversations } from './scripts/conversation.ts';
+import { createGoalContractDraft, toGoalContractPayload } from './scripts/goal-contract.ts';
 import { API_BASE } from './api.js';
 import {
     activeLiveStream,
@@ -31,7 +36,6 @@ import {
     projects,
     renameProject,
     runOutcomes,
-    saveUserPreferences,
     selectWorkspace,
     sendFeedback,
     setTheme,
@@ -41,7 +45,6 @@ import {
     theme,
     ui,
     updateConversation,
-    userPreferences,
     workspaceRoot,
 } from './scripts/store.js';
 
@@ -63,8 +66,6 @@ const REASONING_LEVELS = [
 const reasoningLevel = ref('high');
 const feedbackSent = ref(false);
 const feedbackModal = ref(false);
-const feedbackRating = ref(5);
-const feedbackContent = ref('');
 /** 工作区选择菜单 */
 const workspaceMenu = ref(false);
 /** 推荐卡片（空状态展示） */
@@ -96,21 +97,6 @@ function cancelConfirm() {
     confirmDialog.value.open = false;
     confirmDialog.value.action = null;
 }
-const draft = ref({
-    statement: '',
-    permission: 'read-only',
-    budgetUsd: 0.5,
-    maxSteps: 8,
-    userId: '',
-    loopMode: 'goal-plan-execute-reflect',
-});
-const LOOP_MODE_OPTIONS = [
-    { value: 'goal-plan-execute-reflect', label: 'GPER · 默认' },
-    { value: 'goal-plan-execute', label: 'Plan-Execute' },
-    { value: 'react-only', label: 'React Only' },
-];
-const preferences = ref({ ...userPreferences });
-
 const modelOptions = computed(() => {
     const providers = cfg.value?.providers || [];
     return providers.flatMap((p) =>
@@ -216,27 +202,20 @@ function startGeneralConversation() {
     ui.showNew = true;
 }
 
-async function submitNew(exec) {
-    const ws = noWorkspaceNew.value
+/**
+ * NewSessionModal submit handler.
+ *
+ * The dialog always starts a brand new Conversation placed either in the pending
+ * workspace or in the default (workspace-less) group; it never continues the
+ * currently open conversation.
+ */
+async function onNewSessionSubmit({ goal, exec }) {
+    const workspacePath = noWorkspaceNew.value
         ? undefined
         : pendingWorkspace.value || workspaceRoot.value || undefined;
     pendingWorkspace.value = '';
     noWorkspaceNew.value = false;
-    // “新会话”弹窗恒建新 Conversation（归属 ws 指定工作区或普通区），不续接当前打开的会话
-    await createAndRunGoal(
-        {
-            statement: draft.value.statement,
-            permissionCeiling: draft.value.permission,
-            maxCostUsd: draft.value.budgetUsd,
-            maxSteps: draft.value.maxSteps,
-            userId: draft.value.userId || undefined,
-            loopMode: draft.value.loopMode,
-        },
-        ws,
-        undefined,
-        exec,
-    );
-    draft.value.statement = '';
+    await createAndRunGoal(goal, workspacePath, undefined, exec);
 }
 
 function toggleProject(path) {
@@ -397,22 +376,11 @@ async function submitPrompt() {
         return;
     }
     prompt.value = '';
-    // New conversation (no currentConversation): do not inherit current workspace,
-    // it is a fresh standalone conversation. Continue existing conversation: keep its workspace.
-    const ws = currentConversation.value ? workspaceRoot.value : undefined;
-    await createAndRunGoal(
-        {
-            statement: text,
-            permissionCeiling: draft.value.permission,
-            maxCostUsd: draft.value.budgetUsd,
-            maxSteps: draft.value.maxSteps,
-            userId: draft.value.userId || undefined,
-            loopMode: draft.value.loopMode,
-        },
-        ws,
-        currentConversation.value || undefined,
-        true,
-    );
+    // Continue the open conversation inside its workspace; a fresh conversation
+    // stays standalone and does not inherit the current workspace.
+    const workspacePath = currentConversation.value ? workspaceRoot.value : undefined;
+    const goal = { statement: text, ...toGoalContractPayload(createGoalContractDraft()) };
+    await createAndRunGoal(goal, workspacePath, currentConversation.value || undefined, true);
 }
 
 async function renameConversationById(conversation) {
@@ -456,16 +424,12 @@ async function removeProjectById(project) {
     };
 }
 
-async function submitFeedback() {
+/** FeedbackModal submit handler. */
+async function onFeedbackSubmit({ rating, content }) {
     if (!current.value) return;
-    await sendFeedback(current.value, feedbackRating.value, feedbackContent.value);
+    await sendFeedback(current.value, rating, content);
     feedbackModal.value = false;
     feedbackSent.value = true;
-}
-
-function savePreferences() {
-    saveUserPreferences(preferences.value);
-    backToChat();
 }
 
 function openSettings() {
@@ -561,24 +525,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <header class="topbar">
-        <div class="topbar-left">
-            <button class="icon-btn sidebar-toggle" title="折叠/展开侧边栏" @click="ui.sidebar = !ui.sidebar">
-                <LineIcon name="menu" />
-            </button>
-            <span class="brand">mazi</span>
-            <span class="slogan">Be water, my friend</span>
-        </div>
-        <div class="topbar-right">
-            <button
-                class="ghost right-toggle"
-                :title="ui.rightOpen ? '收起事件栏' : '展开事件栏'"
-                @click="ui.rightOpen = !ui.rightOpen"
-            >
-                <LineIcon name="panel" />
-            </button>
-        </div>
-    </header>
+    <TopBar
+        :sidebar-open="ui.sidebar"
+        :right-open="ui.rightOpen"
+        @toggle-sidebar="ui.sidebar = !ui.sidebar"
+        @toggle-right="ui.rightOpen = !ui.rightOpen"
+    />
 
     <div class="app-shell" :class="{ 'panel-maximized': panelMaximized }">
         <button v-if="!ui.sidebar" class="sidebar-expand-handle" title="展开侧边栏" @click="ui.sidebar = true">
@@ -668,24 +620,7 @@ onBeforeUnmount(() => {
                 />
             </template>
 
-            <template v-else-if="ui.view === 'settings'">
-                <div class="page-card">
-                    <div class="page-heading">
-                        <button class="icon-btn back-btn" title="返回会话" @click="backToChat">
-                            <LineIcon name="chevronRight" size="16" />
-                        </button>
-                        <h1>个人设置</h1>
-                    </div>
-                    <div class="field-row"><label>用户名</label><input v-model="preferences.displayName" /></div>
-                    <div class="field-row"><label>常用工具 / 喜好</label><input v-model="preferences.favoriteTools" placeholder="例如：Vue、TypeScript、终端工作流" /></div>
-                    <div class="field-row"><label>代码风格</label><textarea v-model="preferences.codeStyle" rows="3" /></div>
-                    <div class="field-row"><label>模型回答风格</label><textarea v-model="preferences.responseStyle" rows="3" /></div>
-                    <div class="page-actions">
-                        <button class="ghost" @click="backToChat">取消</button>
-                        <button class="primary" @click="savePreferences">保存</button>
-                    </div>
-                </div>
-            </template>
+            <UserPreferencesPage v-else-if="ui.view === 'settings'" @close="backToChat" />
         </main>
 
         <div
@@ -716,49 +651,19 @@ onBeforeUnmount(() => {
         />
     </div>
 
-    <div v-if="ui.showNew" class="modal-mask" @click.self="ui.showNew = false">
-        <div class="modal">
-            <h1>新建会话 · GoalContract</h1>
-            <div class="field-row">
-                <label>任务</label>
-                <textarea v-model="draft.statement" rows="3" placeholder="目标陈述，例如：读取 README.md 并汇报"></textarea>
-            </div>
-            <div class="grid2">
-                <div class="field-row">
-                    <label>权限上限</label>
-                    <select v-model="draft.permission">
-                        <option v-for="p in ['text', 'read-only', 'draft', 'approved', 'autonomous']" :key="p" :value="p">{{ p }}</option>
-                    </select>
-                </div>
-                <div class="field-row"><label>预算（USD）</label><input v-model.number="draft.budgetUsd" type="number" step="0.1" /></div>
-                <div class="field-row"><label>最大步数</label><input v-model.number="draft.maxSteps" type="number" /></div>
-                <div class="field-row"><label>UserId（可选）</label><input v-model="draft.userId" placeholder="me" /></div>
-                <div class="field-row">
-                    <label>Loop 模式</label>
-                    <select v-model="draft.loopMode">
-                        <option v-for="m in LOOP_MODE_OPTIONS" :key="m.value" :value="m.value">{{ m.label }}</option>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-actions">
-                <button class="ghost" @click="ui.showNew = false">取消</button>
-                <button @click="submitNew(false)">仅创建</button>
-                <button class="primary" :disabled="busy" @click="submitNew(true)">创建并运行</button>
-            </div>
-        </div>
-    </div>
+    <NewSessionModal
+        :open="ui.showNew"
+        :busy="busy"
+        @close="ui.showNew = false"
+        @submit="onNewSessionSubmit"
+    />
 
-    <div v-if="feedbackModal" class="modal-mask" @click.self="feedbackModal = false">
-        <div class="modal">
-            <h1>反馈 · {{ short(current, 24) }}</h1>
-            <div class="field-row"><label>评分</label><select v-model="feedbackRating"><option v-for="n in 5" :key="n" :value="n">{{ n }}</option></select></div>
-            <div class="field-row"><label>说明</label><textarea v-model="feedbackContent" rows="3" placeholder="补充说明（可选）"></textarea></div>
-            <div class="modal-actions">
-                <button class="ghost" @click="feedbackModal = false">取消</button>
-                <button class="primary" @click="submitFeedback">提交</button>
-            </div>
-        </div>
-    </div>
+    <FeedbackModal
+        :open="feedbackModal"
+        :subject="short(current, 24)"
+        @close="feedbackModal = false"
+        @submit="onFeedbackSubmit"
+    />
 
     <ConfirmDialog
         :open="confirmDialog.open"
