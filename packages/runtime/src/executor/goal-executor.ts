@@ -81,6 +81,24 @@ export async function executeTask(
         for (let roundIndex = 0; roundIndex < maxSteps; roundIndex += 1) {
             const round = await roundRequest();
 
+            // Token usage belongs to the model round; attach to the first step
+            // created in this round (thinking → intent → tool_call fallback),
+            // so runs without reasoning still carry usage data.
+            const roundUsage =
+                round.vendorUsage !== undefined || round.contextUsage !== undefined
+                    ? {
+                          ...(round.vendorUsage !== undefined ? { vendor: round.vendorUsage } : {}),
+                          ...(round.contextUsage !== undefined ? { runtime: round.contextUsage } : {}),
+                      }
+                    : undefined;
+            let usageAttached = false;
+            const attachUsage = (step: Step) => {
+                if (!usageAttached && roundUsage) {
+                    step.usage = roundUsage;
+                    usageAttached = true;
+                }
+            };
+
             // thinking step: reasoning process only (not model output)
             if (round.reasoning.length > 0) {
                 const thinking: Step = {
@@ -96,13 +114,7 @@ export async function executeTask(
                     startedAt: now(),
                     endedAt: now(),
                 };
-                // C3e：两维度 token 统计挂到模型轮 Step —— vendor（厂商上报）+ runtime（上下文估算）
-                if (round.vendorUsage !== undefined || round.contextUsage !== undefined) {
-                    thinking.usage = {
-                        ...(round.vendorUsage !== undefined ? { vendor: round.vendorUsage } : {}),
-                        ...(round.contextUsage !== undefined ? { runtime: round.contextUsage } : {}),
-                    };
-                }
+                attachUsage(thinking);
                 steps.push(thinking);
                 await deps.store.saveStep(thinking);
                 deps.onStep?.(thinking);
@@ -123,6 +135,7 @@ export async function executeTask(
                     startedAt: now(),
                     endedAt: now(),
                 };
+                attachUsage(intent);
                 steps.push(intent);
                 await deps.store.saveStep(intent);
                 deps.onStep?.(intent);
@@ -187,6 +200,7 @@ export async function executeTask(
                     startedAt: now(),
                     endedAt: now(),
                 };
+                attachUsage(callStep);
                 steps.push(callStep);
                 await deps.store.saveStep(callStep);
                 deps.onStep?.(callStep);
@@ -218,6 +232,7 @@ export async function executeTask(
                     startedAt: now(),
                     endedAt: now(),
                 };
+                attachUsage(toolStep);
                 steps.push(toolStep);
                 await deps.store.saveStep(toolStep);
                 deps.onStep?.(toolStep);
