@@ -272,11 +272,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
                                         :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'"
                                         size="16"
                                     />
-                                    <LineIcon
-                                        class="toggle-icon"
-                                        :name="collapsedSteps.has(row.key) ? 'chevronRight' : 'chevronDown'"
-                                        size="12"
-                                    />
+                                    <span class="toggle-mark">{{ collapsedSteps.has(row.key) ? '+' : '−' }}</span>
                                 </button>
                                 <LineIcon
                                     v-else
@@ -581,13 +577,16 @@ const stats = computed(() => buildExecStats(props.runDetail));
 .exec-step-head:hover .exec-step-toggle .line-icon {
     background: transparent;
 }
-.exec-step-toggle .toggle-icon {
+.exec-step-toggle .toggle-mark {
     display: none;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
 }
 .exec-step-head:hover .exec-step-toggle .kind-icon {
     display: none;
 }
-.exec-step-head:hover .exec-step-toggle .toggle-icon {
+.exec-step-head:hover .exec-step-toggle .toggle-mark {
     display: block;
     color: #fff;
 }

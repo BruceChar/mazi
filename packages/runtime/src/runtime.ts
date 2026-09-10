@@ -880,7 +880,9 @@ export class HarnessRuntime {
             ...(ctx.systemPrompt ? { system: ctx.systemPrompt } : {}),
             messages: ctx.messages,
             ...(ctx.tools.length > 0 ? { tools: ctx.tools } : {}),
-            ...(reasoningLevel && reasoningLevel.length > 0
+            // 'off' 时不发送 reasoningEffort：pi-ai 据此下发 thinking:{type:'disabled'}；
+            // 若原样发送 'off' 会被判为「开启思考」并带上非法 reasoning_effort，导致无输出。
+            ...(reasoningLevel && reasoningLevel.length > 0 && reasoningLevel !== 'off'
                 ? { extra: { reasoningEffort: reasoningLevel } }
                 : {}),
         };

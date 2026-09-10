@@ -112,6 +112,10 @@ describe('Conversation 共享上下文', () => {
             const created = await runtime.createGoalSession('q', { reasoningLevel: 'high' });
             await runtime.executeGoalTree(created.rootGoalId);
             expect(extras[0]?.reasoningEffort).toBe('high');
+
+            const off = await runtime.createGoalSession('q2', { reasoningLevel: 'off' });
+            await runtime.executeGoalTree(off.rootGoalId);
+            expect(extras[1]).toBeUndefined();
         } finally {
             await runtime.close();
         }
