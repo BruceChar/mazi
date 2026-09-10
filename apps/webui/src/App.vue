@@ -211,6 +211,18 @@ const finalSummary = computed(() => {
     const outcome = current.value ? runOutcomes[current.value] : null;
     return outcome?.finalMessage || '';
 });
+/** Reasoning text (for simple run display) */
+const reasoningText = computed(() => {
+    const thinkingRows = stepEventRows.value.filter((r) => r.kind === 'thinking');
+    return thinkingRows.map((r) => r.text).filter(Boolean).join('\n\n');
+});
+/** Simple run: 1 goal, 1 task, 0 tool steps — show output directly without hierarchy */
+const isSimpleExec = computed(() => {
+    if (execTree.value.length !== 1) return false;
+    const tasks = execTree.value[0].tasks;
+    if (tasks.length !== 1) return false;
+    return tasks[0].steps.length === 0;
+});
 /** 执行流分层：goal → task → step（元信息来自 goalSnapshot，steps 来自事件流） */
 const execTree = computed(() => {
     const goals = detail.value?.goals || [];
@@ -891,9 +903,9 @@ onBeforeUnmount(() => {
                                 <div class="msg-bubble">{{ run.input }}</div>
                                 <span class="msg-time">{{ fmtClock(run.createdAt) }}</span>
                             </div>
-                            <!-- 最终回答 -->
+                            <!-- 最终回答（仅旧 run 显示；当前 run 的回答在执行流末尾 Summary 里） -->
                             <div
-                                v-if="runOutcomes[run.rootGoalId] && (runOutcomes[run.rootGoalId].finalMessage || runOutcomes[run.rootGoalId].errorMessage)"
+                                v-if="run.rootGoalId !== current && runOutcomes[run.rootGoalId] && (runOutcomes[run.rootGoalId].finalMessage || runOutcomes[run.rootGoalId].errorMessage)"
                                 class="msg msg-assistant"
                             >
                                 <div class="msg-bubble" :class="{ fail: !runOutcomes[run.rootGoalId].ok }">
@@ -918,6 +930,15 @@ onBeforeUnmount(() => {
                             <!-- 执行流（goal → task → step 分层，可折叠，仅当前 run） -->
                             <template v-if="run.rootGoalId === current">
                                 <div v-if="execTree.length" class="exec-stream">
+                                    <!-- Simple run (1 goal / 1 task / 0 steps): show output directly -->
+                                    <template v-if="isSimpleExec">
+                                        <div v-if="reasoningText" class="exec-reasoning">{{ reasoningText }}</div>
+                                        <div v-if="finalSummary" class="exec-summary">
+                                            <div class="exec-summary-text">{{ finalSummary }}</div>
+                                        </div>
+                                    </template>
+                                    <!-- Normal run: goal → task → step hierarchy -->
+                                    <template v-else>
                                     <div v-for="(goal, gIdx) in execTree" :key="goal.goalId" class="exec-goal">
                                         <div class="exec-goal-head" @click="toggleGoal(goal.goalId)">
                                             <span class="exec-dot goal-dot" :class="{ collapsed: collapsedGoals.has(goal.goalId) }"></span>
@@ -962,8 +983,9 @@ onBeforeUnmount(() => {
                                             </div>
                                         </div>
                                     </div>
+                                    </template>
                                     <!-- Final summary (goal-level, not a step) -->
-                                    <div v-if="finalSummary" class="exec-summary">
+                                    <div v-if="finalSummary && !isSimpleExec" class="exec-summary">
                                         <div class="exec-summary-text">{{ finalSummary }}</div>
                                     </div>
                                     <!-- Bottom stats + feedback -->
@@ -1900,6 +1922,16 @@ onBeforeUnmount(() => {
     color: var(--fg);
     white-space: pre-wrap;
     word-break: break-word;
+}
+.exec-reasoning {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg-secondary);
+    font-style: italic;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-bottom: 12px;
+    opacity: 0.8;
 }
 
 .goal-card {
