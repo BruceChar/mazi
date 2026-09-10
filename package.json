@@ -14,7 +14,6 @@
     "format:check": "biome format .",
     "check": "pnpm lint && pnpm test",
     "prepare": "husky",
-    "mazi": "node apps/cli/dist/cli.js",
     "api:dev": "pnpm --filter @mazi/api dev",
     "api:prod": "pnpm --filter @mazi/api start",
     "ui:dev": "pnpm --filter @mazi/webui dev",
