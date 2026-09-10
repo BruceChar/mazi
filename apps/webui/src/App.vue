@@ -11,7 +11,7 @@ import TopBar from './components/TopBar.vue';
 import FeedbackModal from './components/FeedbackModal.vue';
 import PromptDialog from './components/PromptDialog.vue';
 import UserPreferencesPage from './components/UserPreferencesPage.vue';
-import { defaultConversations } from './scripts/conversation.ts';
+import { defaultConversations, projectConversations } from './scripts/conversation.ts';
 import { goalFromRunSettings } from './scripts/run-settings.ts';
 import { API_BASE } from './api.js';
 import {
@@ -403,6 +403,11 @@ function openRenameConversation(conversation) {
     };
 }
 
+/** Archive a conversation: it leaves the active lists but stays recoverable. */
+async function archiveConversation(conversation) {
+    await updateConversation(conversation.conversationId, { archived: true });
+}
+
 async function removeConversation(conversation) {
     confirmDialog.value = {
         open: true,
@@ -429,14 +434,19 @@ function openRenameProject(project) {
     };
 }
 
+/** Delete a project: every conversation under it is archived, then the config is removed. */
 async function removeProjectById(project) {
     confirmDialog.value = {
         open: true,
-        title: '删除项目配置',
-        message: `删除项目「${project.title}」的配置？仅删除配置，对话记录保留并移入“会话”区。`,
+        title: '删除项目',
+        message: `删除项目「${project.title}」？项目下所有会话将被归档。`,
         confirmText: '删除',
         danger: true,
         action: async () => {
+            const items = projectConversations(conversations.value, project.path, project.path);
+            for (const conversation of items) {
+                await updateConversation(conversation.conversationId, { archived: true });
+            }
             await deleteWorkspaceProject(project.path);
             await loadConversations();
         },
@@ -585,6 +595,7 @@ onBeforeUnmount(() => {
                 @remove-project="removeProjectById"
                 @open-conversation="openConversation"
                 @rename-conversation="openRenameConversation"
+                @archive-conversation="archiveConversation"
                 @remove-conversation="removeConversation"
                 @open-settings="openSettings"
             />
