@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './LineIcon.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import SettingsPage from './components/SettingsPage.vue';
+import SettingsSidebar from './components/SettingsSidebar.vue';
 import { defaultConversations, projectConversations } from './sidebar.ts';
 import {
     busy,
@@ -851,26 +852,12 @@ onBeforeUnmount(() => {
             </button>
             <!-- Settings mode: category nav -->
             <template v-if="ui.view === 'system-settings'">
-                <div class="settings-sidebar">
-                    <div class="settings-nav">
-                        <button
-                            v-for="tab in SETTINGS_TABS"
-                            :key="tab.id"
-                            class="settings-nav-item"
-                            :class="{ active: settingsTab === tab.id }"
-                            @click="settingsTab = tab.id"
-                        >
-                            <LineIcon :name="tab.icon" size="15" />
-                            <span>{{ tab.label }}</span>
-                        </button>
-                    </div>
-                    <div class="settings-back">
-                        <button class="settings-back-btn" @click="backToChat">
-                            <LineIcon name="chevronLeft" size="15" />
-                            <span>Back to app</span>
-                        </button>
-                    </div>
-                </div>
+                <SettingsSidebar
+                    :tabs="SETTINGS_TABS"
+                    :active-tab="settingsTab"
+                    @update:active-tab="settingsTab = $event"
+                    @back="backToChat"
+                />
             </template>
             <!-- Chat mode: conversation list -->
             <template v-else>
