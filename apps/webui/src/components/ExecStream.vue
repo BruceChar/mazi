@@ -263,7 +263,7 @@ function stepTitleSummary(row) {
     margin: 4px 0;
 }
 .exec-goal {
-    margin-bottom: 6px;
+    margin-bottom: 10px;
     position: relative;
     border-left: 2px solid var(--border);
 }
@@ -272,7 +272,7 @@ function stepTitleSummary(row) {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px 4px 14px;
+    padding: 5px 8px 5px 14px;
     cursor: pointer;
     border-radius: var(--radius-sm);
     font-size: 14px;
@@ -308,10 +308,11 @@ function stepTitleSummary(row) {
     flex-shrink: 0;
 }
 .exec-goal-body {
-    padding-left: 14px;
+    /* Indent the task level so the three timeline lines stay clearly separated. */
+    padding-left: 22px;
 }
 .exec-task {
-    margin: 4px 0;
+    margin: 8px 0;
     position: relative;
     border-left: 2px solid var(--border);
 }
@@ -320,7 +321,7 @@ function stepTitleSummary(row) {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 8px 3px 14px;
+    padding: 4px 8px 4px 14px;
     cursor: pointer;
     border-radius: var(--radius-sm);
     font-size: 13px;
@@ -354,7 +355,8 @@ function stepTitleSummary(row) {
     flex-shrink: 0;
 }
 .exec-task-body {
-    padding-left: 14px;
+    /* Same offset again for the step level. */
+    padding-left: 22px;
 }
 /* ---------- Collapsible dot (default circle, hover → +/- button) ---------- */
 .exec-dot {
@@ -407,6 +409,7 @@ function stepTitleSummary(row) {
     display: flex;
     flex-direction: column;
     gap: 3px;
+    margin: 2px 0;
     position: relative;
     border-left: 2px solid var(--border);
 }

@@ -317,8 +317,8 @@ onMounted(() => {
 .chat-rail {
     position: absolute;
     top: 50%;
-    /* Sit just outside the message column, with a floor margin on narrow viewports. */
-    right: max(20px, calc((100% - var(--chat-max)) / 2 - 22px));
+    /* Pinned to the page's right edge, with a comfortable margin. */
+    right: 20px;
     transform: translateY(-50%);
     display: flex;
     flex-direction: column;
