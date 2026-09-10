@@ -1079,6 +1079,10 @@ onBeforeUnmount(() => {
                                     </div>
                                     <!-- Per-run stats + feedback -->
                                     <div class="exec-stats">
+                                        <div class="exec-stats-fb">
+                                            <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
+                                            <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
+                                        </div>
                                         <span>{{ buildExecStats(runDetails[run.rootGoalId]).stepCount }} steps</span>
                                         <span>·</span>
                                         <span>{{ buildExecStats(runDetails[run.rootGoalId]).taskCount }} tasks</span>
@@ -1086,10 +1090,6 @@ onBeforeUnmount(() => {
                                         <span>{{ buildExecStats(runDetails[run.rootGoalId]).totalTime }}</span>
                                         <span>·</span>
                                         <span>{{ buildExecStats(runDetails[run.rootGoalId]).inputTokens }} in / {{ buildExecStats(runDetails[run.rootGoalId]).outputTokens }} out tokens</span>
-                                        <div class="exec-stats-fb">
-                                            <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
-                                            <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
-                                        </div>
                                     </div>
                                 </div>
                                 <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
@@ -1126,19 +1126,6 @@ onBeforeUnmount(() => {
                 <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
 
                 <div class="input-area">
-                    <div v-if="current && execStats.stepCount > 0" class="composer-stats">
-                        <span>{{ execStats.stepCount }} steps</span>
-                        <span>·</span>
-                        <span>{{ execStats.taskCount }} tasks</span>
-                        <span>·</span>
-                        <span>{{ execStats.totalTime }}</span>
-                        <span>·</span>
-                        <span>{{ execStats.inputTokens }} in / {{ execStats.outputTokens }} out tokens</span>
-                        <div class="composer-stats-fb">
-                            <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
-                            <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
-                        </div>
-                    </div>
                     <div class="input-wrap">
                         <div class="input-composer">
                             <div class="input-top">
@@ -2096,7 +2083,6 @@ onBeforeUnmount(() => {
     font-family: ui-monospace, monospace;
 }
 .exec-stats-fb {
-    margin-left: auto;
     display: flex;
     align-items: center;
     gap: 4px;
