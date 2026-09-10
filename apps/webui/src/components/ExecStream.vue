@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue';
 import LineIcon from '../LineIcon.vue';
+import { renderMarkdown } from '../markdown';
 
 defineProps({
     runDetail: { type: Object, default: null },
@@ -169,9 +170,9 @@ function stepTitleSummary(row) {
     <div v-if="runDetail" class="exec-stream">
         <!-- Simple run (1 goal / 1 task / 0 steps): show output directly -->
         <template v-if="isSimpleExecOf(runDetail)">
-            <div v-if="reasoningTextOf(runDetail)" class="exec-reasoning">{{ reasoningTextOf(runDetail) }}</div>
+            <div v-if="reasoningTextOf(runDetail)" class="exec-reasoning markdown-body" v-html="renderMarkdown(reasoningTextOf(runDetail))"></div>
             <div v-if="finalSummaryOf(runDetail)" class="exec-summary">
-                <div class="exec-summary-text">{{ finalSummaryOf(runDetail) }}</div>
+                <div class="exec-summary-text markdown-body" v-html="renderMarkdown(finalSummaryOf(runDetail))"></div>
             </div>
         </template>
         <!-- Normal run: goal → task → step hierarchy -->
@@ -222,7 +223,7 @@ function stepTitleSummary(row) {
         </template>
         <!-- Final summary (goal-level, not a step) -->
         <div v-if="finalSummaryOf(runDetail) && !isSimpleExecOf(runDetail)" class="exec-summary">
-            <div class="exec-summary-text">{{ finalSummaryOf(runDetail) }}</div>
+            <div class="exec-summary-text markdown-body" v-html="renderMarkdown(finalSummaryOf(runDetail))"></div>
         </div>
         <!-- Per-run stats + feedback -->
         <div class="exec-stats">
@@ -593,15 +594,12 @@ function stepTitleSummary(row) {
     font-size: 13px;
     line-height: 1.6;
     color: var(--fg);
-    white-space: pre-wrap;
     word-break: break-word;
 }
 .exec-reasoning {
     font-size: 13px;
     line-height: 1.6;
     color: var(--fg-secondary);
-    font-style: italic;
-    white-space: pre-wrap;
     word-break: break-word;
     margin-bottom: 12px;
     opacity: 0.8;
@@ -611,5 +609,99 @@ function stepTitleSummary(row) {
     align-items: center;
     gap: 2px;
     margin-right: 4px;
+}
+
+/* ---------- Markdown-rendered model output ---------- */
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4) {
+    margin: 1.1em 0 0.45em;
+    line-height: 1.35;
+    font-weight: 600;
+    color: var(--fg);
+}
+.markdown-body :deep(h1) { font-size: 1.35em; }
+.markdown-body :deep(h2) { font-size: 1.22em; }
+.markdown-body :deep(h3) { font-size: 1.1em; }
+.markdown-body :deep(h4) { font-size: 1em; }
+.markdown-body :deep(h1:first-child),
+.markdown-body :deep(h2:first-child),
+.markdown-body :deep(h3:first-child),
+.markdown-body :deep(p:first-child) {
+    margin-top: 0;
+}
+.markdown-body :deep(p),
+.markdown-body :deep(ul),
+.markdown-body :deep(ol),
+.markdown-body :deep(blockquote),
+.markdown-body :deep(pre),
+.markdown-body :deep(table) {
+    margin: 0.5em 0;
+}
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+    padding-left: 1.5em;
+}
+.markdown-body :deep(li) {
+    margin: 0.25em 0;
+}
+.markdown-body :deep(code) {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: var(--bg-code);
+    border-radius: 4px;
+    padding: 0.15em 0.4em;
+    color: var(--fg);
+}
+.markdown-body :deep(pre) {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    overflow-x: auto;
+    line-height: 1.5;
+}
+.markdown-body :deep(pre code) {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-size: 13px;
+    white-space: pre;
+}
+.markdown-body :deep(blockquote) {
+    border-left: 3px solid var(--border);
+    padding-left: 12px;
+    color: var(--fg-secondary);
+    margin-left: 0;
+}
+.markdown-body :deep(a) {
+    color: var(--accent);
+    text-decoration: none;
+}
+.markdown-body :deep(a:hover) {
+    text-decoration: underline;
+}
+.markdown-body :deep(table) {
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.markdown-body :deep(th),
+.markdown-body :deep(td) {
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+}
+.markdown-body :deep(th) {
+    background: var(--bg-hover);
+    font-weight: 600;
+}
+.markdown-body :deep(hr) {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 1em 0;
+}
+.markdown-body :deep(img) {
+    max-width: 100%;
+    border-radius: 6px;
 }
 </style>
