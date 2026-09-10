@@ -110,4 +110,34 @@ describe('events SSE follow（NG-4）', () => {
         expect(result.text).toContain('event: llm.stream_event');
         expect(result.text).toContain('text_delta');
     });
+
+    it('事件回放（follow!=1）过滤 llm.stream_event 传输态增量', async () => {
+        const created = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '回放过滤' },
+        });
+        const sessionId = created.json().sessionId;
+        h.app.get(ApiRuntimeService)
+            .harness()
+            .eventBus.emit(
+                newHarnessEvent({
+                    type: 'llm.stream_event',
+                    rootGoalId: sessionId,
+                    goalId: 'g-replay',
+                    taskId: 't-replay',
+                    payload: {
+                        streamId: 's-replay',
+                        attempt: 1,
+                        event: { type: 'text_delta', text: 'x' },
+                    },
+                }),
+            );
+        const replay = await h.fastify.inject({ method: 'GET', url: `/api/events/${sessionId}` });
+        expect(replay.statusCode).toBe(200);
+        const types = replay.json().map((event: { type: string }) => event.type);
+        expect(types).toContain('goal.started');
+        expect(types).not.toContain('llm.stream_event');
+    });
 });
