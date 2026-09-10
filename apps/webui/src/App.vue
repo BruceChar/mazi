@@ -7,6 +7,7 @@ import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
 import ExecStream from './components/ExecStream.vue';
 import Composer from './components/Composer.vue';
+import Sidebar from './components/Sidebar.vue';
 import { defaultConversations, projectConversations } from './sidebar.ts';
 import {
     busy,
@@ -864,125 +865,25 @@ onBeforeUnmount(() => {
             </template>
             <!-- Chat mode: conversation list -->
             <template v-else>
-            <div class="sidebar-new">
-                <button class="primary new-session" @click="startTopConversation">
-                    <LineIcon name="plus" size="15" />
-                    新会话
-                </button>
-            </div>
-            <div class="workspace-head">
-                <span>工作区</span>
-                <span class="head-icons">
-                    <button class="head-icon" title="搜索" @click.stop="searchOpen = !searchOpen">
-                        <LineIcon name="search" size="14" />
-                    </button>
-                    <button class="head-icon" title="打开/创建工作区" @click.stop="openSystemPicker">
-                        <LineIcon name="plus" size="14" />
-                    </button>
-                </span>
-            </div>
-            <div v-if="searchOpen" class="search-box">
-                <input v-model="q" placeholder="搜索会话…" />
-            </div>
-            <div class="sidebar-scroll">
-                <div v-for="project in projects" :key="project.path" class="group">
-                    <div
-                        class="group-head project-head"
-                        :title="project.path"
-                        @mouseenter="projectMenuFor = project.path"
-                        @mouseleave="projectMenuFor = ''"
-                    >
-                        <button
-                            class="head-icon project-fold"
-                            :title="isProjectOpen(project.path) ? '折叠' : '展开'"
-                            @click.stop="toggleProject(project.path)"
-                        >
-                            <LineIcon :name="isProjectOpen(project.path) ? 'chevronDown' : 'chevronRight'" size="13" />
-                        </button>
-                        <span class="project-title">{{ project.title }}</span>
-                        <button
-                            v-if="projectMenuFor === project.path"
-                            class="head-icon"
-                            title="重命名项目"
-                            @click.stop="renameProjectById(project)"
-                        >
-                            <LineIcon name="rename" size="13" />
-                        </button>
-                        <button
-                            v-if="projectMenuFor === project.path"
-                            class="head-icon project-add"
-                            title="添加项目会话"
-                            @click.stop="startProjectConversation(project)"
-                        >
-                            <LineIcon name="plus" size="13" />
-                        </button>
-                        <button
-                            v-if="projectMenuFor === project.path"
-                            class="head-icon project-remove"
-                            title="删除项目配置"
-                            @click.stop="removeProjectById(project)"
-                        >
-                            <LineIcon name="trash" size="13" />
-                        </button>
-                    </div>
-                    <ul class="session-list">
-                        <template v-if="isProjectOpen(project.path)">
-                            <li
-                                v-for="c in projectConversationItems(project)"
-                                :key="c.conversationId"
-                                :class="{ active: isConversationActive(c) }"
-                                @click="openConversation(c)"
-                            >
-                                <div class="session-title">{{ conversationTitle(c) }}</div>
-                                <div class="session-actions">
-                                    <button title="重命名会话" @click.stop="renameConversationById(c)"><LineIcon name="rename" size="13" /></button>
-                                    <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
-                                </div>
-                                <div class="session-time">{{ relTime(c.updatedAt || c.createdAt) }}</div>
-                            </li>
-                            <li v-if="!projectConversationItems(project).length" class="empty-sidebar">
-                                暂无项目会话
-                            </li>
-                        </template>
-                    </ul>
-                </div>
-                <div class="group">
-                    <div class="group-head">
-                        <span>会话 · {{ generalConversations.length }}</span>
-                        <span class="head-icons">
-                            <button class="head-icon" title="添加新会话" @click.stop="startGeneralConversation">
-                                <LineIcon name="plus" size="14" />
-                            </button>
-                        </span>
-                    </div>
-                    <ul class="session-list">
-                        <li
-                            v-for="c in generalConversations"
-                            :key="c.conversationId"
-                            :class="{ active: isConversationActive(c) }"
-                            @click="openConversation(c)"
-                        >
-                            <div class="session-title">{{ conversationTitle(c) }}</div>
-                            <div class="session-actions">
-                                <button title="重命名会话" @click.stop="renameConversationById(c)"><LineIcon name="rename" size="13" /></button>
-                                <button title="删除会话" @click.stop="removeConversation(c)"><LineIcon name="trash" size="13" /></button>
-                            </div>
-                            <div class="session-time">{{ relTime(c.updatedAt || c.createdAt) }}</div>
-                        </li>
-                        <li v-if="!generalConversations.length" class="empty-sidebar">暂无会话</li>
-                    </ul>
-                </div>
-            </div>
-            <div class="sidebar-settings">
-                <button class="settings-btn" @click="openSettings">
-                    <LineIcon name="settings" size="15" />
-                    系统设置
-                </button>
-                <span class="api-latency">
-                    <span class="latency-dot" :style="{ background: latencyColor() }"></span>
-                    <span class="latency-value" :style="{ color: latencyColor() }">{{ latencyText() }}</span>
-                </span>
-            </div>
+            <Sidebar
+                :projects="projects"
+                :project-collapsed="projectCollapsed"
+                :general-conversations="generalConversations"
+                :active-conversation-id="activeConversation?.conversationId"
+                :api-latency="apiLatency"
+                :conversations="conversations"
+                @new-session="startTopConversation"
+                @open-system-picker="openSystemPicker"
+                @toggle-project="toggleProject"
+                @rename-project="renameProjectById"
+                @start-project-conversation="startProjectConversation"
+                @remove-project="removeProjectById"
+                @open-conversation="openConversation"
+                @rename-conversation="renameConversationById"
+                @remove-conversation="removeConversation"
+                @start-general-conversation="startGeneralConversation"
+                @open-settings="openSettings"
+            />
             </template>
         </aside>
 
