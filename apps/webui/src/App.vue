@@ -8,6 +8,7 @@ import RightPanel from './components/RightPanel.vue';
 import ExecStream from './components/ExecStream.vue';
 import Composer from './components/Composer.vue';
 import Sidebar from './components/Sidebar.vue';
+import ChatMain from './components/ChatMain.vue';
 import { defaultConversations, projectConversations } from './sidebar.ts';
 import {
     busy,
@@ -890,72 +891,26 @@ onBeforeUnmount(() => {
         <main class="workspace">
             <template v-if="ui.view === 'chat'">
                 <div v-if="ui.err && conversations.length" class="error-banner">{{ ui.err }}</div>
-
-                <template v-if="activeConversation">
-                    <div class="goal-conv-head">
-                        <span class="goal-conv-title">{{ conversationTitle(activeConversation) }}</span>
-                        <span v-if="workspaceRoot" class="goal-conv-ws">{{ workspaceRoot }}</span>
-                    </div>
-                </template>
-
-                <div class="chat-scroll">
-                    <template v-if="activeConversation && runs.length">
-                        <div v-for="run in runs" :key="run.rootGoalId" class="run-block" :class="{ current: run.rootGoalId === current }">
-                            <!-- 用户输入 -->
-                            <div class="msg msg-user">
-                                <div class="msg-bubble">{{ run.input }}</div>
-                                <span class="msg-time">{{ fmtClock(run.createdAt) }}</span>
-                            </div>
-                            <!-- 执行中提示 -->
-                            <div v-if="run.rootGoalId === current && busy" class="msg msg-assistant">
-                                <div class="msg-bubble thinking-bubble">执行中…</div>
-                            </div>
-                            <!-- 执行流（goal → task → step 分层，每个 run 用自己的 timeline） -->
-                            <ExecStream
-                                :run-detail="runDetails[run.rootGoalId]"
-                                :busy="busy && run.rootGoalId === current"
-                            />
-                            <!-- 非当前 run 不展示执行流 -->
-                        </div>
-                    </template>
-                    <div v-else-if="activeConversation" class="empty-hint">
-                        暂无 run，输入任务开始
-                    </div>
-                    <div v-else class="welcome-screen">
-                        <div class="welcome-icon">
-                            <LineIcon name="userMessage" size="36" />
-                        </div>
-                        <h2 class="welcome-title">
-                            What should we build{{ workspaceDisplayName ? ` in ${workspaceDisplayName}` : '' }}?
-                        </h2>
-                        <div class="welcome-cards">
-                            <button
-                                v-for="card in suggestionCards"
-                                :key="card.title"
-                                class="welcome-card"
-                                @click="useSuggestion(card)"
-                            >
-                                <span class="welcome-card-icon" :style="{ color: card.color }">
-                                    <LineIcon :name="card.icon" size="18" />
-                                </span>
-                                <span class="welcome-card-title">{{ card.title }}</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
-
-                <Composer
-                    v-model="prompt"
-                    :busy="busy"
+                <ChatMain
                     :active-conversation="activeConversation"
-                    :projects="projects"
                     :workspace-root="workspaceRoot"
+                    :workspace-display-name="workspaceDisplayName"
+                    :runs="runs"
+                    :run-details="runDetails"
+                    :current="current"
+                    :busy="busy"
+                    :suggestion-cards="suggestionCards"
+                    :feedback-sent="feedbackSent"
+                    :prompt="prompt"
+                    :projects="projects"
                     :cfg="cfg"
                     :selected-model="selectedModel"
                     :reasoning-level="reasoningLevel"
                     :reasoning-levels="REASONING_LEVELS"
+                    :task-count="taskCount"
+                    :step-count="stepCount"
+                    @use-suggestion="useSuggestion"
+                    @update:prompt="prompt = $event"
                     @submit="submitPrompt"
                     @switch-project="switchProject"
                     @open-system-picker="openSystemPicker"
@@ -963,16 +918,6 @@ onBeforeUnmount(() => {
                     @update:selected-model="selectedModel = $event"
                     @update:reasoning-level="reasoningLevel = $event"
                 />
-                <div class="statusbar">
-                    <!-- TODO: total time, tool time, cached tokens -->
-                    <span class="stat">{{ runs.length }} sessions</span>
-                    <span class="stat">{{ 0 }} goals</span>
-                    <span class="stat">{{ taskCount }} tasks</span>
-                    <span class="stat">{{ stepCount }} steps</span>
-                    <span class="stat">{{ 0 }} inputs</span>
-                    <span class="stat">{{ 0 }} outputs</span>
-                    <span class="stat">{{ 0 }} costs</span>
-                </div>
             </template>
 
             <template v-else-if="ui.view === 'system-settings'">
