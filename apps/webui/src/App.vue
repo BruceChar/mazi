@@ -132,17 +132,6 @@ watch(
     { immediate: true },
 );
 
-/** Lazy-load timeline for every run in the active conversation */
-watch(
-    () => runs.value,
-    (runList) => {
-        for (const run of runList || []) {
-            loadRunDetail(run.rootGoalId);
-        }
-    },
-    { immediate: true, deep: true },
-);
-
 function latestRun(conversation) {
     const runs = conversation?.runs || [];
     return runs.length > 0 ? runs[runs.length - 1] : null;
@@ -170,6 +159,18 @@ const activeConversation = computed(() =>
     conversations.value.find((c) => c.conversationId === currentConversation.value),
 );
 const runs = computed(() => activeConversation.value?.runs || []);
+
+/** Lazy-load timeline for every run in the active conversation */
+watch(
+    () => runs.value,
+    (runList) => {
+        for (const run of runList || []) {
+            loadRunDetail(run.rootGoalId);
+        }
+    },
+    { immediate: true },
+);
+
 const activeGoals = computed(() => detail.value?.goals || []);
 const taskCount = computed(() => detail.value?.taskCount ?? 0);
 const stepCount = computed(() => detail.value?.stepCount ?? 0);
