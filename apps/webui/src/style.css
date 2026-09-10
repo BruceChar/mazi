@@ -550,7 +550,8 @@ pre {
 .api-latency {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
+    padding: 8px 10px;
     font-size: 11px;
     font-family: ui-monospace, monospace;
     white-space: nowrap;
@@ -564,8 +565,7 @@ pre {
 }
 .latency-value {
     display: inline-block;
-    min-width: 5ch;
-    text-align: right;
+    min-width: 4.5ch;
     font-variant-numeric: tabular-nums;
 }
 
