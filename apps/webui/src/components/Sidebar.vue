@@ -74,18 +74,25 @@ function latencyText() {
         </button>
     </div>
     <div class="workspace-head">
-        <span>工作区</span>
-        <span class="head-icons">
-            <button class="head-icon" title="搜索" @click.stop="searchOpen = !searchOpen">
-                <LineIcon name="search" size="14" />
-            </button>
-            <button class="head-icon" title="打开/创建工作区" @click.stop="emit('open-system-picker')">
-                <LineIcon name="plus" size="14" />
-            </button>
-        </span>
-    </div>
-    <div v-if="searchOpen" class="search-box">
-        <input v-model="q" placeholder="搜索会话…" />
+        <template v-if="searchOpen">
+            <input v-model="q" class="search-input" placeholder="搜索会话…" autofocus />
+            <span class="head-icons">
+                <button class="head-icon" title="关闭搜索" @click.stop="searchOpen = false; q = ''">
+                    <LineIcon name="close" size="14" />
+                </button>
+            </span>
+        </template>
+        <template v-else>
+            <span>工作区</span>
+            <span class="head-icons">
+                <button class="head-icon" title="搜索" @click.stop="searchOpen = true">
+                    <LineIcon name="search" size="14" />
+                </button>
+                <button class="head-icon" title="打开/创建工作区" @click.stop="emit('open-system-picker')">
+                    <LineIcon name="plus" size="14" />
+                </button>
+            </span>
+        </template>
     </div>
     <div class="sidebar-scroll">
         <div v-for="project in projects" :key="project.path" class="group">
@@ -231,20 +238,18 @@ function latencyText() {
     background: var(--bg-hover);
     color: var(--fg);
 }
-.search-box {
-    padding: 4px 10px 8px;
-}
-.search-box input {
-    width: 100%;
-    padding: 5px 8px;
+.search-input {
+    flex: 1;
+    padding: 3px 8px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 5px;
     background: var(--bg-panel);
     color: var(--fg);
     font-size: 12px;
     outline: none;
+    min-width: 0;
 }
-.search-box input:focus {
+.search-input:focus {
     border-color: var(--accent);
 }
 .sidebar-scroll {
