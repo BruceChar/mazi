@@ -27,7 +27,7 @@ export function registerHttpLogging(fastify: FastifyInstance, options: HttpLogOp
         const ms = Date.now() - started;
         const path = String(req.url).split('?')[0];
         if (!LOG_FILTER_PATHS.has(path)) {
-            logger.log(`[api] ${reply.statusCode} ${req.method} ${req.url} ${ms}ms`);
+            logger.log(`[http] ${reply.statusCode} ${req.method} ${req.url} ${ms}ms`);
         }
         done();
     });

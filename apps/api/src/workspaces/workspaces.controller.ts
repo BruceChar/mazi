@@ -37,7 +37,9 @@ export class WorkspacesController {
             path: this.runtime.selectedWorkspaceRoot,
             projects: this.runtime.projects(),
         };
-        this.logger.debug(`current path=${result.path ?? '-'} projects=${result.projects?.length ?? 0}`);
+        this.logger.debug(
+            `current path=${result.path ?? '-'} projects=${result.projects?.length ?? 0}`,
+        );
         return result;
     }
 
@@ -49,7 +51,9 @@ export class WorkspacesController {
         const path = typeof body.path === 'string' ? body.path : '';
         const title = typeof body.title === 'string' ? body.title : '';
         this.runtime.renameProject(path, title);
-        this.logger.log(`renameProject path=${JSON.stringify(path)} title=${JSON.stringify(title)}`);
+        this.logger.log(
+            `renameProject path=${JSON.stringify(path)} title=${JSON.stringify(title)}`,
+        );
         return { projects: this.runtime.projects() };
     }
 

@@ -118,7 +118,9 @@ export class ConversationsService {
         }
         conversation.updatedAt = Date.now();
         this.write();
-        this.logger.debug(`appendRun conversation=${conversationId} rootGoalId=${input.rootGoalId}`);
+        this.logger.debug(
+            `appendRun conversation=${conversationId} rootGoalId=${input.rootGoalId}`,
+        );
     }
 
     /** 查找 Conversation 的归属上下文（供创建追加 Goal run 时使用） */

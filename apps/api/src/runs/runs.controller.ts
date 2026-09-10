@@ -19,7 +19,9 @@ export class RunsController {
             throw new ApiError(400, '缺少 input');
         }
         const userId = typeof body.userId === 'string' ? body.userId : undefined;
-        this.logger.log(`POST /api/run input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'}`);
+        this.logger.log(
+            `POST /api/run input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'}`,
+        );
         return this.sessions.runOnce(input, userId);
     }
 }

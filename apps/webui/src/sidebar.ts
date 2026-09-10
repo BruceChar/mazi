@@ -6,12 +6,16 @@ export function isWorkspaceConversation(conversation: Conversation | null | unde
 }
 
 /** 活动会话：排除已归档 */
-export function activeConversations(conversations: Conversation[] | null | undefined): Conversation[] {
+export function activeConversations(
+    conversations: Conversation[] | null | undefined,
+): Conversation[] {
     return (conversations || []).filter((conversation) => !conversation.archived);
 }
 
 /** 默认"会话"区：未归属任何工作区项目的会话 */
-export function defaultConversations(conversations: Conversation[] | null | undefined): Conversation[] {
+export function defaultConversations(
+    conversations: Conversation[] | null | undefined,
+): Conversation[] {
     return (conversations || []).filter((conversation) => !isWorkspaceConversation(conversation));
 }
 

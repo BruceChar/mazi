@@ -1,4 +1,4 @@
-import { Goal } from "@mazi/core";
+import { Goal } from '@mazi/core';
 
 export interface Session {
     sessionId: string;

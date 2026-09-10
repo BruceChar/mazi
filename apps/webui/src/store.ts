@@ -79,8 +79,11 @@ function readUserPreferences(): UserPreferences {
         return {
             displayName: localStorage.getItem(`${USER_PREFERENCES_KEY}.displayName`) || 'me',
             favoriteTools: localStorage.getItem(`${USER_PREFERENCES_KEY}.favoriteTools`) || '',
-            codeStyle: localStorage.getItem(`${USER_PREFERENCES_KEY}.codeStyle`) || '简洁优先，必要时注释',
-            responseStyle: localStorage.getItem(`${USER_PREFERENCES_KEY}.responseStyle`) || '直接、结构化、给出下一步',
+            codeStyle:
+                localStorage.getItem(`${USER_PREFERENCES_KEY}.codeStyle`) || '简洁优先，必要时注释',
+            responseStyle:
+                localStorage.getItem(`${USER_PREFERENCES_KEY}.responseStyle`) ||
+                '直接、结构化、给出下一步',
         };
     } catch {
         return {
@@ -121,9 +124,16 @@ export const runOutcomes = reactive<Record<string, RunOutcome>>({});
 export const events = reactive<{ list: EventItem[]; types: string }>({ list: [], types: 'all' });
 
 export const esc = (s: unknown): string =>
-    String(s ?? '').replace(/[&<>"']/g, (c) => (
-        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
-    )[c]);
+    String(s ?? '').replace(
+        /[&<>"']/g,
+        (c) =>
+            (
+                ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<
+                    string,
+                    string
+                >
+            )[c],
+    );
 
 export const short = (s: string | null | undefined, n = 120): string =>
     s && s.length > n ? `${s.slice(0, n)}…` : s || '';
@@ -385,7 +395,14 @@ export interface CreateRunOptions {
  * 新建 Goal 会话：POST /api/sessions（create）→ 可选立即 POST run。
  * returns rootGoalId
  */
-export async function createRun({ input, userId, workspacePath, conversationId, exec = true, goal }: CreateRunOptions): Promise<string | null> {
+export async function createRun({
+    input,
+    userId,
+    workspacePath,
+    conversationId,
+    exec = true,
+    goal,
+}: CreateRunOptions): Promise<string | null> {
     const text = String(input ?? '').trim();
     if (!text) return null;
     busy.value = true;
@@ -451,7 +468,10 @@ export async function executeRun(rootGoalId: string): Promise<void> {
     }
 }
 
-export async function updateConversation(conversationId: string, changes: Record<string, unknown>): Promise<void> {
+export async function updateConversation(
+    conversationId: string,
+    changes: Record<string, unknown>,
+): Promise<void> {
     await api(`/api/conversations/${conversationId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -471,7 +491,11 @@ export async function deleteConversationById(conversationId: string): Promise<vo
     await loadConversations();
 }
 
-export async function sendFeedback(rootGoalId: string, rating: string, content?: string): Promise<void> {
+export async function sendFeedback(
+    rootGoalId: string,
+    rating: string,
+    content?: string,
+): Promise<void> {
     await api(`/api/sessions/${rootGoalId}/feedback`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

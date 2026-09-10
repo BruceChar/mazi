@@ -88,7 +88,9 @@ export async function executeTask(
                 round.vendorUsage !== undefined || round.contextUsage !== undefined
                     ? {
                           ...(round.vendorUsage !== undefined ? { vendor: round.vendorUsage } : {}),
-                          ...(round.contextUsage !== undefined ? { runtime: round.contextUsage } : {}),
+                          ...(round.contextUsage !== undefined
+                              ? { runtime: round.contextUsage }
+                              : {}),
                       }
                     : undefined;
             let usageAttached = false;
@@ -108,7 +110,9 @@ export async function executeTask(
                     kind: 'thinking',
                     payload: {
                         content: round.reasoning,
-                        ...(round.reasoning.length > 200 ? { contextContent: round.reasoning.slice(0, 200) } : {}),
+                        ...(round.reasoning.length > 200
+                            ? { contextContent: round.reasoning.slice(0, 200) }
+                            : {}),
                     },
                     status: 'ok',
                     startedAt: now(),
@@ -129,7 +133,9 @@ export async function executeTask(
                     kind: 'intent',
                     payload: {
                         content: round.text,
-                        ...(round.text.length > 200 ? { contextContent: round.text.slice(0, 200) } : {}),
+                        ...(round.text.length > 200
+                            ? { contextContent: round.text.slice(0, 200) }
+                            : {}),
                     },
                     status: 'ok',
                     startedAt: now(),
@@ -260,7 +266,10 @@ export async function executeTask(
             // 避免模型在后续轮次“失忆”而重复发起相同工具调用
             messages.push({
                 role: 'assistant',
-                content: round.text.length > 0 ? [{ type: 'text', text: round.text.slice(0, 4000) }] : [],
+                content:
+                    round.text.length > 0
+                        ? [{ type: 'text', text: round.text.slice(0, 4000) }]
+                        : [],
                 toolCalls: round.toolCalls.map((c) => ({
                     callId: c.callId,
                     name: c.toolName,

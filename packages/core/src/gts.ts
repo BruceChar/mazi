@@ -1,7 +1,7 @@
 /**
  * goal-task-step —— 会话观测分层指标（docs/core/AHF_CORE_GTS.md 实现载体）。
  *
- * Goal(意图归因) / Task(目标归因) / Step(动作归因) 
+ * Goal(意图归因) / Task(目标归因) / Step(动作归因)
  *
  * 与旧模型映射（C1）：
  *   Session(rawIntent+goal) → root Goal(intake) + work Goal(statement)

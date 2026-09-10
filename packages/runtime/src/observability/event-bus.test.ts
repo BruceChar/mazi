@@ -44,11 +44,7 @@ describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
         const lines = readFileSync(file, 'utf8').trim().split('\n');
         expect(lines).toHaveLength(3);
         const parsed = lines.map((l) => JSON.parse(l) as HarnessEvent);
-        expect(parsed.map((p) => p.type)).toEqual([
-            'goal.started',
-            'task.started',
-            'step.started',
-        ]);
+        expect(parsed.map((p) => p.type)).toEqual(['goal.started', 'task.started', 'step.started']);
         // 缺省 eventId/timestamp 自动补全
         for (const p of parsed) {
             expect(typeof p.eventId).toBe('string');

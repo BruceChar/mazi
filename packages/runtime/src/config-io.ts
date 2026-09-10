@@ -47,7 +47,11 @@ export function toRuntimeConfig(
     };
 }
 
-export function configOverview(): { home: string; providers: ProviderOverview[]; hasProvidersFile: boolean } {
+export function configOverview(): {
+    home: string;
+    providers: ProviderOverview[];
+    hasProvidersFile: boolean;
+} {
     const paths = maziPaths();
     const providersJson = readJson(paths.providersFile) as
         | { providers?: ProviderConfig[] }

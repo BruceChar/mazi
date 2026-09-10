@@ -563,9 +563,7 @@ export class HarnessRuntime {
     }
 
     /** 重建 Goal 树四元组快照（审计/展示视图） */
-    async goalSnapshot(
-        rootGoalId: string,
-    ): Promise<GoalTreeSnapshot> {
+    async goalSnapshot(rootGoalId: string): Promise<GoalTreeSnapshot> {
         const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
         const tasks: Task[] = [];
         const steps: Step[] = [];

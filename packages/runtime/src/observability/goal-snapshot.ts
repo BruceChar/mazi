@@ -109,7 +109,11 @@ export function snapshotGoalTree(
                         status: step.status,
                         startedAt: step.startedAt,
                         ...(step.endedAt ? { endedAt: step.endedAt } : {}),
-                        ...(p?.content ? { content: String(p.content) } : p?.output ? { content: String(p.output) } : {}),
+                        ...(p?.content
+                            ? { content: String(p.content) }
+                            : p?.output
+                              ? { content: String(p.output) }
+                              : {}),
                         ...(p?.toolName ? { toolName: String(p.toolName) } : {}),
                         ...(payloadTextOf(step) !== undefined
                             ? { payloadText: payloadTextOf(step) }

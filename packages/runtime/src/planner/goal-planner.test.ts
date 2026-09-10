@@ -42,7 +42,9 @@ describe('goal-planner（C3b：Goal → Task 最小规划）', () => {
         expect(plan.workGoals.map((x) => x.goalId)).toEqual([work.goalId]);
         expect(plan.tasks).toHaveLength(1);
         expect(plan.tasks[0]?.goalId).toBe(work.goalId);
-        expect(plan.tasks[0]?.acceptance.conditions).toContain(plan.tasks[0]?.acceptance.conditions[0]);
+        expect(plan.tasks[0]?.acceptance.conditions).toContain(
+            plan.tasks[0]?.acceptance.conditions[0],
+        );
     });
 
     it('孤儿 work（parent 引用的 Goal 缺失）→ 拒绝出计划', () => {
