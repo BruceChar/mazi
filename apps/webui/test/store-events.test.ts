@@ -63,7 +63,7 @@ vi.mock('vue', () => ({
     }),
 }));
 
-const { runDetails, stopEvents, watchEvents } = await import('../src/scripts/store.ts');
+const { liveSteps, runDetails, stopEvents, watchEvents } = await import('../src/scripts/store.ts');
 
 describe('webui live step refresh', () => {
     beforeEach(() => {
@@ -89,5 +89,49 @@ describe('webui live step refresh', () => {
         expect(runDetails['run-1']).toBeTruthy();
         expect(runDetails['run-1']?.stepCount).toBe(1);
         expect(runDetails['run-1']?.goals[0]?.tasks[0]?.steps[0]?.stepId).toBe('s1');
+    });
+
+    it('live steps append on step.started and close the previous running step', () => {
+        watchEvents('run-2');
+        const source = FakeEventSource.instances.at(-1)!;
+        source.emit('step.started', {
+            eventId: 's1',
+            type: 'step.started',
+            taskId: 't1',
+            stepId: 'a',
+            payload: { kind: 'tool_call', status: 'running', content: 'read README' },
+        });
+        source.emit('step.started', {
+            eventId: 's2',
+            type: 'step.started',
+            taskId: 't1',
+            stepId: 'b',
+            payload: { kind: 'thinking', status: 'ok', content: 'next thought' },
+        });
+        expect(liveSteps['run-2']?.map((step) => step.stepId)).toEqual(['a', 'b']);
+        // Starting b closes a (the "next step starts, previous ends" rule).
+        expect(liveSteps['run-2']?.[0]?.status).toBe('ok');
+        expect(liveSteps['run-2']?.[0]?.endedAt).not.toBeNull();
+    });
+
+    it('step.ended updates the running tool call in place (no duplicate row)', () => {
+        watchEvents('run-3');
+        const source = FakeEventSource.instances.at(-1)!;
+        source.emit('step.started', {
+            eventId: 's1',
+            type: 'step.started',
+            taskId: 't1',
+            stepId: 'a',
+            payload: { kind: 'tool_call', status: 'running', content: 'read README' },
+        });
+        source.emit('step.ended', {
+            eventId: 's2',
+            type: 'step.ended',
+            taskId: 't1',
+            stepId: 'a',
+            payload: { kind: 'tool_call', status: 'ok', content: 'read README' },
+        });
+        expect(liveSteps['run-3']).toHaveLength(1);
+        expect(liveSteps['run-3']?.[0]?.status).toBe('ok');
     });
 });

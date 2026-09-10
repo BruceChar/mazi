@@ -28,6 +28,7 @@ import {
     runDetails,
     loadRunDetail,
     events,
+    liveSteps,
     loadConfig,
     loadConversations,
     loadWorkspace,
@@ -626,6 +627,7 @@ onBeforeUnmount(() => {
                     :current="current"
                     :busy="busy"
                     :live-stream="activeLiveStream"
+                    :live-steps="liveSteps"
                     :suggestion-cards="suggestionCards"
                     :feedback-sent="feedbackSent"
                     :prompt="prompt"

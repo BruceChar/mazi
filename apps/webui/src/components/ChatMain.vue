@@ -13,6 +13,8 @@ const props = defineProps({
     current: { type: String, default: '' },
     busy: { type: Boolean, default: false },
     liveStream: { type: Object, default: null },
+    /** Append-only live steps per run (store.liveSteps), keyed by rootGoalId. */
+    liveSteps: { type: Object, default: () => ({}) },
     suggestionCards: { type: Array, default: () => [] },
     feedbackSent: { type: Boolean, default: false },
     prompt: { type: String, default: '' },
@@ -54,6 +56,7 @@ function runTitle(run) {
  * (and token stream) speak for themselves.
  */
 function isAwaitingFirstStep(rootGoalId) {
+    if ((props.liveSteps?.[rootGoalId] || []).length > 0) return false;
     const snapshot = props.runDetails[rootGoalId];
     if (!snapshot) return true;
     for (const goal of snapshot.goals || []) {
@@ -187,6 +190,7 @@ onMounted(() => {
                                 :run-detail="runDetails[run.rootGoalId]"
                                 :busy="busy && run.rootGoalId === current"
                                 :live-stream="run.rootGoalId === current ? liveStream : null"
+                                :live-steps="liveSteps[run.rootGoalId] || []"
                             />
                         </div>
                     </template>

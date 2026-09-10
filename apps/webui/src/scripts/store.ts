@@ -137,6 +137,27 @@ export const liveStreams = ref<LiveStreamMap>({});
 /** Most recent active stream of the current run (max updatedAt). */
 export const activeLiveStream = computed<LiveStream | null>(() => activeStream(liveStreams.value));
 
+/**
+ * One step of an executing run, derived from live SSE events. The chat renders
+ * these as an append-only list so it never has to swap a whole tree per tick.
+ */
+export interface LiveStep {
+    stepId: string;
+    taskId: string;
+    kind: string;
+    toolName: string;
+    /** Short one-line summary (the rendered title). */
+    title: string;
+    /** Full step content; reserved for expansion. */
+    content: string;
+    status: string;
+    startedAt: number;
+    endedAt: number | null;
+}
+
+/** Live steps per run (rootGoalId -> ordered steps). */
+export const liveSteps = reactive<Record<string, LiveStep[]>>({});
+
 export const esc = (s: unknown): string =>
     String(s ?? '').replace(
         /[&<>"']/g,
@@ -311,6 +332,61 @@ async function refreshDetail(rootGoalId: string): Promise<void> {
     }
 }
 
+function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
+    const payload = (event.payload || {}) as Record<string, unknown>;
+    const content = typeof payload.content === 'string' ? payload.content : '';
+    const status = typeof payload.status === 'string' ? payload.status : fallbackStatus;
+    const at = typeof event.timestamp === 'number' ? event.timestamp : Date.now();
+    return {
+        stepId: String(event.stepId ?? ''),
+        taskId: String(event.taskId ?? ''),
+        kind: String(payload.kind ?? 'step'),
+        toolName: typeof payload.toolName === 'string' ? payload.toolName : '',
+        title: content.replace(/\s+/g, ' ').trim().slice(0, 80),
+        content,
+        status,
+        startedAt: at,
+        endedAt: status === 'running' ? null : at,
+    };
+}
+
+/** step.started: append a row and close any step still marked running. */
+function applyStepStarted(rootGoalId: string, event: EventItem): void {
+    let list = liveSteps[rootGoalId];
+    if (!list) {
+        list = [];
+        liveSteps[rootGoalId] = list;
+    }
+    const at = typeof event.timestamp === 'number' ? event.timestamp : Date.now();
+    for (const step of list) {
+        if (step.status === 'running') {
+            step.status = 'ok';
+            step.endedAt = at;
+        }
+    }
+    list.push(liveStepOf(event, 'running'));
+}
+
+/** step.ended: update the matching row in place (tool call running -> ok/error). */
+function applyStepEnded(rootGoalId: string, event: EventItem): void {
+    let list = liveSteps[rootGoalId];
+    if (!list) {
+        list = [];
+        liveSteps[rootGoalId] = list;
+    }
+    const updated = liveStepOf(event, 'ok');
+    const existing = list.find((step) => step.stepId === updated.stepId);
+    if (!existing) {
+        list.push(updated);
+        return;
+    }
+    existing.status = updated.status;
+    existing.content = updated.content;
+    existing.title = updated.title;
+    if (updated.toolName) existing.toolName = updated.toolName;
+    existing.endedAt = updated.endedAt;
+}
+
 export function stopEvents(): void {
     if (eventSource) {
         eventSource.close();
@@ -321,6 +397,7 @@ export function stopEvents(): void {
         refreshTimer = null;
     }
     liveStreams.value = {};
+    for (const key of Object.keys(liveSteps)) delete liveSteps[key];
 }
 
 export function watchEvents(rootGoalId: string): void {
@@ -342,7 +419,12 @@ export function watchEvents(rootGoalId: string): void {
             if (!events.list.some((e) => e.eventId === event.eventId)) {
                 events.list.push(event);
             }
+            if (event.type === 'step.started') {
+                applyStepStarted(rootGoalId, event);
+                return;
+            }
             if (event.type === 'step.ended') {
+                applyStepEnded(rootGoalId, event);
                 liveStreams.value = clearStreamsForTask(liveStreams.value, taskIdOf(event));
                 refreshLater(rootGoalId);
                 return;

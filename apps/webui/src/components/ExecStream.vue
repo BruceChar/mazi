@@ -8,6 +8,8 @@ const props = defineProps({
     busy: { type: Boolean, default: false },
     /** In-flight streaming answer (token level) from store.activeLiveStream. */
     liveStream: { type: Object, default: null },
+    /** Append-only live steps of the executing run (store.liveSteps[run]). */
+    liveSteps: { type: Array, default: () => [] },
 });
 
 /* ---- Time formatting ---- */
@@ -189,7 +191,26 @@ const stats = computed(() => buildExecStats(props.runDetail));
 </script>
 
 <template>
-    <div v-if="runDetail" class="exec-stream">
+    <!-- Live, append-only step list while the run executes: rows are only ever
+         appended or updated in place, so the layout stays stable. -->
+    <div v-if="busy && liveSteps.length" class="exec-stream">
+        <div
+            v-for="(step, i) in liveSteps"
+            :key="step.stepId"
+            class="exec-step"
+            :class="[`exec-${step.kind}`, { error: step.status === 'error' || step.status === 'failed' }]"
+        >
+            <div class="exec-step-head">
+                <span v-if="step.status === 'running'" class="exec-spinner"></span>
+                <LineIcon v-else :name="step.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="16" />
+                <span class="exec-step-tag">S#{{ i + 1 }}</span>
+                <span class="exec-step-name">{{ step.toolName || step.kind }}</span>
+                <span class="exec-step-summary">{{ step.title || '执行中…' }}</span>
+                <span class="exec-step-time">{{ fmtTime(step.startedAt) }}</span>
+            </div>
+        </div>
+    </div>
+    <div v-else-if="runDetail" class="exec-stream">
         <!-- Goal → task → step. A single goal hides its own header so the user
              input is not repeated above the task title. -->
         <div
@@ -572,6 +593,23 @@ const stats = computed(() => buildExecStats(props.runDetail));
     font-family: ui-monospace, monospace;
     margin: 0 8px 2px 14px;
 }
+/* Spinner shown on the step currently executing (append-only live list). */
+.exec-spinner {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: exec-spin 0.7s linear infinite;
+    margin-left: -20px; /* align with the timeline line, replacing the icon */
+}
+@keyframes exec-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* step dot: fully independent class, no .exec-dot inheritance */
 .step-dot {
     width: 8px;
