@@ -294,6 +294,30 @@ pre {
     color: var(--fg);
 }
 
+.sidebar-expand-handle {
+    position: fixed;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 36px;
+    border: 1px solid var(--border);
+    border-left: none;
+    border-radius: 0 6px 6px 0;
+    background: var(--bg-panel);
+    color: var(--fg-tertiary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    padding: 0;
+}
+.sidebar-expand-handle:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+
 .sidebar-new {
     padding: 12px 12px 8px;
 }
@@ -1085,7 +1109,7 @@ pre {
 
 .input-area {
     flex: 0 0 auto;
-    padding: 8px 16px 14px;
+    padding: 4px 16px 14px;
     background: var(--bg);
 }
 

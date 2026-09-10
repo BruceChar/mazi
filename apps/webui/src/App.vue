@@ -840,6 +840,9 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="app-shell">
+        <button v-if="!ui.sidebar" class="sidebar-expand-handle" title="展开侧边栏" @click="ui.sidebar = true">
+            <LineIcon name="chevronRight" size="12" />
+        </button>
         <aside class="sidebar" :class="{ show: ui.sidebar }">
             <button class="sidebar-handle" title="收起侧边栏" @click="ui.sidebar = false">
                 <LineIcon name="chevronLeft" size="12" />
@@ -2075,7 +2078,7 @@ onBeforeUnmount(() => {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 4px 4px;
+    padding: 4px 4px 2px;
     font-size: 11px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
