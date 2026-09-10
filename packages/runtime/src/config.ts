@@ -1,5 +1,5 @@
 import type { PermissionLevel, SideEffectScope } from '@mazi/core';
-import type { PricingSchedule } from './provider';
+import type { PricingSchedule } from './provider/index.js';
 
 /** 工具实现结果（goal 路径执行器消费；与 core ToolExecutionResult 解耦） */
 export interface ToolCallResult {

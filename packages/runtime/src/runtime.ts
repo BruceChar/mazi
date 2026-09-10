@@ -14,8 +14,8 @@ import type {
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
-import type { PricingSchedule, RoundOutcome } from './provider';
-import { RoundExecutor } from './provider';
+import type { PricingSchedule, RoundOutcome } from './provider/index.js';
+import { RoundExecutor } from './provider/index.js';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './gts/goal-executor.js';
