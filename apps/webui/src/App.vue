@@ -1077,6 +1077,20 @@ onBeforeUnmount(() => {
                                     <div v-if="finalSummaryOf(runDetails[run.rootGoalId]) && !isSimpleExecOf(runDetails[run.rootGoalId])" class="exec-summary">
                                         <div class="exec-summary-text">{{ finalSummaryOf(runDetails[run.rootGoalId]) }}</div>
                                     </div>
+                                    <!-- Per-run stats + feedback -->
+                                    <div class="exec-stats">
+                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).stepCount }} steps</span>
+                                        <span>·</span>
+                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).taskCount }} tasks</span>
+                                        <span>·</span>
+                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).totalTime }}</span>
+                                        <span>·</span>
+                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).inputTokens }} in / {{ buildExecStats(runDetails[run.rootGoalId]).outputTokens }} out tokens</span>
+                                        <div class="exec-stats-fb">
+                                            <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
+                                            <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
                             </template>
