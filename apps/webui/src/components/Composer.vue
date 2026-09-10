@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import { shouldSubmitOnEnter } from '../scripts/composer-keys.ts';
 
 const props = defineProps({
     modelValue: { type: String, default: '' },
@@ -43,11 +44,30 @@ function reasoningLabel() {
 function onInput(e) {
     emit('update:modelValue', e.target.value);
 }
+
+/* 输入法组合态：组合中的回车用于确认候选，不能当作发送（docs/webui.md §3.5） */
+let composing = false;
+let compositionEndedAt = 0;
+function onCompositionStart() {
+    composing = true;
+}
+function onCompositionEnd() {
+    composing = false;
+    compositionEndedAt = Date.now();
+}
 function onKeydown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        emit('submit');
-    }
+    const submit = shouldSubmitOnEnter({
+        key: e.key,
+        shiftKey: e.shiftKey,
+        isComposing: e.isComposing,
+        keyCode: e.keyCode,
+        composing,
+        compositionEndedAt,
+        now: Date.now(),
+    });
+    if (!submit) return;
+    e.preventDefault();
+    emit('submit');
 }
 function selectModel(id) {
     emit('update:selectedModel', id);
@@ -82,6 +102,8 @@ function doExitWorkspace() {
                         placeholder="输入任务…（Enter 发送，Shift+Enter 换行）"
                         @input="onInput"
                         @keydown="onKeydown"
+                        @compositionstart="onCompositionStart"
+                        @compositionend="onCompositionEnd"
                     ></textarea>
                 </div>
                 <div class="input-footer">
