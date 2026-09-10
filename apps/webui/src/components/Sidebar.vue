@@ -211,12 +211,12 @@ function latencyText() {
     align-items: center;
     justify-content: space-between;
     padding: 8px 14px 4px;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
-    color: var(--fg-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    height: 32px;
+    color: var(--fg);
+    text-transform: none;
+    letter-spacing: 0;
+    height: 34px;
     box-sizing: border-box;
 }
 .head-icons {
@@ -269,11 +269,11 @@ function latencyText() {
     align-items: center;
     justify-content: space-between;
     padding: 6px 14px;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
-    color: var(--fg-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    color: var(--fg);
+    text-transform: none;
+    letter-spacing: 0;
 }
 .project-head {
     cursor: default;
@@ -283,7 +283,7 @@ function latencyText() {
 }
 .project-title {
     flex: 1;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
     color: var(--fg-secondary);
     text-transform: none;
@@ -312,7 +312,7 @@ function latencyText() {
     background: var(--bg-active);
 }
 .session-title {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--fg);
     overflow: hidden;
     text-overflow: ellipsis;
