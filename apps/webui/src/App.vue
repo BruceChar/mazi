@@ -204,27 +204,39 @@ const rootOutcome = computed(() => (current.value ? runOutcomes[current.value] :
  * Resolves the target against the run snapshot, falling back to the live
  * append-only steps while the run is still executing.
  */
-const auditView = computed(() => {
-    const rootGoalId = current.value;
-    // 审计以 Conversation 为单位：整条会话流（全部 run）共享同一条 context 线。
-    const conversationRuns = runs.value.map((run) => ({
+/** 当前 Conversation 的全部 run（按时间顺序）+ 快照。 */
+const conversationRuns = computed(() =>
+    runs.value.map((run) => ({
         rootGoalId: run.rootGoalId,
         input: run.input || '',
         snapshot: runDetails[run.rootGoalId] ?? null,
-    }));
-    const snapshot = rootGoalId
-        ? runDetails[rootGoalId] ?? detail.value ?? null
-        : detail.value ?? null;
-    const live = rootGoalId ? liveSteps[rootGoalId] || [] : [];
-    return buildAuditView({
-        runs: conversationRuns,
-        snapshot,
-        liveSteps: live,
+    })),
+);
+const auditSnapshot = computed(() =>
+    current.value ? (runDetails[current.value] ?? detail.value ?? null) : (detail.value ?? null),
+);
+const auditLiveSteps = computed(() => (current.value ? liveSteps[current.value] || [] : []));
+
+const auditView = computed(() =>
+    buildAuditView({
+        runs: conversationRuns.value,
+        snapshot: auditSnapshot.value,
+        liveSteps: auditLiveSteps.value,
         stepId: selectedStepId.value,
         taskId: selectedTaskId.value,
         conversationTitle: conversationTitle(activeConversation.value),
-    });
-});
+    }),
+);
+
+/** 会话总览（不随 Step/Task 选择变化）。 */
+const conversationAudit = computed(() =>
+    buildAuditView({
+        runs: conversationRuns.value,
+        snapshot: auditSnapshot.value,
+        liveSteps: auditLiveSteps.value,
+        conversationTitle: conversationTitle(activeConversation.value),
+    }),
+);
 
 /** Conversation-wide totals for the status bar under the composer. */
 const conversationStats = computed(() => {
@@ -246,7 +258,7 @@ const conversationStats = computed(() => {
             }
         }
     }
-    const usage = auditView.value.usage;
+    const usage = conversationAudit.value.usage;
     return {
         sessions: runs.value.length,
         goals,
@@ -794,6 +806,8 @@ onBeforeUnmount(() => {
             :active-event-type="ui.eventTypes"
             :show-all-events="showAllEvents"
             :audit="auditView"
+            :conversation="conversationAudit"
+            :conversation-stats="conversationStats"
             @select-step="onSelectStep"
             @update:active-tab="drawerTab = $event"
             @toggle-maximize="togglePanelMax"

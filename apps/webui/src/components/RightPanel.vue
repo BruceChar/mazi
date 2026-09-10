@@ -26,6 +26,9 @@ defineProps({
     showAllEvents: { type: Boolean, default: false },
     /** buildAuditView() result for the selected Step/Task (docs/web/观测看板设计.md). */
     audit: { type: Object, default: null },
+    /** 会话总览（不随选择变化）。 */
+    conversation: { type: Object, default: null },
+    conversationStats: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
     'update:activeTab',
@@ -96,12 +99,12 @@ function toFixed1(value) {
     return Number.isFinite(n) ? n.toFixed(1) : '0.0';
 }
 
-/* ---- 分段落原文 / diff 展开 / 审计说明 ---- */
+/* ---- 分段落原文 / diff 展开 / 会话总览 ---- */
 const openSegments = ref(new Set());
 const openDiff = ref(false);
-const showHelp = ref(false);
-function toggleHelp() {
-    showHelp.value = !showHelp.value;
+const showInfo = ref(false);
+function toggleInfo() {
+    showInfo.value = !showInfo.value;
 }
 function toggleSegment(key) {
     const next = new Set(openSegments.value);
@@ -130,9 +133,6 @@ function toggleDiff() {
                     <button :class="{ on: activeTab === 'events' }" @click="emit('update:activeTab', 'events')">事件</button>
                 </div>
                 <div class="drawer-head-actions">
-                    <button class="icon-btn" :title="showHelp ? '隐藏审计说明' : '审计说明'" @click="toggleHelp">
-                        <LineIcon name="info" size="14" />
-                    </button>
                     <button class="icon-btn" :title="maximized ? '还原' : '最大化'" @click="emit('toggleMaximize')">
                         <LineIcon :name="maximized ? 'minimize' : 'maximize'" size="14" />
                     </button>
@@ -141,14 +141,39 @@ function toggleDiff() {
 
             <div v-if="activeTab === 'audit' && audit" class="drawer-body audit-body">
                 <div class="audit-head">
-                    <div class="audit-title">{{ audit.title }}</div>
+                    <div class="audit-title-row">
+                        <span class="audit-title">{{ audit.title }}</span>
+                        <button
+                            class="audit-info-btn"
+                            :class="{ on: showInfo }"
+                            :title="showInfo ? '收起会话总览' : '会话总览'"
+                            @click="toggleInfo"
+                        >
+                            <LineIcon name="info" size="13" />
+                        </button>
+                    </div>
                     <div v-if="audit.subtitle" class="audit-subtitle">{{ audit.subtitle }}</div>
                 </div>
 
-                <div v-if="showHelp" class="audit-help">
-                    <p>Vendor 用量为厂商上报的权威口径；Input 估算（breakdown）是按真实 tokenizer 对上下文各段的估算。</p>
-                    <p>context diff 贯穿整个 Conversation（跨 run/task/step）；点击分段可查看该段原文，点击「新增内容」查看与上一轮对比。</p>
-                    <p>Cost 分 vendor 与估算双口径；漂移率反映估算与厂商实际的偏离。</p>
+                <div v-if="showInfo" class="audit-overview">
+                    <div class="audit-overview-title">{{ conversation?.title || '会话总览' }}</div>
+                    <div class="audit-row">
+                        <span class="audit-key">轮次 / goals / tasks / steps</span>
+                        <span class="audit-val">{{ conversationStats.sessions || 0 }} / {{ conversationStats.goals || 0 }} / {{ conversationStats.tasks || 0 }} / {{ conversationStats.steps || 0 }}</span>
+                    </div>
+                    <template v-if="conversation?.usage?.vendor">
+                        <div class="audit-row"><span class="audit-key">input / output</span><span class="audit-val">{{ formatTokens(conversation.usage.vendor.input) }} / {{ formatTokens(conversation.usage.vendor.output) }}</span></div>
+                        <div v-if="conversation.usage.vendor.cacheRead" class="audit-row"><span class="audit-key">cached input</span><span class="audit-val">{{ formatTokens(conversation.usage.vendor.cacheRead) }}</span></div>
+                        <div v-if="conversation.usage.vendor.reasoning" class="audit-row"><span class="audit-key">reasoning output</span><span class="audit-val">{{ formatTokens(conversation.usage.vendor.reasoning) }}</span></div>
+                        <div class="audit-row audit-total"><span class="audit-key">vendor total</span><span class="audit-val">{{ formatTokens(conversation.usage.vendor.total) }}</span></div>
+                    </template>
+                    <div v-else class="audit-muted">厂商未上报</div>
+                    <div v-if="conversation?.utilization != null" class="audit-row"><span class="audit-key">窗口利用率</span><span class="audit-val">{{ formatPercent(conversation.utilization) }}</span></div>
+                    <template v-if="conversation?.usage?.cost">
+                        <div class="audit-row"><span class="audit-key">vendor cost</span><span class="audit-val">{{ formatCost(conversation.usage.cost.total) }}</span></div>
+                        <div v-if="conversation.usage.estimatedCost" class="audit-row"><span class="audit-key">估算 cost</span><span class="audit-val">{{ formatCost(conversation.usage.estimatedCost.total) }}</span></div>
+                        <div v-if="conversation.costDrift" class="audit-row"><span class="audit-key">cost 漂移</span><span class="audit-val" :class="diffClass(conversation.costDrift.usd)">{{ formatCost(conversation.costDrift.usd) }} <span class="audit-note-inline">{{ formatRate(conversation.costDrift.rate) }}</span></span></div>
+                    </template>
                 </div>
 
                 <div v-if="audit.kind === 'none'" class="empty-hint">
@@ -688,20 +713,40 @@ function toggleDiff() {
     border-bottom: 1px solid var(--border-soft);
     padding-bottom: 8px;
 }
-.audit-help {
+.audit-title-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.audit-info-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-tertiary);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.audit-info-btn:hover,
+.audit-info-btn.on {
+    background: var(--bg-hover);
+    color: var(--accent);
+}
+.audit-overview {
     padding: 8px 10px;
     border: 1px dashed var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-hover);
-    color: var(--fg-secondary);
-    font-size: 11px;
-    line-height: 1.6;
 }
-.audit-help p {
-    margin: 0 0 6px;
-}
-.audit-help p:last-child {
-    margin-bottom: 0;
+.audit-overview-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 6px;
 }
 .audit-title {
     font-size: 13px;
