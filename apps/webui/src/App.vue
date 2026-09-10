@@ -198,8 +198,8 @@ function conversationTitle(conversation) {
     return conversation?.title || run?.input || '';
 }
 
-function startTopConversation() {
-    // Jump to the blank welcome screen; the composer creates the conversation.
+/** Reset the open conversation back to the blank welcome screen. */
+function resetConversation() {
     currentConversation.value = null;
     current.value = null;
     detail.value = null;
@@ -207,9 +207,21 @@ function startTopConversation() {
 }
 
 /**
- * Start a new conversation inside a project: select that project's workspace so
- * the composer shows it, then open the blank screen. The run is created on
- * submit with the currently selected workspace.
+ * Top "新会话": drop the cached workspace selection, then open the blank screen,
+ * so the next conversation starts workspace-less ("随心聊").
+ */
+async function startTopConversation() {
+    try {
+        await selectWorkspace('');
+    } catch (error) {
+        ui.err = String(error);
+    }
+    resetConversation();
+}
+
+/**
+ * Project "+": select that project's workspace so the composer shows it, then
+ * open the blank screen. The run is created on submit with that workspace.
  */
 async function startProjectConversation(project) {
     try {
@@ -218,7 +230,7 @@ async function startProjectConversation(project) {
         ui.err = String(error);
         return;
     }
-    startTopConversation();
+    resetConversation();
 }
 
 function toggleProject(path) {

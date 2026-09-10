@@ -231,11 +231,11 @@ export async function loadWorkspace(): Promise<void> {
 }
 
 export async function selectWorkspace(path: string): Promise<void> {
-    if (!path?.trim()) return;
+    // An empty path clears the selection (backend maps it to "no workspace").
     const state = await api('/api/workspaces/current', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ path }),
+        body: JSON.stringify({ path: path?.trim() || '' }),
     });
     workspaceRoot.value = state.path || '';
     await loadWorkspace();
