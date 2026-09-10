@@ -463,7 +463,90 @@ export function donutShares(segments: AuditSegment[], minShare = DONUT_MIN_SHARE
     return current;
 }
 
-/** 占比段 → CSS conic-gradient（环形饼图，按 donutShares 归一化 + 保底）。 */
+/** SVG 环形扇区（hover 高亮 / tooltip 用）。 */
+export interface DonutArc extends AuditSegment {
+    /** SVG path（viewBox 0 0 100 100） */
+    path: string;
+    /** 中角方向偏移（单位：user unit，用于 hover 向外突出） */
+    offset: { x: number; y: number };
+}
+
+const DONUT_OUTER = 46;
+const DONUT_INNER = 28;
+const DONUT_LIFT = 4;
+
+function donutPoint(radius: number, fraction: number): { x: number; y: number } {
+    const angle = fraction * Math.PI * 2 - Math.PI / 2;
+    return { x: 50 + radius * Math.cos(angle), y: 50 + radius * Math.sin(angle) };
+}
+
+const round3 = (value: number): string => value.toFixed(3);
+
+function donutArcPath(startFraction: number, endFraction: number): string {
+    const outer = DONUT_OUTER;
+    const inner = DONUT_INNER;
+    const sweep = (endFraction - startFraction) * Math.PI * 2;
+    if (sweep >= Math.PI * 2 - 1e-6) {
+        // 整圆：两段半环（外顺内逆）形成圆环
+        const top = donutPoint(outer, 0);
+        const bottom = donutPoint(outer, 0.5);
+        const iTop = donutPoint(inner, 0);
+        const iBottom = donutPoint(inner, 0.5);
+        return [
+            `M ${round3(top.x)} ${round3(top.y)}`,
+            `A ${outer} ${outer} 0 1 1 ${round3(bottom.x)} ${round3(bottom.y)}`,
+            `A ${outer} ${outer} 0 1 1 ${round3(top.x)} ${round3(top.y)}`,
+            'Z',
+            `M ${round3(iTop.x)} ${round3(iTop.y)}`,
+            `A ${inner} ${inner} 0 1 0 ${round3(iBottom.x)} ${round3(iBottom.y)}`,
+            `A ${inner} ${inner} 0 1 0 ${round3(iTop.x)} ${round3(iTop.y)}`,
+            'Z',
+        ].join(' ');
+    }
+    const p1 = donutPoint(outer, startFraction);
+    const p2 = donutPoint(outer, endFraction);
+    const p3 = donutPoint(inner, endFraction);
+    const p4 = donutPoint(inner, startFraction);
+    const large = sweep > Math.PI ? 1 : 0;
+    return [
+        `M ${round3(p1.x)} ${round3(p1.y)}`,
+        `A ${outer} ${outer} 0 ${large} 1 ${round3(p2.x)} ${round3(p2.y)}`,
+        `L ${round3(p3.x)} ${round3(p3.y)}`,
+        `A ${inner} ${inner} 0 ${large} 0 ${round3(p4.x)} ${round3(p4.y)}`,
+        'Z',
+    ].join(' ');
+}
+
+/** 占比段 → SVG 环形扇区（与 donutShares 同口径；0 token 段不产出）。 */
+export function donutArcs(segments: AuditSegment[], minShare = DONUT_MIN_SHARE): DonutArc[] {
+    if (segments.length === 0) {
+        return [];
+    }
+    const shares = donutShares(segments, minShare);
+    const total = shares.reduce((sum, value) => sum + value, 0);
+    const arcs: DonutArc[] = [];
+    let acc = 0;
+    for (let index = 0; index < segments.length; index += 1) {
+        const segment = segments[index];
+        const share = total > 0 ? (shares[index] ?? 0) / total : 0;
+        if (segment === undefined || share <= 0) continue;
+        const start = acc;
+        const end = acc + share;
+        acc = end;
+        const midAngle = ((start + end) / 2) * Math.PI * 2 - Math.PI / 2;
+        arcs.push({
+            ...segment,
+            path: donutArcPath(start, end),
+            offset: {
+                x: Math.cos(midAngle) * DONUT_LIFT,
+                y: Math.sin(midAngle) * DONUT_LIFT,
+            },
+        });
+    }
+    return arcs;
+}
+
+/** 占比段 → CSS conic-gradient（兼容保留，按 donutShares 归一化 + 保底）。 */
 export function conicGradient(segments: AuditSegment[], minShare = DONUT_MIN_SHARE): string {
     if (segments.length === 0) {
         return 'conic-gradient(var(--border) 0% 100%)';

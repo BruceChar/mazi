@@ -5,6 +5,7 @@ import {
     buildAuditView,
     conicGradient,
     contextSegments,
+    donutArcs,
     donutShares,
     formatCost,
     formatDuration,
@@ -252,6 +253,25 @@ describe('audit conicGradient', () => {
 
     it('空段回落 border', () => {
         expect(conicGradient([])).toBe('conic-gradient(var(--border) 0% 100%)');
+    });
+
+    it('donutArcs：每段一个 SVG 扇区，含中角偏移', () => {
+        const segments = contextSegments(stepUsage().runtime);
+        const arcs = donutArcs(segments);
+        expect(arcs).toHaveLength(segments.length);
+        expect(arcs.every((arc) => arc.path.startsWith('M'))).toBe(true);
+        expect(
+            arcs.every((arc) => Number.isFinite(arc.offset.x) && Number.isFinite(arc.offset.y)),
+        ).toBe(true);
+    });
+
+    it('donutArcs：单段整圆也可构造；空段 → 空数组', () => {
+        const arcs = donutArcs([
+            { key: 'a', label: 'a', tokens: 100, ratio: 1, colorVar: '--seg-system', content: '' },
+        ]);
+        expect(arcs).toHaveLength(1);
+        expect(arcs[0]?.path.startsWith('M')).toBe(true);
+        expect(donutArcs([])).toEqual([]);
     });
 
     it('归一化 + 保底：极小占比也获得最小扇区，总和为 1', () => {

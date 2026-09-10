@@ -1,8 +1,8 @@
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import {
-    conicGradient,
+    donutArcs,
     formatCost,
     formatPercent,
     formatRate,
@@ -86,8 +86,28 @@ function diffClass(delta) {
     if (delta === null || delta === undefined || delta === 0) return 'flat';
     return delta > 0 ? 'up' : 'down';
 }
-function donutStyle(segments) {
-    return { background: conicGradient(segments) };
+/* ---- 环形饼图 hover：扇区突出 + 气泡详情 ---- */
+const donutWrap = ref(null);
+const hoverKey = ref('');
+const tipX = ref(0);
+const tipY = ref(0);
+const donutArcList = computed(() => donutArcs(audit.value?.segments || []));
+const hoveredSegment = computed(
+    () => (audit.value?.segments || []).find((seg) => seg.key === hoverKey.value) || null,
+);
+function onArcMove(event) {
+    const el = donutWrap.value;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    tipX.value = event.clientX - rect.left + 12;
+    tipY.value = event.clientY - rect.top + 12;
+}
+function onArcEnter(arc, event) {
+    hoverKey.value = arc.key;
+    onArcMove(event);
+}
+function onArcLeave() {
+    hoverKey.value = '';
 }
 function vendorNonReasoning(vendor) {
     return Math.max(0, Number(vendor?.output ?? 0) - Number(vendor?.reasoning ?? 0));
@@ -178,19 +198,40 @@ function toggleDiff() {
                             <span v-if="audit.utilization != null" class="audit-pct">窗口 {{ formatPercent(audit.utilization) }}</span>
                         </div>
                         <template v-if="audit.segments.length">
-                            <div class="donut-wrap">
-                                <div class="donut" :style="donutStyle(audit.segments)">
-                                    <div class="donut-hole">
-                                        <span class="donut-num">{{ formatTokens(audit.usage.runtime ? audit.usage.runtime.totalContextTokens : null) }}</span>
-                                        <span class="donut-cap">估算 input</span>
+                            <div ref="donutWrap" class="donut-wrap" @mouseleave="onArcLeave">
+                                <svg class="donut-svg" viewBox="0 0 100 100" role="img" aria-label="context 占比">
+                                    <path
+                                        v-for="arc in donutArcList"
+                                        :key="arc.key"
+                                        class="donut-arc"
+                                        :class="{ dim: hoverKey && hoverKey !== arc.key }"
+                                        :d="arc.path"
+                                        :fill="'var(' + arc.colorVar + ')'"
+                                        :style="hoverKey === arc.key ? { transform: 'translate(' + arc.offset.x + 'px,' + arc.offset.y + 'px)' } : {}"
+                                        @mouseenter="onArcEnter(arc, $event)"
+                                        @mousemove="onArcMove"
+                                    />
+                                </svg>
+                                <div class="donut-hole">
+                                    <span class="donut-num">{{ formatTokens(audit.usage.runtime ? audit.usage.runtime.totalContextTokens : null) }}</span>
+                                    <span class="donut-cap">估算 input</span>
+                                </div>
+                                <div v-if="hoveredSegment" class="donut-tip" :style="{ left: tipX + 'px', top: tipY + 'px' }">
+                                    <div class="donut-tip-title">
+                                        <span class="seg-dot" :style="{ background: 'var(' + hoveredSegment.colorVar + ')' }"></span>
+                                        {{ hoveredSegment.label }}
                                     </div>
+                                    <div class="donut-tip-row">tokens {{ formatTokens(hoveredSegment.tokens) }}</div>
+                                    <div class="donut-tip-row">占比 {{ formatPercent(hoveredSegment.ratio) }}</div>
                                 </div>
                             </div>
                             <template v-for="seg in audit.segments" :key="seg.key">
                                 <button
                                     class="seg-row"
-                                    :class="{ open: openSegments.has(seg.key) }"
+                                    :class="{ open: openSegments.has(seg.key), hot: hoverKey === seg.key }"
                                     :title="'查看 ' + seg.label + ' 原文'"
+                                    @mouseenter="hoverKey = seg.key"
+                                    @mouseleave="hoverKey = ''"
                                     @click="toggleSegment(seg.key)"
                                 >
                                     <span class="seg-dot" :style="{ background: 'var(' + seg.colorVar + ')' }"></span>
@@ -919,20 +960,31 @@ function toggleDiff() {
     white-space: pre-wrap;
     word-break: break-word;
 }
-/* Donut (conic-gradient pie) for input breakdown */
+/* Donut (SVG arcs) for input breakdown — hover 突出 + 气泡 */
 .donut-wrap {
+    position: relative;
     display: flex;
     justify-content: center;
     margin-bottom: 8px;
 }
-.donut {
+.donut-svg {
     width: 108px;
     height: 108px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
+    overflow: visible;
+}
+.donut-arc {
+    cursor: pointer;
+    transition: transform 0.12s ease, opacity 0.12s ease;
+    transform-origin: 50px 50px;
+}
+.donut-arc.dim {
+    opacity: 0.4;
 }
 .donut-hole {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     width: 72px;
     height: 72px;
     border-radius: 50%;
@@ -942,6 +994,31 @@ function toggleDiff() {
     align-items: center;
     justify-content: center;
     gap: 1px;
+    pointer-events: none;
+}
+.donut-tip {
+    position: absolute;
+    z-index: 6;
+    pointer-events: none;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-elevated);
+    box-shadow: var(--shadow-md);
+    color: var(--fg);
+    font-size: 11px;
+    white-space: nowrap;
+}
+.donut-tip-title {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+    margin-bottom: 3px;
+}
+.donut-tip-row {
+    font-family: ui-monospace, monospace;
+    color: var(--fg-secondary);
 }
 .donut-num {
     font-size: 14px;
@@ -974,7 +1051,8 @@ function toggleDiff() {
     border-radius: 4px;
 }
 .seg-row:hover,
-.seg-row.open {
+.seg-row.open,
+.seg-row.hot {
     background: var(--bg-hover);
 }
 .seg-caret {
