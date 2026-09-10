@@ -1396,7 +1396,7 @@ onBeforeUnmount(() => {
         <aside
             class="right-panel"
             :class="{ open: ui.rightOpen, maximized: panelMaximized }"
-            :style="panelMaximized ? {} : { width: rightWidth + 'px', minWidth: rightWidth + 'px' }"
+            :style="ui.rightOpen && !panelMaximized ? { width: rightWidth + 'px', minWidth: rightWidth + 'px' } : {}"
         >
             <button v-if="ui.rightOpen && !panelMaximized" class="right-panel-handle" title="收起面板" @click="ui.rightOpen = false">
                 <LineIcon name="chevronRight" size="12" />
