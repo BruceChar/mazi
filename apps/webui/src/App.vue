@@ -1534,30 +1534,6 @@ onBeforeUnmount(() => {
     gap: 4px;
 }
 
-/* Final summary (goal-level, sits after all goals/tasks/steps) */
-.exec-summary {
-    margin-top: 12px;
-    padding: 0;
-    border: none;
-    background: transparent;
-}
-.exec-summary-text {
-    font-size: 13px;
-    line-height: 1.6;
-    color: var(--fg);
-    white-space: pre-wrap;
-    word-break: break-word;
-}
-.exec-reasoning {
-    font-size: 13px;
-    line-height: 1.6;
-    color: var(--fg-secondary);
-    font-style: italic;
-    white-space: pre-wrap;
-    word-break: break-word;
-    margin-bottom: 12px;
-    opacity: 0.8;
-}
 
 .goal-card {
     border: 1px solid var(--border);
