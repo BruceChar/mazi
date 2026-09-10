@@ -6,6 +6,7 @@ import { ProviderError } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
 import type { DefaultEventBus } from '../src/observability/event-bus.js';
+import type { PricingSchedule } from '../src/provider/pricing.js';
 import { HarnessRuntime } from '../src/runtime.js';
 
 /** faux provider：文本分两段流式产出，验证 llm.stream_event 逐增量透传。 */
@@ -241,6 +242,83 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
             expect(String((failedTool?.payload as { content?: string })?.content)).toContain(
                 'boom: file not found',
             );
+        } finally {
+            unsubscribe();
+            await runtime.close();
+        }
+    });
+
+    it('Step.usage 全路径：vendor + runtime 装填 + timing + cost 同时进入快照与 step.ended 载荷', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-stream-'));
+        dirs.push(dir);
+
+        const usageProvider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new ProviderError('unknown', 'ask unused');
+            },
+            async *askStream(): AsyncIterable<StreamCompletionEvent> {
+                yield { type: 'start', model: 'faux-model' };
+                yield { type: 'text_delta', text: 'hi' };
+                yield { type: 'usage', usage: { inputTokens: 30, outputTokens: 12, totalTokens: 42 } };
+                yield { type: 'finish', finishReason: 'stop' };
+            },
+        };
+
+        const pricing: PricingSchedule = {
+            currency: 'USD',
+            base: { inputPerMTok: 2, outputPerMTok: 8 },
+            tiers: [],
+            effectiveAt: 0,
+            version: 'test',
+        };
+
+        const config: RuntimeConfig = {
+            providers: [
+                {
+                    id: 'default',
+                    driver: { type: 'pi-ai', provider: 'faux', model: 'faux-model' },
+                    pricing,
+                },
+            ],
+            tools: [],
+            dbPath: ':memory:',
+            eventDir: dir,
+            goal: { allowedTools: [], permissionCeiling: 'read-only' },
+            contextWindow: 64000,
+        };
+
+        const runtime = new HarnessRuntime(config, { llmProviders: { default: usageProvider } });
+        const stepEvents: HarnessEvent[] = [];
+        const unsubscribe = runtime.eventBus.subscribe(
+            { types: ['step.ended'] },
+            { id: 'usage-test', handle: (event) => stepEvents.push(event) },
+        );
+        try {
+            const created = await runtime.createGoalSession('say hi');
+            await runtime.executeGoalTree(created.rootGoalId);
+
+            const snapshot = await runtime.goalSnapshot(created.rootGoalId);
+            const steps = snapshot.goals.flatMap((goal) => goal.tasks.flatMap((task) => task.steps));
+            const usage = steps.find((step) => step.usage !== undefined)?.usage;
+            expect(usage?.vendor?.inputTokens).toBe(30);
+            expect(usage?.vendor?.outputTokens).toBe(12);
+            expect(usage?.runtime?.totalContextTokens).toBeGreaterThan(0);
+            expect(usage?.runtime?.contextWindowUtilization).toBeGreaterThan(0);
+            expect(usage?.runtime?.contextDeltaFromPrev).toBe(0);
+            expect(typeof usage?.timing?.totalMs).toBe('number');
+            expect(usage?.cost?.totalCostUsd).toBeGreaterThan(0);
+            expect(usage?.cost?.priceTierApplied).toBe('base');
+
+            const payloadUsage = stepEvents
+                .map((event) => (event.payload as { usage?: typeof usage }).usage)
+                .find((item) => item !== undefined);
+            expect(payloadUsage?.runtime?.totalContextTokens).toBeGreaterThan(0);
+            expect(payloadUsage?.cost?.totalCostUsd).toBeGreaterThan(0);
+            expect(payloadUsage?.timing).toBeDefined();
         } finally {
             unsubscribe();
             await runtime.close();
