@@ -5,12 +5,13 @@ import {
     isWorkspaceConversation,
     projectConversations,
 } from './sidebar.ts';
+import type { Conversation } from './types';
 
-function conversation(id, overrides = {}) {
+function conversation(id: string, overrides: Partial<Conversation> = {}): Conversation {
     return {
         conversationId: id,
         title: `会话 ${id}`,
-        sessions: [{ sessionId: `s-${id}` }],
+        runs: [{ rootGoalId: `s-${id}`, input: '', createdAt: 0 }],
         createdAt: 0,
         updatedAt: 0,
         ...overrides,

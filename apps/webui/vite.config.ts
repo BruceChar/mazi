@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite';
 import vue from '@vitejs/plugin-vue';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * 开发/预览配置。
@@ -14,6 +15,7 @@ import { resolve } from 'node:path';
  * 代理用 localhost 而非 127.0.0.1（兼容本机 IPv6/localhost 解析差异，
  * UI 保持同源，无跨域/CSP 告警）。
  */
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENV_DIR = resolve(__dirname, '../..');
 
 export default defineConfig(({ mode }) => {

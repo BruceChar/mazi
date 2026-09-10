@@ -5,7 +5,7 @@ export const API_BASE = (
 ).replace(/\/$/, '');
 
 /** 统一 REST 请求：错误统一抛 Error，API 状态写到顶栏小字（后端不可用时无 UI 崩溃） */
-export async function api(path, init) {
+export async function api(path: string, init?: RequestInit) {
     const started = Date.now();
     const full = API_BASE + path;
     const label = `${init && init.method ? init.method : 'GET'} ${full}`;
@@ -25,7 +25,7 @@ export async function api(path, init) {
     return data;
 }
 
-export function logApi(text) {
+export function logApi(text: string) {
     const el = document.getElementById('apilog');
     if (el) {
         el.textContent = text;

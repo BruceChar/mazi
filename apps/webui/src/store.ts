@@ -1,5 +1,14 @@
 import { reactive, ref } from 'vue';
 import { api, API_BASE } from './api.js';
+import type {
+    Conversation,
+    ConfigOverview,
+    EventItem,
+    Project,
+    RunOutcome,
+    TimelineDetail,
+    UserPreferences,
+} from './types';
 
 const THEME_KEY = 'mazi.web.theme';
 /** Goal 会话事件 + Step 流式事件（step.ended：思考/工具/观察实时推送） */
@@ -8,10 +17,10 @@ const LIVE_EVENT_TYPES = [
     'session.ended',
     'user.feedback.captured',
     'step.ended',
-];
-const REFRESH_EVENT_TYPES = new Set(['session.ended']);
+] as const;
+const REFRESH_EVENT_TYPES = new Set<string>(['session.ended']);
 
-function systemPrefersDark() {
+function systemPrefersDark(): boolean {
     return (
         typeof window !== 'undefined' &&
         typeof window.matchMedia === 'function' &&
@@ -19,25 +28,25 @@ function systemPrefersDark() {
     );
 }
 
-function readInitialTheme() {
+function readInitialTheme(): 'dark' | 'light' | 'system' {
     const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(THEME_KEY) : null;
     return saved === 'dark' || saved === 'light' || saved === 'system' ? saved : 'light';
 }
 
-function persistTheme(value) {
+function persistTheme(value: string): void {
     if (typeof localStorage !== 'undefined') {
         localStorage.setItem(THEME_KEY, value);
     }
 }
 
-export const theme = ref(readInitialTheme());
+export const theme = ref<'dark' | 'light' | 'system'>(readInitialTheme());
 
-export function applyTheme(value) {
+export function applyTheme(value: string): void {
     const effective = value === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : value;
     document.documentElement.dataset.theme = effective;
 }
 
-export function setTheme(value) {
+export function setTheme(value: 'dark' | 'light' | 'system'): void {
     theme.value = value;
     applyTheme(value);
     persistTheme(value);
@@ -45,7 +54,16 @@ export function setTheme(value) {
 
 applyTheme(theme.value);
 
-export const ui = reactive({
+export interface UiState {
+    view: 'chat' | 'system-settings' | 'settings';
+    rightOpen: boolean;
+    showNew: boolean;
+    sidebar: boolean;
+    eventTypes: string;
+    err: string | null;
+}
+
+export const ui = reactive<UiState>({
     view: 'chat',
     rightOpen: false,
     showNew: false,
@@ -56,7 +74,7 @@ export const ui = reactive({
 
 const USER_PREFERENCES_KEY = 'mazi.web.user-preferences';
 
-function readUserPreferences() {
+function readUserPreferences(): UserPreferences {
     try {
         return {
             displayName: localStorage.getItem(`${USER_PREFERENCES_KEY}.displayName`) || 'me',
@@ -74,9 +92,9 @@ function readUserPreferences() {
     }
 }
 
-export const userPreferences = reactive(readUserPreferences());
+export const userPreferences = reactive<UserPreferences>(readUserPreferences());
 
-export function saveUserPreferences(next) {
+export function saveUserPreferences(next: Partial<UserPreferences>): void {
     Object.assign(userPreferences, next);
     if (typeof localStorage !== 'undefined') {
         for (const [key, value] of Object.entries(userPreferences)) {
@@ -86,32 +104,32 @@ export function saveUserPreferences(next) {
 }
 
 /** 会话列表（conversations.json；每条含 Goal run 引用 runs[]） */
-export const conversations = ref([]);
-export const cfg = ref(null);
-export const workspaceRoot = ref('');
-export const projects = ref([]);
-export const busy = ref(false);
+export const conversations = ref<Conversation[]>([]);
+export const cfg = ref<ConfigOverview | null>(null);
+export const workspaceRoot = ref<string>('');
+export const projects = ref<Project[]>([]);
+export const busy = ref<boolean>(false);
 /** 当前打开的 Goal run（rootGoalId） */
-export const current = ref(null);
-export const currentConversation = ref(null);
+export const current = ref<string | null>(null);
+export const currentConversation = ref<string | null>(null);
 /** 当前 run 的 Goal 树快照（GET /api/sessions/:id/timeline） */
-export const detail = ref(null);
+export const detail = ref<TimelineDetail | null>(null);
 /** Per-run timeline cache (rootGoalId -> snapshot) for displaying old runs */
-export const runDetails = reactive({});
+export const runDetails = reactive<Record<string, TimelineDetail | null>>({});
 /** 本会话内存中的 run 结果（POST run 响应 tasks 摘要；不持久化） */
-export const runOutcomes = reactive({});
-export const events = reactive({ list: [], types: 'all' });
+export const runOutcomes = reactive<Record<string, RunOutcome>>({});
+export const events = reactive<{ list: EventItem[]; types: string }>({ list: [], types: 'all' });
 
-export const esc = (s) =>
+export const esc = (s: unknown): string =>
     String(s ?? '').replace(/[&<>"']/g, (c) => (
-        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-    ));
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
+    )[c]);
 
-export const short = (s, n = 120) =>
+export const short = (s: string | null | undefined, n = 120): string =>
     s && s.length > n ? `${s.slice(0, n)}…` : s || '';
 
-export function statusLabel(status) {
-    const map = {
+export function statusLabel(status: string | null | undefined): string {
+    const map: Record<string, string> = {
         active: '进行中',
         succeeded: '成功',
         failed: '失败',
@@ -124,10 +142,10 @@ export function statusLabel(status) {
         pending: '待执行',
         rolled_back: '已回滚',
     };
-    return map[status] ?? status ?? '—';
+    return map[status ?? ''] ?? status ?? '—';
 }
 
-export function fmtUsd(value) {
+export function fmtUsd(value: number | string | null | undefined): string {
     const n = Number(value ?? 0);
     return new Intl.NumberFormat('en-US', {
         style: 'currency',
@@ -136,7 +154,7 @@ export function fmtUsd(value) {
     }).format(n);
 }
 
-export function fmtClock(ts) {
+export function fmtClock(ts: number | null | undefined): string {
     if (!ts) return '';
     const d = new Date(ts);
     const now = new Date();
@@ -147,7 +165,7 @@ export function fmtClock(ts) {
     return `${date} ${time}`;
 }
 
-export function relTime(ts) {
+export function relTime(ts: number | null | undefined): string {
     if (!ts) return '';
     const seconds = Math.max(0, Math.round((Date.now() - ts) / 1000));
     if (seconds < 60) return '刚刚';
@@ -160,7 +178,7 @@ export function relTime(ts) {
     return new Date(ts).toLocaleDateString();
 }
 
-export async function loadConfig() {
+export async function loadConfig(): Promise<void> {
     try {
         cfg.value = await api('/api/config');
         ui.err = null;
@@ -170,7 +188,7 @@ export async function loadConfig() {
     }
 }
 
-export async function loadConversations() {
+export async function loadConversations(): Promise<void> {
     try {
         conversations.value = await api('/api/conversations');
         ui.err = null;
@@ -179,7 +197,7 @@ export async function loadConversations() {
     }
 }
 
-export async function loadWorkspace() {
+export async function loadWorkspace(): Promise<void> {
     try {
         const state = await api('/api/workspaces/current');
         workspaceRoot.value = state.path || '';
@@ -189,7 +207,7 @@ export async function loadWorkspace() {
     }
 }
 
-export async function selectWorkspace(path) {
+export async function selectWorkspace(path: string): Promise<void> {
     if (!path?.trim()) return;
     const state = await api('/api/workspaces/current', {
         method: 'POST',
@@ -200,7 +218,7 @@ export async function selectWorkspace(path) {
     await loadWorkspace();
 }
 
-export async function pickWorkspace() {
+export async function pickWorkspace(): Promise<string | undefined> {
     const state = await api('/api/workspaces/pick', { method: 'POST' });
     if (state?.path) {
         workspaceRoot.value = state.path;
@@ -213,7 +231,7 @@ export async function pickWorkspace() {
     return state?.path;
 }
 
-export async function renameProject(path, title) {
+export async function renameProject(path: string, title: string): Promise<void> {
     const state = await api('/api/workspaces/project', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -225,7 +243,7 @@ export async function renameProject(path, title) {
 }
 
 /** 删除工作区项目配置（仅配置；对话记录解除归属后保留） */
-export async function deleteWorkspaceProject(path) {
+export async function deleteWorkspaceProject(path: string): Promise<void> {
     const state = await api('/api/workspaces/project', {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
@@ -238,15 +256,15 @@ export async function deleteWorkspaceProject(path) {
 }
 
 /** Conversation 最新一条 Goal run（按 createdAt） */
-export function latestRun(conversation) {
+export function latestRun(conversation: Conversation | null | undefined) {
     const runs = conversation?.runs || [];
     return runs.length > 0 ? runs[runs.length - 1] : null;
 }
 
-let eventSource = null;
-let refreshTimer = null;
+let eventSource: EventSource | null = null;
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
-function refreshLater(rootGoalId) {
+function refreshLater(rootGoalId: string): void {
     if (refreshTimer) {
         clearTimeout(refreshTimer);
     }
@@ -256,7 +274,7 @@ function refreshLater(rootGoalId) {
     }, 250);
 }
 
-async function refreshDetail(rootGoalId) {
+async function refreshDetail(rootGoalId: string): Promise<void> {
     try {
         detail.value = await api(`/api/sessions/${rootGoalId}/timeline`);
         await loadConversations();
@@ -265,7 +283,7 @@ async function refreshDetail(rootGoalId) {
     }
 }
 
-export function stopEvents() {
+export function stopEvents(): void {
     if (eventSource) {
         eventSource.close();
         eventSource = null;
@@ -276,7 +294,7 @@ export function stopEvents() {
     }
 }
 
-export function watchEvents(rootGoalId) {
+export function watchEvents(rootGoalId: string): void {
     stopEvents();
     if (typeof EventSource === 'undefined') {
         return;
@@ -284,9 +302,9 @@ export function watchEvents(rootGoalId) {
     const source = new EventSource(
         `${API_BASE}/api/events/${encodeURIComponent(rootGoalId)}?follow=1`,
     );
-    const consume = (raw) => {
+    const consume = (raw: MessageEvent): void => {
         try {
-            const event = JSON.parse(raw.data);
+            const event = JSON.parse(raw.data) as EventItem;
             if (!events.list.some((e) => e.eventId === event.eventId)) {
                 events.list.push(event);
             }
@@ -303,7 +321,7 @@ export function watchEvents(rootGoalId) {
     eventSource = source;
 }
 
-export async function loadEvents(rootGoalId) {
+export async function loadEvents(rootGoalId: string): Promise<void> {
     try {
         events.list = await api(`/api/events/${rootGoalId}?limit=5000`);
     } catch {
@@ -311,7 +329,7 @@ export async function loadEvents(rootGoalId) {
     }
 }
 
-async function loadDetail(rootGoalId) {
+async function loadDetail(rootGoalId: string): Promise<void> {
     try {
         detail.value = await api(`/api/sessions/${rootGoalId}/timeline`);
         runDetails[rootGoalId] = detail.value;
@@ -323,7 +341,7 @@ async function loadDetail(rootGoalId) {
 }
 
 /** Load timeline for a specific run (cached) — for displaying old runs */
-export async function loadRunDetail(rootGoalId) {
+export async function loadRunDetail(rootGoalId: string): Promise<void> {
     if (!rootGoalId || runDetails[rootGoalId]) return;
     try {
         runDetails[rootGoalId] = await api(`/api/sessions/${rootGoalId}/timeline`);
@@ -333,7 +351,7 @@ export async function loadRunDetail(rootGoalId) {
 }
 
 /** 打开一棵 Goal 树（run）：拉取时间线快照并订阅事件 */
-export async function openRun(rootGoalId) {
+export async function openRun(rootGoalId: string): Promise<void> {
     if (!rootGoalId) return;
     current.value = rootGoalId;
     watchEvents(rootGoalId);
@@ -341,7 +359,7 @@ export async function openRun(rootGoalId) {
 }
 
 /** 打开 Conversation（默认选中最新一条 run） */
-export async function openConversation(conversationId) {
+export async function openConversation(conversationId: string): Promise<void> {
     currentConversation.value = conversationId;
     const conversation = conversations.value.find((item) => item.conversationId === conversationId);
     const run = latestRun(conversation);
@@ -354,17 +372,26 @@ export async function openConversation(conversationId) {
     }
 }
 
+export interface CreateRunOptions {
+    input: string;
+    userId?: string;
+    workspacePath?: string;
+    conversationId?: string;
+    exec?: boolean;
+    goal?: Record<string, unknown>;
+}
+
 /**
  * 新建 Goal 会话：POST /api/sessions（create）→ 可选立即 POST run。
  * returns rootGoalId
  */
-export async function createRun({ input, userId, workspacePath, conversationId, exec = true, goal }) {
+export async function createRun({ input, userId, workspacePath, conversationId, exec = true, goal }: CreateRunOptions): Promise<string | null> {
     const text = String(input ?? '').trim();
     if (!text) return null;
     busy.value = true;
     ui.err = null;
     try {
-        const body = { input: text, userId, workspacePath };
+        const body: Record<string, unknown> = { input: text, userId, workspacePath };
         if (goal && typeof goal === 'object') {
             body.goal = goal;
         }
@@ -395,7 +422,7 @@ export async function createRun({ input, userId, workspacePath, conversationId, 
 }
 
 /** 执行当前 Goal run（POST /api/sessions/:id/run），并把 tasks 摘要记入内存 */
-export async function executeRun(rootGoalId) {
+export async function executeRun(rootGoalId: string): Promise<void> {
     if (!rootGoalId) return;
     busy.value = true;
     ui.err = null;
@@ -424,7 +451,7 @@ export async function executeRun(rootGoalId) {
     }
 }
 
-export async function updateConversation(conversationId, changes) {
+export async function updateConversation(conversationId: string, changes: Record<string, unknown>): Promise<void> {
     await api(`/api/conversations/${conversationId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -433,7 +460,7 @@ export async function updateConversation(conversationId, changes) {
     await loadConversations();
 }
 
-export async function deleteConversationById(conversationId) {
+export async function deleteConversationById(conversationId: string): Promise<void> {
     if (currentConversation.value === conversationId) {
         current.value = null;
         currentConversation.value = null;
@@ -444,7 +471,7 @@ export async function deleteConversationById(conversationId) {
     await loadConversations();
 }
 
-export async function sendFeedback(rootGoalId, rating, content) {
+export async function sendFeedback(rootGoalId: string, rating: string, content?: string): Promise<void> {
     await api(`/api/sessions/${rootGoalId}/feedback`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
