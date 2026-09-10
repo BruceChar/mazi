@@ -1077,20 +1077,6 @@ onBeforeUnmount(() => {
                                     <div v-if="finalSummaryOf(runDetails[run.rootGoalId]) && !isSimpleExecOf(runDetails[run.rootGoalId])" class="exec-summary">
                                         <div class="exec-summary-text">{{ finalSummaryOf(runDetails[run.rootGoalId]) }}</div>
                                     </div>
-                                    <!-- Bottom stats + feedback -->
-                                    <div class="exec-stats">
-                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).stepCount }} steps</span>
-                                        <span>·</span>
-                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).taskCount }} tasks</span>
-                                        <span>·</span>
-                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).totalTime }}</span>
-                                        <span>·</span>
-                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).inputTokens }} in / {{ buildExecStats(runDetails[run.rootGoalId]).outputTokens }} out tokens</span>
-                                        <div class="exec-stats-fb">
-                                            <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
-                                            <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
-                                        </div>
-                                    </div>
                                 </div>
                                 <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
                             </template>
@@ -1126,6 +1112,19 @@ onBeforeUnmount(() => {
                 <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
 
                 <div class="input-area">
+                    <div v-if="current && execStats.stepCount > 0" class="composer-stats">
+                        <span>{{ execStats.stepCount }} steps</span>
+                        <span>·</span>
+                        <span>{{ execStats.taskCount }} tasks</span>
+                        <span>·</span>
+                        <span>{{ execStats.totalTime }}</span>
+                        <span>·</span>
+                        <span>{{ execStats.inputTokens }} in / {{ execStats.outputTokens }} out tokens</span>
+                        <div class="composer-stats-fb">
+                            <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
+                            <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
+                        </div>
+                    </div>
                     <div class="input-composer">
                         <div class="input-top">
                             <textarea

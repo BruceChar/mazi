@@ -798,7 +798,7 @@ pre {
     flex: 1;
     min-height: 0;
     overflow: auto;
-    padding: 18px 24px 28px;
+    padding: 18px 24px 8px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -1111,6 +1111,25 @@ pre {
     flex: 0 0 auto;
     padding: 4px 16px 14px;
     background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.composer-stats {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+}
+.composer-stats-fb {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .input-composer {
