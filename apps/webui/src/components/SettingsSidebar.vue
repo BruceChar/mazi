@@ -1,5 +1,5 @@
 <script setup>
-import LineIcon from '../LineIcon.vue';
+import LineIcon from '../assets/LineIcon.vue';
 
 defineProps({
     tabs: { type: Array, required: true },

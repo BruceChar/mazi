@@ -22,27 +22,6 @@ export interface NewConversationRun {
 }
 
 /**
- * 归一化历史 conversations.json：旧版记录以 sessionIds[] 承载（其 Session 数据已随 C5 迁移删除），
- * 保留会话壳（标题/归属/时间）并清空 run 引用，避免 list() 等按 runs[] 投影时崩溃。
- */
-function normalizeRecords(records: Conversation[]): Conversation[] {
-    return records.map((record) => {
-        const next: Conversation = {
-            conversationId: record.conversationId,
-            title: record.title,
-            userId: record.userId,
-            runs: Array.isArray(record.runs) ? record.runs : [],
-            workspace: record.workspace,
-            projectId: record.projectId,
-            createdAt: record.createdAt,
-            updatedAt: record.updatedAt,
-            archived: record.archived,
-        };
-        return next;
-    });
-}
-
-/**
  * Conversation 业务仓储（apps/api 层）：JSON 持久化会话分组与工作区归属。
  * Goal 坐标系：Conversation 仅保存 run 引用（rootGoalId + intake 输入 + 时间），
  * Goal 树本体与执行事实由 runtime goal-store 持久化；删除级联走 goalStore.deleteGoalTree。
@@ -61,7 +40,7 @@ export class ConversationsService {
     private read(): void {
         try {
             const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as ConversationsFile;
-            this.state.conversations = normalizeRecords(parsed.conversations ?? []);
+            this.state.conversations = parsed.conversations ?? [];
         } catch {
             this.state.conversations = [];
         }

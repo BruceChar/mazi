@@ -4,8 +4,8 @@ import {
     defaultConversations,
     isWorkspaceConversation,
     projectConversations,
-} from './sidebar.ts';
-import type { Conversation } from './types';
+} from '../src/scripts/conversation.ts';
+import type { Conversation } from '../src/types.ts';
 
 function conversation(id: string, overrides: Partial<Conversation> = {}): Conversation {
     return {

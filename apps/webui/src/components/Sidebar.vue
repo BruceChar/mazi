@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import LineIcon from '../LineIcon.vue';
+import LineIcon from '../assets/LineIcon.vue';
 
 const props = defineProps({
     projects: { type: Array, default: () => [] },

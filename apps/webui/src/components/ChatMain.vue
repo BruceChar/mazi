@@ -1,5 +1,5 @@
 <script setup>
-import LineIcon from '../LineIcon.vue';
+import LineIcon from '../assets/LineIcon.vue';
 import ExecStream from './ExecStream.vue';
 import Composer from './Composer.vue';
 

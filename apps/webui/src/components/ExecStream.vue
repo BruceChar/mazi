@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue';
-import LineIcon from '../LineIcon.vue';
-import { renderMarkdown } from '../markdown';
+import LineIcon from '../assets/LineIcon.vue';
+import { renderMarkdown } from '../scripts/markdown.ts';
 
 defineProps({
     runDetail: { type: Object, default: null },

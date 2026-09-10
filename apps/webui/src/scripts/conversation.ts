@@ -1,4 +1,4 @@
-import type { Conversation } from './types';
+import type { Conversation } from '../types';
 
 /** 会话归属字段是否完整，决定是否展示在工作区项目分组 */
 export function isWorkspaceConversation(conversation: Conversation | null | undefined): boolean {

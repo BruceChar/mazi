@@ -1,5 +1,5 @@
 import { reactive, ref } from 'vue';
-import { api, API_BASE } from './api.js';
+import { api, API_BASE } from '../api.js';
 import type {
     Conversation,
     ConfigOverview,
@@ -8,7 +8,7 @@ import type {
     Project,
     RunOutcome,
     UserPreferences,
-} from './types';
+} from '../types.js';
 
 const THEME_KEY = 'mazi.web.theme';
 /** Goal 会话事件 + Step 流式事件（step.ended：思考/工具/观察实时推送） */

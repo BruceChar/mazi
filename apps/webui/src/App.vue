@@ -1,15 +1,13 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import LineIcon from './LineIcon.vue';
+import LineIcon from './assets/LineIcon.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
-import ExecStream from './components/ExecStream.vue';
-import Composer from './components/Composer.vue';
 import Sidebar from './components/Sidebar.vue';
 import ChatMain from './components/ChatMain.vue';
-import { defaultConversations, projectConversations } from './sidebar.ts';
+import { defaultConversations, projectConversations } from './scripts/conversation.ts';
 import { API_BASE } from './api.js';
 import {
     busy,
@@ -48,7 +46,7 @@ import {
     updateConversation,
     userPreferences,
     workspaceRoot,
-} from './store.js';
+} from './scripts/store.js';
 
 const prompt = ref('');
 const q = ref('');
@@ -356,9 +354,9 @@ function isConversationActive(conversation) {
     return currentConversation.value === conversation.conversationId;
 }
 
-function projectConversationItems(project) {
-    return projectConversations(activeConvList.value, project.path, project.path);
-}
+// function projectConversationItems(project) {
+//     return projectConversations(activeConvList.value, project.path, project.path);
+// }
 
 /** 目标工作区（点项目/会话区 ＋ 后生效），用于新会话归属 */
 const pendingWorkspace = ref('');

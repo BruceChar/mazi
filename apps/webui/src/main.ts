@@ -1,6 +1,6 @@
 import { createApp } from 'vue';
 import App from './App.vue';
-import './style.css';
+import './style/index.css';
 
 const root = document.getElementById('app');
 if (root) {
