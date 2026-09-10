@@ -258,6 +258,7 @@ pre {
     color: var(--fg);
     border-right: 1px solid var(--border);
     min-height: 0;
+    position: relative;
     transition: flex-basis 0.16s ease, width 0.16s ease;
 }
 
@@ -267,6 +268,30 @@ pre {
     min-width: 0;
     overflow: hidden;
     border-right: none;
+}
+
+.sidebar-handle {
+    position: absolute;
+    top: 50%;
+    right: -7px;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 36px;
+    border: 1px solid var(--border);
+    border-left: none;
+    border-radius: 0 6px 6px 0;
+    background: var(--bg-panel);
+    color: var(--fg-tertiary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    padding: 0;
+}
+.sidebar-handle:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
 }
 
 .sidebar-new {
@@ -1309,6 +1334,31 @@ pre {
     background: var(--bg);
     border-left: 0 solid var(--border);
     transition: width 0.16s ease;
+    position: relative;
+}
+
+.right-panel-handle {
+    position: absolute;
+    top: 50%;
+    left: -7px;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 36px;
+    border: 1px solid var(--border);
+    border-right: none;
+    border-radius: 6px 0 0 6px;
+    background: var(--bg-panel);
+    color: var(--fg-tertiary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    padding: 0;
+}
+.right-panel-handle:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
 }
 
 .right-panel.open {

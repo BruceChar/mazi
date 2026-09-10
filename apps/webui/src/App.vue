@@ -836,18 +836,14 @@ onBeforeUnmount(() => {
             >
                 <LineIcon name="panel" />
             </button>
-            <button
-                class="icon-btn"
-                :title="theme === 'dark' ? '切换到浅色' : '切换到深色'"
-                @click="cycleTheme"
-            >
-                <LineIcon :name="theme === 'dark' ? 'sun' : 'moon'" />
-            </button>
         </div>
     </header>
 
     <div class="app-shell">
         <aside class="sidebar" :class="{ show: ui.sidebar }">
+            <button class="sidebar-handle" title="收起侧边栏" @click="ui.sidebar = false">
+                <LineIcon name="chevronLeft" size="12" />
+            </button>
             <!-- Settings mode: category nav -->
             <template v-if="ui.view === 'system-settings'">
                 <div class="settings-sidebar">
@@ -1249,16 +1245,6 @@ onBeforeUnmount(() => {
                             </div>
                         </div>
                         <div class="settings-group">
-                            <div class="settings-group-title">Workspace</div>
-                            <div class="setting-item">
-                                <div class="setting-info">
-                                    <div class="setting-name">Current workspace</div>
-                                    <div class="setting-desc">{{ workspaceRoot || 'No workspace selected' }}</div>
-                                </div>
-                                <button class="ghost" @click="openSystemPicker">Change</button>
-                            </div>
-                        </div>
-                        <div class="settings-group">
                             <div class="settings-group-title">Storage</div>
                             <div class="setting-item">
                                 <div class="setting-info">
@@ -1394,6 +1380,9 @@ onBeforeUnmount(() => {
             :class="{ open: ui.rightOpen, maximized: panelMaximized }"
             :style="panelMaximized ? {} : { width: rightWidth + 'px', minWidth: rightWidth + 'px' }"
         >
+            <button v-if="ui.rightOpen && !panelMaximized" class="right-panel-handle" title="收起面板" @click="ui.rightOpen = false">
+                <LineIcon name="chevronRight" size="12" />
+            </button>
             <div class="right-panel-inner">
                 <div class="drawer-head">
                     <div class="drawer-tabs">
