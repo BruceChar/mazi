@@ -1411,9 +1411,6 @@ onBeforeUnmount(() => {
                         <button class="icon-btn" :title="panelMaximized ? '还原' : '最大化'" @click="togglePanelMax">
                             <LineIcon :name="panelMaximized ? 'minimize' : 'maximize'" size="14" />
                         </button>
-                        <button class="icon-btn" title="收起" @click="ui.rightOpen = false">
-                            <LineIcon name="close" size="15" />
-                        </button>
                     </div>
                 </div>
 
