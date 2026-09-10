@@ -1252,7 +1252,7 @@ onBeforeUnmount(() => {
         </main>
 
         <div
-            v-if="rightOpen && !panelMaximized"
+            v-if="ui.rightOpen && !panelMaximized"
             class="panel-resizer"
             title="拖拽调整宽度"
             @pointerdown="startResize"
