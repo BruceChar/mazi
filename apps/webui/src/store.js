@@ -96,6 +96,8 @@ export const current = ref(null);
 export const currentConversation = ref(null);
 /** 当前 run 的 Goal 树快照（GET /api/sessions/:id/timeline） */
 export const detail = ref(null);
+/** Per-run timeline cache (rootGoalId -> snapshot) for displaying old runs */
+export const runDetails = reactive({});
 /** 本会话内存中的 run 结果（POST run 响应 tasks 摘要；不持久化） */
 export const runOutcomes = reactive({});
 export const events = reactive({ list: [], types: 'all' });
@@ -312,10 +314,21 @@ export async function loadEvents(rootGoalId) {
 async function loadDetail(rootGoalId) {
     try {
         detail.value = await api(`/api/sessions/${rootGoalId}/timeline`);
+        runDetails[rootGoalId] = detail.value;
         ui.err = null;
     } catch (error) {
         detail.value = null;
         ui.err = String(error);
+    }
+}
+
+/** Load timeline for a specific run (cached) — for displaying old runs */
+export async function loadRunDetail(rootGoalId) {
+    if (!rootGoalId || runDetails[rootGoalId]) return;
+    try {
+        runDetails[rootGoalId] = await api(`/api/sessions/${rootGoalId}/timeline`);
+    } catch {
+        runDetails[rootGoalId] = null;
     }
 }
 

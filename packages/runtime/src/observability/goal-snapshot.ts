@@ -24,9 +24,15 @@ export interface TaskNodeView {
 export interface StepView {
     stepId: string;
     goalId: string;
+    taskId: string;
     kind: Step['kind'];
     status: Step['status'];
     startedAt: number;
+    endedAt?: number;
+    /** Full payload content (thinking/intent text, tool output) */
+    content?: string;
+    /** Tool name (for tool_call steps) */
+    toolName?: string;
     /** payload 摘要（≤240 字符）：思考内容 / 工具名+参数 / 观察内容（审计与日志用） */
     payloadText?: string;
     /** 两维度 token 统计：vendor（厂商上报）+ runtime（上下文估算） */
@@ -145,17 +151,24 @@ export function snapshotGoalTree(
             const stepViews: StepView[] = (stepsByTask.get(task.taskId) ?? [])
                 .slice()
                 .sort((a, b) => a.startedAt - b.startedAt)
-                .map((step) => ({
-                    stepId: step.stepId,
-                    goalId: step.goalId,
-                    kind: step.kind,
-                    status: step.status,
-                    startedAt: step.startedAt,
-                    ...(payloadTextOf(step) !== undefined
-                        ? { payloadText: payloadTextOf(step) }
-                        : {}),
-                    ...(usageViewOf(step) !== undefined ? { usage: usageViewOf(step) } : {}),
-                }));
+                .map((step) => {
+                    const p = step.payload as unknown as Record<string, unknown> | undefined;
+                    return {
+                        stepId: step.stepId,
+                        goalId: step.goalId,
+                        taskId: step.taskId,
+                        kind: step.kind,
+                        status: step.status,
+                        startedAt: step.startedAt,
+                        ...(step.endedAt ? { endedAt: step.endedAt } : {}),
+                        ...(p?.content ? { content: String(p.content) } : p?.output ? { content: String(p.output) } : {}),
+                        ...(p?.toolName ? { toolName: String(p.toolName) } : {}),
+                        ...(payloadTextOf(step) !== undefined
+                            ? { payloadText: payloadTextOf(step) }
+                            : {}),
+                        ...(usageViewOf(step) !== undefined ? { usage: usageViewOf(step) } : {}),
+                    };
+                });
             stepCount += stepViews.length;
             return {
                 taskId: task.taskId,

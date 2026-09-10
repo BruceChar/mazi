@@ -12,6 +12,8 @@ import {
     currentConversation,
     deleteConversationById,
     detail,
+    runDetails,
+    loadRunDetail,
     events,
     executeRun,
     fmtClock,
@@ -130,6 +132,17 @@ watch(
     { immediate: true },
 );
 
+/** Lazy-load timeline for every run in the active conversation */
+watch(
+    () => runs.value,
+    (runList) => {
+        for (const run of runList || []) {
+            loadRunDetail(run.rootGoalId);
+        }
+    },
+    { immediate: true, deep: true },
+);
+
 function latestRun(conversation) {
     const runs = conversation?.runs || [];
     return runs.length > 0 ? runs[runs.length - 1] : null;
@@ -180,9 +193,51 @@ const totalDuration = computed(() => {
     const ms = stepEventRows.value.reduce((s, r) => s + (r.durationMs || 0), 0);
     return formatDuration(ms);
 });
-/** 执行流统计：步数、LLM 耗时、工具耗时、token 总量 */
-const execStats = computed(() => {
-    const rows = stepEventRows.value;
+/** Convert a StepView (from timeline detail) into a display row */
+function stepToRow(step, idx) {
+    const durationMs = step.endedAt && step.startedAt ? step.endedAt - step.startedAt : null;
+    return {
+        key: 'step-' + step.stepId,
+        stepId: step.stepId,
+        goalId: step.goalId,
+        taskId: step.taskId,
+        at: step.startedAt,
+        time: fmtClockMs(step.startedAt),
+        kind: step.kind,
+        kindLabel: kindLabel(step.kind),
+        status: step.status,
+        statusLabel: statusLabel(step.status),
+        toolName: step.toolName || '',
+        text: step.content || step.payloadText || '',
+        durationMs,
+        duration: durationMs != null ? formatDuration(durationMs) : '',
+        usage: step.usage || null,
+    };
+}
+/** Build exec tree from a timeline detail */
+function buildExecTree(detailObj) {
+    const goals = detailObj?.goals || [];
+    return goals.map((goal) => ({
+        goalId: goal.goalId,
+        statement: goal.statement,
+        status: goal.status,
+        tasks: (goal.tasks || []).map((task) => ({
+            taskId: task.taskId,
+            title: task.title,
+            status: task.status,
+            steps: (task.steps || [])
+                .filter((s) => s.kind !== 'intent' && s.kind !== 'observation')
+                .map((s, i) => stepToRow(s, i)),
+        })),
+    }));
+}
+/** All steps (including intent) from a timeline detail */
+function allStepsOf(detailObj) {
+    const goals = detailObj?.goals || [];
+    return goals.flatMap((g) => (g.tasks || []).flatMap((t) => (t.steps || []).map((s, i) => stepToRow(s, i))));
+}
+function buildExecStats(detailObj) {
+    const rows = allStepsOf(detailObj);
     let inputTokens = 0;
     let outputTokens = 0;
     let totalMs = 0;
@@ -194,50 +249,33 @@ const execStats = computed(() => {
         }
         if (r.durationMs) totalMs += r.durationMs;
     }
-    const taskCount = execTree.value.reduce((s, g) => s + g.tasks.length, 0);
-    const stepCount = rows.filter((r) => r.kind !== 'intent').length;
-    return {
-        inputTokens,
-        outputTokens,
-        totalTime: formatDuration(totalMs),
-        taskCount,
-        stepCount,
-    };
-});
-/** Final summary: model's last intent output (shown at end of exec stream, goal-level) */
-const finalSummary = computed(() => {
-    const intentRows = stepEventRows.value.filter((r) => r.kind === 'intent');
+    const tree = buildExecTree(detailObj);
+    const taskCount = tree.reduce((s, g) => s + g.tasks.length, 0);
+    const stepCount = rows.filter((r) => r.kind !== 'intent' && r.kind !== 'observation').length;
+    return { inputTokens, outputTokens, totalTime: formatDuration(totalMs), taskCount, stepCount };
+}
+function finalSummaryOf(detailObj) {
+    const intentRows = allStepsOf(detailObj).filter((r) => r.kind === 'intent');
     if (intentRows.length > 0) return intentRows[intentRows.length - 1].text || '';
-    const outcome = current.value ? runOutcomes[current.value] : null;
-    return outcome?.finalMessage || '';
-});
-/** Reasoning text (for simple run display) */
-const reasoningText = computed(() => {
-    const thinkingRows = stepEventRows.value.filter((r) => r.kind === 'thinking');
+    return '';
+}
+function reasoningTextOf(detailObj) {
+    const thinkingRows = allStepsOf(detailObj).filter((r) => r.kind === 'thinking');
     return thinkingRows.map((r) => r.text).filter(Boolean).join('\n\n');
-});
-/** Simple run: 1 goal, 1 task, 0 tool steps — show output directly without hierarchy */
-const isSimpleExec = computed(() => {
-    if (execTree.value.length !== 1) return false;
-    const tasks = execTree.value[0].tasks;
+}
+function isSimpleExecOf(detailObj) {
+    const tree = buildExecTree(detailObj);
+    if (tree.length !== 1) return false;
+    const tasks = tree[0].tasks;
     if (tasks.length !== 1) return false;
     return tasks[0].steps.length === 0;
-});
-/** 执行流分层：goal → task → step（元信息来自 goalSnapshot，steps 来自事件流） */
-const execTree = computed(() => {
-    const goals = detail.value?.goals || [];
-    return goals.map((goal) => ({
-        goalId: goal.goalId,
-        statement: goal.statement,
-        status: goal.status,
-        tasks: (goal.tasks || []).map((task) => ({
-            taskId: task.taskId,
-            title: task.title,
-            status: task.status,
-            steps: stepEventRows.value.filter((s) => s.taskId === task.taskId && s.kind !== 'intent'),
-        })),
-    }));
-});
+}
+/** Current run computeds (backward compat for template) */
+const execTree = computed(() => buildExecTree(detail.value));
+const execStats = computed(() => buildExecStats(detail.value));
+const finalSummary = computed(() => finalSummaryOf(detail.value));
+const reasoningText = computed(() => reasoningTextOf(detail.value));
+const isSimpleExec = computed(() => isSimpleExecOf(detail.value));
 /** goal/task 折叠状态 */
 const collapsedGoals = ref(new Set());
 const collapsedTasks = ref(new Set());
@@ -903,43 +941,23 @@ onBeforeUnmount(() => {
                                 <div class="msg-bubble">{{ run.input }}</div>
                                 <span class="msg-time">{{ fmtClock(run.createdAt) }}</span>
                             </div>
-                            <!-- 最终回答（仅旧 run 显示；当前 run 的回答在执行流末尾 Summary 里） -->
-                            <div
-                                v-if="run.rootGoalId !== current && runOutcomes[run.rootGoalId] && (runOutcomes[run.rootGoalId].finalMessage || runOutcomes[run.rootGoalId].errorMessage)"
-                                class="msg msg-assistant"
-                            >
-                                <div class="msg-bubble" :class="{ fail: !runOutcomes[run.rootGoalId].ok }">
-                                    <div class="msg-bubble-head">
-                                        {{ runOutcomes[run.rootGoalId].ok ? '最终回答' : '执行失败' }}
-                                        <template v-if="runOutcomes[run.rootGoalId].reason"> · {{ runOutcomes[run.rootGoalId].reason }}</template>
-                                    </div>
-                                    <pre class="msg-final">{{ runOutcomes[run.rootGoalId].ok ? runOutcomes[run.rootGoalId].finalMessage : runOutcomes[run.rootGoalId].errorMessage }}</pre>
-                                </div>
-                                <div class="msg-meta">
-                                    <span class="msg-time">{{ assistantTime(run) }}</span>
-                                    <div class="msg-feedback">
-                                        <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
-                                        <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
-                                    </div>
-                                </div>
-                            </div>
                             <!-- 执行中提示 -->
-                            <div v-else-if="run.rootGoalId === current && busy" class="msg msg-assistant">
+                            <div v-if="run.rootGoalId === current && busy" class="msg msg-assistant">
                                 <div class="msg-bubble thinking-bubble">执行中…</div>
                             </div>
-                            <!-- 执行流（goal → task → step 分层，可折叠，仅当前 run） -->
-                            <template v-if="run.rootGoalId === current">
-                                <div v-if="execTree.length" class="exec-stream">
+                            <!-- 执行流（goal → task → step 分层，每个 run 用自己的 timeline） -->
+                            <template v-if="runDetails[run.rootGoalId]">
+                                <div v-if="buildExecTree(runDetails[run.rootGoalId]).length" class="exec-stream">
                                     <!-- Simple run (1 goal / 1 task / 0 steps): show output directly -->
-                                    <template v-if="isSimpleExec">
-                                        <div v-if="reasoningText" class="exec-reasoning">{{ reasoningText }}</div>
-                                        <div v-if="finalSummary" class="exec-summary">
-                                            <div class="exec-summary-text">{{ finalSummary }}</div>
+                                    <template v-if="isSimpleExecOf(runDetails[run.rootGoalId])">
+                                        <div v-if="reasoningTextOf(runDetails[run.rootGoalId])" class="exec-reasoning">{{ reasoningTextOf(runDetails[run.rootGoalId]) }}</div>
+                                        <div v-if="finalSummaryOf(runDetails[run.rootGoalId])" class="exec-summary">
+                                            <div class="exec-summary-text">{{ finalSummaryOf(runDetails[run.rootGoalId]) }}</div>
                                         </div>
                                     </template>
                                     <!-- Normal run: goal → task → step hierarchy -->
                                     <template v-else>
-                                    <div v-for="(goal, gIdx) in execTree" :key="goal.goalId" class="exec-goal">
+                                    <div v-for="(goal, gIdx) in buildExecTree(runDetails[run.rootGoalId])" :key="goal.goalId" class="exec-goal">
                                         <div class="exec-goal-head" @click="toggleGoal(goal.goalId)">
                                             <span class="exec-dot goal-dot" :class="{ collapsed: collapsedGoals.has(goal.goalId) }"></span>
                                             <span class="exec-goal-tag">G#{{ gIdx + 1 }}</span>
@@ -972,7 +990,6 @@ onBeforeUnmount(() => {
                                                         <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
                                                             <pre class="exec-step-code-inner">{{ row.text }}</pre>
                                                         </div>
-                                                        <div v-if="row.kind === 'intent' && row.text" class="exec-step-intent-text">{{ row.text }}</div>
                                                         <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
                                                             {{ usageStats(row.usage).total }} tokens
                                                             <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
@@ -985,18 +1002,18 @@ onBeforeUnmount(() => {
                                     </div>
                                     </template>
                                     <!-- Final summary (goal-level, not a step) -->
-                                    <div v-if="finalSummary && !isSimpleExec" class="exec-summary">
-                                        <div class="exec-summary-text">{{ finalSummary }}</div>
+                                    <div v-if="finalSummaryOf(runDetails[run.rootGoalId]) && !isSimpleExecOf(runDetails[run.rootGoalId])" class="exec-summary">
+                                        <div class="exec-summary-text">{{ finalSummaryOf(runDetails[run.rootGoalId]) }}</div>
                                     </div>
                                     <!-- Bottom stats + feedback -->
                                     <div class="exec-stats">
-                                        <span>{{ execStats.stepCount }} steps</span>
+                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).stepCount }} steps</span>
                                         <span>·</span>
-                                        <span>{{ execStats.taskCount }} tasks</span>
+                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).taskCount }} tasks</span>
                                         <span>·</span>
-                                        <span>{{ execStats.totalTime }}</span>
+                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).totalTime }}</span>
                                         <span>·</span>
-                                        <span>{{ execStats.inputTokens }} in / {{ execStats.outputTokens }} out tokens</span>
+                                        <span>{{ buildExecStats(runDetails[run.rootGoalId]).inputTokens }} in / {{ buildExecStats(runDetails[run.rootGoalId]).outputTokens }} out tokens</span>
                                         <div class="exec-stats-fb">
                                             <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
                                             <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
