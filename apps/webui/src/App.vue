@@ -7,7 +7,7 @@ import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
 import Sidebar from './components/Sidebar.vue';
 import ChatMain from './components/ChatMain.vue';
-import { defaultConversations, projectConversations } from './scripts/conversation.ts';
+import { defaultConversations } from './scripts/conversation.ts';
 import { API_BASE } from './api.js';
 import {
     activeLiveStream,
@@ -23,16 +23,12 @@ import {
     runDetails,
     loadRunDetail,
     events,
-    executeRun,
-    fmtClock,
     loadConfig,
     loadConversations,
     loadWorkspace,
-    openConversation as storeOpenConversation,
     openRun,
     pickWorkspace,
     projects,
-    relTime,
     renameProject,
     runOutcomes,
     saveUserPreferences,
@@ -57,18 +53,14 @@ const MIN_PANEL_W = 240;
 const MAX_PANEL_W = 640;
 const searchOpen = ref(false);
 const projectCollapsed = ref(new Set());
-const projectMenuFor = ref('');
 const accountOpen = ref(false);
 const selectedModel = ref('');
-const pickerType = ref(/** @type {'model'|'reasoning'|null} */ (null));
 const REASONING_LEVELS = [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
 ];
 const reasoningLevel = ref('high');
-const reasoningLabel = computed(() => REASONING_LEVELS.find((r) => r.value === reasoningLevel.value)?.label || 'High');
-const currentModelLabel = computed(() => modelOptions.value.find((m) => m.id === selectedModel.value)?.label || selectedModel.value);
 const feedbackSent = ref(false);
 const feedbackModal = ref(false);
 const feedbackRating = ref(5);
@@ -178,18 +170,9 @@ watch(
     },
     { immediate: true },
 );
-
-const activeGoals = computed(() => detail.value?.goals || []);
 const taskCount = computed(() => detail.value?.taskCount ?? 0);
 const stepCount = computed(() => detail.value?.stepCount ?? 0);
 const rootOutcome = computed(() => (current.value ? runOutcomes[current.value] : null));
-const currentInput = computed(() => {
-    const run = runs.value.find((r) => r.rootGoalId === current.value);
-    return run?.input || '';
-});
-const workedFor = computed(() => '');
-/** 聊天流中展开了执行过程的 run（默认当前 run） */
-const expandedRunId = ref(null);
 /** 右侧面板最大化（覆盖主页面） */
 const panelMaximized = ref(false);
 const settingsTab = ref('general');
@@ -202,162 +185,11 @@ const SETTINGS_TABS = [
 function togglePanelMax() {
     panelMaximized.value = !panelMaximized.value;
 }
-/** 执行过程（goal 树）展开/折叠 */
-const showExecution = ref(true);
-/** 当前 run 总耗时（从 stepEventRows 汇总） */
-const totalDuration = computed(() => {
-    const ms = stepEventRows.value.reduce((s, r) => s + (r.durationMs || 0), 0);
-    return formatDuration(ms);
-});
-/** Convert a StepView (from timeline detail) into a display row */
-function stepToRow(step, idx) {
-    const durationMs = step.endedAt && step.startedAt ? step.endedAt - step.startedAt : null;
-    return {
-        key: 'step-' + step.stepId,
-        stepId: step.stepId,
-        goalId: step.goalId,
-        taskId: step.taskId,
-        at: step.startedAt,
-        time: fmtClockMs(step.startedAt),
-        kind: step.kind,
-        kindLabel: kindLabel(step.kind),
-        status: step.status,
-        statusLabel: statusLabel(step.status),
-        toolName: step.toolName || '',
-        text: step.content || step.payloadText || '',
-        durationMs,
-        duration: durationMs != null ? formatDuration(durationMs) : '',
-        usage: step.usage || null,
-    };
-}
-/** Build exec tree from a timeline detail */
-function buildExecTree(detailObj) {
-    const goals = detailObj?.goals || [];
-    return goals.map((goal) => ({
-        goalId: goal.goalId,
-        statement: goal.statement,
-        status: goal.status,
-        tasks: (goal.tasks || []).map((task) => ({
-            taskId: task.taskId,
-            title: task.title,
-            status: task.status,
-            steps: (task.steps || [])
-                .filter((s) => s.kind !== 'intent' && s.kind !== 'observation')
-                .map((s, i) => stepToRow(s, i)),
-        })),
-    }));
-}
-/** All steps (including intent) from a timeline detail */
-function allStepsOf(detailObj) {
-    const goals = detailObj?.goals || [];
-    return goals.flatMap((g) => (g.tasks || []).flatMap((t) => (t.steps || []).map((s, i) => stepToRow(s, i))));
-}
-function buildExecStats(detailObj) {
-    const rows = allStepsOf(detailObj);
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let totalMs = 0;
-    for (const r of rows) {
-        const u = usageStats(r.usage);
-        if (u) {
-            inputTokens += u.input || 0;
-            outputTokens += u.output || 0;
-        }
-        if (r.durationMs) totalMs += r.durationMs;
-    }
-    const tree = buildExecTree(detailObj);
-    const taskCount = tree.reduce((s, g) => s + g.tasks.length, 0);
-    const stepCount = rows.filter((r) => r.kind !== 'intent' && r.kind !== 'observation').length;
-    return { inputTokens, outputTokens, totalTime: formatDuration(totalMs), taskCount, stepCount };
-}
-function finalSummaryOf(detailObj) {
-    const intentRows = allStepsOf(detailObj).filter((r) => r.kind === 'intent');
-    if (intentRows.length > 0) return intentRows[intentRows.length - 1].text || '';
-    return '';
-}
-function reasoningTextOf(detailObj) {
-    const thinkingRows = allStepsOf(detailObj).filter((r) => r.kind === 'thinking');
-    return thinkingRows.map((r) => r.text).filter(Boolean).join('\n\n');
-}
-function isSimpleExecOf(detailObj) {
-    const tree = buildExecTree(detailObj);
-    if (tree.length !== 1) return false;
-    const tasks = tree[0].tasks;
-    if (tasks.length !== 1) return false;
-    return tasks[0].steps.length === 0;
-}
-/** Current run computeds (backward compat for template) */
-const execTree = computed(() => buildExecTree(detail.value));
-const execStats = computed(() => buildExecStats(detail.value));
-const finalSummary = computed(() => finalSummaryOf(detail.value));
-const reasoningText = computed(() => reasoningTextOf(detail.value));
-const isSimpleExec = computed(() => isSimpleExecOf(detail.value));
-/** goal/task 折叠状态 */
-const collapsedGoals = ref(new Set());
-const collapsedTasks = ref(new Set());
-/** step 内容折叠状态（默认展开，点击 dot 折叠） */
-const collapsedSteps = ref(new Set());
-function toggleStepCollapse(key) {
-    const s = new Set(collapsedSteps.value);
-    s.has(key) ? s.delete(key) : s.add(key);
-    collapsedSteps.value = s;
-}
-/** 内容是否超过单行（>80 字符或含换行），仅长内容支持折叠 */
-function isStepLong(row) {
-    if (!row.text) return false;
-    if (row.kind === 'intent') return false; // intent is always fully visible, never collapsed
-    return row.text.length > 80 || row.text.includes('\n');
-}
-function toggleGoal(goalId) {
-    const s = new Set(collapsedGoals.value);
-    s.has(goalId) ? s.delete(goalId) : s.add(goalId);
-    collapsedGoals.value = s;
-}
-function toggleTask(taskId) {
-    const s = new Set(collapsedTasks.value);
-    s.has(taskId) ? s.delete(taskId) : s.add(taskId);
-    collapsedTasks.value = s;
-}
-/** 模型输出时间：取最后一个 step 结束时间，无则用 run 创建时间 */
-function assistantTime(run) {
-    const last = stepEventRows.value[stepEventRows.value.length - 1];
-    return last ? last.time : fmtClock(run.createdAt);
-}
-/** 执行流步骤 title 摘要：失败时显示错误消息，否则显示内容前 80 字 */
-function stepTitleSummary(row) {
-    const isError = row.status === 'error' || row.status === 'failed';
-    if (isError) {
-        return row.text ? `Error: ${row.text.slice(0, 80)}` : '执行失败';
-    }
-    return row.text ? row.text.slice(0, 80) : '';
-}
 
 function conversationTitle(conversation) {
     const run = latestRun(conversation);
     return conversation?.title || run?.input || '';
 }
-
-function conversationOutcome(conversation) {
-    const run = latestRun(conversation);
-    if (!run) return 'new';
-    const outcome = runOutcomes[run.rootGoalId];
-    return outcome ? (outcome.ok ? 'success' : 'failed') : 'goal';
-}
-
-function badge(outcome) {
-    if (outcome === 'success') return 'success';
-    if (outcome === 'failed') return 'failed';
-    if (outcome === 'new') return 'new';
-    return 'goal';
-}
-
-function isConversationActive(conversation) {
-    return currentConversation.value === conversation.conversationId;
-}
-
-// function projectConversationItems(project) {
-//     return projectConversations(activeConvList.value, project.path, project.path);
-// }
 
 /** 目标工作区（点项目/会话区 ＋ 后生效），用于新会话归属 */
 const pendingWorkspace = ref('');
@@ -407,30 +239,10 @@ async function submitNew(exec) {
     draft.value.statement = '';
 }
 
-function isProjectOpen(path) {
-    return !projectCollapsed.value.has(path);
-}
-
 function toggleProject(path) {
     const s = new Set(projectCollapsed.value);
     s.has(path) ? s.delete(path) : s.add(path);
     projectCollapsed.value = s;
-}
-
-function statusClass(status) {
-    if (['succeeded', 'ok'].includes(status)) return 'succeeded';
-    if (['failed', 'error', 'blocked', 'aborted', 'timeout', 'rolled_back'].includes(status)) {
-        return 'failed';
-    }
-    if (['active', 'pending', 'running'].includes(status)) return status;
-    return '';
-}
-
-function kindGlyph(kind) {
-    if (kind === 'thinking') return '💭';
-    if (kind === 'tool_call') return '🔧';
-    if (kind === 'observation') return '👁';
-    return '•';
 }
 
 function kindLabel(kind) {
@@ -438,17 +250,6 @@ function kindLabel(kind) {
     if (kind === 'intent') return 'intent';
     if (kind === 'tool_call') return 'tool';
     return kind || '-';
-}
-
-/** Step 内容摘要：thinking 取 content，tool_call 取 toolName+参数，observation 取 content */
-function stepSummary(step) {
-    const p = step.payload || {};
-    if (step.kind === 'tool_call') {
-        const args = p.arguments ? JSON.stringify(p.arguments).slice(0, 80) : '';
-        return `${p.toolName || 'tool'}(${args})`;
-    }
-    const content = p.content ? String(p.content) : '';
-    return content.slice(0, 120);
 }
 
 /** 步骤流：收集 step.started + step.ended，计算耗时，结构化 usage 用于看板展示 */
@@ -510,23 +311,6 @@ function formatDuration(ms) {
     return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
-/** 从 usage 提取结构化 token 统计，用于看板展示 */
-function usageStats(usage) {
-    if (!usage) return null;
-    const v = usage.vendor || {};
-    const r = usage.runtime || {};
-    const input = v.inputTokens ?? 0;
-    const output = v.outputTokens ?? 0;
-    const cache = v.cacheReadInputTokens ?? 0;
-    const reasoning = v.reasoningOutputTokens ?? 0;
-    const total = input + output;
-    return {
-        input, output, cache, reasoning, total,
-        context: r.totalContextTokens ?? null,
-        hasData: total > 0 || cache > 0 || reasoning > 0,
-    };
-}
-
 /** 两维度 token 统计摘要文本 */
 function formatUsage(usage) {
     if (!usage) return '';
@@ -545,14 +329,6 @@ function formatUsage(usage) {
         if (r.estimationDriftTokens !== undefined) parts.push(`drift ${r.estimationDriftTokens}`);
     }
     return parts.join(' · ');
-}
-
-function runLabel(run) {
-    return short(run.input, 48) || run.rootGoalId;
-}
-
-function cycleTheme() {
-    setTheme(theme.value === 'dark' ? 'light' : 'dark');
 }
 
 function backToChat() {
@@ -590,11 +366,6 @@ async function openConversation(conversation) {
         current.value = null;
         detail.value = null;
     }
-    feedbackSent.value = false;
-}
-
-async function selectRun(run) {
-    await openRun(run.rootGoalId);
     feedbackSent.value = false;
 }
 
@@ -644,11 +415,6 @@ async function submitPrompt() {
     );
 }
 
-async function rerunCurrent() {
-    await executeRun(current.value);
-    feedbackSent.value = false;
-}
-
 async function renameConversationById(conversation) {
     const title = window.prompt('重命名会话', conversationTitle(conversation));
     if (title?.trim()) {
@@ -688,13 +454,6 @@ async function removeProjectById(project) {
             await loadConversations();
         },
     };
-}
-
-function openRate() {
-    const outcome = rootOutcome.value;
-    feedbackRating.value = outcome?.ok ? 5 : 3;
-    feedbackContent.value = '';
-    feedbackModal.value = true;
 }
 
 async function submitFeedback() {
@@ -757,28 +516,6 @@ const eventTypes = computed(() => [
     ...new Set(events.list.map((e) => e.type)),
 ]);
 
-/** 事件 payload 摘要（替代无意义的 sessionId 展示） */
-function eventSummary(e) {
-    const p = e.payload || {};
-    if (e.type === 'goal.started') return p.rawInput ? String(p.rawInput).slice(0, 60) : '';
-    if (e.type === 'goal.ended') return p.outcome?.summary ? String(p.outcome.summary).slice(0, 60) : (p.outcome?.status || '');
-    if (e.type === 'tool.invoke' || e.type === 'tool.result') return p.toolName || '';
-    if (e.type === 'llm.request' || e.type === 'llm.response') return p.model || '';
-    if (e.type === 'approval.requested') return p.toolName || p.effectClass || '';
-    if (e.type === 'provider.selected') return p.providerId || '';
-    return '';
-}
-function eventColorClass(type) {
-    if (type.startsWith('goal.')) return 'ev-goal';
-    if (type.startsWith('tool.')) return 'ev-tool';
-    if (type.startsWith('llm.')) return 'ev-llm';
-    if (type.startsWith('approval.')) return 'ev-approval';
-    if (type.startsWith('policy.')) return 'ev-policy';
-    if (type.startsWith('provider.')) return 'ev-provider';
-    if (type.startsWith('step.')) return 'ev-step';
-    return 'ev-other';
-}
-
 /** API connectivity latency (ms); null = unreachable/timeout */
 const apiLatency = ref(null);
 let latencyTimer = null;
@@ -795,19 +532,6 @@ async function pingApi() {
     } finally {
         clearTimeout(timeout);
     }
-}
-
-function latencyColor() {
-    if (apiLatency.value == null) return 'var(--fg-tertiary)';
-    if (apiLatency.value < 100) return '#22c55e';
-    if (apiLatency.value < 1000) return '#eab308';
-    return '#ef4444';
-}
-
-function latencyText() {
-    if (apiLatency.value == null) return 'offline';
-    if (apiLatency.value > 999) return '999+ms';
-    return `${apiLatency.value}ms`;
 }
 
 onMounted(async () => {
