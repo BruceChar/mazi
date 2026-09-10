@@ -626,6 +626,9 @@ async function submitPrompt() {
         return;
     }
     prompt.value = '';
+    // New conversation (no currentConversation): do not inherit current workspace,
+    // it is a fresh standalone conversation. Continue existing conversation: keep its workspace.
+    const ws = currentConversation.value ? workspaceRoot.value : undefined;
     await createAndRunGoal(
         {
             statement: text,
@@ -635,7 +638,7 @@ async function submitPrompt() {
             userId: draft.value.userId || undefined,
             loopMode: draft.value.loopMode,
         },
-        workspaceRoot.value,
+        ws,
         currentConversation.value || undefined,
         true,
     );

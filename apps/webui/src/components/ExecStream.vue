@@ -246,57 +246,43 @@ function stepTitleSummary(row) {
 .exec-stream {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 4px 0;
+    gap: 0;
+    margin: 4px 0;
 }
-.empty-hint {
-    color: var(--fg-tertiary);
-    font-size: 13px;
-    padding: 16px 0;
-    text-align: center;
-}
-/* Goal level */
 .exec-goal {
+    margin-bottom: 6px;
     position: relative;
+    border-left: 2px solid var(--border);
 }
 .exec-goal-head {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 4px;
+    gap: 6px;
+    padding: 4px 8px 4px 14px;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg);
+    user-select: none;
 }
 .exec-goal-head:hover {
     background: var(--bg-hover);
 }
-.exec-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    position: relative;
-    z-index: 1;
-    transition: transform 0.12s;
-}
-.goal-dot {
-    background: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-}
-.goal-dot.collapsed {
-    transform: scale(0.8);
-}
 .exec-goal-tag {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--accent);
     font-family: ui-monospace, monospace;
-    min-width: 32px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 1px 5px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    width: 36px;
+    text-align: center;
 }
 .exec-goal-title {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--fg);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -305,55 +291,45 @@ function stepTitleSummary(row) {
 .exec-goal-count {
     font-size: 11px;
     color: var(--fg-tertiary);
-    font-family: ui-monospace, monospace;
+    font-weight: 400;
     flex-shrink: 0;
 }
 .exec-goal-body {
-    padding-left: 20px;
-    position: relative;
+    padding-left: 14px;
 }
-.exec-goal-body::before {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: var(--border);
-}
-/* Task level */
 .exec-task {
+    margin: 4px 0;
     position: relative;
+    border-left: 2px solid var(--border);
 }
 .exec-task-head {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 5px 4px;
+    gap: 6px;
+    padding: 3px 8px 3px 14px;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--fg-secondary);
+    user-select: none;
 }
 .exec-task-head:hover {
     background: var(--bg-hover);
 }
-.task-dot {
-    background: #3b82f6;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
-}
-.task-dot.collapsed {
-    transform: scale(0.8);
-}
 .exec-task-tag {
-    font-size: 12px;
-    font-weight: 600;
-    color: #3b82f6;
     font-family: ui-monospace, monospace;
-    min-width: 32px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--thinking);
+    background: var(--thinking-soft);
+    padding: 1px 4px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    width: 32px;
+    text-align: center;
 }
 .exec-task-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--fg);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -362,32 +338,87 @@ function stepTitleSummary(row) {
 .exec-task-count {
     font-size: 11px;
     color: var(--fg-tertiary);
-    font-family: ui-monospace, monospace;
     flex-shrink: 0;
 }
 .exec-task-body {
-    padding-left: 20px;
-    position: relative;
+    padding-left: 14px;
 }
-.exec-task-body::before {
-    content: '';
+/* ---------- Collapsible dot (default circle, hover → +/- button) ---------- */
+.exec-dot {
     position: absolute;
-    left: 4px;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: var(--border);
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid var(--fg-tertiary);
+    box-sizing: border-box;
+    cursor: default;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    color: transparent;
+    transition: all 0.12s ease;
+    z-index: 2;
 }
-/* Step level */
+.exec-dot.interactive {
+    cursor: pointer;
+}
+.exec-dot::after {
+    content: '−';
+}
+.exec-dot.collapsed::after {
+    content: '+';
+}
+.goal-dot { border-color: var(--accent); }
+.task-dot { border-color: var(--thinking); }
+.exec-goal-head:hover .exec-dot,
+.exec-task-head:hover .exec-dot {
+    width: 16px;
+    height: 16px;
+    left: -9px;
+    border-radius: 4px;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+.exec-task-head:hover .exec-dot {
+    background: var(--thinking);
+    border-color: var(--thinking);
+}
 .exec-step {
-    padding: 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    position: relative;
+    border-left: 2px solid var(--border);
 }
 .exec-step-head {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 4px;
-    border-radius: 4px;
+    padding: 0 8px 0 14px;
+    height: 22px; /* 4px visual pad + 14px icon + 4px visual pad */
+    box-sizing: border-box;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--fg-secondary);
+    border-radius: var(--radius-sm);
+}
+.exec-step-head > * {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+.exec-step-head .line-icon {
+    display: block;
+    flex-shrink: 0;
+    color: var(--fg-tertiary);
+    margin-left: -21px; /* pull icon center onto the vertical timeline line */
 }
 .exec-step-head.clickable {
     cursor: pointer;
@@ -395,29 +426,58 @@ function stepTitleSummary(row) {
 .exec-step-head.clickable:hover {
     background: var(--bg-hover);
 }
-.exec-step-tag {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--fg-secondary);
-    font-family: ui-monospace, monospace;
-    min-width: 32px;
-}
+.exec-thinking .exec-step-head .line-icon { color: var(--thinking); }
+.exec-tool_call .exec-step-head .line-icon { color: var(--tool); }
+.exec-observation .exec-step-head .line-icon { color: var(--observation); }
+.exec-step.error .exec-step-head .line-icon { color: var(--error); }
+
 .exec-step-name {
+    font-weight: 600;
     font-size: 13px;
-    font-weight: 500;
-    color: var(--accent);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--fg);
     flex-shrink: 0;
+}
+.exec-step-tag {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--fg-tertiary);
+    background: var(--bg-code);
+    padding: 1px 4px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    width: 36px;
+    text-align: center;
+}
+.exec-thinking .exec-step-name { color: var(--thinking); }
+.exec-intent .exec-step-name { color: var(--fg); }
+.exec-tool_call .exec-step-name { color: var(--tool); }
+.exec-observation .exec-step-name { color: var(--observation); }
+.exec-step.error .exec-step-name { color: var(--error); }
+.exec-intent .exec-step-head .line-icon { color: var(--fg); }
+.exec-step-intent-text {
+    margin: 2px 8px 4px 14px;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 80%;
 }
 .exec-step-summary {
     font-size: 13px;
     color: var(--fg-secondary);
-    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 80%;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 .exec-step.error .exec-step-summary {
-    color: #ef4444;
+    color: var(--error);
 }
 .exec-step-duration {
     font-size: 11px;
@@ -426,69 +486,92 @@ function stepTitleSummary(row) {
     flex-shrink: 0;
 }
 .exec-step-time {
+    margin-left: auto;
     font-size: 11px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
     flex-shrink: 0;
 }
 .exec-step-code {
-    margin: 4px 0 4px 38px;
-    border: 1px solid var(--border-soft);
-    border-radius: 6px;
-    background: var(--bg-panel);
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin: 2px 8px 4px 14px;
     overflow: hidden;
 }
 .exec-step-code-inner {
     margin: 0;
     padding: 8px 10px;
-    font-size: 12px;
-    color: var(--fg-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--fg);
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 180px;
-    overflow-y: auto;
-    font-family: ui-monospace, monospace;
+    max-height: calc(13px * 1.5 * 12 + 16px); /* 12 rows + padding */
+    overflow: auto;
+}
+.exec-thinking .exec-step-code-inner {
+    color: var(--fg-secondary);
+    font-style: italic;
+}
+.exec-step.error .exec-step-code-inner {
+    color: var(--error);
 }
 .exec-step-usage {
-    margin-left: 38px;
     font-size: 11px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
-    padding: 2px 0;
+    margin: 0 8px 2px 14px;
 }
-/* Reasoning */
-.exec-reasoning {
-    padding: 10px 14px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-soft);
-    border-radius: 8px;
-    font-size: 13px;
-    color: var(--fg-secondary);
-    white-space: pre-wrap;
-    word-break: break-word;
-    margin: 4px 0;
+/* step dot: fully independent class, no .exec-dot inheritance */
+.step-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 2px solid var(--fg-tertiary);
+    background: var(--bg);
+    box-sizing: border-box;
+    flex-shrink: 0;
+    margin-left: -19px;
+    cursor: default;
+    position: relative;
 }
-/* Final summary */
-.exec-summary {
-    margin-top: 8px;
-    padding: 10px 14px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-soft);
-    border-radius: 8px;
+.step-dot.interactive { cursor: pointer; }
+.step-dot::after {
+    content: '−';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 10px;
+    font-weight: 700;
+    color: transparent;
+    line-height: 1;
 }
-.exec-summary-text {
-    font-size: 14px;
-    color: var(--fg);
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-break: break-word;
+.step-dot.collapsed::after { content: '+'; }
+.exec-step.exec-thinking .step-dot { border-color: var(--thinking); }
+.exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
+.exec-step.exec-observation .step-dot { border-color: var(--observation); }
+.exec-step.error .step-dot { border-color: var(--error); }
+.exec-step-head.clickable:hover .step-dot {
+    width: 16px;
+    height: 16px;
+    margin-left: -23px;
+    border-radius: 4px;
+    background: var(--fg-tertiary);
+    border-color: var(--fg-tertiary);
 }
-/* Per-run stats */
+.exec-step-head.clickable:hover .step-dot::after { color: #fff; }
+.exec-step.exec-thinking .exec-step-head.clickable:hover .step-dot { background: var(--thinking); border-color: var(--thinking); }
+.exec-step.exec-tool_call .exec-step-head.clickable:hover .step-dot { background: var(--tool); border-color: var(--tool); }
+.exec-step.exec-observation .exec-step-head.clickable:hover .step-dot { background: var(--observation); border-color: var(--observation); }
+.exec-step.error .exec-step-head.clickable:hover .step-dot { background: var(--error); border-color: var(--error); }
 .exec-stats {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 4px 4px;
+    gap: 8px;
+    padding: 4px 4px 2px;
     font-size: 11px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
@@ -497,23 +580,36 @@ function stepTitleSummary(row) {
     display: flex;
     align-items: center;
     gap: 4px;
-    margin-right: 4px;
 }
-.fb-btn {
-    width: 22px;
-    height: 22px;
+
+/* Final summary (goal-level, sits after all goals/tasks/steps) */
+.exec-summary {
+    margin-top: 12px;
+    padding: 0;
     border: none;
     background: transparent;
-    color: var(--fg-tertiary);
-    border-radius: 4px;
-    cursor: pointer;
+}
+.exec-summary-text {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.exec-reasoning {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg-secondary);
+    font-style: italic;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-bottom: 12px;
+    opacity: 0.8;
+}
+.exec-stats-fb {
     display: flex;
     align-items: center;
-    justify-content: center;
-    padding: 0;
-}
-.fb-btn:hover {
-    background: var(--bg-hover);
-    color: var(--fg);
+    gap: 2px;
+    margin-right: 4px;
 }
 </style>

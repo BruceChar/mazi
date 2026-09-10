@@ -78,7 +78,7 @@ function fmtClock(ts) {
                     <LineIcon name="userMessage" size="36" />
                 </div>
                 <h2 class="welcome-title">
-                    What should we build{{ workspaceDisplayName ? ` in ${workspaceDisplayName}` : '' }}?
+                    What should we build?
                 </h2>
                 <div class="welcome-cards">
                     <button
@@ -190,6 +190,7 @@ function fmtClock(ts) {
     background: var(--accent);
     color: #fff;
     border-bottom-right-radius: 4px;
+    border: none;
 }
 .msg-assistant .msg-bubble {
     background: var(--bg-panel);
@@ -233,11 +234,11 @@ function fmtClock(ts) {
     text-align: center;
 }
 .welcome-cards {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 12px;
-    flex-wrap: wrap;
-    justify-content: center;
-    max-width: 600px;
+    max-width: 480px;
+    width: 100%;
 }
 .welcome-card {
     display: flex;

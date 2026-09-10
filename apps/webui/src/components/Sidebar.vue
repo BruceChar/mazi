@@ -301,11 +301,10 @@ function latencyText() {
 .session-list li {
     display: flex;
     flex-direction: column;
-    padding: 7px 8px;
+    padding: 6px 8px;
     border-radius: 6px;
     cursor: pointer;
-    gap: 0;
-    position: relative;
+    gap: 2px;
 }
 .session-list li:hover {
     background: var(--bg-hover);
@@ -319,18 +318,10 @@ function latencyText() {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding-right: 52px;
 }
 .session-actions {
-    position: absolute;
-    top: 5px;
-    right: 6px;
     display: none;
     gap: 2px;
-    background: var(--bg-panel);
-    padding: 2px;
-    border-radius: 4px;
-    border: 1px solid var(--border-soft);
 }
 .session-list li:hover .session-actions {
     display: flex;
@@ -353,20 +344,8 @@ function latencyText() {
     color: var(--fg);
 }
 .session-time {
-    position: absolute;
-    bottom: 4px;
-    right: 8px;
-    display: none;
-    font-size: 10px;
+    font-size: 11px;
     color: var(--fg-tertiary);
-    background: var(--bg-panel);
-    padding: 1px 5px;
-    border-radius: 3px;
-    border: 1px solid var(--border-soft);
-    white-space: nowrap;
-}
-.session-list li:hover .session-time {
-    display: block;
 }
 .empty-sidebar {
     padding: 8px;
