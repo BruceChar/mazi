@@ -13,15 +13,15 @@ import type {
     ToolSchema,
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
-import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
-import type { PricingSchedule, RoundOutcome } from './provider/index.js';
-import { RoundExecutor } from './provider/index.js';
 import type { GoalTreeSnapshot } from '@mazi/libs';
+import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './gts/goal-executor.js';
 import type { ExecutorRoundContext, RoundResult } from './gts/round-types.js';
 import { type GoalStore, SqliteGoalStore } from './memory/goal-store.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/index.js';
+import type { PricingSchedule, RoundOutcome } from './provider/index.js';
+import { RoundExecutor } from './provider/index.js';
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
 import { BUILTIN_TOOL_PRESET } from './tool-gateway/builtin.js';
 
@@ -368,8 +368,19 @@ function stepText(step: Step): string {
     if (step.kind === 'thinking') {
         text = String((payload as { content?: string }).content ?? '');
     } else if (step.kind === 'tool_call') {
-        const call = payload as { toolName?: string; arguments?: unknown; callId?: string };
+        const call = payload as {
+            toolName?: string;
+            arguments?: unknown;
+            callId?: string;
+            output?: string;
+            isError?: boolean;
+        };
         text = `${call.toolName ?? ''} ${JSON.stringify(call.arguments ?? {})}`;
+        // Include the settled result so live consumers see tool output/failures
+        // immediately instead of only after the run-time snapshot refresh.
+        if (call.output) {
+            text += `\n${call.isError ? '[error] ' : '→ '}${call.output}`;
+        }
     } else {
         const obs = payload as { toolName?: string; content?: string; isError?: boolean };
         text = `${obs.toolName ? `[${obs.toolName}] ` : ''}${obs.content ?? ''}${
@@ -532,6 +543,22 @@ export class HarnessRuntime {
             },
             goals,
         );
+        // Settle the Goal entities so the persisted tree/snapshot no longer reports
+        // every goal as 'active' after the run has finished.
+        const outcomeByGoal = new Map(
+            result.tasks.map((outcome) => [outcome.task.goalId, outcome]),
+        );
+        for (const goal of goals) {
+            const settled = result.ok ? 'succeeded' : 'failed';
+            if (goal.kind === 'work') {
+                goal.status = outcomeByGoal.get(goal.goalId)?.ok ? 'succeeded' : 'failed';
+            } else if (goal.kind === 'intake') {
+                goal.status = settled;
+            } else {
+                continue;
+            }
+            await this.goalStoreDb.saveGoal(goal);
+        }
         this.bus.emit(
             newHarnessEvent({
                 type: 'goal.ended',

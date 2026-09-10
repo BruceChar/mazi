@@ -75,15 +75,13 @@ describe('webui live step refresh', () => {
         vi.useRealTimers();
     });
 
-    it('a live step.ended refreshes the per-run snapshot the chat renders (runDetails)', async () => {
+    it('goal.ended refreshes the per-run snapshot the chat renders (runDetails)', async () => {
         watchEvents('run-1');
         const source = FakeEventSource.instances.at(-1)!;
-        source.emit('step.ended', {
+        source.emit('goal.ended', {
             eventId: 'e1',
-            type: 'step.ended',
-            taskId: 't1',
-            stepId: 's1',
-            payload: { kind: 'tool_call', status: 'ok' },
+            type: 'goal.ended',
+            payload: { outcome: { status: 'success' } },
         });
         await vi.advanceTimersByTimeAsync(300);
         expect(runDetails['run-1']).toBeTruthy();

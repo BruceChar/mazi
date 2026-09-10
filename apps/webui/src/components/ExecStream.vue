@@ -281,8 +281,11 @@ const stats = computed(() => buildExecStats(props.runDetail));
         </div>
     </div>
     <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
-    <!-- Live streaming answer (token by token) -->
-    <div v-if="liveStream && (liveStream.text || liveStream.reasoning)" class="live-stream">
+    <!-- Live streaming answer (token by token); hidden once the settled tree takes over. -->
+    <div
+        v-if="busy && liveStream && (liveStream.text || liveStream.reasoning)"
+        class="live-stream"
+    >
         <div v-if="liveStream.reasoning" class="live-reasoning">{{ liveStream.reasoning }}</div>
         <div
             v-if="liveStream.text"

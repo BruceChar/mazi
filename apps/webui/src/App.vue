@@ -178,8 +178,18 @@ watch(
     },
     { immediate: true },
 );
-const taskCount = computed(() => detail.value?.taskCount ?? 0);
-const stepCount = computed(() => detail.value?.stepCount ?? 0);
+/** Live steps of the executing run (drives the status bar while running). */
+const currentLiveSteps = computed(() => (current.value ? liveSteps[current.value] || [] : []));
+const taskCount = computed(() => {
+    if (busy.value && currentLiveSteps.value.length > 0) {
+        return new Set(currentLiveSteps.value.map((step) => step.taskId)).size;
+    }
+    return detail.value?.taskCount ?? 0;
+});
+const stepCount = computed(() => {
+    if (busy.value && currentLiveSteps.value.length > 0) return currentLiveSteps.value.length;
+    return detail.value?.stepCount ?? 0;
+});
 const rootOutcome = computed(() => (current.value ? runOutcomes[current.value] : null));
 /** Whether the right panel is maximized over the workspace. */
 const panelMaximized = ref(false);

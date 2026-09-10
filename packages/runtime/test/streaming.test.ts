@@ -172,4 +172,78 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
             await runtime.close();
         }
     });
+
+    it('工具失败：step.ended payload 带错误内容；run 结束后 Goal 状态落定为 succeeded/failed', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-stream-'));
+        dirs.push(dir);
+
+        const failProvider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new ProviderError('unknown', 'ask unused');
+            },
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                const hasTool = request.messages.some((message) => message.role === 'tool');
+                if (!hasTool) {
+                    yield { type: 'start', model: 'faux-model' };
+                    yield { type: 'tool_call_start', index: 0, callId: 'c1', name: 'fail.tool' };
+                    yield { type: 'tool_call_delta', index: 0, argumentsDelta: '{}' };
+                    yield { type: 'tool_call_stop', index: 0 };
+                    yield { type: 'finish', finishReason: 'tool_calls' };
+                } else {
+                    yield { type: 'start', model: 'faux-model' };
+                    yield { type: 'text_delta', text: 'recovered' };
+                    yield { type: 'finish', finishReason: 'stop' };
+                }
+            },
+        };
+
+        const config: RuntimeConfig = {
+            providers: [],
+            tools: [
+                {
+                    name: 'fail.tool',
+                    description: 'failing tool',
+                    parameters: {},
+                    minPermission: 'read-only',
+                    sideEffects: [],
+                    impl: async () => ({ ok: false, error: 'boom: file not found' }),
+                },
+            ],
+            dbPath: ':memory:',
+            eventDir: dir,
+            goal: { allowedTools: ['fail.tool'], permissionCeiling: 'read-only' },
+            contextWindow: 64000,
+        };
+
+        const runtime = new HarnessRuntime(config, { llmProviders: { default: failProvider } });
+        const stepEvents: HarnessEvent[] = [];
+        const unsubscribe = runtime.eventBus.subscribe(
+            { types: ['step.ended'] },
+            { id: 'fail-test', handle: (event) => stepEvents.push(event) },
+        );
+        try {
+            const created = await runtime.createGoalSession('fail run');
+            const result = await runtime.executeGoalTree(created.rootGoalId);
+            expect(result.ok).toBe(true);
+
+            const snapshot = await runtime.goalSnapshot(created.rootGoalId);
+            expect(snapshot.goals.every((goal) => goal.status === 'succeeded')).toBe(true);
+
+            const failedTool = stepEvents.find(
+                (event) =>
+                    (event.payload as { kind?: string }).kind === 'tool_call' &&
+                    (event.payload as { status?: string }).status === 'error',
+            );
+            expect(String((failedTool?.payload as { content?: string })?.content)).toContain(
+                'boom: file not found',
+            );
+        } finally {
+            unsubscribe();
+            await runtime.close();
+        }
+    });
 });

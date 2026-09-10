@@ -9,14 +9,7 @@ import type {
     RunOutcome,
     UserPreferences,
 } from '../types.js';
-import {
-    activeStream,
-    applyStreamEvent,
-    clearStreamsForTask,
-    type LiveStream,
-    type LiveStreamMap,
-    taskIdOf,
-} from './stream.js';
+import { activeStream, applyStreamEvent, type LiveStream, type LiveStreamMap } from './stream.js';
 
 const THEME_KEY = 'mazi.web.theme';
 /** Goal/session lifecycle plus step streaming events (step.ended pushes thinking/tool/observation live). */
@@ -326,7 +319,6 @@ async function refreshDetail(rootGoalId: string): Promise<void> {
         // refresh only touched `detail` and steps appeared only after the run ended.
         detail.value = snapshot;
         runDetails[rootGoalId] = snapshot;
-        await loadConversations();
     } catch {
         // Keep the previous snapshot when the session is gone or the backend is briefly unavailable.
     }
@@ -424,13 +416,12 @@ export function watchEvents(rootGoalId: string): void {
                 return;
             }
             if (event.type === 'step.ended') {
+                // Update in place; keep the streaming text visible so the answer does
+                // not blink out between steps. The final tree replaces it on completion.
                 applyStepEnded(rootGoalId, event);
-                liveStreams.value = clearStreamsForTask(liveStreams.value, taskIdOf(event));
-                refreshLater(rootGoalId);
                 return;
             }
             if (REFRESH_EVENT_TYPES.has(event.type)) {
-                liveStreams.value = {};
                 refreshLater(rootGoalId);
             }
         } catch {
