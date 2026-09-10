@@ -34,7 +34,9 @@ function isProjectOpen(path) {
     return !props.projectCollapsed.has(path);
 }
 function projectConversationItems(project) {
-    return props.conversations.filter((c) => c.workspaceRoot === project.path);
+    return props.conversations.filter(
+        (c) => c.workspace === project.path && c.projectId === project.path,
+    );
 }
 function conversationTitle(conversation) {
     return conversation?.title || conversation?.input || '';
