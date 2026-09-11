@@ -107,9 +107,6 @@ const workspaceDisplayName = computed(() => {
     return parts[parts.length - 1] || p;
 });
 
-/** 对话窗口标题显示的工作区：已选项目优先，否则随心聊默认工作区。 */
-const effectiveWorkspace = computed(() => workspaceRoot.value || freeChatWorkspace.value);
-
 async function onSaveFreeChatWorkspace(path) {
     try {
         await saveFreeChatWorkspace(path);
@@ -212,6 +209,18 @@ const activeConvList = computed(() =>
 const generalConversations = computed(() => defaultConversations(activeConvList.value));
 const activeConversation = computed(() =>
     conversations.value.find((c) => c.conversationId === currentConversation.value),
+);
+
+/** 顶部栏常驻：当前会话名称。 */
+const headerTitle = computed(() => conversationTitle(activeConversation.value));
+/**
+ * 顶部栏常驻：当前会话工作区。
+ * 项目会话用会话自身记录的 `workspace`（即当前项目工作空间），
+ * 随心聊才回退到已选工作区 / 随心聊默认工作区。
+ */
+const headerWorkspace = computed(
+    () =>
+        activeConversation.value?.workspace || workspaceRoot.value || freeChatWorkspace.value,
 );
 const runs = computed(() => activeConversation.value?.runs || []);
 
@@ -753,6 +762,8 @@ onBeforeUnmount(() => {
     <TopBar
         :sidebar-open="ui.sidebar"
         :right-open="ui.rightOpen"
+        :conversation-title="headerTitle"
+        :workspace="headerWorkspace"
         @toggle-sidebar="ui.sidebar = !ui.sidebar"
         @toggle-right="ui.rightOpen = !ui.rightOpen"
     />
@@ -803,7 +814,6 @@ onBeforeUnmount(() => {
                 <div v-if="ui.err && conversations.length" class="error-banner">{{ ui.err }}</div>
                 <ChatMain
                     :active-conversation="activeConversation"
-                    :workspace-root="effectiveWorkspace"
                     :workspace-display-name="workspaceDisplayName"
                     :runs="runs"
                     :run-details="runDetails"

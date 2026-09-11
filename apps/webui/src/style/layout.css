@@ -37,8 +37,35 @@
     font-style: italic;
     letter-spacing: 0.02em;
     white-space: nowrap;
-    align-self: end;
     line-height: 1.2;
+}
+
+/* 顶部栏常驻：会话名称 + 工作区（品牌右侧） */
+.topbar-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+.topbar-conv {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg);
+    min-width: 0;
+    max-width: 40vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.topbar-ws {
+    font-size: 12px;
+    color: var(--fg-secondary);
+    font-family: ui-monospace, monospace;
+    min-width: 0;
+    max-width: 32vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .right-toggle {

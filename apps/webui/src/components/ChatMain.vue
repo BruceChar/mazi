@@ -176,11 +176,6 @@ onMounted(() => {
 
 <template>
     <div class="chat-main">
-        <div v-if="activeConversation" class="goal-conv-head">
-            <span class="goal-conv-title">{{ conversationTitle(activeConversation) }}</span>
-            <span v-if="workspaceRoot" class="goal-conv-ws">{{ workspaceRoot }}</span>
-        </div>
-
         <div class="chat-body">
             <div ref="chatScroll" class="chat-scroll" @scroll.passive="onScroll">
                 <div class="chat-content">
@@ -313,21 +308,6 @@ onMounted(() => {
     min-width: 0;
     height: 100%;
     background: var(--bg);
-}
-.goal-conv-head {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding: 10px 14px 2px;
-    flex-wrap: wrap;
-}
-.goal-conv-title {
-    font-weight: 600;
-    font-size: 15px;
-}
-.goal-conv-ws {
-    color: var(--fg-secondary);
-    font-size: 12px;
 }
 /* Positioning context for the scroll container and the rail. */
 .chat-body {
