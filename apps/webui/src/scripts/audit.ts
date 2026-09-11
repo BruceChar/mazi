@@ -120,9 +120,14 @@ export interface AuditStepRow {
     lineIndex: number;
     /** 所属 run 序号（1-based） */
     runIndex: number;
+    /** 所属 task 序号（1-based，跨 run 累计） */
+    taskIndex: number;
+    /** task 内步骤序号（1-based） */
     index: number;
     kind: string;
     toolName: string;
+    /** 工具行命令/参数摘要（Context 面板折叠展示用） */
+    toolCommand: string;
     status: string;
     durationMs: number | null;
     tokens: number;
@@ -776,9 +781,11 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         stepId: step.stepId,
         lineIndex: step.lineIndex,
         runIndex: step.runIndex,
+        taskIndex: step.taskIndex,
         index: step.index,
         kind: step.kind,
         toolName: step.toolName,
+        toolCommand: formatToolCommand(step.toolName, step.toolArguments),
         status: step.status,
         durationMs: step.durationMs,
         tokens,

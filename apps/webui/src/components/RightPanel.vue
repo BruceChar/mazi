@@ -140,11 +140,19 @@ function toggleContext(key) {
 /* ---- Context 追踪：分段堆叠增长条 ---- */
 const contextRowList = computed(() => props.contextRows || []);
 const contextUtil = computed(() => props.audit?.utilization ?? null);
+/** 对 context 无影响的步骤（工具调用等）：不进图表，折叠成一行一个。 */
+const contextModelRows = computed(() =>
+    contextRowList.value.filter((row) => row.contextTotal != null),
+);
+const contextToolRows = computed(() =>
+    contextRowList.value.filter((row) => row.contextTotal == null),
+);
+const showContextTools = ref(false);
 const contextPeak = computed(() =>
-    contextRowList.value.reduce((max, row) => Math.max(max, row.contextTotal || 0), 0),
+    contextModelRows.value.reduce((max, row) => Math.max(max, row.contextTotal || 0), 0),
 );
 const contextLatest = computed(() => {
-    const rows = contextRowList.value;
+    const rows = contextModelRows.value;
     for (let i = rows.length - 1; i >= 0; i -= 1) {
         const total = rows[i]?.contextTotal;
         if (total != null) return total;
@@ -153,7 +161,7 @@ const contextLatest = computed(() => {
 });
 const contextLegend = computed(() => {
     const seen = new Map();
-    for (const row of contextRowList.value) {
+    for (const row of contextModelRows.value) {
         for (const seg of row.segments || []) {
             if (!seen.has(seg.key)) {
                 seen.set(seg.key, { key: seg.key, label: seg.label, colorVar: seg.colorVar });
@@ -164,7 +172,7 @@ const contextLegend = computed(() => {
 });
 const contextChart = computed(() => {
     const max = Math.max(1, contextPeak.value);
-    return contextRowList.value.map((row) => ({
+    return contextModelRows.value.map((row) => ({
         ...row,
         barWidth: Math.min(100, ((row.contextTotal || 0) / max) * 100),
         segs: (row.segments || []).map((seg) => ({
@@ -397,6 +405,15 @@ const contextChart = computed(() => {
                         <div class="audit-section-title">
                             {{ audit.kind === 'task' ? '步骤' : '会话步骤' }}（{{ audit.rows.length }}）
                         </div>
+                        <div class="audit-step-head">
+                            <span class="audit-step-tag">R#</span>
+                            <span class="audit-step-task">T#</span>
+                            <span class="audit-step-tag">S#</span>
+                            <span class="audit-step-kind">类型</span>
+                            <span class="audit-step-ctx">上下文</span>
+                            <span class="audit-step-delta">Δ</span>
+                            <span class="audit-step-tokens">tokens</span>
+                        </div>
                         <button
                             v-for="row in audit.rows"
                             :key="row.stepId"
@@ -404,8 +421,9 @@ const contextChart = computed(() => {
                             :class="{ selected: row.selected }"
                             @click="emit('select-step', { stepId: row.stepId })"
                         >
-                            <span class="audit-step-tag">S#{{ row.lineIndex }}</span>
-                            <span v-if="audit.kind !== 'task'" class="audit-run-tag">R#{{ row.runIndex }}</span>
+                            <span class="audit-step-tag">R#{{ row.runIndex }}</span>
+                            <span class="audit-step-task">T#{{ row.taskIndex }}</span>
+                            <span class="audit-step-tag">S#{{ row.index }}</span>
                             <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
                             <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
                             <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
@@ -418,7 +436,7 @@ const contextChart = computed(() => {
                 <section class="audit-section">
                     <div class="audit-section-title">
                         Context 追踪
-                        <span class="audit-pct">{{ contextRowList.length }} 步</span>
+                        <span class="audit-pct">{{ contextModelRows.length }} 步 · {{ contextToolRows.length }} 工具</span>
                     </div>
                     <div class="ctx-summary">
                         <span>峰值 {{ formatTokens(contextPeak) }}</span>
@@ -468,6 +486,28 @@ const contextChart = computed(() => {
                         </div>
                     </div>
                     <div v-if="!contextChart.length" class="audit-muted">暂无可追踪的步骤</div>
+                </section>
+
+                <!-- 对 context 无影响的工具调用：折叠成一行一个【工具：命令+参数】 -->
+                <section v-if="contextToolRows.length" class="audit-section">
+                    <button class="ctx-tools-toggle" @click="showContextTools = !showContextTools">
+                        <span class="ctx-tools-caret">{{ showContextTools ? '−' : '+' }}</span>
+                        工具调用（{{ contextToolRows.length }}）· 不影响 context
+                    </button>
+                    <div v-if="showContextTools" class="ctx-tools">
+                        <button
+                            v-for="row in contextToolRows"
+                            :key="row.stepId"
+                            class="ctx-tool-line"
+                            :class="{ selected: row.selected }"
+                            @click="emit('select-step', { stepId: row.stepId })"
+                        >
+                            <span class="audit-step-tag">R#{{ row.runIndex }}</span>
+                            <span class="audit-step-task">T#{{ row.taskIndex }}</span>
+                            <span class="audit-step-tag">S#{{ row.index }}</span>
+                            <span class="ctx-tool-text">【{{ row.toolName }}：{{ row.toolCommand }}】</span>
+                        </button>
+                    </div>
                 </section>
             </div>
             <div v-else-if="activeTab === 'log'" class="drawer-body">
@@ -1019,6 +1059,21 @@ const contextChart = computed(() => {
 }
 
 /* Step detail rows (click to re-select) */
+.audit-step-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 2px;
+}
+.audit-step-head .audit-step-tag,
+.audit-step-head .audit-step-task {
+    background: transparent;
+    color: var(--fg-tertiary);
+}
 .audit-step-row {
     display: flex;
     align-items: center;
@@ -1058,6 +1113,17 @@ const contextChart = computed(() => {
     background: var(--bg-hover);
     border-radius: 3px;
     padding: 0 3px;
+    flex-shrink: 0;
+}
+.audit-step-task {
+    font-family: ui-monospace, monospace;
+    font-weight: 700;
+    color: var(--fg-tertiary);
+    background: var(--bg-code);
+    border-radius: 3px;
+    padding: 0 4px;
+    width: 32px;
+    text-align: center;
     flex-shrink: 0;
 }
 .audit-step-kind {
@@ -1301,6 +1367,52 @@ const contextChart = computed(() => {
     font-weight: 600;
     color: var(--fg-secondary);
     font-family: ui-monospace, monospace;
+}
+.ctx-tools-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 6px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-tertiary);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+}
+.ctx-tools-toggle:hover {
+    background: var(--bg-hover);
+}
+.ctx-tools-caret {
+    font-weight: 700;
+}
+.ctx-tool-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 3px 6px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-secondary);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+}
+.ctx-tool-line:hover,
+.ctx-tool-line.selected {
+    background: var(--bg-hover);
+}
+.ctx-tool-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, monospace;
+    color: var(--fg-secondary);
 }
 .seg-content {
     margin: 2px 0 6px;
