@@ -12,6 +12,7 @@
 - **执行层（ToolGateway）**：11 阶段管线消费本模块产物；本模块不实现沙盒与 handler。
 - 代码位置：`packages/core/src/authz/`（TCB 语义层）。`@mazi/core` 以命名空间 `authz` 导出，避免与既有 v1 契约（`authorization.ts`/`tool-gateway.ts`）的 `AgentGrant`/`EffectivePolicy` 等同名类型冲突。
 - 依赖方向：`authz/*` 只依赖自身与 `node:crypto`（根信任/审计签名）。不依赖 runtime/apps。
+- **v1 契约清除（本次）**：旧的 `authorization.ts`（EffectClass 等）、`approval.ts`（ApprovalSeam）、`tool-gateway.ts`（v1 11 阶段/EffectClass 契约）已删除。仍被 goal 模型/运行时配置/观测契约使用的 `PermissionLevel`、`SideEffectScope`、`ApprovalScope` 迁移到 `permissions.ts`；网关审计桥的 effectClass 字段改为 `string`（即 v2 CapabilityKey）。
 
 ## 2. 模块与公开 API
 

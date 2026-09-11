@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Goal, GoalParent } from '../src/gts.js';
 import { validateAttributionChain, validateCeilingMonotonicity } from '../src/gts.js';
-import { PermissionLevel } from '../src/authorization.js';
+import { PermissionLevel } from '../src/permissions.js';
 import { ULID, ulid } from '../src/id.js';
 
 function g(

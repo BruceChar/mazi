@@ -299,19 +299,19 @@ export function validateToolSchema(schema: ToolSchema, path = 'tool'): void {
 }
 
 function validateObjectSchemaRoot(node: Record<string, unknown>, path: string): void {
-    const type = node['type'];
-    const hasProperties = node['properties'] !== undefined;
+    const type = node.type;
+    const hasProperties = node.properties !== undefined;
     if (type !== 'object' && !hasProperties) {
         throw invalidRequest(
             `${path}: root must be an object schema (type:"object" or "properties" present) [CORE §5.2]`,
         );
     }
-    const required = node['required'];
+    const required = node.required;
     if (required === undefined) return;
     if (!Array.isArray(required)) {
         throw invalidRequest(`${path}.required: must be an array of strings`);
     }
-    const properties = node['properties'];
+    const properties = node.properties;
     const propertiesRecord =
         properties !== undefined && typeof properties === 'object' && !Array.isArray(properties)
             ? (properties as Record<string, unknown>)
@@ -336,7 +336,7 @@ function validateObjectSchemaRoot(node: Record<string, unknown>, path: string): 
 function validateSchemaConstraints(node: unknown, path: string): void {
     if (node === null || typeof node !== 'object' || Array.isArray(node)) return;
     const schema = node as Record<string, unknown>;
-    const type = schema['type'];
+    const type = schema.type;
 
     if (typeof type === 'string') {
         if (type !== 'string') {
@@ -357,21 +357,21 @@ function validateSchemaConstraints(node: unknown, path: string): void {
                 }
             }
         }
-        if (type !== 'array' && schema['items'] !== undefined) {
+        if (type !== 'array' && schema.items !== undefined) {
             throw invalidRequest(
                 `${path}: "items" is only valid for type "array", got "${type}" [CORE §5.2]`,
             );
         }
     }
 
-    const properties = schema['properties'];
+    const properties = schema.properties;
     if (properties !== undefined && typeof properties === 'object' && !Array.isArray(properties)) {
         const props = properties as Record<string, unknown>;
         for (const [key, child] of Object.entries(props)) {
             validateSchemaConstraints(child, `${path}.properties.${key}`);
         }
     }
-    const items = schema['items'];
+    const items = schema.items;
     if (items !== undefined) {
         validateSchemaConstraints(items, `${path}.items`);
     }

@@ -1,6 +1,5 @@
-import type { ApprovalScope } from './approval.js';
-import type { EffectClass, PermissionLevel } from './authorization.js';
 import type { StepKind } from './gts.js';
+import type { ApprovalScope, PermissionLevel } from './permissions.js';
 
 /** Task-level tag (open string; expressed on the gts task model) */
 type TaskTag = string & {};
@@ -25,7 +24,7 @@ export interface TraceIdentifiers {
 /**
  * Audit identifiers — all four levels required (root goal / goal / task /
  * step): any missing is an implementation defect. Used by
- * GatewayAuditEvent (tool-gateway.ts) and hook contexts, where the full
+ * GatewayAuditEvent (authz/gateway.ts) and hook contexts, where the full
  * decision chain must be reconstructable.
  */
 export interface AuditIdentifiers {
@@ -129,7 +128,7 @@ export interface HarnessEvent extends TraceIdentifiers {
         'harness.gateway_effect_class'?: string;
         'harness.gateway_danger_rule'?: string;
         'harness.approval_scope'?: ApprovalScope;
-        'harness.approval_effect_class'?: EffectClass;
+        'harness.approval_effect_class'?: string;
         'harness.flag_overrides'?: Record<string, unknown>;
         'user.record_id'?: string;
         'user.feedback_type'?: string;

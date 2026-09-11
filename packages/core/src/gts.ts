@@ -11,8 +11,8 @@
  *   收敛为 success/failure 机械条件 + 资源/预算/终止/风险（许可与工具模块另卷）。
  */
 
-import type { PermissionLevel } from './authorization.js';
-import { ULID } from './id.js';
+import type { ULID } from './id.js';
+import type { PermissionLevel } from './permissions.js';
 
 export type OriginKind = 'human' | 'agent' | 'system';
 export type GoalStatus = 'active' | 'succeeded' | 'failed' | 'aborted' | 'timeout';
