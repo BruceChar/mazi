@@ -149,10 +149,10 @@ function buildExecStats(detailObj) {
     const stepCount = rows.filter((r) => r.kind !== 'intent' && r.kind !== 'observation').length;
     return { inputTokens, outputTokens, totalTime: formatDuration(totalMs), taskCount, stepCount };
 }
-function finalSummaryOf(detailObj) {
+/** 最终模型输出（最后一个 intent step）：文本 + 该轮 usage，供审计观测。 */
+function finalSummaryRowOf(detailObj) {
     const intentRows = allStepsOf(detailObj).filter((r) => r.kind === 'intent');
-    if (intentRows.length > 0) return intentRows[intentRows.length - 1].text || '';
-    return '';
+    return intentRows.length > 0 ? intentRows[intentRows.length - 1] : null;
 }
 
 /* ---- Collapse state ---- */
@@ -191,7 +191,7 @@ function stepTitleSummary(row) {
 
 /* ---- Derived view state (computed once per render pass) ---- */
 const tree = computed(() => buildExecTree(props.runDetail));
-const summary = computed(() => finalSummaryOf(props.runDetail));
+const summary = computed(() => finalSummaryRowOf(props.runDetail));
 const stats = computed(() => buildExecStats(props.runDetail));
 </script>
 
@@ -297,9 +297,19 @@ const stats = computed(() => buildExecStats(props.runDetail));
                 </div>
             </div>
         </div>
-        <!-- Final model answer (intent step), shown once below the tree. -->
-        <div v-if="summary" class="exec-summary">
-            <div class="exec-summary-text markdown-body" v-html="renderMarkdown(summary)"></div>
+        <!-- Final model answer (intent step); clickable to open its audit (tokens/timing). -->
+        <div
+            v-if="summary"
+            class="exec-summary"
+            :class="{ selected: selectedStepId === summary.stepId }"
+            @click="emit('select-step', { stepId: summary.stepId, taskId: summary.taskId })"
+        >
+            <div class="exec-summary-text markdown-body" v-html="renderMarkdown(summary.text)"></div>
+            <div v-if="usageStats(summary.usage)?.hasData" class="exec-step-usage">
+                {{ usageStats(summary.usage).total }} tokens
+                <template v-if="usageStats(summary.usage).cache"> · cache {{ usageStats(summary.usage).cache }}</template>
+                <template v-if="usageStats(summary.usage).reasoning"> · reasoning {{ usageStats(summary.usage).reasoning }}</template>
+            </div>
         </div>
         <!-- Per-run stats + feedback -->
         <div class="exec-stats">
@@ -775,12 +785,20 @@ const stats = computed(() => buildExecStats(props.runDetail));
     font-family: ui-monospace, monospace;
 }
 
-/* Final summary (goal-level, sits after all goals/tasks/steps) */
+/* Final summary (goal-level, sits after all goals/tasks/steps); click → audit */
 .exec-summary {
     margin-top: 12px;
-    padding: 0;
-    border: none;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 6px;
     background: transparent;
+    cursor: pointer;
+}
+.exec-summary:hover {
+    background: var(--bg-hover, rgba(127, 127, 127, 0.08));
+}
+.exec-summary.selected {
+    border-color: var(--accent, #6366f1);
 }
 .exec-summary-text {
     font-size: 13px;
