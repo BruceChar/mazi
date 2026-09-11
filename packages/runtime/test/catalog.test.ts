@@ -333,3 +333,51 @@ describe('catalog store：文件实现', () => {
         }
     });
 });
+
+describe('catalog alias：厂商改名/换代', () => {
+    it('createAlias 登记、epoch+1、审计留痕；resolveModelId 解析旧 id', async () => {
+        const service = await CatalogService.open({
+            store: new MemoryCatalogStore(),
+            now: () => CLOCK.value,
+        });
+        await service.sync(
+            observed([
+                observedProvider({
+                    models: [
+                        observedModel(),
+                        observedModel({ id: 'deepseek-v4-flash-preview', name: 'Preview' }),
+                    ],
+                }),
+            ]),
+            { now: advance(1000) },
+        );
+        const alias = await service.createAlias({
+            oldModelId: modelIdOf('deepseek-v4-flash-preview'),
+            canonicalModelId: modelIdOf('deepseek-v4-flash'),
+            reason: 'vendor-rename',
+        });
+        expect(alias.reason).toBe('vendor-rename');
+        expect(service.epoch()).toBe(2);
+        expect(service.resolveModelId(modelIdOf('deepseek-v4-flash-preview'))).toBe(
+            'deepseek-v4-flash',
+        );
+        expect(service.resolveModelId(modelIdOf('deepseek-v4-flash'))).toBe('deepseek-v4-flash');
+        const changes = await service.changesSince(1);
+        expect(changes.map((change) => change.kind)).toContain('alias-created');
+    });
+
+    it('未知 model → 抛错（不留悬挂 alias）', async () => {
+        const service = await CatalogService.open({
+            store: new MemoryCatalogStore(),
+            now: () => CLOCK.value,
+        });
+        await service.sync(observed([observedProvider()]), { now: advance(1000) });
+        await expect(
+            service.createAlias({
+                oldModelId: modelIdOf('nope'),
+                canonicalModelId: modelIdOf('deepseek-v4-flash'),
+                reason: 'operator-merge',
+            }),
+        ).rejects.toThrow(/both models must exist/);
+    });
+});

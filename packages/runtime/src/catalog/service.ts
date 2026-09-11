@@ -13,6 +13,8 @@ import type {
     DriverConfig,
     HealthSample,
     LifecycleStatus,
+    ModelAlias,
+    ModelAliasReason,
     ModelId,
     OfferingId,
     UsageRecord,
@@ -155,6 +157,53 @@ export class CatalogService {
             kind: status === 'active' ? 'model-reactivated' : 'model-deprecated',
             payload: { modelId },
         });
+    }
+
+    /**
+     * 厂商改名/换代：登记 alias，保证旧 UsageRecord 可解析到新 model。
+     * 不自动迁移 offering——路由无感由 alias 解析 + 新 model/offering 入库共同保证（设计文档 §10）。
+     */
+    async createAlias(input: {
+        oldModelId: ModelId;
+        canonicalModelId: ModelId;
+        reason: ModelAliasReason;
+    }): Promise<ModelAlias> {
+        const facts = cloneCatalogFacts(this.runtime.facts());
+        const hasOld = facts.models.some((item) => item.id === input.oldModelId);
+        const hasCanonical = facts.models.some((item) => item.id === input.canonicalModelId);
+        if (!hasOld || !hasCanonical) {
+            throw new Error(
+                'catalog.createAlias: both models must exist (' +
+                    input.oldModelId +
+                    ' → ' +
+                    input.canonicalModelId +
+                    ')',
+            );
+        }
+        const alias: ModelAlias = {
+            id: this.id(),
+            oldModelId: input.oldModelId,
+            canonicalModelId: input.canonicalModelId,
+            reason: input.reason,
+            mappedAt: this.now(),
+        };
+        facts.aliases.push(alias);
+        await this.commitOperatorChange(facts, {
+            kind: 'alias-created',
+            payload: {
+                aliasId: alias.id,
+                oldModelId: alias.oldModelId,
+                canonicalModelId: alias.canonicalModelId,
+                reason: alias.reason,
+            },
+        });
+        return alias;
+    }
+
+    /** 历史记录解析：旧 model id → 规范 model id；无 alias → 原值。 */
+    resolveModelId(modelId: ModelId): ModelId {
+        const alias = this.runtime.facts().aliases.find((item) => item.oldModelId === modelId);
+        return alias?.canonicalModelId ?? modelId;
     }
 
     private async commitOperatorChange(
