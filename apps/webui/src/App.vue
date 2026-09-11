@@ -211,8 +211,11 @@ const activeConversation = computed(() =>
     conversations.value.find((c) => c.conversationId === currentConversation.value),
 );
 
-/** 顶部栏会话名称（与品牌同一行）。 */
-const headerTitle = computed(() => conversationTitle(activeConversation.value));
+/** 顶部栏会话名称：最多 12 个字符，超出以省略号截断。 */
+const headerTitle = computed(() => {
+    const title = conversationTitle(activeConversation.value) || '';
+    return title.length > 12 ? title.slice(0, 12) + '…' : title;
+});
 /**
  * 顶部栏会话工作区。
  * 项目会话用会话自身记录的 `workspace`（即当前项目工作空间），

@@ -13,6 +13,7 @@
     background: var(--bg);
     border-bottom: 1px solid var(--border);
     z-index: 20;
+    position: relative;
 }
 
 .topbar-left,
@@ -41,19 +42,28 @@
     line-height: 1.2;
 }
 
-/* 会话名称 + 工作区：与品牌同一行（slogan 之后），超长省略号截断 */
-.topbar-divider {
-    width: 1px;
-    height: 18px;
-    background: var(--border);
-    flex-shrink: 0;
+/* 会话名称 + 工作区：自左侧边栏宽度处开始、贴着 topbar 下边框 */
+.topbar-conv-wrap {
+    position: absolute;
+    left: 240px;
+    bottom: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    max-width: calc(100% - 240px - 56px);
+    padding: 0 6px 3px 10px;
+    background: var(--bg);
+}
+.topbar.sidebar-collapsed .topbar-conv-wrap {
+    left: 0;
+    max-width: calc(100% - 56px);
 }
 .topbar-conv {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--fg);
     min-width: 0;
-    max-width: 34vw;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -63,7 +73,6 @@
     color: var(--fg-secondary);
     font-family: ui-monospace, monospace;
     min-width: 0;
-    max-width: 26vw;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
