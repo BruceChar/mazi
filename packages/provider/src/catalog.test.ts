@@ -12,8 +12,8 @@ describe('builtinModelsFor（pi-ai 目录读取）', () => {
             ),
         ).toBe(true);
         expect(models[0]?.pricing?.inputPerMTok).toBeGreaterThan(0);
-        // 目录补充：厂商新模型即使 pi-ai 目录未收录也可用
-        expect(models.some((model) => model.id === 'deepseek-v41-flash')).toBe(true);
+        // 不再硬编码厂商未发布的补充模型（曾因 deepseek-v41-flash 导致线上 400）
+        expect(models.some((model) => model.id === 'deepseek-v41-flash')).toBe(false);
     });
 
     it('未知厂商 / 空厂商 → 空数组（不抛错）', () => {

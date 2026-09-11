@@ -29,14 +29,14 @@ describe('deepseekAdapter（真实厂商 adapter 目录，离线）', () => {
 
     it('配置模型不在目录 → 以目录模板合成（可解析、可发往厂商）', () => {
         const provider = deepseekAdapter(
-            { id: 'ds', adapter: 'deepseek', models: [{ id: 'deepseek-v41-flash' }] },
+            { id: 'ds', adapter: 'deepseek', models: [{ id: 'deepseek-v5-experimental' }] },
             { env: {} },
         );
-        expect(provider.defaultModel).toBe('deepseek-v41-flash');
-        expect(provider.listModels().some((m) => m.id === 'deepseek-v41-flash')).toBe(true);
-        expect(provider.modelDetail('deepseek-v41-flash')?.capabilities.supportsReasoning).toBe(
-            true,
-        );
+        expect(provider.defaultModel).toBe('deepseek-v5-experimental');
+        expect(provider.listModels().some((m) => m.id === 'deepseek-v5-experimental')).toBe(true);
+        expect(
+            provider.modelDetail('deepseek-v5-experimental')?.capabilities.supportsReasoning,
+        ).toBe(true);
         // 目录模型仍在
         expect(provider.listModels().some((m) => m.id === 'deepseek-v4-flash')).toBe(true);
     });

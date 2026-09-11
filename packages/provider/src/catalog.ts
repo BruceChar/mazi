@@ -15,12 +15,10 @@ export type CatalogModel = ProviderModelInfo;
 const catalogCache = new Map<string, ProviderModelInfo[]>();
 
 /**
- * pi-ai 目录更新滞后时的本地补充：厂商已发布但目录未收录的模型。
- * 以目录模板克隆元数据（能力/价格后续可由目录覆盖）；需要增删改这里即可。
+ * 读取指定厂商（pi-ai provider id，如 deepseek）的**离线**模型目录（能力 + 价格）；未知厂商 → []。
+ * 注意：这是本地回退目录，厂商真实模型名可能不同（见 model-discovery 的在线发现）；
+ * 不得在此硬编码厂商未发布的模型 id（曾因 deepseek-v41-flash 导致线上 400）。
  */
-const DEEPSEEK_CATALOG_SUPPLEMENT = ['deepseek-v41-flash'];
-
-/** 读取指定厂商（pi-ai provider id，如 deepseek）的模型目录（能力 + 价格）；未知厂商 → []。 */
 export function builtinModelsFor(vendor: string): ProviderModelInfo[] {
     const cached = catalogCache.get(vendor);
     if (cached !== undefined) {
@@ -34,10 +32,7 @@ export function builtinModelsFor(vendor: string): ProviderModelInfo[] {
                 const provider = deepseekAdapter({
                     id: vendor,
                     adapter: 'deepseek',
-                    models: [
-                        { id: known[0] as string },
-                        ...DEEPSEEK_CATALOG_SUPPLEMENT.map((id) => ({ id })),
-                    ],
+                    models: [{ id: known[0] as string }],
                 });
                 models = provider.listModels();
             }

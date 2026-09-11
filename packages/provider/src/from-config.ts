@@ -10,6 +10,7 @@
 import { createModels } from '@earendil-works/pi-ai';
 import { deepseekProvider } from '@earendil-works/pi-ai/providers/deepseek';
 import type { LLMProvider } from '@mazi/core';
+import { fetchRemoteModelIds } from './model-discovery.js';
 import { createPiProvider } from './pi-ai-adapter.js';
 
 export const DEEPSEEK_ADAPTER_ID = 'deepseek';
@@ -103,23 +104,69 @@ export const providerCatalog: Readonly<
 export const SUPPORTED_ADAPTERS: readonly string[] = [DEEPSEEK_ADAPTER_ID];
 
 export interface ModelDiscoveryResult {
-    /** 目录模型 id（本地 pi-ai 目录；未联网拉取） */
     models: string[];
+    /** true = 来自厂商端点（权威）；false = 回退本地目录 */
     refreshed: boolean;
+    source: 'remote' | 'local' | 'none';
     warning?: string;
 }
 
-/** 模型发现（pi-ai 本地目录；deepseek 为内置目录，其余 provider 回退预设模型并提示） */
+export interface DiscoverModelsOptions {
+    apiKeyEnv?: string;
+    baseUrl?: string;
+    env?: Record<string, string | undefined>;
+    fetchImpl?: typeof fetch;
+}
+
+/**
+ * 模型发现：优先在线 GET /models（权威，反映端点真实可用的模型名），
+ * 无 Key / 网络失败时回退 pi-ai 本地目录并给出 warning。
+ * 本地目录名可能滞后（目录 deepseek-v4-flash ≠ 端点 deepseek-flash），不得当权威。
+ */
 export async function discoverModels(
     providerId: string,
-    _options?: { apiKeyEnv?: string },
+    options: DiscoverModelsOptions = {},
 ): Promise<ModelDiscoveryResult> {
-    if (providerId === DEEPSEEK_ADAPTER_ID) {
-        return { models: knownDeepseekModels(), refreshed: true };
+    if (providerId !== DEEPSEEK_ADAPTER_ID) {
+        return {
+            models: [],
+            refreshed: false,
+            source: 'none',
+            warning: `provider '${providerId}' 暂无远端目录`,
+        };
+    }
+    const env = options.env ?? process.env;
+    const apiKey = options.apiKeyEnv ? env[options.apiKeyEnv] : env.DEEPSEEK_API_KEY;
+    if (apiKey && apiKey.length > 0) {
+        try {
+            const models = await fetchRemoteModelIds({
+                providerId,
+                apiKey,
+                ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+                ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+            });
+            if (models.length > 0) {
+                return { models, refreshed: true, source: 'remote' };
+            }
+            return {
+                models: knownDeepseekModels(),
+                refreshed: false,
+                source: 'local',
+                warning: '厂商 /models 返回空列表，回退本地目录',
+            };
+        } catch (error) {
+            return {
+                models: knownDeepseekModels(),
+                refreshed: false,
+                source: 'local',
+                warning: '厂商 /models 调用失败：' + String(error) + '，回退本地目录',
+            };
+        }
     }
     return {
-        models: [],
+        models: knownDeepseekModels(),
         refreshed: false,
-        warning: `provider '${providerId}' 暂无本地目录，使用向导预设模型`,
+        source: 'local',
+        warning: '未配置 API Key，回退本地目录（可能滞后）',
     };
 }
