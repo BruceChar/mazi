@@ -30,7 +30,13 @@ export class HealthController {
         };
     }
 
-    /** POST /api/config/sync：从 pi-ai 目录重新同步模型列表并返回最新配置。 */
+    /** POST /api/runtime/restart：在线重同步端点模型并重建运行时（进程内重启语义）。 */
+    @Post('runtime/restart')
+    async restart(): Promise<Record<string, unknown>> {
+        return this.runtime.restart();
+    }
+
+    /** POST /api/config/sync：在线发现端点模型并返回最新配置。 */
     @Post('config/sync')
     async syncConfig(): Promise<Record<string, unknown>> {
         const overview = await this.runtime.syncConfig();

@@ -37,6 +37,13 @@ describe('health & config（NG-1 契约对齐旧 node:http）', () => {
         expect(body.hasProvidersFile).toBe(false);
     });
 
+    it('POST /api/runtime/restart → 200 { restarted }', async () => {
+        const res = await h.fastify.inject({ method: 'POST', url: '/api/runtime/restart' });
+        expect(res.statusCode).toBe(200);
+        expect(typeof res.json().restarted).toBe('number');
+        expect(Array.isArray(res.json().providers)).toBe(true);
+    });
+
     it('未匹配路由 → 404 { error: "not found" }', async () => {
         const res = await h.fastify.inject({
             method: 'GET',

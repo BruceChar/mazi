@@ -12,6 +12,7 @@ import {
     builtinModelsFor,
     CatalogService,
     configOverview,
+    discoverModels,
     ensureMaziDirs,
     FileCatalogStore,
     HarnessRuntime,
@@ -76,6 +77,58 @@ function applyCatalogPricing(
     return true;
 }
 
+function driverProviderOf(provider: Record<string, unknown>): string | undefined {
+    const driver = provider.driver as { provider?: unknown } | undefined;
+    return typeof driver?.provider === 'string' && driver.provider.length > 0
+        ? driver.provider
+        : undefined;
+}
+
+function driverModelOf(provider: Record<string, unknown>): string | undefined {
+    const driver = provider.driver as { model?: unknown } | undefined;
+    return typeof driver?.model === 'string' ? driver.model : undefined;
+}
+
+function driverBaseUrlOf(provider: Record<string, unknown>): string | undefined {
+    const driver = provider.driver as { baseUrl?: unknown } | undefined;
+    return typeof driver?.baseUrl === 'string' && driver.baseUrl.length > 0
+        ? driver.baseUrl
+        : undefined;
+}
+
+/**
+ * **权威替换** provider.models 为发现的 id 列表（保序、保留同 id 的既有元数据）。
+ * 与旧行为的关键差异：厂商不再返回的陈旧 id 会被移除（否则 deepseek-v41-flash 会永久残留）。
+ * 若 driver.model 不在新列表内，重置为新列表首个模型。
+ */
+function applyModelList(
+    provider: Record<string, unknown>,
+    ids: readonly string[],
+    metadata: readonly ProviderModelInfo[],
+): boolean {
+    const existing = Array.isArray(provider.models)
+        ? (provider.models as Array<Record<string, unknown>>)
+        : [];
+    const existingById = new Map(existing.map((model) => [String(model.id), model]));
+    const metaById = new Map(metadata.map((info) => [info.id, info]));
+    const next = ids.map((id) => {
+        const prior = existingById.get(id);
+        if (prior !== undefined) return prior;
+        const info = metaById.get(id);
+        return info !== undefined ? modelEntryOf(info) : { id, name: id };
+    });
+    const driver = provider.driver as { model?: unknown } | undefined;
+    const currentDefault = driverModelOf(provider);
+    if (driver !== undefined && (currentDefault === undefined || !ids.includes(currentDefault))) {
+        if (ids[0] !== undefined) driver.model = ids[0];
+    }
+    if (JSON.stringify(next) === JSON.stringify(existing)) {
+        return false;
+    }
+    provider.models = next;
+    return true;
+}
+
 /**
  * ApiRuntimeService：API 侧组合根（docs/后端与存储设计.md v0.2 §10.2）。
  * 惰性装配 {@link HarnessRuntime}（领域/存储零改动），持有与旧实现一致的进程内串行执行锁，
@@ -97,7 +150,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private config: RuntimeConfig;
 
     constructor() {
-        // 启动时按 pi-ai 内置目录同步一次 providers.json 的模型列表（失败不阻断启动）。
+        // 启动：先用本地目录权威替换一次（同步、失败不阻断），再异步做在线发现（端点真实模型名）。
         try {
             this.syncProviderModels();
         } catch (error) {
@@ -106,77 +159,158 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
             consoleEnabled: false,
         });
+        void this.syncProviderModelsOnline()
+            .then((result) => {
+                if (result.changed) {
+                    this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
+                        consoleEnabled: false,
+                    });
+                }
+                for (const warning of result.warnings) this.logger.warn(`model sync: ${warning}`);
+            })
+            .catch((error) =>
+                this.logger.warn(`online model sync on boot failed: ${String(error)}`),
+            );
+    }
+
+    /** 读取 providers.json；缺失/损坏 → undefined（调用方跳过，不覆盖）。 */
+    private readProvidersFile(): { providers?: Array<Record<string, unknown>> } | undefined {
+        const file = this.paths.providersFile;
+        if (!existsSync(file)) return undefined;
+        try {
+            return JSON.parse(readFileSync(file, 'utf8')) as {
+                providers?: Array<Record<string, unknown>>;
+            };
+        } catch (error) {
+            this.logger.warn(`read providers.json failed: ${String(error)}`);
+            return undefined;
+        }
+    }
+
+    private writeProvidersFile(parsed: { providers?: Array<Record<string, unknown>> }): void {
+        writeFileSync(this.paths.providersFile, JSON.stringify(parsed, null, 2));
     }
 
     /**
-     * 按 pi-ai 内置目录同步 providers.json 的 models 列表（best-effort）。
-     * 未知厂商（目录无此 provider）保留原 models，不覆盖。
-     * @returns 是否发生变更
+     * 离线同步（启动兜底）：按 pi-ai 本地目录**权威替换** models 列表。
+     * 未知厂商（目录无此 provider）保留原 models；厂商未发布的陈旧 id 会被移除。
      */
     syncProviderModels(): boolean {
-        this.logger.log('syncProviderModels: start');
-        const file = this.paths.providersFile;
-        this.logger.debug(`syncProviderModels: file=${file}`);
-        if (!existsSync(file)) {
-            return false;
-        }
-        let parsed: { providers?: Array<Record<string, unknown>> };
-        try {
-            parsed = JSON.parse(readFileSync(file, 'utf8')) as typeof parsed;
-        } catch (error) {
-            this.logger.warn(`read providers.json failed: ${String(error)}`);
-            return false;
-        }
-        const providers = parsed.providers ?? [];
+        const parsed = this.readProvidersFile();
+        if (parsed === undefined) return false;
         let changed = false;
-        for (const provider of providers) {
-            const vendor = (provider.driver as { provider?: string } | undefined)?.provider;
-            if (!vendor) continue;
+        for (const provider of parsed.providers ?? []) {
+            const vendor = driverProviderOf(provider);
+            if (vendor === undefined) continue;
             const infos = builtinModelsFor(vendor);
             if (infos.length === 0) continue;
-            const existing = Array.isArray(provider.models)
-                ? (provider.models as Array<Record<string, unknown>>)
-                : [];
-            const existingById = new Map(existing.map((model) => [String(model.id), model]));
-            // 目录模型优先；目录外（厂商新模型 / 自定义）保留在尾部，绝不删除
-            const merged = [
-                ...infos.map((info) => existingById.get(info.id) ?? modelEntryOf(info)),
-                ...existing.filter((model) => !infos.some((info) => info.id === model.id)),
-            ];
-            if (JSON.stringify(merged) !== JSON.stringify(existing)) {
-                provider.models = merged;
+            if (
+                applyModelList(
+                    provider,
+                    infos.map((info) => info.id),
+                    infos,
+                )
+            )
                 changed = true;
-            }
             const pricing = infos[0]?.pricing;
-            if (pricing && applyCatalogPricing(provider, pricing)) {
-                changed = true;
-            }
+            if (pricing && applyCatalogPricing(provider, pricing)) changed = true;
         }
         if (changed) {
-            writeFileSync(file, JSON.stringify(parsed, null, 2));
-            this.logger.log('syncProviderModels: models/pricing updated from provider catalog');
+            this.writeProvidersFile(parsed);
+            this.logger.log('syncProviderModels: models/pricing replaced from local catalog');
         }
         return changed;
     }
 
     /**
-     * 手动同步：刷新目录模型 → 重新加载配置 → 丢弃已装配 runtime（下次按新配置重建）。
+     * 在线同步：调用厂商 GET /models 发现端点真实模型名，**权威替换** models 并修正 driver.model。
+     * 无 Key / 网络失败 → 回退本地目录（仍替换，移除陈旧 id）。返回 warnings 供 UI / 事件展示。
+     */
+    async syncProviderModelsOnline(): Promise<{ changed: boolean; warnings: string[] }> {
+        const parsed = this.readProvidersFile();
+        if (parsed === undefined) return { changed: false, warnings: [] };
+        let changed = false;
+        const warnings: string[] = [];
+        for (const provider of parsed.providers ?? []) {
+            const vendor = driverProviderOf(provider);
+            if (vendor === undefined) continue;
+            const baseUrl = driverBaseUrlOf(provider);
+            const result = await discoverModels(vendor, {
+                env: process.env,
+                ...(baseUrl !== undefined ? { baseUrl } : {}),
+            });
+            if (result.warning !== undefined) {
+                warnings.push(`${String(provider.id)}: ${result.warning}`);
+            }
+            if (result.models.length === 0) continue;
+            const metadata = builtinModelsFor(vendor);
+            if (applyModelList(provider, result.models, metadata)) changed = true;
+            const pricing = metadata[0]?.pricing;
+            if (pricing && applyCatalogPricing(provider, pricing)) changed = true;
+        }
+        if (changed) this.writeProvidersFile(parsed);
+        this.logger.log(
+            `syncProviderModelsOnline: changed=${String(changed)} warnings=${String(warnings.length)}`,
+        );
+        return { changed, warnings };
+    }
+
+    /**
+     * 手动同步：在线发现端点真实模型 → 权威替换 → 重新加载配置 → 丢弃 runtime（下次重建）。
      * 会话执行中不重建，避免打断在跑的 run。
      */
     async syncConfig(): Promise<ReturnType<typeof configOverview>> {
-        this.syncProviderModels();
+        await this.syncProviderModelsOnline();
         this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
             consoleEnabled: false,
         });
         if (!this.running) {
-            const stale = [this.runtime, ...this.workspaces.values()];
-            this.runtime = undefined;
-            this.workspaces.clear();
-            for (const runtime of stale) {
-                if (runtime) await runtime.close();
-            }
+            await this.restartRuntimes();
         }
         return this.overview();
+    }
+
+    /** 丢弃并重建运行时（不重启进程）：下次 harness() 按最新配置装配。 */
+    async restartRuntimes(): Promise<{ restarted: number }> {
+        const stale = [this.runtime, ...this.workspaces.values()];
+        this.runtime = undefined;
+        this.workspaces.clear();
+        for (const runtime of stale) {
+            if (runtime) await runtime.close();
+        }
+        return { restarted: stale.length };
+    }
+
+    /** 进程内重启语义：在线重同步模型 + 重建运行时；执行中不打断（restarted=0）。 */
+    async restart(): Promise<ReturnType<typeof configOverview> & { restarted: number }> {
+        await this.syncProviderModelsOnline();
+        this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
+            consoleEnabled: false,
+        });
+        const { restarted } = this.running ? { restarted: 0 } : await this.restartRuntimes();
+        return { ...this.overview(), restarted };
+    }
+
+    /**
+     * 模型恢复：在线重同步后返回指定（缺省首个）provider 与其修正后的默认模型，供运行时换模重试。
+     */
+    async recoverModels(
+        providerId?: string,
+    ): Promise<{ providerId: string; modelId: string } | undefined> {
+        await this.syncProviderModelsOnline();
+        this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
+            consoleEnabled: false,
+        });
+        const providers = this.readProvidersFile()?.providers ?? [];
+        const provider =
+            (providerId !== undefined
+                ? providers.find((item) => String(item.id) === providerId)
+                : undefined) ?? providers[0];
+        if (provider === undefined) return undefined;
+        const vendor = driverProviderOf(provider);
+        const modelId = driverModelOf(provider);
+        if (vendor === undefined || modelId === undefined) return undefined;
+        return { providerId: String(provider.id), modelId };
     }
 
     /** MAZI_HOME 目录树（health/config 展示用） */
@@ -215,6 +349,14 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         void this.catalog()
             .then((service) => runtime.setCatalog(service))
             .catch((error) => this.logger.warn(`attachCatalog failed: ${String(error)}`));
+        // 模型被厂商拒绝 → 重同步端点模型并换模重试（llm.error 自愈路径）。
+        runtime.setModelRecovery(async (request) => {
+            const recovered = await this.recoverModels(request.providerId);
+            if (recovered !== undefined) {
+                this.logger.warn(`model recovery: ${recovered.providerId} → ${recovered.modelId}`);
+            }
+            return recovered;
+        });
     }
 
     private get workspacesFile(): string {
