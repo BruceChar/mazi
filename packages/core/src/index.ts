@@ -6,9 +6,10 @@
 
 export type * from './approval.js';
 export type * from './authorization.js';
+export * from './catalog.js';
 export type * from './gts.js';
 export { validateAttributionChain, validateCeilingMonotonicity } from './gts.js';
-export { ulid, ULID } from './id.js';
+export { ULID, ulid } from './id.js';
 export type * from './observability.js';
 export type * from './provider.js';
 export { ProviderError } from './provider.js';
