@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { createTestApp, type TestAppHandle } from '../src/testing/test-app.js';
+import { Conversation } from '@mazi/libs';
 
 describe('conversations（Goal run 会话业务抽象列表）', () => {
     let handle: TestAppHandle;
@@ -203,17 +204,17 @@ describe('conversations（Goal run 会话业务抽象列表）', () => {
             payload: { path: workspacePath },
         });
         expect(del.statusCode).toBe(200);
-        expect(del.json().projects.some((p) => p.path === workspacePath)).toBe(false);
+        expect(del.json().projects.some((p: {title: string; path: string}) => p.path === workspacePath)).toBe(false);
 
         const body = await fastify.inject({ method: 'GET', url: '/api/conversations' });
-        const list = body.json();
+        const list: Conversation[] = body.json();
         const conversation = list.find((item) => {
             const runs = item.runs || [];
             return runs.some((run) => run.rootGoalId === sessionId);
         });
         expect(conversation).toBeDefined();
-        expect(conversation.workspace).toBeUndefined();
-        expect(conversation.projectId).toBeUndefined();
+        expect(conversation?.workspace).toBeUndefined();
+        expect(conversation?.projectId).toBeUndefined();
         const detail = await fastify.inject({
             method: 'GET',
             url: '/api/sessions/' + sessionId + '/timeline',
