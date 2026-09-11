@@ -13,6 +13,7 @@ export interface GoalToolInvoker {
     invoke(
         toolName: string,
         args: Record<string, unknown>,
+        ctx?: { stepId?: string; taskId?: string },
     ): Promise<{
         ok: boolean;
         content: string;
@@ -293,7 +294,10 @@ export async function executeTask(
                 await deps.store.saveStep(toolStep);
                 deps.onStep?.(toolStep);
 
-                const res = await invoker.invoke(call.toolName, call.arguments);
+                const res = await invoker.invoke(call.toolName, call.arguments, {
+                    stepId: toolStep.stepId,
+                    taskId: task.taskId,
+                });
                 const output = res.ok ? res.content : (res.error ?? 'tool failed');
                 outputs.push({
                     callId: call.callId,

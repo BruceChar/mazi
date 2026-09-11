@@ -19,7 +19,7 @@ import { modelIdOf, offeringIdOf, ProviderError, providerIdOf, ulid } from '@maz
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { CatalogService } from './catalog/service.js';
-import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
+import type { CliCommandSpec, RuntimeConfig, ToolCallResult, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './gts/goal-executor.js';
 import type {
     ExecutorRoundContext,
@@ -45,6 +45,7 @@ import {
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
 import { configureTokenizer, estimateTokens } from './token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from './tool-gateway/builtin.js';
+import { RuntimeToolGateway } from './tool-gateway/permission.js';
 
 /** 用户反馈载荷（core 旧 UserInteractionRecord 已删；事件契约只取展示字段） */
 export interface FeedbackInput {
@@ -323,12 +324,12 @@ export async function runShellTool(
         });
         const stderrText = String(stderr ?? '').trim();
         const merged = (
-            String(stdout ?? '') + (stderrText ? '\n[stderr]\n' + stderrText : '')
+            String(stdout ?? '') + (stderrText ? `\n[stderr]\n${stderrText}` : '')
         ).trim();
         const content = merged.length > 0 ? merged : '(no output)';
         return {
             ok: true,
-            content: content.length > MAX ? content.slice(0, MAX) + '\n…（输出已截断）' : content,
+            content: content.length > MAX ? `${content.slice(0, MAX)}\n…（输出已截断）` : content,
         };
     } catch (error) {
         const err = error as {
@@ -340,9 +341,9 @@ export async function runShellTool(
             message?: string;
         };
         const head: string[] = [];
-        if (err.killed) head.push('command timed out after ' + timeoutMs + 'ms');
-        if (typeof err.code === 'number') head.push('exit code ' + err.code);
-        if (err.signal) head.push('signal ' + err.signal);
+        if (err.killed) head.push(`command timed out after ${timeoutMs}ms`);
+        if (typeof err.code === 'number') head.push(`exit code ${err.code}`);
+        if (err.signal) head.push(`signal ${err.signal}`);
         const detail = [String(err.stdout ?? '').trim(), String(err.stderr ?? '').trim()]
             .filter(Boolean)
             .join('\n');
@@ -832,7 +833,10 @@ export class HarnessRuntime {
         const modelId = this.pendingModel.get(rootGoalId);
         this.pendingModel.delete(rootGoalId);
         const model = this.resolveModelChoice(modelId);
-        const exec = this.goalExecutionConfig();
+        const exec = this.goalExecutionConfig(
+            rootGoalId,
+            goals.find((goal) => goal.kind === 'work')?.goalId ?? rootGoalId,
+        );
         const result = await runGoalTree(
             {
                 store: this.goalStoreDb,
@@ -965,9 +969,15 @@ export class HarnessRuntime {
         return this.bus.flush();
     }
 
-    /** Goal 执行的工具面：内置 CLI 预设 + config.tools → ToolSchema/执行器/白名单。
-     *  白名单缺省 = 放行全部工具；显式空数组 = 纯对话（不注入工具 schema）。 */
-    private goalExecutionConfig(): {
+    /**
+     * Goal 执行的工具面：内置 CLI 预设 + config.tools → 经 v2 ToolGateway 判权的
+     * ToolSchema/执行器/白名单。supply 视图只暴露当前 permissionCeiling 允许的工具；
+     * 白名单缺省 = 全部可见工具；显式空数组 = 纯对话（不注入工具 schema）。
+     */
+    private goalExecutionConfig(
+        rootGoalId: string,
+        goalId: string,
+    ): {
         tools: ToolSchema[];
         invoker: GoalToolInvoker;
         allowedTools: string[];
@@ -982,44 +992,99 @@ export class HarnessRuntime {
                 merged.push(tool);
             }
         }
-        const allowed = this.config.goal?.allowedTools;
-        const tools: ToolSchema[] = merged.map((t) => ({
-            name: t.name,
-            description: t.description,
-            parameters: (t.parameters ?? undefined) as ToolSchema['parameters'],
-        }));
-        const names = allowed === undefined ? tools.map((t) => t.name) : allowed;
-        const selected = tools.filter((t) => names.includes(t.name));
-        const invoke: GoalToolInvoker['invoke'] = async (toolName, args) => {
-            const tool = merged.find((t) => t.name === toolName);
-            if (toolName === 'fs.read') {
-                const res = await fsReadToolImpl(args, this.workspaceRoot);
-                return res.ok
-                    ? { ok: true, content: String(res.content ?? '') }
-                    : { ok: false, content: '', error: res.error ?? 'tool failed' };
-            }
-            if (toolName === 'shell.run') {
-                const res = await runShellTool(args, this.workspaceRoot);
-                return res.ok
-                    ? { ok: true, content: res.content ?? '' }
-                    : { ok: false, content: '', error: res.error ?? 'tool failed' };
-            }
-            if (tool?.command) {
-                const res = await runCliTool(tool.command, args, this.workspaceRoot);
-                return res.ok
-                    ? { ok: true, content: res.content ?? '' }
-                    : { ok: false, content: '', error: res.error ?? 'tool failed' };
-            }
-            const impl = tool?.impl;
-            if (!impl) {
-                return { ok: false, content: '', error: `工具未实现：${toolName}` };
-            }
-            const res = await impl(args);
+        const level = this.config.goal?.permissionCeiling ?? 'read-only';
+        const gateway = new RuntimeToolGateway({
+            rootGoalId,
+            goalId,
+            taskId: goalId,
+            level,
+            tools: merged,
+            execute: (tool, args) => this.executeToolConfig(tool, args),
+            ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
+            audit: {
+                log: (event) => {
+                    this.bus.emit(
+                        newHarnessEvent({
+                            type: event.decision === 'denied' ? 'policy.denied' : 'policy.check',
+                            rootGoalId,
+                            goalId,
+                            ...(event.identifiers.taskId
+                                ? { taskId: event.identifiers.taskId }
+                                : {}),
+                            ...(event.identifiers.stepId
+                                ? { stepId: event.identifiers.stepId }
+                                : {}),
+                            attributes: {
+                                'harness.gateway_stage': event.stage,
+                                ...(event.capability
+                                    ? { 'harness.gateway_effect_class': event.capability }
+                                    : {}),
+                            },
+                            payload: {
+                                stage: event.stage,
+                                decision: event.decision,
+                                tool: event.tool,
+                                detail: event.detail,
+                                code: event.code,
+                            },
+                        }),
+                    );
+                },
+            },
+        });
+        const visible = new Set(gateway.visibleToolNames());
+        const configured = this.config.goal?.allowedTools;
+        const names = (configured === undefined ? merged.map((t) => t.name) : configured).filter(
+            (name) => visible.has(name),
+        );
+        const tools: ToolSchema[] = merged
+            .filter((t) => names.includes(t.name))
+            .map((t) => ({
+                name: t.name,
+                description: t.description,
+                parameters: (t.parameters ?? undefined) as ToolSchema['parameters'],
+            }));
+        const invoke: GoalToolInvoker['invoke'] = async (toolName, args, ctx) => {
+            const result = await gateway.invoke(toolName, args, ctx ?? {});
+            return result.ok
+                ? { ok: true, content: String(result.content ?? '') }
+                : { ok: false, content: '', error: result.error ?? 'tool failed' };
+        };
+        return { tools, invoker: { invoke }, allowedTools: names };
+    }
+
+    /** 工具配置执行：fs.read / shell.run / CLI command / impl（经网关判权后调用）。 */
+    private async executeToolConfig(
+        tool: ToolConfig | undefined,
+        args: Record<string, unknown>,
+    ): Promise<ToolCallResult> {
+        const toolName = tool?.name ?? '';
+        if (toolName === 'fs.read') {
+            const res = await fsReadToolImpl(args, this.workspaceRoot);
             return res.ok
                 ? { ok: true, content: String(res.content ?? '') }
-                : { ok: false, content: '', error: res.error ?? 'tool failed' };
-        };
-        return { tools: selected, invoker: { invoke }, allowedTools: names };
+                : { ok: false, error: res.error ?? 'tool failed' };
+        }
+        if (toolName === 'shell.run') {
+            const res = await runShellTool(args, this.workspaceRoot);
+            return res.ok
+                ? { ok: true, content: res.content ?? '' }
+                : { ok: false, error: res.error ?? 'tool failed' };
+        }
+        if (tool?.command) {
+            const res = await runCliTool(tool.command, args, this.workspaceRoot);
+            return res.ok
+                ? { ok: true, content: res.content ?? '' }
+                : { ok: false, error: res.error ?? 'tool failed' };
+        }
+        const impl = tool?.impl;
+        if (!impl) {
+            return { ok: false, error: `工具未实现：${toolName}` };
+        }
+        const res = await impl(args);
+        return res.ok
+            ? { ok: true, content: String(res.content ?? '') }
+            : { ok: false, error: res.error ?? 'tool failed' };
     }
 
     /** 由模型 id 解析所属 provider（配置内取第一个匹配）；未命中 → undefined。 */

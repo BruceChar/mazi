@@ -127,7 +127,9 @@ export interface InvocationRequest {
     tool: string;
     args: Record<string, unknown>;
     escalation?: EscalationPayload;
+    /** Harness-injected attribution overrides (never model-supplied). */
     stepId?: string;
+    taskId?: string;
 }
 
 export type ApprovalDecision =

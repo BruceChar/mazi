@@ -115,7 +115,11 @@ export class DefaultToolGateway implements ToolGateway {
     async invoke(req: InvocationRequest): Promise<InvocationResult> {
         const registration = this.bind.toolRegistry.get(req.tool);
         const stepId = req.stepId ?? ulid();
-        const identifiers = { ...this.bind.identifiers, stepId };
+        const identifiers = {
+            ...this.bind.identifiers,
+            ...(req.taskId ? { taskId: req.taskId } : {}),
+            stepId,
+        };
         const emit = (
             stage: GatewayStage,
             decision: 'allowed' | 'denied' | 'pending' | 'info',
