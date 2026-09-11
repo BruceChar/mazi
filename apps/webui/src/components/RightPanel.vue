@@ -91,8 +91,15 @@ const LOG_LEVELS = [
     { value: 'info', label: '信息' },
 ];
 const logLevel = ref('all');
-/** 事件来源：all | system | conversation。 */
-const eventSource = ref('all');
+
+/** 日志 hover 弹窗（宽度不足时查看完整内容）。 */
+const logTip = ref(null);
+function showLogTip(event, text) {
+    logTip.value = { text, x: event.clientX, y: event.clientY };
+}
+function hideLogTip() {
+    logTip.value = null;
+}
 
 const systemLogRows = computed(() => {
     const list = props.systemLogs || [];
@@ -101,33 +108,36 @@ const systemLogRows = computed(() => {
     return filtered.slice().reverse();
 });
 
-/** 系统日志 + 当前会话事件，按时间倒序合并（来源可过滤）。 */
-const mergedEventRows = computed(() => {
+/**
+ * 会话事件行：把同一 step 的 step.started / step.ended 合并为一行，
+ * 避免「全是 step start / step end」的刷屏；非 step 事件原样展示。
+ */
+const eventRows = computed(() => {
     const rows = [];
-    if (eventSource.value !== 'conversation') {
-        for (const entry of (props.systemLogs || []).slice(-200)) {
-            rows.push({
-                id: 'sys-' + entry.ts + '-' + entry.module,
-                source: 'system',
-                ts: entry.ts,
-                level: entry.level,
-                module: entry.module,
-                text: entry.message,
-            });
+    const stepMap = new Map();
+    for (const e of props.filteredEvents || []) {
+        if (e.type === 'step.started' || e.type === 'step.ended') {
+            const stepId = e.stepId || e.eventId;
+            let row = stepMap.get(stepId);
+            if (!row) {
+                row = { id: 'step-' + stepId, ts: e.timestamp, type: 'step', text: 'step' };
+                stepMap.set(stepId, row);
+                rows.push(row);
+            }
+            row.ts = Math.min(row.ts, e.timestamp);
+            const attrs = (e.attributes || {});
+            const payload = (e.payload || {});
+            const kind = attrs['harness.step_kind'] || payload.kind || '';
+            if (e.type === 'step.ended') {
+                row.text = (kind ? kind + ' · ' : '') + (payload.status || 'ended');
+            } else if (row.text === 'step') {
+                row.text = kind || 'step';
+            }
+        } else {
+            rows.push({ id: e.eventId, ts: e.timestamp, type: e.type, text: eventSummary(e) });
         }
     }
-    if (eventSource.value !== 'system') {
-        for (const e of props.filteredEvents || []) {
-            rows.push({
-                id: e.eventId,
-                source: 'conversation',
-                ts: e.timestamp,
-                type: e.type,
-                text: eventSummary(e),
-            });
-        }
-    }
-    return rows.sort((a, b) => a.ts - b.ts).reverse();
+    return rows.sort((a, b) => b.ts - a.ts);
 });
 
 /* ---- Audit panel helpers (docs/web/观测看板设计.md v2) ---- */
@@ -592,12 +602,19 @@ const contextGroups = computed(() => {
                     <span class="log-count">{{ systemLogRows.length }} 条</span>
                 </div>
                 <div class="event-log">
-                    <div v-for="row in systemLogRows" :key="row.id" class="event-row">
+                    <div
+                        v-for="row in systemLogRows"
+                        :key="row.id"
+                        class="event-row log-row"
+                        @mouseenter="showLogTip($event, row.message)"
+                        @mousemove="showLogTip($event, row.message)"
+                        @mouseleave="hideLogTip"
+                    >
                         <span class="ev-dot" :class="'ev-' + row.level"></span>
                         <span class="event-time">{{ fmtClock(row.ts) }}</span>
                         <span class="event-type" :class="'ev-' + row.level">{{ row.level }}</span>
                         <span class="event-module">{{ row.module }}</span>
-                        <span class="event-summary" :title="row.message">{{ row.message }}</span>
+                        <span class="event-summary">{{ row.message }}</span>
                     </div>
                     <div v-if="!systemLogRows.length" class="empty-hint">暂无系统日志</div>
                 </div>
@@ -605,11 +622,6 @@ const contextGroups = computed(() => {
 
             <div v-else class="drawer-body">
                 <div class="drawer-tabs sub">
-                    <select :value="eventSource" @change="eventSource = $event.target.value" title="事件来源">
-                        <option value="all">全部来源</option>
-                        <option value="system">系统</option>
-                        <option value="conversation">会话</option>
-                    </select>
                     <select :value="activeEventType" @change="emit('update:activeEventType', $event.target.value)" title="事件类型">
                         <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
                     </select>
@@ -618,18 +630,21 @@ const contextGroups = computed(() => {
                     </button>
                 </div>
                 <div class="event-log">
-                    <div v-for="row in mergedEventRows" :key="row.id" class="event-row">
-                        <span class="ev-dot" :class="row.source === 'system' ? 'ev-' + row.level : eventColorClass(row.type)"></span>
+                    <div v-for="row in eventRows" :key="row.id" class="event-row">
+                        <span class="ev-dot" :class="eventColorClass(row.type)"></span>
                         <span class="event-time">{{ fmtClock(row.ts) }}</span>
-                        <span class="event-type" :class="row.source === 'system' ? 'ev-' + row.level : eventColorClass(row.type)">
-                            {{ row.source === 'system' ? row.level : row.type }}
-                        </span>
-                        <span v-if="row.source === 'system'" class="event-module">{{ row.module }}</span>
+                        <span class="event-type" :class="eventColorClass(row.type)">{{ row.type }}</span>
                         <span class="event-summary" :title="row.text">{{ row.text }}</span>
                     </div>
-                    <div v-if="!mergedEventRows.length" class="empty-hint">暂无事件</div>
+                    <div v-if="!eventRows.length" class="empty-hint">暂无事件</div>
                 </div>
             </div>
+            <!-- 日志 hover 弹窗：宽度不足时显示完整内容 -->
+            <div
+                v-if="logTip"
+                class="log-tooltip"
+                :style="{ left: logTip.x + 12 + 'px', top: logTip.y + 12 + 'px' }"
+            >{{ logTip.text }}</div>
         </div>
     </aside>
 </template>
@@ -925,9 +940,6 @@ const contextGroups = computed(() => {
     border-radius: 4px;
     font-size: 12px;
 }
-.event-row:hover {
-    background: var(--bg-hover);
-}
 .ev-dot {
     width: 6px;
     height: 6px;
@@ -950,8 +962,39 @@ const contextGroups = computed(() => {
     font-family: ui-monospace, monospace;
     font-size: 11px;
     color: var(--fg-tertiary);
-    min-width: 64px;
     flex-shrink: 0;
+}
+/* 日志行：固定各列宽度，避免 level / 时间 / 模块相互重叠；内容省略靠 hover 弹窗看全 */
+.log-row .event-time {
+    width: 66px;
+}
+.log-row .event-type {
+    width: 44px;
+    min-width: 44px;
+    text-transform: uppercase;
+    font-size: 11px;
+}
+.log-row .event-module {
+    width: 84px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.log-tooltip {
+    position: fixed;
+    z-index: 200;
+    max-width: min(560px, 70vw);
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-elevated, var(--bg-panel));
+    color: var(--fg);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    pointer-events: none;
+    box-shadow: var(--shadow-md, 0 6px 18px rgba(0, 0, 0, 0.18));
 }
 .log-count {
     margin-left: auto;
