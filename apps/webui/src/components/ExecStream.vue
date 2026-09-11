@@ -328,7 +328,9 @@ const stats = computed(() => buildExecStats(props.runDetail));
                     <div
                         class="exec-task-head"
                         :class="{ selected: task.taskId === selectedTaskId }"
+                        title="单击查看审计 · 双击折叠/展开"
                         @click="emit('select-task', task.taskId)"
+                        @dblclick="toggleTask(task.taskId)"
                     >
                         <span
                             class="exec-dot task-dot interactive"
@@ -350,7 +352,9 @@ const stats = computed(() => buildExecStats(props.runDetail));
                             <div
                                 class="exec-step-head"
                                 :class="{ selected: row.stepId === selectedStepId }"
+                                title="单击查看审计 · 双击折叠/展开"
                                 @click="emit('select-step', { stepId: row.stepId, taskId: row.taskId })"
+                                @dblclick="toggleStepCollapse(row.key)"
                             >
                                 <button
                                     v-if="isStepLong(row)"
