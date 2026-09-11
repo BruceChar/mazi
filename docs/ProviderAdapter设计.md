@@ -37,7 +37,7 @@
 | `done`                                                                          | 先`{type:'usage', usage: VendorUsage}`（input/output/cacheRead/cacheWrite/reasoning，reasoning 透传 pi-ai 值，厂商未细分时为 undefined），再 `{type:'end', finishReason}`（stop→stop / length→length / toolUse→tool_calls） |
 | `error`                                                                         | 抛`Error`（含 `errorMessage`）——harness 按 driver-error 故障转移/重试                                                                                                                                                        |
 
-`Usage` 映射：`input→inputTokens`、`output→outputTokens`、`cacheRead→cacheReadInputTokens`、`cacheWrite→cacheCreationInputTokens`、`reasoning→reasoningOutputTokens`（`@earendil-works/pi-ai` 的 `Usage.reasoning` 为可选字段、是 `output` 的子集；厂商未提供时为 undefined，直接省略）＋ `reportedByVendor=true`。
+`Usage` 映射（`@earendil-works/pi-ai` 的 `input` 为**未命中缓存**部分，其 `totalTokens = input + output + cacheRead + cacheWrite`）：`inputTokens = input + cacheRead + cacheWrite`（core 全量口径，见 `normalizePiUsage`）、`outputTokens = output`（已含 reasoning）、`cacheReadInputTokens = cacheRead`、`cacheCreationInputTokens = cacheWrite`、`reasoningOutputTokens = reasoning`（可选、`output` 子集，未提供时省略）＋ `reportedByVendor=true`。
 `complete(req)`：按 `stream` 消费并聚合文本 + 首个 usage（无工具轮次）。
 
 ### 2.3 已知取舍与风险

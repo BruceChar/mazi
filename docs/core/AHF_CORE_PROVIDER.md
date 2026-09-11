@@ -311,6 +311,7 @@ Usage 语义以 OpenAI 计数范式为规范基线：**inputTokens 与 outputTok
 | `inputTokens`                | **全部输入 token(含缓存命中部分)** |
 | `outputTokens`               | **全部输出 token(含推理 token)**   |
 | `cachedInputTokens`          | inputTokens 的子集：缓存命中的输入部分   |
+| `cachedWriteInputTokens`     | inputTokens 的子集：缓存写入(创建)的输入部分(Anthropic 型厂商) |
 | `reasoningTokens`            | outputTokens 的子集：模型推理/思考部分   |
 | **子集语义用图示表达**： |                                          |
 
@@ -332,7 +333,8 @@ outputTokens ┌─────────────────────�
 | OpenAI    | prompt_tokens 含 cached_tokens;completion_tokens 含 reasoning_tokens | 直填:inputTokens = prompt_tokens,outputTokens = completion_tokens;cachedInputTokens / reasoningTokens 独立填充                 |
 | Anthropic | input_tokens 不含 cache_read/creation;output 含 thinking             | **相加后填充**:inputTokens = input_tokens + cache_read + cache_creation;cachedInputTokens = cache_read;outputTokens 直填 |
 | Gemini    | promptTokenCount 与 cachedContent 计数                               | 按 OpenAI 同型(含 → 直填)，以 SDK 实测校准                                                                                    |
-| DeepSeek  | prompt_tokens 含 prompt_cache_hit_tokens                             | 按 OpenAI 同型(含 → 直填)                                                                                                     |
+| DeepSeek  | prompt_tokens 含 prompt_cache_hit_tokens                             | 经 pi-ai openai-completions 时其 `input` 已是 miss 部分 → **相加后填充**：inputTokens = input + cache_read + cache_write；cachedInputTokens = cache_read；cachedWriteInputTokens = cache_write |
+| pi-ai 桥接（全部 openai-completions 型） | `input` 为未命中缓存部分，`totalTokens = input + output + cacheRead + cacheWrite` | **相加后填充**（见 `normalizePiUsage`）：inputTokens = input + cacheRead + cacheWrite；缓存读/写作为子集保留；outputTokens 直填（已含 reasoning） |
 
 **设计理由**：派生补全(如 `prompt − cached`)跨厂商行为漂移大，不做派生；**补全动作本身**是归一化的一部分(Anthropic 需相加)，保证“单次调用各自函数语义一致”。core 保证供给计费层的是无歧义总量事实。
 
