@@ -42,6 +42,30 @@ export interface RoundEstimate {
     outputDriftRate?: number;
 }
 
+/**
+ * 原始轮次事实（入库优先）：provider/model、原始 token 计数、耗时。
+ * 展示/计价可在读取时从它重算——即使 UI 或算法演进，也不依赖当时算出的派生值。
+ */
+export interface RoundRawUsage {
+    providerId: string;
+    modelId: string;
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+    cachedWriteInputTokens?: number;
+    reasoningTokens?: number;
+    totalTokens: number;
+    ttftMs: number;
+    totalMs: number;
+}
+
+/** 派发时刻钉死的目录三元组（接入 catalog 账本时有值）。 */
+export interface RoundPin {
+    offeringId: string;
+    pricingPlanId: string;
+    catalogEpoch: number;
+}
+
 /** 一轮执行结果（Step 回注所需的最小事实面；provider-runtime 或测试 fake 映射后注入） */
 export interface RoundResult {
     text: string;
@@ -49,6 +73,10 @@ export interface RoundResult {
     toolCalls: RoundToolCall[];
     /** 厂商上报用量（provider response.usage 归一） */
     vendorUsage?: VendorUsage;
+    /** 原始轮次事实（入库优先；展示/计价可从它重算） */
+    raw?: RoundRawUsage;
+    /** 派发钉死的目录三元组（供账务/展示追溯） */
+    pin?: RoundPin;
     /** 本轮成本拆分（provider 层计价；无计价表时缺省） */
     cost?: CostBreakdown;
     /** Runtime 输入估算（system/user/assistant/tool-call/schema/input/observation） */

@@ -171,6 +171,76 @@ function timingView(source: Record<string, unknown>): StepUsage['timing'] | unde
     };
 }
 
+function rawView(source: Record<string, unknown>): NonNullable<StepUsage['raw']> {
+    const view: NonNullable<StepUsage['raw']> = {};
+    const providerId = stringOf(source.providerId);
+    if (providerId !== undefined) view.providerId = providerId;
+    const modelId = stringOf(source.modelId);
+    if (modelId !== undefined) view.modelId = modelId;
+    const inputTokens = numberOf(source.inputTokens);
+    if (inputTokens !== undefined) view.inputTokens = inputTokens;
+    const outputTokens = numberOf(source.outputTokens);
+    if (outputTokens !== undefined) view.outputTokens = outputTokens;
+    const cachedInputTokens = numberOf(source.cachedInputTokens);
+    if (cachedInputTokens !== undefined) view.cachedInputTokens = cachedInputTokens;
+    const cachedWriteInputTokens = numberOf(source.cachedWriteInputTokens);
+    if (cachedWriteInputTokens !== undefined) {
+        view.cachedWriteInputTokens = cachedWriteInputTokens;
+    }
+    const reasoningTokens = numberOf(source.reasoningTokens);
+    if (reasoningTokens !== undefined) view.reasoningTokens = reasoningTokens;
+    const totalTokens = numberOf(source.totalTokens);
+    if (totalTokens !== undefined) view.totalTokens = totalTokens;
+    const ttftMs = numberOf(source.ttftMs);
+    if (ttftMs !== undefined) view.ttftMs = ttftMs;
+    const totalMs = numberOf(source.totalMs);
+    if (totalMs !== undefined) view.totalMs = totalMs;
+    return view;
+}
+
+function pinView(source: Record<string, unknown>): NonNullable<StepUsage['pin']> {
+    const view: NonNullable<StepUsage['pin']> = {};
+    const offeringId = stringOf(source.offeringId);
+    if (offeringId !== undefined) view.offeringId = offeringId;
+    const pricingPlanId = stringOf(source.pricingPlanId);
+    if (pricingPlanId !== undefined) view.pricingPlanId = pricingPlanId;
+    const catalogEpoch = numberOf(source.catalogEpoch);
+    if (catalogEpoch !== undefined) view.catalogEpoch = catalogEpoch;
+    return view;
+}
+
+/** 由原始事实派生 vendor 视图（读取时重算，而非依赖写入时算出的展示值）。 */
+function vendorFromRaw(raw: NonNullable<StepUsage['raw']>): StepUsage['vendor'] | undefined {
+    const inputTokens = raw.inputTokens;
+    const outputTokens = raw.outputTokens;
+    if (inputTokens === undefined && outputTokens === undefined) return undefined;
+    const view: NonNullable<StepUsage['vendor']> = {
+        inputTokens: inputTokens ?? 0,
+        outputTokens: outputTokens ?? 0,
+        totalTokens: raw.totalTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
+    };
+    if (raw.cachedWriteInputTokens !== undefined) {
+        view.cacheCreationInputTokens = raw.cachedWriteInputTokens;
+    }
+    if (raw.cachedInputTokens !== undefined) view.cacheReadInputTokens = raw.cachedInputTokens;
+    if (raw.reasoningTokens !== undefined) view.reasoningOutputTokens = raw.reasoningTokens;
+    return view;
+}
+
+/** 由原始事实派生 timing 视图。 */
+function timingFromRaw(raw: NonNullable<StepUsage['raw']>): StepUsage['timing'] | undefined {
+    if (raw.totalMs === undefined) return undefined;
+    const ttftMs = raw.ttftMs ?? 0;
+    const outputTokens = raw.outputTokens ?? 0;
+    const generationMs = raw.totalMs - ttftMs;
+    return {
+        ttftMs,
+        totalMs: raw.totalMs,
+        tokensPerSecond:
+            outputTokens > 0 && generationMs > 0 ? (outputTokens / generationMs) * 1000 : 0,
+    };
+}
+
 function subRecord(source: unknown): Record<string, unknown> | undefined {
     return source !== null && typeof source === 'object'
         ? (source as Record<string, unknown>)
@@ -186,8 +256,22 @@ export function usageViewOf(usage: unknown): StepUsage | undefined {
     const view: StepUsage = {};
     const roundId = stringOf(root.roundId);
     if (roundId !== undefined) view.roundId = roundId;
-    const vendor = subRecord(root.vendor);
-    if (vendor !== undefined) view.vendor = vendorView(vendor);
+    // 原始事实优先：有 raw 就从它重算 vendor/timing；否则回退到写入时的派生字段（旧数据）
+    const raw = subRecord(root.raw);
+    if (raw !== undefined) {
+        view.raw = rawView(raw);
+        const vendor = vendorFromRaw(view.raw);
+        if (vendor !== undefined) view.vendor = vendor;
+        const timing = timingFromRaw(view.raw);
+        if (timing !== undefined) view.timing = timing;
+    } else {
+        const vendor = subRecord(root.vendor);
+        if (vendor !== undefined) view.vendor = vendorView(vendor);
+        const timing = subRecord(root.timing);
+        if (timing !== undefined) view.timing = timingView(timing);
+    }
+    const pin = subRecord(root.pin);
+    if (pin !== undefined) view.pin = pinView(pin);
     const runtime = subRecord(root.runtime);
     if (runtime !== undefined) view.runtime = runtimeView(runtime);
     const estimate = subRecord(root.estimate);
@@ -196,15 +280,15 @@ export function usageViewOf(usage: unknown): StepUsage | undefined {
     if (cost !== undefined) view.cost = costView(cost);
     const estimatedCost = subRecord(root.estimatedCost);
     if (estimatedCost !== undefined) view.estimatedCost = costView(estimatedCost);
-    const timing = subRecord(root.timing);
-    if (timing !== undefined) view.timing = timingView(timing);
     if (
         view.vendor === undefined &&
         view.runtime === undefined &&
         view.estimate === undefined &&
         view.cost === undefined &&
         view.estimatedCost === undefined &&
-        view.timing === undefined
+        view.timing === undefined &&
+        view.raw === undefined &&
+        view.pin === undefined
     ) {
         return undefined;
     }

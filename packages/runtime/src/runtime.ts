@@ -21,7 +21,13 @@ import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { CatalogService } from './catalog/service.js';
 import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './gts/goal-executor.js';
-import type { ExecutorRoundContext, RoundEstimate, RoundResult } from './gts/round-types.js';
+import type {
+    ExecutorRoundContext,
+    RoundEstimate,
+    RoundPin,
+    RoundRawUsage,
+    RoundResult,
+} from './gts/round-types.js';
 import { type GoalStore, SqliteGoalStore } from './memory/goal-store.js';
 import {
     ConsoleSink,
@@ -516,6 +522,7 @@ function toRoundResult(outcome: RoundOutcome): {
     reasoning: string;
     toolCalls: Array<{ callId: string; toolName: string; arguments: Record<string, unknown> }>;
     vendorUsage?: import('@mazi/core').VendorUsage;
+    raw?: RoundRawUsage;
     finishReason?: string;
     ttftMs: number;
     totalMs: number;
@@ -543,11 +550,34 @@ function toRoundResult(outcome: RoundOutcome): {
                   reasoningOutputTokens: usage.reasoningTokens,
                   reportedByVendor: true,
               };
+    // 原始轮次事实：provider/model + 原始 token 计数 + 耗时（入库优先，展示/计价可重算）
+    const raw: RoundRawUsage | undefined =
+        usage === undefined
+            ? undefined
+            : {
+                  providerId: outcome.metrics.providerId,
+                  modelId: outcome.metrics.modelId,
+                  inputTokens: usage.inputTokens ?? 0,
+                  outputTokens: usage.outputTokens ?? 0,
+                  ...(usage.cachedInputTokens !== undefined
+                      ? { cachedInputTokens: usage.cachedInputTokens }
+                      : {}),
+                  ...(usage.cachedWriteInputTokens !== undefined
+                      ? { cachedWriteInputTokens: usage.cachedWriteInputTokens }
+                      : {}),
+                  ...(usage.reasoningTokens !== undefined
+                      ? { reasoningTokens: usage.reasoningTokens }
+                      : {}),
+                  totalTokens: usage.totalTokens,
+                  ttftMs: outcome.metrics.ttftMs ?? 0,
+                  totalMs: outcome.metrics.totalMs,
+              };
     return {
         text,
         reasoning,
         toolCalls,
         ...(vendorUsage ? { vendorUsage } : {}),
+        ...(raw ? { raw } : {}),
         finishReason: outcome.response.finishReason,
         ttftMs: outcome.metrics.ttftMs ?? 0,
         totalMs: outcome.metrics.totalMs,
@@ -1213,10 +1243,11 @@ export class HarnessRuntime {
         const estimate = this.roundEstimate(result);
         const cost = this.roundCost(outcome);
         const estimatedCost = this.roundEstimatedCost(outcome, contextUsage, estimate);
-        await this.recordCatalogUsage(outcome);
+        const pin = await this.recordCatalogUsage(outcome);
         return {
             ...result,
             contextUsage,
+            ...(pin !== undefined ? { pin } : {}),
             ...(estimate !== undefined ? { estimate } : {}),
             ...(cost !== undefined ? { cost } : {}),
             ...(estimatedCost !== undefined ? { estimatedCost } : {}),
@@ -1227,10 +1258,10 @@ export class HarnessRuntime {
      * 凭证闭环：把本轮 usage 按派发时刻钉死的 offering 价目追加进账本。
      * 目录未收录或无价的 offering 不产生凭证（目录是权威，缺失不阻断对话）。
      */
-    private async recordCatalogUsage(outcome: RoundOutcome): Promise<void> {
+    private async recordCatalogUsage(outcome: RoundOutcome): Promise<RoundPin | undefined> {
         const service = this.catalogService;
         const usage = outcome.metrics.usage;
-        if (service === undefined || usage === undefined) return;
+        if (service === undefined || usage === undefined) return undefined;
         const offeringId = offeringIdOf(
             providerIdOf(outcome.metrics.providerId),
             modelIdOf(outcome.metrics.modelId),
@@ -1242,8 +1273,14 @@ export class HarnessRuntime {
                 outputTokens: usage.outputTokens ?? 0,
                 cacheReadTokens: usage.cachedInputTokens ?? 0,
             });
+            return {
+                offeringId: pin.offeringId,
+                pricingPlanId: pin.pricingPlanId,
+                catalogEpoch: pin.catalogEpoch,
+            };
         } catch {
             // 目录未收录或无价：跳过凭证，不影响本轮对话。
+            return undefined;
         }
     }
 

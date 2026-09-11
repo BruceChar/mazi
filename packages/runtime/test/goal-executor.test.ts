@@ -256,6 +256,52 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(thinkingUsage?.roundId).toBe(usage?.roundId);
     });
 
+    it('原始事实入库：raw（provider/model/token/耗时）与 pin 随 usage 落库', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        const round: RoundResult = {
+            text: 'answer',
+            reasoning: '',
+            toolCalls: [],
+            finishReason: 'stop',
+            ttftMs: 10,
+            totalMs: 20,
+            vendorUsage: { inputTokens: 5, outputTokens: 6, reportedByVendor: true },
+            raw: {
+                providerId: 'deepseek',
+                modelId: 'deepseek-flash',
+                inputTokens: 5,
+                outputTokens: 6,
+                totalTokens: 11,
+                ttftMs: 10,
+                totalMs: 20,
+            },
+            pin: {
+                offeringId: 'deepseek/deepseek-flash',
+                pricingPlanId: 'plan-1',
+                catalogEpoch: 2,
+            },
+        };
+        await executeTask({ store, requestRound: async () => round }, t, g);
+        const steps = await store.listSteps(t.taskId);
+        const intent = steps.find((s) => s.kind === 'intent');
+        const usage = intent?.usage as
+            | { raw?: Record<string, unknown>; pin?: Record<string, unknown> }
+            | undefined;
+        expect(usage?.raw).toMatchObject({
+            providerId: 'deepseek',
+            modelId: 'deepseek-flash',
+            inputTokens: 5,
+            totalTokens: 11,
+        });
+        expect(usage?.pin).toEqual({
+            offeringId: 'deepseek/deepseek-flash',
+            pricingPlanId: 'plan-1',
+            catalogEpoch: 2,
+        });
+    });
+
     it('连续相同工具调用 → 未收敛中止（防死循环，不烧完 maxSteps）', async () => {
         const store = new MemoryGoalStore();
         let calls = 0;

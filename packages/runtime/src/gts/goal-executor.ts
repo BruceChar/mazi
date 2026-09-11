@@ -100,12 +100,17 @@ export async function executeTask(
             const outputTokens = round.vendorUsage?.outputTokens ?? 0;
             const hasRoundFacts =
                 round.vendorUsage !== undefined ||
+                round.raw !== undefined ||
+                round.pin !== undefined ||
                 round.contextUsage !== undefined ||
                 round.estimate !== undefined ||
                 round.cost !== undefined;
             const roundUsage = hasRoundFacts
                 ? {
                       ...(round.vendorUsage !== undefined ? { vendor: round.vendorUsage } : {}),
+                      // 原始事实：入库优先，展示/计价可在读取时从它重算
+                      ...(round.raw !== undefined ? { raw: round.raw } : {}),
+                      ...(round.pin !== undefined ? { pin: round.pin } : {}),
                       ...(round.contextUsage !== undefined ? { runtime: round.contextUsage } : {}),
                       ...(round.estimate !== undefined ? { estimate: round.estimate } : {}),
                       ...(round.cost !== undefined ? { cost: round.cost } : {}),

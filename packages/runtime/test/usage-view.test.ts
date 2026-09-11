@@ -89,6 +89,57 @@ describe('usageViewOf（StepUsage 线协议投影）', () => {
         expect(view?.estimatedCost?.currency).toBe('USD');
     });
 
+    it('raw 优先：vendor/timing 由原始事实重算，覆盖写入时的派生值', () => {
+        const view = usageViewOf({
+            raw: {
+                providerId: 'deepseek',
+                modelId: 'deepseek-flash',
+                inputTokens: 150,
+                outputTokens: 50,
+                cachedInputTokens: 40,
+                cachedWriteInputTokens: 10,
+                reasoningTokens: 20,
+                totalTokens: 200,
+                ttftMs: 100,
+                totalMs: 300,
+            },
+            // 写入时算出的派生值若有偏差，raw 优先
+            vendor: { inputTokens: 999, outputTokens: 999, totalTokens: 1998 },
+            timing: { ttftMs: 1, totalMs: 1, tokensPerSecond: 1 },
+        });
+        expect(view?.raw?.providerId).toBe('deepseek');
+        expect(view?.vendor?.inputTokens).toBe(150);
+        expect(view?.vendor?.outputTokens).toBe(50);
+        expect(view?.vendor?.cacheReadInputTokens).toBe(40);
+        expect(view?.vendor?.cacheCreationInputTokens).toBe(10);
+        expect(view?.vendor?.reasoningOutputTokens).toBe(20);
+        expect(view?.vendor?.totalTokens).toBe(200);
+        expect(view?.timing?.totalMs).toBe(300);
+        expect(view?.timing?.tokensPerSecond).toBeCloseTo((50 / 200) * 1000, 6);
+    });
+
+    it('pin 投影：offering / pricingPlan / catalogEpoch', () => {
+        const view = usageViewOf({
+            raw: { providerId: 'deepseek', modelId: 'm', inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            pin: { offeringId: 'deepseek/m', pricingPlanId: 'plan-1', catalogEpoch: 3 },
+        });
+        expect(view?.pin).toEqual({
+            offeringId: 'deepseek/m',
+            pricingPlanId: 'plan-1',
+            catalogEpoch: 3,
+        });
+    });
+
+    it('无 raw 时回退写入时的 vendor/timing（旧数据兼容）', () => {
+        const view = usageViewOf({
+            vendor: { inputTokens: 1, outputTokens: 2 },
+            timing: { totalMs: 9, ttftMs: 3 },
+        });
+        expect(view?.vendor?.inputTokens).toBe(1);
+        expect(view?.timing?.totalMs).toBe(9);
+        expect(view?.raw).toBeUndefined();
+    });
+
     it('contents / diffContent 投影：仅字符串段，至少一段才输出', () => {
         expect(usageViewOf({ runtime: { totalContextTokens: 1 } })).not.toHaveProperty(
             'runtime.contents',

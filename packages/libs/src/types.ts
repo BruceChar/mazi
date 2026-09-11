@@ -182,6 +182,30 @@ export interface StepTimingUsage {
     tokensPerSecond: number;
 }
 
+/**
+ * 原始轮次事实（入库优先）：provider/model + 原始 token 计数 + 耗时。
+ * 展示/计价可从它重算——即使 UI 或算法演进，也不依赖当时算出的派生值。
+ */
+export interface StepRawUsage {
+    providerId?: string;
+    modelId?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    cachedInputTokens?: number;
+    cachedWriteInputTokens?: number;
+    reasoningTokens?: number;
+    totalTokens?: number;
+    ttftMs?: number;
+    totalMs?: number;
+}
+
+/** 派发钉死的目录三元组（offering × pricingPlan × epoch）。 */
+export interface StepPin {
+    offeringId?: string;
+    pricingPlanId?: string;
+    catalogEpoch?: number;
+}
+
 /** Token usage attached to a step (vendor + input estimate + output estimate + cost + timing). */
 export interface StepUsage {
     /**
@@ -189,6 +213,10 @@ export interface StepUsage {
      * 聚合统计按 roundId 去重（一轮只计一次），单步展示仍可读到完整 usage。
      */
     roundId?: string;
+    /** 原始轮次事实（provider/model + 原始 token + 耗时）；展示/计价可从它重算 */
+    raw?: StepRawUsage;
+    /** 目录钉死三元组（账务/追溯） */
+    pin?: StepPin;
     vendor?: StepVendorUsage;
     /** input 估算（breakdown） */
     runtime?: StepRuntimeUsage;
