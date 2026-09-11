@@ -93,8 +93,14 @@ function stepToRow(step, idx) {
         toolName: step.toolName || '',
         toolArgs: step.toolArguments || null,
         commandText: step.toolArguments ? formatToolArgs(step.toolName, step.toolArguments) : '',
-        // 工具输出单独成体；其余 kind 的正文即 text
-        text: step.kind === 'tool_call' ? step.toolOutput || '' : step.content || step.payloadText || '',
+        // 工具输出单独成体；intent 作为正文（intentText，不用代码框）；其余 kind 正文即 text
+        text:
+            step.kind === 'tool_call'
+                ? step.toolOutput || ''
+                : step.kind === 'intent'
+                  ? ''
+                  : step.content || step.payloadText || '',
+        intentText: step.kind === 'intent' ? step.content || step.payloadText || '' : '',
         outputText: step.toolOutput || '',
         durationMs,
         duration: durationMs != null ? formatDuration(durationMs) : '',
@@ -112,6 +118,38 @@ function taskStartedAt(task) {
         }
     }
     return earliest;
+}
+
+/**
+ * Task 内的展示行：thinking/工具调用各一行；intent 作为同轮 thinking 的正文（intentText）内联展示，
+ * 不单独成步（"算作和 thinking 同一步"）；无 thinking 的孤立 intent（如纯文本轮）单独成行。
+ */
+function taskStepRows(task) {
+    const steps = (task.steps || []).slice().sort((a, b) => a.startedAt - b.startedAt);
+    const intentByRound = new Map();
+    for (const s of steps) {
+        const rid = s.usage?.roundId;
+        if (s.kind === 'intent' && rid) intentByRound.set(rid, s);
+    }
+    const rows = [];
+    for (const s of steps) {
+        if (s.kind === 'observation') continue;
+        if (s.kind === 'intent') {
+            const rid = s.usage?.roundId;
+            const paired =
+                rid && steps.some((o) => o.kind === 'thinking' && o.usage?.roundId === rid);
+            if (paired) continue; // 已在对应 thinking 行内联展示
+            rows.push(stepToRow(s, rows.length));
+            continue;
+        }
+        const row = stepToRow(s, rows.length);
+        if (s.kind === 'thinking' && s.usage?.roundId) {
+            const intent = intentByRound.get(s.usage.roundId);
+            if (intent) row.intentText = intent.content || intent.payloadText || '';
+        }
+        rows.push(row);
+    }
+    return rows;
 }
 
 /**
@@ -133,9 +171,7 @@ function buildExecTree(detailObj) {
                     title: task.title,
                     status: task.status,
                     time: startedAt ? fmtDateTime(startedAt) : '',
-                    steps: (task.steps || [])
-                        .filter((s) => s.kind !== 'intent' && s.kind !== 'observation')
-                        .map((s, i) => stepToRow(s, i)),
+                    steps: taskStepRows(task),
                 };
             }),
         }));
@@ -168,11 +204,7 @@ function buildExecStats(detailObj) {
     const stepCount = rows.filter((r) => r.kind !== 'intent' && r.kind !== 'observation').length;
     return { inputTokens, outputTokens, totalTime: formatDuration(totalMs), taskCount, stepCount };
 }
-/** 最终模型输出（最后一个 intent step）：文本 + 该轮 usage，供审计观测。 */
-function finalSummaryRowOf(detailObj) {
-    const intentRows = allStepsOf(detailObj).filter((r) => r.kind === 'intent');
-    return intentRows.length > 0 ? intentRows[intentRows.length - 1] : null;
-}
+
 
 /* ---- Collapse state ---- */
 const collapsedGoals = ref(new Set());
@@ -212,7 +244,6 @@ function stepTitleSummary(row) {
 
 /* ---- Derived view state (computed once per render pass) ---- */
 const tree = computed(() => buildExecTree(props.runDetail));
-const summary = computed(() => finalSummaryRowOf(props.runDetail));
 const stats = computed(() => buildExecStats(props.runDetail));
 </script>
 
@@ -316,6 +347,12 @@ const stats = computed(() => buildExecStats(props.runDetail));
                             <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
                                 <pre class="exec-step-code-inner">{{ row.text }}</pre>
                             </div>
+                            <!-- 同轮 intent（模型输出）：紧贴 reasoning 下方，正文呈现（非代码框） -->
+                            <div
+                                v-if="row.intentText"
+                                class="exec-intent-inline markdown-body"
+                                v-html="renderMarkdown(row.intentText)"
+                            ></div>
                             <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
                                 {{ usageStats(row.usage).total }} tokens
                                 <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
@@ -326,20 +363,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
                 </div>
             </div>
         </div>
-        <!-- Final model answer (intent step); clickable to open its audit (tokens/timing). -->
-        <div
-            v-if="summary"
-            class="exec-summary"
-            :class="{ selected: selectedStepId === summary.stepId }"
-            @click="emit('select-step', { stepId: summary.stepId, taskId: summary.taskId })"
-        >
-            <div class="exec-summary-text markdown-body" v-html="renderMarkdown(summary.text)"></div>
-            <div v-if="usageStats(summary.usage)?.hasData" class="exec-step-usage">
-                {{ usageStats(summary.usage).total }} tokens
-                <template v-if="usageStats(summary.usage).cache"> · cache {{ usageStats(summary.usage).cache }}</template>
-                <template v-if="usageStats(summary.usage).reasoning"> · reasoning {{ usageStats(summary.usage).reasoning }}</template>
-            </div>
-        </div>
+
         <!-- Per-run stats + feedback -->
         <div class="exec-stats">
             <div class="exec-stats-fb">
@@ -737,6 +761,14 @@ const stats = computed(() => buildExecStats(props.runDetail));
     word-break: break-word;
     max-height: calc(13px * 1.5 * 12 + 16px); /* 12 rows + padding */
     overflow: auto;
+}
+/* 同轮 intent（模型输出）：紧跟 reasoning 下方，正文非代码框，颜色比 thinking 的灰更深 */
+.exec-intent-inline {
+    margin: 2px 8px 6px 14px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg);
+    word-break: break-word;
 }
 .exec-thinking .exec-step-code-inner {
     color: var(--fg-secondary);
