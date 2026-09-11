@@ -194,6 +194,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         if (!this.workspaceRoot) {
             if (!this.runtime) {
                 this.runtime = new HarnessRuntime(this.config);
+                this.attachCatalog(this.runtime);
                 this.logger.debug('harness: default runtime assembled');
             }
             return this.runtime as HarnessRuntime;
@@ -202,10 +203,18 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             const workspaceRuntime = new HarnessRuntime(this.config, {
                 workspaceRoot: this.workspaceRoot,
             });
+            this.attachCatalog(workspaceRuntime);
             this.workspaces.set(this.workspaceRoot, workspaceRuntime);
             this.logger.debug(`harness: workspace runtime assembled root=${this.workspaceRoot}`);
         }
         return this.workspaces.get(this.workspaceRoot) as HarnessRuntime;
+    }
+
+    /** 目录服务异步就绪后接入运行时；就绪前的请求不落账本（best-effort，不阻断执行）。 */
+    private attachCatalog(runtime: HarnessRuntime): void {
+        void this.catalog()
+            .then((service) => runtime.setCatalog(service))
+            .catch((error) => this.logger.warn(`attachCatalog failed: ${String(error)}`));
     }
 
     private get workspacesFile(): string {
