@@ -93,8 +93,9 @@ export async function executeTask(
         for (let roundIndex = 0; roundIndex < maxSteps; roundIndex += 1) {
             const round = await roundRequest();
 
-            // 一轮 usage 归属唯一：优先挂到**模型输出**（intent，含最终回答），
-            // 无输出时挂 thinking，再退到 tool_call；保证对话流最后的模型输出在审计中可见。
+            // 一轮 usage 归属：thinking 与 intent（模型输出）都挂同一份（带 roundId）；
+            // 审计聚合按 roundId 去重，保证「首步 thinking 有统计」且总量只计一次；
+            // 两者都不存在时退到本轮的 tool_call step。
             const generationMs = round.totalMs - round.ttftMs;
             const outputTokens = round.vendorUsage?.outputTokens ?? 0;
             const hasRoundFacts =
@@ -121,15 +122,20 @@ export async function executeTask(
                       },
                   }
                 : undefined;
-            const usageTarget: 'intent' | 'thinking' | 'tool_call' =
-                round.text.length > 0
-                    ? 'intent'
-                    : round.reasoning.length > 0
-                      ? 'thinking'
-                      : 'tool_call';
+            const roundId = ulid();
+            const roundUsageWithId = roundUsage ? { ...roundUsage, roundId } : undefined;
+            const hasTextOrThinking = round.text.length > 0 || round.reasoning.length > 0;
             const attachUsage = (step: Step) => {
-                if (step.usage === undefined && roundUsage && step.kind === usageTarget) {
-                    step.usage = roundUsage;
+                if (step.usage !== undefined || roundUsageWithId === undefined) return;
+                // 模型输出/推理所属 step 全部携带同一份 usage；纯工具轮次只挂 tool_call。
+                if (hasTextOrThinking) {
+                    if (step.kind === 'thinking' || step.kind === 'intent') {
+                        step.usage = roundUsageWithId;
+                    }
+                    return;
+                }
+                if (step.kind === 'tool_call') {
+                    step.usage = roundUsageWithId;
                 }
             };
 

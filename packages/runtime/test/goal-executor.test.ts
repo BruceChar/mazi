@@ -192,7 +192,7 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(invoked).toBe(false);
     });
 
-    it('usage 归属：优先挂到模型输出 intent（最终回答），thinking 不带（审计可见）', async () => {
+    it('usage 归属：thinking 与 intent 同挂一份（同一 roundId），审计总量只计一次', async () => {
         const store = new MemoryGoalStore();
         const t = task();
         const g = goal();
@@ -235,18 +235,25 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         const thinking = steps.find((s) => s.kind === 'thinking');
         const intent = steps.find((s) => s.kind === 'intent');
         const usage = intent?.usage as {
+            roundId?: string;
             timing?: { tokensPerSecond?: number };
             cost?: { totalCostUsd?: number };
             estimatedCost?: { totalCostUsd?: number };
             estimate?: { outputTokens?: number };
             vendor?: { inputTokens?: number };
         };
+        const thinkingUsage = thinking?.usage as
+            | { roundId?: string; vendor?: { inputTokens?: number } }
+            | undefined;
         expect(usage?.vendor?.inputTokens).toBe(10);
         expect(usage?.timing?.tokensPerSecond).toBeCloseTo((20 / 200) * 1000, 6);
         expect(usage?.cost?.totalCostUsd).toBeCloseTo(0.003, 12);
         expect(usage?.estimate?.outputTokens).toBe(18);
         expect(usage?.estimatedCost?.totalCostUsd).toBeCloseTo(0.0024, 12);
-        expect(thinking?.usage).toBeUndefined();
+        // 首步 thinking 也带统计，共享同一 roundId（聚合去重）
+        expect(thinkingUsage?.vendor?.inputTokens).toBe(10);
+        expect(thinkingUsage?.roundId).toBeDefined();
+        expect(thinkingUsage?.roundId).toBe(usage?.roundId);
     });
 
     it('连续相同工具调用 → 未收敛中止（防死循环，不烧完 maxSteps）', async () => {

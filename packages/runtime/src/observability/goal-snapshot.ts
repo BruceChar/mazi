@@ -79,6 +79,12 @@ export function snapshotGoalTree(
                               ? { content: String(p.output) }
                               : {}),
                         ...(p?.toolName ? { toolName: String(p.toolName) } : {}),
+                        ...(step.kind === 'tool_call' && p?.arguments !== undefined
+                            ? { toolArguments: p.arguments as Record<string, unknown> }
+                            : {}),
+                        ...(step.kind === 'tool_call' && p?.output !== undefined
+                            ? { toolOutput: String(p.output) }
+                            : {}),
                         ...(payloadTextOf(step) !== undefined
                             ? { payloadText: payloadTextOf(step) }
                             : {}),

@@ -184,6 +184,8 @@ export function usageViewOf(usage: unknown): StepUsage | undefined {
         return undefined;
     }
     const view: StepUsage = {};
+    const roundId = stringOf(root.roundId);
+    if (roundId !== undefined) view.roundId = roundId;
     const vendor = subRecord(root.vendor);
     if (vendor !== undefined) view.vendor = vendorView(vendor);
     const runtime = subRecord(root.runtime);

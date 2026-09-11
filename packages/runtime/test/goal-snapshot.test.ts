@@ -162,6 +162,40 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
         expect(usage?.runtime).not.toHaveProperty('retrievedTokens');
     });
 
+    it('tool_call 投影：toolArguments 与 toolOutput 单独暴露（命令/参数/输出）', () => {
+        const root = ulid();
+        const work = goal(ulid(), 'work', root);
+        const t = task(ulid(), work.goalId);
+        const s: Step = {
+            ...step(ulid(), t.taskId, work.goalId),
+            kind: 'tool_call',
+            payload: {
+                toolName: 'shell.run',
+                arguments: { command: 'ls -la' },
+                callId: 'c1',
+                output: 'total 0',
+            },
+        };
+        const snap = snapshotGoalTree(root, [work], [t], [s]);
+        const view = snap.goals[0]?.tasks[0]?.steps[0];
+        expect(view?.toolName).toBe('shell.run');
+        expect(view?.toolArguments).toEqual({ command: 'ls -la' });
+        expect(view?.toolOutput).toBe('total 0');
+        expect(view?.content).toBe('total 0');
+    });
+
+    it('usage 投影：roundId 透传（同轮 thinking/intent 聚合去重用）', () => {
+        const root = ulid();
+        const work = goal(ulid(), 'work', root);
+        const t = task(ulid(), work.goalId);
+        const s: Step = {
+            ...step(ulid(), t.taskId, work.goalId),
+            usage: { roundId: 'r1', vendor: { inputTokens: 1, outputTokens: 2, reportedByVendor: true } },
+        };
+        const snap = snapshotGoalTree(root, [work], [t], [s]);
+        expect(snap.goals[0]?.tasks[0]?.steps[0]?.usage?.roundId).toBe('r1');
+    });
+
     it('usage 缺失 → 不输出 usage 字段', () => {
         const root = ulid();
         const work = goal(ulid(), 'work', root);

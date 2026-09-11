@@ -184,6 +184,11 @@ export interface StepTimingUsage {
 
 /** Token usage attached to a step (vendor + input estimate + output estimate + cost + timing). */
 export interface StepUsage {
+    /**
+     * 轮次标识：一轮模型调用可能产生 thinking 与 intent 两个 step，挂载同一份 usage。
+     * 聚合统计按 roundId 去重（一轮只计一次），单步展示仍可读到完整 usage。
+     */
+    roundId?: string;
     vendor?: StepVendorUsage;
     /** input 估算（breakdown） */
     runtime?: StepRuntimeUsage;
@@ -209,6 +214,10 @@ export interface StepView {
     content?: string;
     /** Tool name (for tool_call steps). */
     toolName?: string;
+    /** Tool call arguments (for tool_call steps; 展示命令/参数). */
+    toolArguments?: Record<string, unknown>;
+    /** Tool call output text (for tool_call steps). */
+    toolOutput?: string;
     /** Payload summary (≤240 chars) for audit/log display. */
     payloadText?: string;
     /** Token usage (vendor + runtime). */
