@@ -12,10 +12,6 @@ defineProps({
     sidebarOpen: { type: Boolean, default: true },
     /** Whether the right audit panel is currently expanded. */
     rightOpen: { type: Boolean, default: false },
-    /** 当前会话名称（常驻顶部栏、品牌右侧）。 */
-    conversationTitle: { type: String, default: '' },
-    /** 当前会话工作区（项目工作区 / 随心聊默认工作区）。 */
-    workspace: { type: String, default: '' },
 });
 const emit = defineEmits(['toggle-sidebar', 'toggle-right']);
 </script>
@@ -31,14 +27,9 @@ const emit = defineEmits(['toggle-sidebar', 'toggle-right']);
                 <LineIcon name="menu" />
             </button>
             <span class="brand">mazi</span>
-            <template v-if="conversationTitle">
-                <span class="topbar-divider"></span>
-                <span class="topbar-conv" :title="conversationTitle">{{ conversationTitle }}</span>
-                <span v-if="workspace" class="topbar-ws" :title="workspace">{{ workspace }}</span>
-            </template>
+            <span class="slogan">Be water, my friend</span>
         </div>
         <div class="topbar-right">
-            <span class="slogan">Be water, my friend</span>
             <button
                 class="ghost right-toggle"
                 :title="rightOpen ? '收起事件栏' : '展开事件栏'"

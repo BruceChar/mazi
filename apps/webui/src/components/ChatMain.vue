@@ -8,6 +8,8 @@ import { formatCost, formatTokens } from '../scripts/audit.ts';
 const props = defineProps({
     activeConversation: { type: Object, default: null },
     workspaceRoot: { type: String, default: '' },
+    /** 当前会话工作区（项目工作空间 / 随心聊默认工作区）。 */
+    workspace: { type: String, default: '' },
     workspaceDisplayName: { type: String, default: '' },
     runs: { type: Array, default: () => [] },
     runDetails: { type: Object, default: () => ({}) },
@@ -176,6 +178,12 @@ onMounted(() => {
 
 <template>
     <div class="chat-main">
+        <!-- 会话窗口上方：会话名称 + 工作区（title 超长省略号截断） -->
+        <div v-if="activeConversation" class="goal-conv-head">
+            <span class="goal-conv-title" :title="conversationTitle(activeConversation)">{{ conversationTitle(activeConversation) }}</span>
+            <span v-if="workspace" class="goal-conv-ws" :title="workspace">{{ workspace }}</span>
+        </div>
+
         <div class="chat-body">
             <div ref="chatScroll" class="chat-scroll" @scroll.passive="onScroll">
                 <div class="chat-content">
@@ -308,6 +316,31 @@ onMounted(() => {
     min-width: 0;
     height: 100%;
     background: var(--bg);
+}
+/* 会话窗口上方：名称 + 工作区；名称超长省略号截断 */
+.goal-conv-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 10px 14px 2px;
+    min-width: 0;
+}
+.goal-conv-title {
+    font-weight: 600;
+    font-size: 15px;
+    max-width: 60%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.goal-conv-ws {
+    color: var(--fg-secondary);
+    font-size: 12px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 /* Positioning context for the scroll container and the rail. */
 .chat-body {

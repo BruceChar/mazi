@@ -211,10 +211,8 @@ const activeConversation = computed(() =>
     conversations.value.find((c) => c.conversationId === currentConversation.value),
 );
 
-/** 顶部栏常驻：当前会话名称。 */
-const headerTitle = computed(() => conversationTitle(activeConversation.value));
 /**
- * 顶部栏常驻：当前会话工作区。
+ * 会话窗口上方显示的工作区。
  * 项目会话用会话自身记录的 `workspace`（即当前项目工作空间），
  * 随心聊才回退到已选工作区 / 随心聊默认工作区。
  */
@@ -762,8 +760,6 @@ onBeforeUnmount(() => {
     <TopBar
         :sidebar-open="ui.sidebar"
         :right-open="ui.rightOpen"
-        :conversation-title="headerTitle"
-        :workspace="headerWorkspace"
         @toggle-sidebar="ui.sidebar = !ui.sidebar"
         @toggle-right="ui.rightOpen = !ui.rightOpen"
     />
@@ -815,6 +811,7 @@ onBeforeUnmount(() => {
                 <ChatMain
                     :active-conversation="activeConversation"
                     :workspace-display-name="workspaceDisplayName"
+                    :workspace="headerWorkspace"
                     :runs="runs"
                     :run-details="runDetails"
                     :current="current"
