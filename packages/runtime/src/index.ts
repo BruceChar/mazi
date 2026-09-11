@@ -11,7 +11,14 @@ export type {
     StepView,
     TaskNodeView,
 } from '@mazi/libs';
-export { builtinModelsFor, builtinVendors, type CatalogModel } from '@mazi/provider';
+export {
+    builtinModelsFor,
+    builtinVendors,
+    type CatalogModel,
+    type DiscoverModelsOptions,
+    discoverModels,
+    type ModelDiscoveryResult,
+} from '@mazi/provider';
 // 模型目录与计费数据架构（catalog）：目录事实 / 同步 / 快照 / 路由 / 账本
 export * from './catalog/index.js';
 export type {

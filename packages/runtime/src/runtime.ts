@@ -15,7 +15,7 @@ import type {
     TokenUsage,
     ToolSchema,
 } from '@mazi/core';
-import { modelIdOf, offeringIdOf, providerIdOf, ulid } from '@mazi/core';
+import { modelIdOf, offeringIdOf, ProviderError, providerIdOf, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { CatalogService } from './catalog/service.js';
@@ -34,6 +34,7 @@ import {
     type PricingSchedule,
     RoundExecutor,
     type RoundOutcome,
+    type RoundStreamListener,
 } from './provider/index.js';
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
 import { configureTokenizer, estimateTokens } from './token-estimator.js';
@@ -597,6 +598,35 @@ function goalRunSummary(result: GoalRunResult): string {
     return summary && summary.length > 0 ? summary.slice(0, 2000) : '';
 }
 
+/** 归一化 LLM 失败事实（供事件与恢复判断消费）。 */
+function describeLlmError(error: unknown): { code?: string; message: string } {
+    if (error instanceof ProviderError) {
+        return { code: error.code, message: error.message };
+    }
+    if (error instanceof Error) {
+        return { message: error.message };
+    }
+    return { message: String(error) };
+}
+
+/** 判断是否为「模型名/请求不被接受」类失败（可触发重同步 + 换模重试）。 */
+function isModelRelatedError(described: { code?: string; message: string }): boolean {
+    if (described.code === 'invalid_request') return true;
+    return /model|模型|unsupported|not found|does not exist/i.test(described.message);
+}
+
+/** 模型恢复回调入参：失败时的 provider / 模型（供按渠道定向重同步）。 */
+export interface ModelRecoveryRequest {
+    providerId?: string;
+    modelId?: string;
+}
+
+/** 模型恢复回调返回值：修正后的 provider 与模型 id。 */
+export interface ModelRecoveryResult {
+    providerId?: string;
+    modelId?: string;
+}
+
 /**
  * HarnessRuntime —— Goal/Task/Step 坐标系运行器（C5 收口后为唯一执行面）。
  * createGoalSession（intake+work 树落库）→ executeGoalTree（plan→逐 Task，事实经 GoalStore 留痕）；
@@ -622,6 +652,10 @@ export class HarnessRuntime {
     private readonly llmProviders: Map<string, LLMProvider>;
     /** 可选目录账本：接入后每轮 usage 追加凭证（凭证闭环） */
     private catalogService: CatalogService | undefined;
+    /** 可选模型恢复：模型名被厂商拒绝时重同步并换模重试一次 */
+    private modelRecovery:
+        | ((request: ModelRecoveryRequest) => Promise<ModelRecoveryResult | undefined>)
+        | undefined;
     private readonly roundExecutor: RoundExecutor;
     private readonly config: RuntimeConfig;
     private readonly workspaceRoot?: string;
@@ -646,6 +680,13 @@ export class HarnessRuntime {
     /** 接入目录与账本：此后每轮 LLM 调用按钉死的 offering 价目追加 UsageRecord。 */
     setCatalog(service: CatalogService): void {
         this.catalogService = service;
+    }
+
+    /** 接入模型恢复：模型名被厂商拒绝时重同步并换模重试一次（llm.error 事件后自愈）。 */
+    setModelRecovery(
+        fn: (request: ModelRecoveryRequest) => Promise<ModelRecoveryResult | undefined>,
+    ): void {
+        this.modelRecovery = fn;
     }
 
     /** Goal/Task/Step 存储（Goal 会话审计/级联删除） */
@@ -989,27 +1030,42 @@ export class HarnessRuntime {
      * 具备 goalId/taskId 时，把 provider 原始流式增量包装成 llm.stream_event 实时发到事件总线
      * （docs/web/流式响应设计.md §2）；同一轮的多次网络尝试共享 streamId，attempt 区分重试。
      */
+    private buildCandidates(
+        ctx: ExecutorRoundContext,
+        modelOverride?: string,
+    ): Array<{
+        providerId: string;
+        provider: LLMProvider;
+        modelId?: string;
+        pricing?: PricingSchedule;
+    }> {
+        const orderedIds = [
+            ctx.model.providerId,
+            ...[...this.llmProviders.keys()].filter((id) => id !== ctx.model.providerId),
+        ];
+        return orderedIds
+            .map((id) => ({ id, provider: this.llmProviders.get(id) }))
+            .filter((x): x is { id: string; provider: LLMProvider } => x.provider !== undefined)
+            .map(({ id, provider }) => {
+                const modelId =
+                    id === ctx.model.providerId && modelOverride !== undefined
+                        ? modelOverride
+                        : this.roundModelId(id, ctx.model, provider);
+                return {
+                    providerId: id,
+                    provider,
+                    ...(modelId !== undefined ? { modelId } : {}),
+                    ...(this.pricingOf(id) !== undefined ? { pricing: this.pricingOf(id) } : {}),
+                };
+            });
+    }
+
+    /** 模型被厂商拒绝时发 llm.error，自愈（重同步 + 换模）后重试一次（provider.recovered）。 */
     private async requestRound(
         rootGoalId: string,
         ctx: ExecutorRoundContext,
         reasoningLevel?: string,
     ): Promise<RoundResult> {
-        const orderedIds = [
-            ctx.model.providerId,
-            ...[...this.llmProviders.keys()].filter((id) => id !== ctx.model.providerId),
-        ];
-        const candidates = orderedIds
-            .map((id) => ({ id, provider: this.llmProviders.get(id) }))
-            .filter((x): x is { id: string; provider: LLMProvider } => x.provider !== undefined)
-            .map(({ id, provider }) => ({
-                providerId: id,
-                provider,
-                modelId: this.roundModelId(id, ctx.model, provider),
-                pricing: this.pricingOf(id),
-            }));
-        if (candidates.length === 0) {
-            throw new Error(`没有可用 provider：${ctx.model.providerId}`);
-        }
         // 不设 request.model：模型 id 交由 provider-runtime 按候选（candidate.modelId）解析，
         // 避免占位 modelId（goal-executor 缺省 'default'）覆盖真实模型而报 unknown model。
         const request: LLMRequest = {
@@ -1032,31 +1088,117 @@ export class HarnessRuntime {
         );
         const streamId = ulid();
         const streamable = ctx.goalId !== undefined && ctx.taskId !== undefined;
-        const outcome = await this.roundExecutor.execute(
-            request,
-            candidates,
-            streamable
-                ? (streamEvent) => {
-                      this.bus.emit(
-                          newHarnessEvent({
-                              type: 'llm.stream_event',
-                              rootGoalId,
-                              goalId: ctx.goalId,
-                              taskId: ctx.taskId,
-                              attributes: {
-                                  'gen_ai.provider.name': streamEvent.providerId,
-                                  'gen_ai.request.model': streamEvent.modelId,
-                              },
-                              payload: {
-                                  streamId,
-                                  attempt: streamEvent.attempt,
-                                  event: streamEvent.event,
-                              },
-                          }),
-                      );
-                  }
-                : undefined,
+        const onStream: RoundStreamListener | undefined = streamable
+            ? (streamEvent) => {
+                  this.bus.emit(
+                      newHarnessEvent({
+                          type: 'llm.stream_event',
+                          rootGoalId,
+                          goalId: ctx.goalId,
+                          taskId: ctx.taskId,
+                          attributes: {
+                              'gen_ai.provider.name': streamEvent.providerId,
+                              'gen_ai.request.model': streamEvent.modelId,
+                          },
+                          payload: {
+                              streamId,
+                              attempt: streamEvent.attempt,
+                              event: streamEvent.event,
+                          },
+                      }),
+                  );
+              }
+            : undefined;
+
+        let modelOverride: string | undefined;
+        for (let attempt = 0; ; attempt += 1) {
+            const candidates = this.buildCandidates(ctx, modelOverride);
+            if (candidates.length === 0) {
+                throw new Error(`没有可用 provider：${ctx.model.providerId}`);
+            }
+            const firstProvider = candidates[0]?.provider;
+            const resolvedModel =
+                modelOverride ??
+                (firstProvider !== undefined
+                    ? this.roundModelId(ctx.model.providerId, ctx.model, firstProvider)
+                    : undefined);
+            try {
+                const outcome = await this.roundExecutor.execute(request, candidates, onStream);
+                if (modelOverride !== undefined) {
+                    await this.emitRecovered(
+                        rootGoalId,
+                        ctx,
+                        modelOverride,
+                        outcome.metrics.providerId,
+                    );
+                }
+                return await this.finishRound(ctx, contextUsage, outcome);
+            } catch (error) {
+                const described = describeLlmError(error);
+                this.bus.emit(
+                    newHarnessEvent({
+                        type: 'llm.error',
+                        rootGoalId,
+                        goalId: ctx.goalId,
+                        taskId: ctx.taskId,
+                        attributes: {
+                            'gen_ai.provider.name': ctx.model.providerId,
+                            'harness.level': 'error',
+                            ...(described.code !== undefined
+                                ? { 'harness.provider_error_code': described.code }
+                                : {}),
+                        },
+                        payload: {
+                            code: described.code,
+                            message: described.message,
+                            model: resolvedModel,
+                            attempt,
+                        },
+                    }),
+                );
+                await this.bus.flush();
+                const recovery = this.modelRecovery;
+                const canRecover =
+                    attempt === 0 && recovery !== undefined && isModelRelatedError(described);
+                if (!canRecover) throw error;
+                const recovered = await recovery({
+                    providerId: ctx.model.providerId,
+                    ...(resolvedModel !== undefined ? { modelId: resolvedModel } : {}),
+                }).catch(() => undefined);
+                if (recovered?.modelId === undefined) throw error;
+                modelOverride = recovered.modelId;
+            }
+        }
+    }
+
+    private async emitRecovered(
+        rootGoalId: string,
+        ctx: ExecutorRoundContext,
+        modelId: string,
+        providerId: string,
+    ): Promise<void> {
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'provider.recovered',
+                rootGoalId,
+                goalId: ctx.goalId,
+                taskId: ctx.taskId,
+                attributes: {
+                    'gen_ai.provider.name': providerId,
+                    'gen_ai.request.model': modelId,
+                    'harness.level': 'info',
+                },
+                payload: { providerId, modelId },
+            }),
         );
+        await this.bus.flush();
+    }
+
+    private async finishRound(
+        ctx: ExecutorRoundContext,
+        contextUsage: RuntimeContextBreakdown,
+        outcome: RoundOutcome,
+    ): Promise<RoundResult> {
         const result: RoundResult = toRoundResult(outcome);
         this.lastContextTotal = contextUsage.totalContextTokens;
         this.lastMessageCount = ctx.messages.length;
