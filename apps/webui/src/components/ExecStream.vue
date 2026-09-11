@@ -319,6 +319,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
                             <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
                                 {{ usageStats(row.usage).total }} tokens
                                 <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
+                                <template v-if="usageStats(row.usage).reasoning"> · reasoning {{ usageStats(row.usage).reasoning }}</template>
                             </div>
                         </div>
                     </div>
