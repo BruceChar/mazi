@@ -123,9 +123,9 @@ type AuthzErrorCode =
 
 `packages/runtime/src/tool-gateway/permission.ts` 是执行面的接线层：
 
-- `grantForPermissionLevel(level)`：把 UI 的 `text/read-only/draft/approved/autonomous` 映射为 root `AgentGrant`（ceiling 即用户的常设授权）；
+- `grantForPermissionLevel(level)`：把 UI 的 `text/read-only/draft/approved/autonomous` 映射为 root `AgentGrant`。**ceiling 是 auto 边界而非可见性过滤**：标准能力面全部授予，处于所选档位内的能力 `auto`，高于档位的为 `gated`（模型仍看到工具，调用即触发人审，而不是静默无工具）；只有 `text` 隐藏整个工具面。`forbidden` 仅由 hard 层（V17）与后端封顶（V15）产生，任何档位不可放宽；
 - `capabilityForTool(tool)`：由 `sideEffects`/`irreversible`/工具名推导 `CapabilityKey`（`shell.run→fs.exec`、`net→net.fetch`、`fs+irreversible→fs.write.workspace`、其余 `fs.read.workspace`）；
-- `RuntimeToolGateway`：构建 `AuthorizationEngine` + `DefaultToolGateway`，按 ceiling 收窄 supply 视图（`visibleToolNames()`），每次调用走 11 阶段管线；
+- `RuntimeToolGateway`：构建 `AuthorizationEngine` + `DefaultToolGateway`，`visibleToolNames()` 暴露 auto+gated（仅剔除 forbidden），每次调用走 11 阶段管线；
 - `runtime.ts` 的 `goalExecutionConfig(rootGoalId, goalId)` 用网关产出的可见工具集替换原白名单，`invoker.invoke` 经网关结果映射为 `ToolCallResult`。
 
 ### 6.1 人审审批（V18/T8）

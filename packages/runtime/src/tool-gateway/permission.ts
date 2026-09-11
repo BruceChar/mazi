@@ -105,12 +105,28 @@ function capRule(capability: string): authz.CapabilityRule {
     };
 }
 
-/** Build the root grant for a human-facing permission ceiling. */
+/** The full effect surface the runtime can request (all levels combined). */
+const STANDARD_SURFACE = AUTONOMOUS_CAPABILITIES;
+
+/**
+ * Build the root grant for a human-facing permission ceiling.
+ *
+ * The ceiling is the **auto boundary**, not a visibility filter: every standard
+ * capability is granted; those within the selected level run `auto`, those
+ * above it are `gated` (the model still sees the tool and calling it raises a
+ * human approval instead of silently failing). Only `text` hides the tool
+ * surface entirely. `forbidden` is reserved for the hard layer (V17) and the
+ * backend cap (V15), which no ceiling can relax.
+ */
 export function grantForPermissionLevel(level: PermissionLevel): authz.AgentGrant {
-    const capabilities = CAPABILITIES_BY_LEVEL[level] ?? READ_CAPABILITIES;
+    if (level === 'text') return {};
+    const auto = new Set<string>(CAPABILITIES_BY_LEVEL[level] ?? READ_CAPABILITIES);
     const grant: authz.AgentGrant = {};
-    for (const capability of capabilities) {
-        grant[capability] = capRule(capability);
+    for (const capability of STANDARD_SURFACE) {
+        grant[capability] = {
+            ...capRule(capability),
+            tier: auto.has(capability) ? 'auto' : 'gated',
+        };
     }
     return grant;
 }

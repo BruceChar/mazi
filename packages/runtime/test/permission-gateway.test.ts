@@ -49,12 +49,18 @@ const execute = async (config: ToolConfig): Promise<ToolCallResult> => ({
 });
 
 describe('runtime permission bridge', () => {
-    it('maps permission levels to capability grants', () => {
+    it('maps the permission level to the auto boundary (above = gated)', () => {
         expect(grantForPermissionLevel('text')).toEqual({});
-        expect(Object.keys(grantForPermissionLevel('read-only'))).toEqual(['fs.read.workspace']);
-        expect(Object.keys(grantForPermissionLevel('draft'))).toContain('fs.exec');
-        expect(Object.keys(grantForPermissionLevel('draft'))).not.toContain('net.send');
-        expect(Object.keys(grantForPermissionLevel('approved'))).toContain('net.send');
+        const readOnly = grantForPermissionLevel('read-only');
+        expect(readOnly['fs.read.workspace']).toMatchObject({ tier: 'auto' });
+        expect(readOnly['fs.exec']).toMatchObject({ tier: 'gated' });
+        expect(readOnly['fs.write.workspace']).toMatchObject({ tier: 'gated' });
+
+        const draft = grantForPermissionLevel('draft');
+        expect(draft['fs.exec']).toMatchObject({ tier: 'auto' });
+        expect(draft['fs.write.workspace']).toMatchObject({ tier: 'auto' });
+        expect(draft['net.send']).toMatchObject({ tier: 'gated' });
+        expect(grantForPermissionLevel('approved')['net.send']).toMatchObject({ tier: 'auto' });
     });
 
     it('derives a valid action/domain for each granted capability', () => {
@@ -83,7 +89,7 @@ describe('runtime permission bridge', () => {
         expect(capabilityForTool(TOOLS[4])).toBe('fs.exec');
     });
 
-    it('narrows the supply view to the ceiling', () => {
+    it('offers the full surface with gated tools above the ceiling; only text hides them', () => {
         const readOnly = new RuntimeToolGateway({
             rootGoalId: 'r',
             goalId: 'g',
@@ -92,20 +98,27 @@ describe('runtime permission bridge', () => {
             tools: TOOLS,
             execute,
         });
-        expect(readOnly.visibleToolNames().sort()).toEqual(['fs.read', 'rg']);
+        expect(readOnly.visibleToolNames().sort()).toEqual([
+            'fs.read',
+            'rg',
+            'sd',
+            'shell.run',
+            'xh',
+        ]);
 
-        const draft = new RuntimeToolGateway({
+        const text = new RuntimeToolGateway({
             rootGoalId: 'r',
             goalId: 'g',
             taskId: 't',
-            level: 'draft',
+            level: 'text',
             tools: TOOLS,
             execute,
         });
-        expect(draft.visibleToolNames().sort()).toEqual(['fs.read', 'rg', 'sd', 'shell.run', 'xh']);
+        expect(text.visibleToolNames()).toEqual([]);
     });
 
-    it('rejects tools outside the ceiling (supply narrowing is enforced)', async () => {
+    it('exposes an above-ceiling tool and rejects it when approval is denied', async () => {
+        const broker = new ApprovalBroker({ emit: () => {}, timeoutMs: 1000 });
         const gateway = new RuntimeToolGateway({
             rootGoalId: 'r',
             goalId: 'g',
@@ -113,10 +126,14 @@ describe('runtime permission bridge', () => {
             level: 'read-only',
             tools: TOOLS,
             execute,
+            approval: broker,
         });
-        const result = await gateway.invoke('shell.run', { command: 'echo hi' });
-        expect(result.ok).toBe(false);
-        expect(result.error).toContain('工具被策略拦截');
+        const pending = gateway.invoke('shell.run', { command: 'echo hi' });
+        const requests = broker.pending();
+        expect(requests).toHaveLength(1);
+        broker.settle(requests[0].invocationId, { decision: 'rejected', reason: 'no' });
+        await expect(pending).resolves.toMatchObject({ ok: false });
+        expect((await pending).error).toContain('GATED_REJECTED');
     });
 
     it('executes a read tool and a draft tool through the pipeline', async () => {
