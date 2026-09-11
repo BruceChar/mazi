@@ -12,8 +12,50 @@
 import { contentVersion, stableStringify } from './hash.js';
 import type { Signer } from './root-trust.js';
 
+/** Canonical decisionLog event catalog (§11). */
+export const DECISION_EVENT_TYPES = [
+    'ruleHit',
+    'rule-precedence',
+    'guard-pair',
+    'condition-attach',
+    'condition-verdict',
+    'boundary-write',
+    'handle-ref',
+    'handle-inject-origin',
+    'handle-refused',
+    'sign-policy-passed',
+    'sign-policy-violation',
+    'sign-max-uses-exceeded',
+    'token-issued',
+    'token-revoked',
+    'egress-check',
+    'danger-verb',
+    'clamp',
+    'derive-reject',
+    'grant-revision',
+    'escalation-request',
+    'escalation-granted',
+    'escalation-denied',
+    'full-trust-invocation',
+    'sandbox-unavailable',
+    'ledger-write',
+    'ledger-barrier',
+    'generation-switch',
+    'generation-egress-attestation',
+    'reference-drift',
+    'derived-label-applied',
+    'derived-label-cleared',
+    'label-resolution',
+    'policy-revoked',
+    'audit-tamper-suspected',
+    'task-scratch-cleanup-failed',
+    'approval-rate-alert',
+] as const;
+
+export type DecisionEventType = (typeof DECISION_EVENT_TYPES)[number];
+
 export interface DecisionEvent {
-    type: string;
+    type: DecisionEventType | (string & {});
     [key: string]: unknown;
 }
 

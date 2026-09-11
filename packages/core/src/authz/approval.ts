@@ -104,6 +104,23 @@ export function verifyApprovalToken(
     return verifier.verify(tokenPayload(token), token.signature);
 }
 
+/**
+ * §8.2 duplicate-charge protection: the same payee + amount inside the window
+ * forces a fresh confirmation even under an amountLimit pre-authorization.
+ */
+export class DuplicatePaymentGuard {
+    private readonly recent = new Map<string, number>();
+
+    constructor(private readonly windowMs = 5 * 60 * 1000) {}
+
+    observe(payee: string, amount: Money, now: number): boolean {
+        const key = `${payee}:${amount.currency}:${amount.amount}`;
+        const last = this.recent.get(key);
+        this.recent.set(key, now);
+        return last !== undefined && now - last <= this.windowMs;
+    }
+}
+
 export type HighRiskOperation =
     | 'pay-over-limit'
     | 'boundary-write'

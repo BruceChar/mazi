@@ -33,7 +33,10 @@
 | `escalation.ts` | V12 偏序短路（严格更宽判定） | §12, V12 |
 | `derive.ts` | meet + 角色下限 + 边界 R5 + 全对 R3 + hard 终裁 + V15 封顶 + 快照 | §5, V3/V4/V7, §5.3 |
 | `trust-ladder.ts` | T0/T1/T2 状态机 + 行为签名 + 稳定性判据 + 即时降级 | §4.6, N6 |
-| `approval.ts` | V18 审批回显、审批令牌绑定、世代级知情豁免、双人规则 | §9.5.2, §12, V18 |
+| `approval.ts` | V18 审批回显、审批令牌绑定、重复扣款防护、双人规则 | §9.5.2, §12, V18, §8.2 |
+| `engine.ts` | 组合根 `AuthorizationEngine`：derive / resolveAsset / ⑩ overlay / 条件裁决 / 见证 / flush | §17.3 |
+| `telemetry.ts` | 授权面宽度遥测 | §9.4 T7 |
+| `audit.ts` | `DECISION_EVENT_TYPES` 事件目录 | §11 |
 | `types.ts` | 上述共享类型 | §4 |
 
 ## 3. 关键契约
@@ -110,6 +113,7 @@ type AuthzErrorCode =
 | `authz-dataflow.test.ts` | 出站探测 + inline 免疫 + 哈希钉版 REFERENCE_DRIFT + realpath 规范化 |
 | `authz-tcb.test.ts` | 钉版快照不可变 + 审计链篡改检测 + 撤销后钉版 fail-closed + 根签名轮换 |
 | `authz-trust-ladder.test.ts` | 全转移覆盖 + 小样本集合比较 + D_KL 边界 + 跨版本回落 T0 |
+| `authz-engine.test.ts` | 组合根 E2E：sensitive 读→写 artifact→overlay→egress 破缺 + flush/overlay 解耦 + A2a 同步失效 + T7 遥测 + 重复扣款 + N8 重读 |
 
 ## 6. 非目标（本文不实现）
 

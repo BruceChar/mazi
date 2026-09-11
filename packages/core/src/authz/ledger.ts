@@ -197,6 +197,19 @@ export class DataflowLedger {
         };
     }
 
+    /**
+     * N8 conservative re-read: if the ledger advanced past the version a
+     * caller adjudicated against, the caller MUST re-adjudicate on the latest
+     * version before allowing execution.
+     */
+    recheck(version: LedgerVersion): {
+        snapshot: LedgerSnapshot;
+        requested: LedgerVersion;
+        advanced: boolean;
+    } {
+        return { snapshot: this.snapshot(), requested: version, advanced: version < this.version };
+    }
+
     /** Missing/insufficient ledger state must be treated as broken (N5). */
     hasSensitiveIngest(snapshot?: LedgerSnapshot): boolean {
         const view = snapshot ?? this.snapshot();
