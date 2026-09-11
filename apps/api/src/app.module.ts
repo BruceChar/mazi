@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { CatalogController } from './catalog/catalog.controller.js';
 import { ApiExceptionsFilter } from './common/api-error.js';
 import { PostStatus200Interceptor } from './common/post-status.interceptor.js';
 import { RuntimeModule } from './common/runtime.module.js';
@@ -20,6 +21,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
     imports: [RuntimeModule],
     controllers: [
         HealthController,
+        CatalogController,
         RunsController,
         SessionsController,
         GoalsController,

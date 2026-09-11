@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import type { CatalogChange } from '@mazi/core';
 import type {
     MaziPaths,
     ProviderModelInfo,
@@ -9,10 +10,13 @@ import type {
 } from '@mazi/runtime';
 import {
     builtinModelsFor,
+    CatalogService,
     configOverview,
     ensureMaziDirs,
+    FileCatalogStore,
     HarnessRuntime,
     loadRuntimeConfig,
+    observedCatalogFromProviderConfigs,
     toRuntimeConfig,
 } from '@mazi/runtime';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
@@ -82,6 +86,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private readonly logger = new Logger('runtime');
     private readonly workspaces = new Map<string, HarnessRuntime>();
     private runtime: HarnessRuntime | undefined;
+    private catalogInstance: CatalogService | undefined;
+    private catalogOpening: Promise<CatalogService> | undefined;
     private running = false;
     private workspaceRoot?: string;
     private workspacesState: {
@@ -282,6 +288,50 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         hasProvidersFile: boolean;
     } {
         return configOverview();
+    }
+
+    /**
+     * 惰性打开目录服务：文件存储于 $MAZI_HOME/catalog；首次为空时按 providers.json 走一遍
+     * sync 管线（source=manual-import，设计文档 §12）。并发调用共享同一次打开。
+     */
+    async catalog(): Promise<CatalogService> {
+        if (this.catalogInstance !== undefined) return this.catalogInstance;
+        this.catalogOpening ??= this.openCatalog();
+        this.catalogInstance = await this.catalogOpening;
+        return this.catalogInstance;
+    }
+
+    private async openCatalog(): Promise<CatalogService> {
+        const service = await CatalogService.open({
+            store: new FileCatalogStore(join(this.paths.home, 'catalog')),
+        });
+        if (service.epoch() === 0) {
+            await this.importCatalog(service, 'manual-import');
+        }
+        return service;
+    }
+
+    /** 用当前 providers.json 重新走 sync 管线（manual-import 首次 / operator 手动刷新）。 */
+    private async importCatalog(
+        service: CatalogService,
+        source: 'manual-import' | 'operator',
+    ): Promise<{ epoch: number; changed: boolean; changes: CatalogChange[] }> {
+        const { providers } = loadRuntimeConfig(this.paths.home);
+        const { catalog, driverConfigs } = observedCatalogFromProviderConfigs(providers);
+        if (catalog.providers.length === 0) {
+            return { epoch: service.epoch(), changed: false, changes: [] };
+        }
+        const result = await service.sync(catalog, { source });
+        for (const driverConfig of driverConfigs) {
+            await service.setDriverConfig(driverConfig);
+        }
+        return result;
+    }
+
+    /** POST /api/catalog/sync：把 providers.json 的模型/价格重新同步进目录并返回 diff。 */
+    async syncCatalog(): Promise<{ epoch: number; changed: boolean; changes: CatalogChange[] }> {
+        const service = await this.catalog();
+        return this.importCatalog(service, 'operator');
     }
 
     /** 与旧实现一致的进程内串行锁：已有会话执行时 → 409 */
