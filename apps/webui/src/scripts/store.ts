@@ -128,6 +128,26 @@ export const runDetails = reactive<Record<string, GoalTreeSnapshot | null>>({});
 /** In-memory run outcomes (POST /run task summary; never persisted). */
 export const runOutcomes = reactive<Record<string, RunOutcome>>({});
 export const events = reactive<{ list: EventItem[]; types: string }>({ list: [], types: 'all' });
+
+/** 系统日志（GET /api/logs）：服务端错误/告警/信息，供「日志 / 事件」面板查看。 */
+export interface SystemLogEntry {
+    ts: number;
+    level: 'debug' | 'info' | 'warn' | 'error';
+    module: string;
+    message: string;
+}
+export const systemLogs = ref<SystemLogEntry[]>([]);
+
+export async function loadSystemLogs(level = 'all', limit = 500): Promise<void> {
+    try {
+        const state = await api(
+            '/api/logs?level=' + encodeURIComponent(level) + '&limit=' + String(limit),
+        );
+        systemLogs.value = Array.isArray(state?.logs) ? (state.logs as SystemLogEntry[]) : [];
+    } catch {
+        systemLogs.value = [];
+    }
+}
 /** Active streaming answers (token level); keyed by streamId (docs/web/流式响应设计.md §5). */
 export const liveStreams = ref<LiveStreamMap>({});
 /** Most recent active stream of the current run (max updatedAt). */

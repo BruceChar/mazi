@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import { Controller, Get, Post } from '@nestjs/common';
+import { Controller, Get, Post, Query } from '@nestjs/common';
+import { recentLogs } from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 
 /** /api/health 与 /api/config：契约对齐旧 node:http 实现（docs v0.2 §10.4） */
@@ -28,6 +29,20 @@ export class HealthController {
             defaultConfigDir: paths.home,
             storage: { driver: 'sqlite', db: paths.dbPath, events: paths.eventDir },
         };
+    }
+
+    /** GET /api/logs?level=&limit=：进程内系统日志（错误/告警/信息），供 UI「日志/事件」。 */
+    @Get('logs')
+    logs(
+        @Query('level') level?: string,
+        @Query('limit') limit?: string,
+    ): { logs: ReturnType<typeof recentLogs> } {
+        const all = recentLogs();
+        const filtered =
+            level && level !== 'all' ? all.filter((entry) => entry.level === level) : all;
+        const parsed = Number(limit);
+        const logs = Number.isFinite(parsed) && parsed > 0 ? filtered.slice(-parsed) : filtered;
+        return { logs };
     }
 
     /** POST /api/runtime/restart：在线重同步端点模型并重建运行时（进程内重启语义）。 */

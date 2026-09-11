@@ -44,6 +44,17 @@ describe('health & config（NG-1 契约对齐旧 node:http）', () => {
         expect(Array.isArray(res.json().providers)).toBe(true);
     });
 
+    it('GET /api/logs → { logs: [...] }（进程内系统日志，支持 level 过滤）', async () => {
+        const res = await h.fastify.inject({ method: 'GET', url: '/api/logs' });
+        expect(res.statusCode).toBe(200);
+        expect(Array.isArray(res.json().logs)).toBe(true);
+        const warn = await h.fastify.inject({ method: 'GET', url: '/api/logs?level=warn' });
+        expect(warn.statusCode).toBe(200);
+        expect(warn.json().logs.every((entry: { level: string }) => entry.level === 'warn')).toBe(
+            true,
+        );
+    });
+
     it('未匹配路由 → 404 { error: "not found" }', async () => {
         const res = await h.fastify.inject({
             method: 'GET',
