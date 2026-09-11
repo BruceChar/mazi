@@ -12,6 +12,7 @@ import FeedbackModal from './components/FeedbackModal.vue';
 import PromptDialog from './components/PromptDialog.vue';
 import UserPreferencesPage from './components/UserPreferencesPage.vue';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
+import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
 import { buildAuditView } from './scripts/audit.ts';
 import { API_BASE } from './api.js';
@@ -52,7 +53,9 @@ import {
     selectedStepId,
     selectedTaskId,
     sendFeedback,
+    sessionPermission,
     setPermissionCeiling,
+    setSessionPermission,
     setTheme,
     short,
     statusLabel,
@@ -593,7 +596,7 @@ async function submitPrompt() {
     // continuing a conversation keeps using the selected workspace too.
     const workspacePath = workspaceRoot.value || undefined;
     await createAndRunGoal(
-        goalFromRunSettings(text),
+        goalFromRunSettings(text, sessionPermission.value),
         workspacePath,
         currentConversation.value || undefined,
         true,
@@ -840,6 +843,8 @@ onBeforeUnmount(() => {
                     :selected-model="selectedModel"
                     :reasoning-level="reasoningLevel"
                     :reasoning-levels="REASONING_LEVELS"
+                    :permission="sessionPermission"
+                    :permission-levels="PERMISSION_LEVELS"
                     :approvals="approvals"
                     :task-count="taskCount"
                     :step-count="stepCount"
@@ -856,6 +861,7 @@ onBeforeUnmount(() => {
                     @exit-workspace="exitWorkspace"
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"
+                    @update:permission="setSessionPermission"
                     @respond-approval="onApprovalResponse"
                 />
             </template>

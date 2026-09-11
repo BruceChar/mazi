@@ -119,6 +119,44 @@ export const cfg = ref<ConfigOverview | null>(null);
 export const workspaceRoot = ref<string>('');
 /** 随心聊（未选项目）默认工作区；后端配置，用于标题展示与设置。 */
 export const freeChatWorkspace = ref<string>('');
+
+/** localStorage key: per-workspace permission overrides (composer selector). */
+const WORKSPACE_PERMISSION_KEY = 'mazi.web.workspace-permission';
+
+function readWorkspacePermissions(): Record<string, string> {
+    if (typeof localStorage === 'undefined') return {};
+    try {
+        const raw = localStorage.getItem(WORKSPACE_PERMISSION_KEY);
+        const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        return Object.fromEntries(
+            Object.entries(parsed).filter(([, value]) => typeof value === 'string'),
+        ) as Record<string, string>;
+    } catch {
+        return {};
+    }
+}
+
+/** 当前工作区的有效权限：会话覆盖 → 系统默认（Settings → General）。 */
+export const sessionPermission = ref<string>('read-only');
+
+export function refreshSessionPermission(): void {
+    const key = workspaceRoot.value || '__default__';
+    sessionPermission.value =
+        readWorkspacePermissions()[key] ?? cfg.value?.permissionCeiling ?? 'read-only';
+}
+
+/** 输入框选择器：写入当前工作区的权限覆盖（不改系统默认）。 */
+export function setSessionPermission(value: string): void {
+    sessionPermission.value = value;
+    if (typeof localStorage === 'undefined') return;
+    try {
+        const map = readWorkspacePermissions();
+        map[workspaceRoot.value || '__default__'] = value;
+        localStorage.setItem(WORKSPACE_PERMISSION_KEY, JSON.stringify(map));
+    } catch {
+        // Storage can be unavailable; the in-memory override still applies.
+    }
+}
 export const projects = ref<Project[]>([]);
 export const busy = ref<boolean>(false);
 /** Currently open Goal run (rootGoalId). */
@@ -280,6 +318,7 @@ export async function loadConfig(): Promise<void> {
         cfg.value = null;
         ui.err = String(error);
     }
+    refreshSessionPermission();
 }
 
 /** 写入系统级权限 grant（POST /api/config/goal；Settings → General）并刷新配置。 */
@@ -291,6 +330,7 @@ export async function setPermissionCeiling(value: string): Promise<void> {
             body: JSON.stringify({ permissionCeiling: value }),
         });
         ui.err = null;
+        refreshSessionPermission();
     } catch (error) {
         ui.err = String(error);
     }
@@ -324,6 +364,7 @@ export async function loadWorkspace(): Promise<void> {
     } catch {
         workspaceRoot.value = '';
     }
+    refreshSessionPermission();
 }
 
 /** 保存「随心聊」默认工作区（空 → 后端回退 $MAZI_HOME/workspace）。 */

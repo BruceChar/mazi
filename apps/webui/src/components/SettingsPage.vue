@@ -84,9 +84,10 @@ watch(
                 <div class="settings-group-title">Run defaults</div>
                 <div class="setting-item">
                     <div class="setting-info">
-                        <div class="setting-name">System permission grant</div>
+                        <div class="setting-name">Default permission grant</div>
                         <div class="setting-desc">
-                            应用到所有新会话 · {{ permissionHint(permissionCeiling) }}
+                            新工作区会话的默认权限；输入框左下角可对当前工作区覆盖 ·
+                            {{ permissionHint(permissionCeiling) }}
                         </div>
                     </div>
                     <select

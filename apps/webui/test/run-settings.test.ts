@@ -13,16 +13,17 @@ describe('run settings (global GoalContract defaults)', () => {
         expect(runSettings.loopMode).toBe('react-only');
     });
 
-    it('maps the current defaults onto a new run payload (no per-run permission)', () => {
+    it('carries the per-workspace permission override onto the run payload', () => {
         saveRunSettings({ budgetUsd: 1.5, maxSteps: 20, loopMode: 'goal-plan-execute' });
-        const payload = goalFromRunSettings('hello');
-        expect(payload).toMatchObject({
+        expect(goalFromRunSettings('hello', 'workspace-write')).toMatchObject({
             statement: 'hello',
+            permissionCeiling: 'workspace-write',
             maxCostUsd: 1.5,
             maxSteps: 20,
             loopMode: 'goal-plan-execute',
         });
-        // The system grant governs; a run must not carry its own permissionCeiling.
-        expect(payload.permissionCeiling).toBeUndefined();
+        // Without an override the GoalContract default applies (the backend then
+        // falls back to the system grant if the field is absent).
+        expect(goalFromRunSettings('hi').permissionCeiling).toBe('read-only');
     });
 });

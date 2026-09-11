@@ -31,6 +31,8 @@ export const LOOP_MODES = [
 
 export interface GoalContractDraft {
     statement: string;
+    /** Per-workspace permission override; maps to `permissionCeiling` on the wire. */
+    permission: string;
     /** Maps to `maxCostUsd` on the wire. */
     budgetUsd: number;
     maxSteps: number;
@@ -42,6 +44,7 @@ export interface GoalContractDraft {
 export function createGoalContractDraft(): GoalContractDraft {
     return {
         statement: '',
+        permission: 'read-only',
         budgetUsd: 0.5,
         maxSteps: 8,
         userId: '',
@@ -52,6 +55,7 @@ export function createGoalContractDraft(): GoalContractDraft {
 /** Map a draft onto the GoalContract payload accepted by POST /api/sessions. */
 export function toGoalContractPayload(draft: GoalContractDraft): Record<string, unknown> {
     return {
+        permissionCeiling: draft.permission,
         maxCostUsd: draft.budgetUsd,
         maxSteps: draft.maxSteps,
         userId: draft.userId || undefined,

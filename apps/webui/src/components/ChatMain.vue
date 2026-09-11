@@ -25,6 +25,9 @@ const props = defineProps({
     selectedModel: { type: String, default: '' },
     reasoningLevel: { type: String, default: 'high' },
     reasoningLevels: { type: Array, default: () => [] },
+    /** 当前工作区会话的权限（透传给 Composer 左下角）。 */
+    permission: { type: String, default: 'read-only' },
+    permissionLevels: { type: Array, default: () => [] },
     /** 待人审的 gated 调用（store.approvals）。 */
     approvals: { type: Array, default: () => [] },
     taskCount: { type: Number, default: 0 },
@@ -44,6 +47,7 @@ const emit = defineEmits([
     'exit-workspace',
     'update:selectedModel',
     'update:reasoningLevel',
+    'update:permission',
     'select-step',
     'select-task',
     'respond-approval',
@@ -287,6 +291,8 @@ onMounted(() => {
                 :selected-model="selectedModel"
                 :reasoning-level="reasoningLevel"
                 :reasoning-levels="reasoningLevels"
+                :permission="permission"
+                :permission-levels="permissionLevels"
                 @update:model-value="emit('update:prompt', $event)"
                 @submit="emit('submit')"
                 @switch-project="emit('switch-project', $event)"
@@ -294,6 +300,7 @@ onMounted(() => {
                 @exit-workspace="emit('exit-workspace')"
                 @update:selected-model="emit('update:selectedModel', $event)"
                 @update:reasoning-level="emit('update:reasoningLevel', $event)"
+                @update:permission="emit('update:permission', $event)"
             />
         </div>
         <div class="statusbar">

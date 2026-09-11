@@ -63,8 +63,21 @@ export function saveRunSettings(next: Partial<RunSettings>): void {
     }
 }
 
-/** Build the GoalContract payload for a new run from the global defaults. */
-export function goalFromRunSettings(statement: string): Record<string, unknown> {
-    const draft: GoalContractDraft = { ...createGoalContractDraft(), ...runSettings, statement };
+/**
+ * Build the GoalContract payload for a new run from the global defaults.
+ *
+ * `permissionCeiling` is the **per-workspace/session** override from the
+ * composer; when omitted the system grant (Settings → General) applies.
+ */
+export function goalFromRunSettings(
+    statement: string,
+    permissionCeiling?: string,
+): Record<string, unknown> {
+    const draft: GoalContractDraft = {
+        ...createGoalContractDraft(),
+        ...runSettings,
+        statement,
+        ...(permissionCeiling ? { permission: permissionCeiling } : {}),
+    };
     return { statement, ...toGoalContractPayload(draft) };
 }
