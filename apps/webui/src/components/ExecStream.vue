@@ -132,6 +132,8 @@ function taskStepRows(task) {
         if (s.kind === 'intent' && rid) intentByRound.set(rid, s);
     }
     const rows = [];
+    // 旧数据（无 roundId）回退：intent 紧邻前一个 thinking 时视为同轮。
+    let lastThinking = null;
     for (const s of steps) {
         if (s.kind === 'observation') continue;
         if (s.kind === 'intent') {
@@ -139,13 +141,22 @@ function taskStepRows(task) {
             const paired =
                 rid && steps.some((o) => o.kind === 'thinking' && o.usage?.roundId === rid);
             if (paired) continue; // 已在对应 thinking 行内联展示
+            if (!rid && lastThinking && !lastThinking.intentText) {
+                lastThinking.intentText = s.content || s.payloadText || '';
+                continue;
+            }
             rows.push(stepToRow(s, rows.length));
             continue;
         }
         const row = stepToRow(s, rows.length);
-        if (s.kind === 'thinking' && s.usage?.roundId) {
-            const intent = intentByRound.get(s.usage.roundId);
-            if (intent) row.intentText = intent.content || intent.payloadText || '';
+        if (s.kind === 'thinking') {
+            if (s.usage?.roundId) {
+                const intent = intentByRound.get(s.usage.roundId);
+                if (intent) row.intentText = intent.content || intent.payloadText || '';
+            }
+            lastThinking = row;
+        } else {
+            lastThinking = null;
         }
         rows.push(row);
     }
