@@ -128,6 +128,10 @@ export interface AuditStepRow {
     toolName: string;
     /** 工具行命令/参数摘要（Context 面板折叠展示用） */
     toolCommand: string;
+    /** 工作目录（缩短 home） */
+    toolCwd: string;
+    /** 完整工具行：`<cwd> <工具/命令+参数>`（如 `~/.mazi ls .`） */
+    toolLine: string;
     status: string;
     durationMs: number | null;
     tokens: number;
@@ -160,6 +164,10 @@ export interface AuditToolView {
     name: string;
     /** 展示用命令（shell.run 取 command；其余取单值或 JSON） */
     command: string;
+    /** 工作目录（缩短 home） */
+    cwd: string;
+    /** 完整展示行：`<cwd> <命令/工具+参数>`，如 `~/.mazi ls .` */
+    line: string;
     arguments: Record<string, unknown> | null;
     output: string;
     durationMs: number | null;
@@ -229,6 +237,8 @@ interface ResolvedStep {
     text: string;
     /** tool_call：命令参数（展示/审计用） */
     toolArguments: Record<string, unknown> | null;
+    /** tool_call：工具实际执行的工作目录 */
+    toolCwd: string | null;
     /** tool_call：完整输出 */
     toolOutput: string | null;
     /** 相对上一轮新增的上下文内容（截断，合并） */
@@ -682,6 +692,7 @@ function collectSnapshotSteps(
                     kind: step.kind,
                     toolName: step.toolName ?? '',
                     toolArguments: step.toolArguments ?? null,
+                    toolCwd: step.toolCwd ?? null,
                     toolOutput: step.toolOutput ?? null,
                     status: step.status,
                     startedAt: step.startedAt ?? 0,
@@ -746,6 +757,7 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             kind: step.kind,
             toolName: step.toolName,
             toolArguments: null,
+            toolCwd: null,
             toolOutput: step.kind === 'tool_call' ? step.content || null : null,
             status: step.status,
             startedAt: step.startedAt,
@@ -786,6 +798,8 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         kind: step.kind,
         toolName: step.toolName,
         toolCommand: formatToolCommand(step.toolName, step.toolArguments),
+        toolCwd: shortenHome(step.toolCwd),
+        toolLine: toolLineOf(step.toolName, step.toolCwd, step.toolArguments),
         status: step.status,
         durationMs: step.durationMs,
         tokens,
@@ -827,10 +841,32 @@ function formatToolCommand(toolName: string, args: Record<string, unknown> | nul
     return JSON.stringify(args);
 }
 
+/** /Users/<user>/x → ~/x，/home/<user>/x → ~/x。 */
+function shortenHome(path: string | null | undefined): string {
+    if (!path) return '';
+    return path.replace(/^\/(?:Users|home)\/[^/]+/, '~');
+}
+
+/** 完整工具行：`<cwd> <命令/工具+参数>`，如 `~/.mazi ls .`。 */
+function toolLineOf(
+    toolName: string,
+    cwd: string | null,
+    args: Record<string, unknown> | null,
+): string {
+    const command = formatToolCommand(toolName, args);
+    const display =
+        toolName === 'shell.run'
+            ? command
+            : [toolName, command].filter((part) => part.length > 0).join(' ');
+    return [shortenHome(cwd), display].filter((part) => part.length > 0).join(' ');
+}
+
 function toolViewOf(step: ResolvedStep): AuditToolView {
     return {
         name: step.toolName || step.kind,
         command: formatToolCommand(step.toolName, step.toolArguments),
+        cwd: shortenHome(step.toolCwd),
+        line: toolLineOf(step.toolName, step.toolCwd, step.toolArguments),
         arguments: step.toolArguments,
         output: step.toolOutput ?? step.text ?? '',
         durationMs: step.durationMs,

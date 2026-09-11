@@ -259,7 +259,7 @@ const contextGroups = computed(() => {
                     <!-- 工具调用：专用审计 view（命令/参数/输出/耗时），不显示 vendor token -->
                     <section v-if="audit.tool" class="audit-section">
                         <div class="audit-section-title">工具调用 · {{ audit.tool.name }}</div>
-                        <div class="audit-row"><span class="audit-key">命令</span><span class="audit-val audit-mono">{{ audit.tool.command || audit.tool.name }}</span></div>
+                        <div class="audit-row"><span class="audit-key">工作路径 / 命令</span><span class="audit-val audit-mono">{{ audit.tool.line || audit.tool.name }}</span></div>
                         <div v-if="audit.tool.arguments && Object.keys(audit.tool.arguments).length" class="audit-tool-block">
                             <div class="audit-key">参数</div>
                             <pre class="seg-content">{{ JSON.stringify(audit.tool.arguments, null, 2) }}</pre>
@@ -444,7 +444,7 @@ const contextGroups = computed(() => {
                             :class="{ selected: row.selected }"
                             @click="emit('locate-step', { stepId: row.stepId })"
                         >
-                            <span class="audit-step-loc">R#{{ row.runIndex }} T#{{ row.taskIndex }} S#{{ row.index }}</span>
+                            <span class="audit-step-loc">R#{{ row.runIndex }}·T#{{ row.taskIndex }}·S#{{ row.index }}</span>
                             <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
                             <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
                             <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
@@ -473,17 +473,23 @@ const contextGroups = computed(() => {
 
                 <section class="audit-section">
                     <div v-for="group in contextGroups" :key="group.key" class="ctx-item">
-                        <div v-if="group.row" class="ctx-row" :class="{ selected: group.row.selected }">
+                        <!-- 双击定位主会话流（保留 Context 面板）；hover 才显示折叠 icon，单击它折叠/展开 -->
+                        <div
+                            v-if="group.row"
+                            class="ctx-row"
+                            :class="{ selected: group.row.selected }"
+                            @dblclick="emit('locate-step', { stepId: group.row.stepId, keepTab: true })"
+                        >
                             <button
                                 class="ctx-caret-btn"
                                 :title="openContext.has(group.row.stepId) ? '收起 diff' : '展开该步 diff'"
-                                @click="toggleContext(group.row.stepId)"
+                                @click.stop="toggleContext(group.row.stepId)"
                             >
                                 {{ openContext.has(group.row.stepId) ? '−' : '+' }}
                             </button>
-                            <span class="ctx-loc" @click="emit('locate-step', { stepId: group.row.stepId })">R#{{ group.row.runIndex }} T#{{ group.row.taskIndex }} S#{{ group.row.index }}</span>
-                            <span class="ctx-kind" @click="emit('locate-step', { stepId: group.row.stepId })">{{ group.row.toolName || group.row.kind }}</span>
-                            <div class="ctx-bar" @click="toggleContext(group.row.stepId)">
+                            <span class="ctx-loc">R#{{ group.row.runIndex }}·T#{{ group.row.taskIndex }}·S#{{ group.row.index }}</span>
+                            <span class="ctx-kind">{{ group.row.toolName || group.row.kind }}</span>
+                            <div class="ctx-bar">
                                 <div class="ctx-bar-fill" :style="{ width: group.row.barWidth + '%' }">
                                     <span
                                         v-for="seg in group.row.segs"
@@ -516,10 +522,10 @@ const contextGroups = computed(() => {
                                     :key="tool.stepId"
                                     class="ctx-tool-line"
                                     :class="{ selected: tool.selected }"
-                                    @click="emit('locate-step', { stepId: tool.stepId })"
+                                    @dblclick="emit('locate-step', { stepId: tool.stepId, keepTab: true })"
                                 >
-                                    <span class="ctx-loc">R#{{ tool.runIndex }} T#{{ tool.taskIndex }} S#{{ tool.index }}</span>
-                                    <span class="ctx-tool-text">【{{ tool.toolName }}：{{ tool.toolCommand }}】</span>
+                                    <span class="ctx-loc">R#{{ tool.runIndex }}·T#{{ tool.taskIndex }}·S#{{ tool.index }}</span>
+                                    <span class="ctx-tool-text">{{ tool.toolLine }}</span>
                                 </button>
                             </div>
                         </div>
@@ -1323,6 +1329,7 @@ const contextGroups = computed(() => {
     padding: 2px 4px;
     border-radius: 4px;
     font-size: 11px;
+    cursor: pointer;
 }
 .ctx-row:hover,
 .ctx-row.selected {
@@ -1339,6 +1346,11 @@ const contextGroups = computed(() => {
     font-weight: 700;
     line-height: 1;
     cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+.ctx-row:hover .ctx-caret-btn {
+    opacity: 1;
 }
 .ctx-caret-btn:hover {
     background: var(--bg-code);
@@ -1368,7 +1380,7 @@ const contextGroups = computed(() => {
     border-radius: 3px;
     background: var(--bg-code);
     overflow: hidden;
-    cursor: pointer;
+    cursor: default;
 }
 .ctx-bar-fill {
     display: flex;
@@ -1421,6 +1433,11 @@ const contextGroups = computed(() => {
 }
 .ctx-tools-caret {
     font-weight: 700;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+.ctx-tools-toggle:hover .ctx-tools-caret {
+    opacity: 1;
 }
 .ctx-tool-line {
     display: flex;

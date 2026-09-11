@@ -314,7 +314,8 @@ function scrollToStep(stepId) {
 async function onLocateStep(target) {
     if (!target?.stepId) return;
     selectStep(target.stepId, target.taskId);
-    drawerTab.value = 'audit';
+    // Context 面板内定位时停留在 Context（keepTab），审计/步骤明细则切到审计。
+    if (!target.keepTab) drawerTab.value = 'audit';
     await nextTick();
     scrollToStep(target.stepId);
 }

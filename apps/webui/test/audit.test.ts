@@ -373,26 +373,32 @@ describe('audit buildAuditView', () => {
             ...stepView('tc1', 'tool_call', 1, null),
             toolName: 'shell.run',
             toolArguments: { command: 'ls -la' },
+            toolCwd: '/Users/bruce/.mazi',
             toolOutput: 'total 0',
         };
         const view = buildAuditView({ snapshot: snapshotOf([toolStep]), stepId: 'tc1' });
         expect(view.kind).toBe('step');
         expect(view.tool?.name).toBe('shell.run');
         expect(view.tool?.command).toBe('ls -la');
+        // 完整工作路径 + 命令（home 缩短为 ~）
+        expect(view.tool?.cwd).toBe('~/.mazi');
+        expect(view.tool?.line).toBe('~/.mazi ls -la');
         expect(view.tool?.arguments).toEqual({ command: 'ls -la' });
         expect(view.tool?.output).toBe('total 0');
         expect(view.tool?.durationMs).toBe(200);
         expect(view.tool?.isError).toBe(false);
 
-        // 单字符串参数 → 直接作为命令展示
+        // 单字符串参数 → 直接作为命令展示；非 shell.run 前缀工具名
         const fdStep = {
             ...stepView('tc2', 'tool_call', 2, null),
             toolName: 'fd',
             toolArguments: { pattern: '*' },
+            toolCwd: '/Users/bruce/.mazi',
             toolOutput: 'a\nb',
         };
         const fd = buildAuditView({ snapshot: snapshotOf([fdStep]), stepId: 'tc2' });
         expect(fd.tool?.command).toBe('*');
+        expect(fd.tool?.line).toBe('~/.mazi fd *');
 
         // 非工具步 tool = null
         const thinking = buildAuditView({
