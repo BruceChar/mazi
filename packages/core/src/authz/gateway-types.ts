@@ -143,6 +143,8 @@ export interface ApprovalRequest {
     tool: string;
     capability: CapabilityKey;
     echo: ApprovalEcho;
+    /** Harness-injected attribution so the UI can route the request. */
+    identifiers: AuditIdentifiers;
 }
 
 /** Human-in-the-loop seam; absent → gated calls fail closed (V13). */

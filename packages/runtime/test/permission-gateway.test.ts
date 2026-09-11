@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { authz } from '@mazi/core';
+import type { authz, HarnessEvent } from '@mazi/core';
 
 import type { ToolCallResult, ToolConfig } from '../src/config.js';
+import { ApprovalBroker } from '../src/tool-gateway/approval.js';
 import {
     capabilityForTool,
     grantForPermissionLevel,
@@ -135,6 +136,30 @@ describe('runtime permission bridge', () => {
         expect(await gateway.invoke('xh', { url: 'https://example.com' })).toMatchObject({
             ok: true,
         });
+    });
+
+    it('routes a gated call through an injected human approval seam', async () => {
+        const events: HarnessEvent[] = [];
+        const broker = new ApprovalBroker({
+            emit: (event) => events.push(event),
+            timeoutMs: 1000,
+        });
+        const gateway = new RuntimeToolGateway({
+            rootGoalId: 'r',
+            goalId: 'g',
+            taskId: 't',
+            level: 'draft',
+            tools: TOOLS,
+            execute,
+            approval: broker,
+        });
+        const pending = gateway.invoke('shell.run', { command: 'echo hi' }, { stepId: 's-9' });
+        const requests = broker.pending();
+        expect(requests).toHaveLength(1);
+        expect(requests[0]).toMatchObject({ tool: 'shell.run', capability: 'fs.exec' });
+        broker.settle(requests[0].invocationId, { decision: 'granted', scope: 'once' });
+        await expect(pending).resolves.toMatchObject({ ok: true });
+        expect(events.some((event) => event.type === 'approval.requested')).toBe(true);
     });
 
     it('emits gateway stage audit events', async () => {

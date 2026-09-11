@@ -9,6 +9,8 @@ import type {
     RuntimeConfig,
 } from '@mazi/runtime';
 import {
+    ApprovalBroker,
+    type ApprovalSettlement,
     builtinModelsFor,
     CatalogService,
     configOverview,
@@ -18,6 +20,7 @@ import {
     HarnessRuntime,
     loadRuntimeConfig,
     observedCatalogFromProviderConfigs,
+    type PendingApproval,
     toRuntimeConfig,
 } from '@mazi/runtime';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
@@ -138,6 +141,8 @@ function applyModelList(
 export class ApiRuntimeService implements OnApplicationShutdown {
     private readonly logger = new Logger('runtime');
     private readonly workspaces = new Map<string, HarnessRuntime>();
+    /** 每个运行时一个审批 broker（人审 seam 注入点）。 */
+    private readonly approvalBrokers = new Map<HarnessRuntime, ApprovalBroker>();
     private runtime: HarnessRuntime | undefined;
     private catalogInstance: CatalogService | undefined;
     private catalogOpening: Promise<CatalogService> | undefined;
@@ -283,6 +288,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         const stale = [this.runtime, ...this.workspaces.values()];
         this.runtime = undefined;
         this.workspaces.clear();
+        this.approvalBrokers.clear();
         for (const runtime of stale) {
             if (runtime) await runtime.close();
         }
@@ -340,6 +346,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                     workspaceRoot: this.freeChatWorkspaceValue,
                 });
                 this.attachCatalog(this.runtime);
+                this.attachApprovals(this.runtime);
                 this.logger.debug(
                     `harness: default runtime assembled root=${this.freeChatWorkspaceValue}`,
                 );
@@ -351,10 +358,33 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 workspaceRoot: this.workspaceRoot,
             });
             this.attachCatalog(workspaceRuntime);
+            this.attachApprovals(workspaceRuntime);
             this.workspaces.set(this.workspaceRoot, workspaceRuntime);
             this.logger.debug(`harness: workspace runtime assembled root=${this.workspaceRoot}`);
         }
         return this.workspaces.get(this.workspaceRoot) as HarnessRuntime;
+    }
+
+    /** 接入人审审批 broker：gated 调用经 UI 审批，超时 fail-closed。 */
+    private attachApprovals(runtime: HarnessRuntime): void {
+        const broker = new ApprovalBroker({
+            emit: (event) => runtime.eventBus.emit(event),
+        });
+        runtime.setApprovalSeam(broker);
+        this.approvalBrokers.set(runtime, broker);
+    }
+
+    /** 所有工作区待审批请求（UI 轮询 / 事件流补充）。 */
+    pendingApprovals(): PendingApproval[] {
+        return [...this.approvalBrokers.values()].flatMap((broker) => broker.pending());
+    }
+
+    /** 结算一条审批；找不到返回 false。 */
+    settleApproval(invocationId: string, settlement: ApprovalSettlement): boolean {
+        for (const broker of this.approvalBrokers.values()) {
+            if (broker.settle(invocationId, settlement)) return true;
+        }
+        return false;
     }
 
     /** 目录服务异步就绪后接入运行时；就绪前的请求不落账本（best-effort，不阻断执行）。 */
@@ -535,6 +565,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     }
 
     async onApplicationShutdown(): Promise<void> {
+        for (const broker of this.approvalBrokers.values()) broker.cancelAll();
+        this.approvalBrokers.clear();
         await this.runtime?.close();
     }
 }

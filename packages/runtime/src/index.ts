@@ -46,3 +46,7 @@ export {
 export type { RunOptions } from './runtime.js';
 export { HarnessRuntime } from './runtime.js';
 export type { GoalRunResult } from './strategy/goal-strategy.js';
+export type { ApprovalSettlement, PendingApproval } from './tool-gateway/approval.js';
+export { ApprovalBroker, DEFAULT_APPROVAL_TTL_MS } from './tool-gateway/approval.js';
+export { RuntimeToolGateway } from './tool-gateway/permission.js';
+export { RuntimePolicyAuditSink } from './tool-gateway/policy-audit.js';

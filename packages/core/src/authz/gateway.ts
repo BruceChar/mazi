@@ -314,6 +314,7 @@ export class DefaultToolGateway implements ToolGateway {
                 tool: req.tool,
                 capability: registration.capability,
                 echo: this.buildEcho(req, registration, projection, invocationId),
+                identifiers,
             };
             emit('approval', 'pending', { detail: 'approval-requested' });
             const decision = await this.bind.approval.decide(request);

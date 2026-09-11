@@ -15,7 +15,7 @@ import type {
     TokenUsage,
     ToolSchema,
 } from '@mazi/core';
-import { modelIdOf, offeringIdOf, ProviderError, providerIdOf, ulid } from '@mazi/core';
+import { type authz, modelIdOf, offeringIdOf, ProviderError, providerIdOf, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { CatalogService } from './catalog/service.js';
@@ -46,6 +46,7 @@ import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
 import { configureTokenizer, estimateTokens } from './token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from './tool-gateway/builtin.js';
 import { RuntimeToolGateway } from './tool-gateway/permission.js';
+import { RuntimePolicyAuditSink } from './tool-gateway/policy-audit.js';
 
 /** 用户反馈载荷（core 旧 UserInteractionRecord 已删；事件契约只取展示字段） */
 export interface FeedbackInput {
@@ -690,6 +691,8 @@ export class HarnessRuntime {
     private readonly roundExecutor: RoundExecutor;
     private readonly config: RuntimeConfig;
     private readonly workspaceRoot?: string;
+    /** Human-in-the-loop approval seam; absent → runtime gateway uses the standing ceiling approval. */
+    private approvalSeam?: authz.ApprovalSeam;
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
@@ -718,6 +721,11 @@ export class HarnessRuntime {
         fn: (request: ModelRecoveryRequest) => Promise<ModelRecoveryResult | undefined>,
     ): void {
         this.modelRecovery = fn;
+    }
+
+    /** 接入人审审批 seam；缺省时运行时网关回退到 ceiling 常设授权。 */
+    setApprovalSeam(seam: authz.ApprovalSeam): void {
+        this.approvalSeam = seam;
     }
 
     /** Goal/Task/Step 存储（Goal 会话审计/级联删除） */
@@ -1001,36 +1009,8 @@ export class HarnessRuntime {
             tools: merged,
             execute: (tool, args) => this.executeToolConfig(tool, args),
             ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
-            audit: {
-                log: (event) => {
-                    this.bus.emit(
-                        newHarnessEvent({
-                            type: event.decision === 'denied' ? 'policy.denied' : 'policy.check',
-                            rootGoalId,
-                            goalId,
-                            ...(event.identifiers.taskId
-                                ? { taskId: event.identifiers.taskId }
-                                : {}),
-                            ...(event.identifiers.stepId
-                                ? { stepId: event.identifiers.stepId }
-                                : {}),
-                            attributes: {
-                                'harness.gateway_stage': event.stage,
-                                ...(event.capability
-                                    ? { 'harness.gateway_effect_class': event.capability }
-                                    : {}),
-                            },
-                            payload: {
-                                stage: event.stage,
-                                decision: event.decision,
-                                tool: event.tool,
-                                detail: event.detail,
-                                code: event.code,
-                            },
-                        }),
-                    );
-                },
-            },
+            audit: new RuntimePolicyAuditSink({ emit: (event) => this.bus.emit(event) }),
+            ...(this.approvalSeam ? { approval: this.approvalSeam } : {}),
         });
         const visible = new Set(gateway.visibleToolNames());
         const configured = this.config.goal?.allowedTools;
