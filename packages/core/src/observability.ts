@@ -1,5 +1,5 @@
-import type { EffectClass, PermissionLevel } from './authorization.js';
 import type { ApprovalScope } from './approval.js';
+import type { EffectClass, PermissionLevel } from './authorization.js';
 import type { StepKind } from './gts.js';
 
 /** Task-level tag (open string; expressed on the gts task model) */
@@ -55,6 +55,10 @@ export type CoreEventType =
     | 'llm.request'
     | 'llm.stream_event'
     | 'llm.response'
+    /** 模型调用失败（含厂商原始错误码/消息）；供 UI 与自愈消费 */
+    | 'llm.error'
+    /** 自愈成功（如重同步模型后换模重试成功） */
+    | 'provider.recovered'
     | 'tool.invoke'
     | 'tool.result'
     | 'tool.blocked'
