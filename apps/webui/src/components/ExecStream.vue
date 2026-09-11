@@ -121,15 +121,20 @@ function taskStartedAt(task) {
 }
 
 /**
- * Task 内的展示行：thinking/工具调用各一行；intent 作为同轮 thinking 的正文（intentText）内联展示，
- * 不单独成步（"算作和 thinking 同一步"）；无 thinking 的孤立 intent（如纯文本轮）单独成行。
+ * Task 内的展示行：thinking/工具调用各一行；**中间轮**的 intent 作为同轮 thinking 的正文
+ * （intentText）内联展示，不单独成步；**Task 最后一个 intent（最终模型输出）单独成行**，
+ * 不内联到 thinking 下。无 thinking 的孤立 intent（如纯文本轮）也单独成行。
  */
 function taskStepRows(task) {
     const steps = (task.steps || []).slice().sort((a, b) => a.startedAt - b.startedAt);
+    const intentSteps = steps.filter((s) => s.kind === 'intent');
+    const finalIntentId =
+        intentSteps.length > 0 ? intentSteps[intentSteps.length - 1].stepId : null;
     const intentByRound = new Map();
     for (const s of steps) {
         const rid = s.usage?.roundId;
-        if (s.kind === 'intent' && rid) intentByRound.set(rid, s);
+        // 最终输出不参与内联配对
+        if (s.kind === 'intent' && rid && s.stepId !== finalIntentId) intentByRound.set(rid, s);
     }
     const rows = [];
     // 旧数据（无 roundId）回退：intent 紧邻前一个 thinking 时视为同轮。
@@ -137,6 +142,10 @@ function taskStepRows(task) {
     for (const s of steps) {
         if (s.kind === 'observation') continue;
         if (s.kind === 'intent') {
+            if (s.stepId === finalIntentId) {
+                rows.push(stepToRow(s, rows.length)); // 最终模型输出：单独成行
+                continue;
+            }
             const rid = s.usage?.roundId;
             const paired =
                 rid && steps.some((o) => o.kind === 'thinking' && o.usage?.roundId === rid);
