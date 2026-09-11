@@ -15,9 +15,10 @@ import type {
     TokenUsage,
     ToolSchema,
 } from '@mazi/core';
-import { ulid } from '@mazi/core';
+import { modelIdOf, offeringIdOf, providerIdOf, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
+import type { CatalogService } from './catalog/service.js';
 import type { CliCommandSpec, RuntimeConfig, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './gts/goal-executor.js';
 import type { ExecutorRoundContext, RoundEstimate, RoundResult } from './gts/round-types.js';
@@ -314,7 +315,9 @@ export async function runShellTool(
             encoding: 'utf8',
         });
         const stderrText = String(stderr ?? '').trim();
-        const merged = (String(stdout ?? '') + (stderrText ? '\n[stderr]\n' + stderrText : '')).trim();
+        const merged = (
+            String(stdout ?? '') + (stderrText ? '\n[stderr]\n' + stderrText : '')
+        ).trim();
         const content = merged.length > 0 ? merged : '(no output)';
         return {
             ok: true,
@@ -617,6 +620,8 @@ export class HarnessRuntime {
     /** Steps already announced via step.started (a step persists several times). */
     private readonly startedStepIds = new Set<string>();
     private readonly llmProviders: Map<string, LLMProvider>;
+    /** 可选目录账本：接入后每轮 usage 追加凭证（凭证闭环） */
+    private catalogService: CatalogService | undefined;
     private readonly roundExecutor: RoundExecutor;
     private readonly config: RuntimeConfig;
     private readonly workspaceRoot?: string;
@@ -636,6 +641,11 @@ export class HarnessRuntime {
 
     get eventBus(): EventBus {
         return this.bus;
+    }
+
+    /** 接入目录与账本：此后每轮 LLM 调用按钉死的 offering 价目追加 UsageRecord。 */
+    setCatalog(service: CatalogService): void {
+        this.catalogService = service;
     }
 
     /** Goal/Task/Step 存储（Goal 会话审计/级联删除） */
@@ -1061,6 +1071,7 @@ export class HarnessRuntime {
         const estimate = this.roundEstimate(result);
         const cost = this.roundCost(outcome);
         const estimatedCost = this.roundEstimatedCost(outcome, contextUsage, estimate);
+        await this.recordCatalogUsage(outcome);
         return {
             ...result,
             contextUsage,
@@ -1068,6 +1079,30 @@ export class HarnessRuntime {
             ...(cost !== undefined ? { cost } : {}),
             ...(estimatedCost !== undefined ? { estimatedCost } : {}),
         };
+    }
+
+    /**
+     * 凭证闭环：把本轮 usage 按派发时刻钉死的 offering 价目追加进账本。
+     * 目录未收录或无价的 offering 不产生凭证（目录是权威，缺失不阻断对话）。
+     */
+    private async recordCatalogUsage(outcome: RoundOutcome): Promise<void> {
+        const service = this.catalogService;
+        const usage = outcome.metrics.usage;
+        if (service === undefined || usage === undefined) return;
+        const offeringId = offeringIdOf(
+            providerIdOf(outcome.metrics.providerId),
+            modelIdOf(outcome.metrics.modelId),
+        );
+        try {
+            const pin = service.pin(offeringId);
+            await service.settle(pin, {
+                inputTokens: usage.inputTokens ?? 0,
+                outputTokens: usage.outputTokens ?? 0,
+                cacheReadTokens: usage.cachedInputTokens ?? 0,
+            });
+        } catch {
+            // 目录未收录或无价：跳过凭证，不影响本轮对话。
+        }
     }
 
     /** 本轮成本拆分：仅当厂商上报 usage 且候选命中计价表时产出。 */
