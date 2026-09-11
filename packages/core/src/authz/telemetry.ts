@@ -4,12 +4,7 @@
  * flagged for root review. Pure measurement — no enforcement.
  */
 
-import {
-    type AgentGrant,
-    type CapabilityRule,
-    LABEL_RANK,
-    type SensitivityLabel,
-} from './types.js';
+import type { AgentGrant, CapabilityRule, SensitivityLabel } from './types.js';
 
 export interface AuthorizationWidth {
     capabilities: number;
@@ -39,6 +34,5 @@ export function authorizationWidth(grant: AgentGrant): AuthorizationWidth {
         hostPatterns += value.hosts?.length ?? 0;
         distribution[value.maxLabel ?? 'internal'] += 1;
     }
-    void LABEL_RANK;
     return { capabilities, pathPatterns, hostPatterns, maxLabelDistribution: distribution };
 }
