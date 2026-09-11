@@ -143,8 +143,11 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private catalogOpening: Promise<CatalogService> | undefined;
     private running = false;
     private workspaceRoot?: string;
+    /** 随心聊（未选项目）默认工作区；可经设置修改，持久化在 workspaces.json。 */
+    private freeChatWorkspaceValue: string;
     private workspacesState: {
         projects: { title: string; path: string; sessionIds?: string[] }[];
+        freeChatWorkspace?: string;
     } = { projects: [] };
     private readonly paths: MaziPaths = ensureMaziDirs();
     private config: RuntimeConfig;
@@ -159,6 +162,11 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
             consoleEnabled: false,
         });
+        // 随心聊默认工作区：workspaces.json 配置优先，缺省 $MAZI_HOME/workspace（避免落在进程 cwd 如 apps/api）。
+        this.readWorkspacesState();
+        this.freeChatWorkspaceValue =
+            this.workspacesState.freeChatWorkspace?.trim() || join(this.paths.home, 'workspace');
+        mkdirSync(this.freeChatWorkspaceValue, { recursive: true });
         void this.syncProviderModelsOnline()
             .then((result) => {
                 if (result.changed) {
@@ -327,9 +335,14 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     harness(): HarnessRuntime {
         if (!this.workspaceRoot) {
             if (!this.runtime) {
-                this.runtime = new HarnessRuntime(this.config);
+                // 随心聊使用配置的默认工作区（不再回退进程 cwd）。
+                this.runtime = new HarnessRuntime(this.config, {
+                    workspaceRoot: this.freeChatWorkspaceValue,
+                });
                 this.attachCatalog(this.runtime);
-                this.logger.debug('harness: default runtime assembled');
+                this.logger.debug(
+                    `harness: default runtime assembled root=${this.freeChatWorkspaceValue}`,
+                );
             }
             return this.runtime as HarnessRuntime;
         }
@@ -367,8 +380,12 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         try {
             const parsed = JSON.parse(readFileSync(this.workspacesFile, 'utf8')) as {
                 projects?: { title: string; path: string; sessionIds?: string[] }[];
+                freeChatWorkspace?: string;
             };
             this.workspacesState.projects = parsed.projects ?? [];
+            if (typeof parsed.freeChatWorkspace === 'string') {
+                this.workspacesState.freeChatWorkspace = parsed.freeChatWorkspace;
+            }
         } catch {
             this.workspacesState.projects = [];
         }
@@ -432,13 +449,32 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return this.workspaceRoot;
     }
 
+    /** 随心聊默认工作区（未选项目时运行时使用）。 */
+    get freeChatWorkspace(): string {
+        return this.freeChatWorkspaceValue;
+    }
+
+    /** 设置随心聊默认工作区（缺失则创建）；持久化并重建运行时。 */
+    setFreeChatWorkspace(path?: string): string {
+        const next = (path ?? '').trim() || join(this.paths.home, 'workspace');
+        mkdirSync(next, { recursive: true });
+        this.freeChatWorkspaceValue = next;
+        this.readWorkspacesState();
+        this.workspacesState.freeChatWorkspace = next;
+        this.writeWorkspacesState();
+        if (!this.running) void this.restartRuntimes();
+        this.logger.log(`setFreeChatWorkspace → ${next}`);
+        return next;
+    }
+
     /** 配置总览 */
     overview(): {
         home: string;
         providers: Array<{ id: string; models: Array<{ id: string; name?: string }> }>;
         hasProvidersFile: boolean;
+        freeChatWorkspace: string;
     } {
-        return configOverview();
+        return { ...configOverview(), freeChatWorkspace: this.freeChatWorkspaceValue };
     }
 
     /**

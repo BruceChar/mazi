@@ -32,15 +32,34 @@ export class WorkspacesController {
     current(): {
         path?: string;
         projects?: { title: string; path: string }[];
+        freeChatPath?: string;
     } {
         const result = {
             path: this.runtime.selectedWorkspaceRoot,
             projects: this.runtime.projects(),
+            freeChatPath: this.runtime.freeChatWorkspace,
         };
         this.logger.debug(
-            `current path=${result.path ?? '-'} projects=${result.projects?.length ?? 0}`,
+            `current path=${result.path ?? '-'} projects=${result.projects?.length ?? 0} freeChat=${result.freeChatPath}`,
         );
         return result;
+    }
+
+    /** 设置「随心聊」默认工作区（body: path；空 → 回退 $MAZI_HOME/workspace） */
+    @Post('free-chat')
+    setFreeChat(@Body() body: Record<string, unknown>): { path: string } {
+        const path = typeof body.path === 'string' ? body.path : '';
+        const next = this.runtime.setFreeChatWorkspace(path);
+        this.logger.log(`setFreeChat path=${JSON.stringify(next)}`);
+        return { path: next };
+    }
+
+    /** 弹出系统目录选择器并设为「随心聊」默认工作区 */
+    @Post('pick-free-chat')
+    async pickFreeChat(): Promise<{ path: string }> {
+        const path = await this.pickDirectory();
+        if (!path) return { path: this.runtime.freeChatWorkspace };
+        return { path: this.runtime.setFreeChatWorkspace(path) };
     }
 
     /** 重命名项目展示名（body: path/title） */
@@ -75,21 +94,26 @@ export class WorkspacesController {
         path?: string;
         projects?: { title: string; path: string }[];
     }> {
+        const path = await this.pickDirectory();
+        if (!path) {
+            return { path: undefined };
+        }
+        this.runtime.setWorkspaceRoot(path);
+        this.logger.log(`pick selected path=${JSON.stringify(path)}`);
+        return {
+            path: this.runtime.selectedWorkspaceRoot,
+            projects: this.runtime.projects(),
+        };
+    }
+
+    /** 系统目录选择器；取消/不支持分别返回 undefined / 抛错。 */
+    private async pickDirectory(): Promise<string | undefined> {
         try {
             const { stdout } = await execFileAsync('osascript', [
                 '-e',
                 'POSIX path of (choose folder)',
             ]);
-            const path = stdout.trim();
-            if (!path) {
-                return { path: undefined };
-            }
-            this.runtime.setWorkspaceRoot(path);
-            this.logger.log(`pick selected path=${JSON.stringify(path)}`);
-            return {
-                path: this.runtime.selectedWorkspaceRoot,
-                projects: this.runtime.projects(),
-            };
+            return stdout.trim() || undefined;
         } catch (error) {
             if ((error as { code?: string }).code === 'ENOENT') {
                 throw new ApiError(500, '当前系统不支持系统目录选择器');
@@ -97,7 +121,7 @@ export class WorkspacesController {
             // 用户取消选择
             if (String(error).includes('canceled') || String(error).includes('User canceled')) {
                 this.logger.debug('pick cancelled by user');
-                return { path: undefined };
+                return undefined;
             }
             this.logger.error(`pick failed: ${String(error)}`);
             throw new ApiError(500, `目录选择失败：${String(error)}`);
