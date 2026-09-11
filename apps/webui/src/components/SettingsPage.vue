@@ -86,7 +86,7 @@ watch(
                     <div class="setting-info">
                         <div class="setting-name">Default permission grant</div>
                         <div class="setting-desc">
-                            新工作区会话的默认权限；输入框左下角可对当前工作区覆盖 ·
+                            只对新工作区会话生效；已有工作区在输入框改过或用过之后不再受影响 ·
                             {{ permissionHint(permissionCeiling) }}
                         </div>
                     </div>

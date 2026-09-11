@@ -120,8 +120,20 @@ export const workspaceRoot = ref<string>('');
 /** 随心聊（未选项目）默认工作区；后端配置，用于标题展示与设置。 */
 export const freeChatWorkspace = ref<string>('');
 
-/** localStorage key: per-workspace permission overrides (composer selector). */
+/**
+ * Per-workspace permission overrides (composer selector).
+ *
+ * Keyed by the current project path, or the free-chat workspace path for 随心聊,
+ * so changing one project never affects another. The system default
+ * (Settings → General) is a **seed for new workspaces/sessions**: a workspace
+ * gets its own value the first time it is used, and changing the default later
+ * does not touch workspaces that already ran.
+ */
 const WORKSPACE_PERMISSION_KEY = 'mazi.web.workspace-permission';
+
+function workspacePermissionKey(): string {
+    return workspaceRoot.value || freeChatWorkspace.value || '__default__';
+}
 
 function readWorkspacePermissions(): Record<string, string> {
     if (typeof localStorage === 'undefined') return {};
@@ -136,26 +148,40 @@ function readWorkspacePermissions(): Record<string, string> {
     }
 }
 
-/** 当前工作区的有效权限：会话覆盖 → 系统默认（Settings → General）。 */
-export const sessionPermission = ref<string>('read-only');
-
-export function refreshSessionPermission(): void {
-    const key = workspaceRoot.value || '__default__';
-    sessionPermission.value =
-        readWorkspacePermissions()[key] ?? cfg.value?.permissionCeiling ?? 'read-only';
-}
-
-/** 输入框选择器：写入当前工作区的权限覆盖（不改系统默认）。 */
-export function setSessionPermission(value: string): void {
-    sessionPermission.value = value;
+function writeWorkspacePermission(key: string, value: string): void {
     if (typeof localStorage === 'undefined') return;
     try {
         const map = readWorkspacePermissions();
-        map[workspaceRoot.value || '__default__'] = value;
+        map[key] = value;
         localStorage.setItem(WORKSPACE_PERMISSION_KEY, JSON.stringify(map));
     } catch {
-        // Storage can be unavailable; the in-memory override still applies.
+        // Storage can be unavailable; the in-memory value still applies.
     }
+}
+
+/** 当前工作区的有效权限（会话覆盖 / 首次 seed 系统默认）。 */
+export const sessionPermission = ref<string>('read-only');
+
+export function refreshSessionPermission(): void {
+    const key = workspacePermissionKey();
+    let value = readWorkspacePermissions()[key];
+    // Seed a workspace with the current system default the first time it is
+    // used; afterwards the default no longer affects it (default = new sessions).
+    if (value === undefined && cfg.value?.permissionCeiling !== undefined) {
+        value = cfg.value.permissionCeiling;
+        // Persist only once the workspace identity is known, so we do not seed a
+        // stale '__default__' entry before the free-chat workspace loads.
+        if (workspaceRoot.value || freeChatWorkspace.value) {
+            writeWorkspacePermission(key, value);
+        }
+    }
+    sessionPermission.value = value ?? 'read-only';
+}
+
+/** 输入框选择器：写入当前工作区（项目/随心聊）的权限，不影响其他工作区。 */
+export function setSessionPermission(value: string): void {
+    sessionPermission.value = value;
+    writeWorkspacePermission(workspacePermissionKey(), value);
 }
 export const projects = ref<Project[]>([]);
 export const busy = ref<boolean>(false);
