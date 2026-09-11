@@ -10,7 +10,7 @@ import type { LLMMessage, LLMRequest, StreamCompletionEvent, ToolSchema } from '
 import { ProviderError } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import { createProviderClient } from './client.js';
-import { createPiProvider } from './pi-ai-adapter.js';
+import { createPiProvider, normalizePiUsage } from './pi-ai-adapter.js';
 
 function userMsg(text: string): LLMMessage {
     return { role: 'user', content: [{ type: 'text', text }], createdAt: 0 };
@@ -182,6 +182,34 @@ describe('pi-ai adapter（新契约：ask/askStream 双入口）', () => {
             }),
         );
         expect(res.toolCalls?.[0]?.name).toBe('fs.read');
+    });
+
+    it('usage 归一：input = miss + cacheRead + cacheWrite（全量口径），缓存为子集，reasoning ⊆ output', () => {
+        const usage = normalizePiUsage({
+            input: 100,
+            output: 50,
+            cacheRead: 40,
+            cacheWrite: 10,
+            reasoning: 20,
+        });
+        // pi-ai 的 input 是未命中缓存部分；core 要求 inputTokens 为全部输入
+        expect(usage.inputTokens).toBe(150);
+        expect(usage.outputTokens).toBe(50);
+        expect(usage.totalTokens).toBe(200);
+        expect(usage.cachedInputTokens).toBe(40);
+        expect(usage.cachedWriteInputTokens).toBe(10);
+        expect(usage.reasoningTokens).toBe(20);
+        // reasoning 是 output 子集：output 已含 reasoning，不重复加
+        expect(usage.totalTokens).toBe(usage.inputTokens + usage.outputTokens);
+    });
+
+    it('usage 归一：无缓存/未报告 reasoning 时不置 0（避免伪造细分）', () => {
+        const usage = normalizePiUsage({ input: 5, output: 6, cacheRead: 0, cacheWrite: 0 });
+        expect(usage.inputTokens).toBe(5);
+        expect(usage.totalTokens).toBe(11);
+        expect(usage).not.toHaveProperty('cachedInputTokens');
+        expect(usage).not.toHaveProperty('cachedWriteInputTokens');
+        expect(usage).not.toHaveProperty('reasoningTokens');
     });
 
     it('client 包装：事件与 stats 在失败路径上工作', async () => {

@@ -539,7 +539,7 @@ function toRoundResult(outcome: RoundOutcome): {
                   inputTokens: usage.inputTokens ?? 0,
                   outputTokens: usage.outputTokens ?? 0,
                   cacheReadInputTokens: usage.cachedInputTokens,
-                  cacheCreationInputTokens: undefined,
+                  cacheCreationInputTokens: usage.cachedWriteInputTokens,
                   reasoningOutputTokens: usage.reasoningTokens,
                   reportedByVendor: true,
               };

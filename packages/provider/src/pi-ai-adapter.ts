@@ -501,27 +501,9 @@ export function createPiProvider(options: PiAiBridgeOptions): LLMProvider {
 
     /* ------------------------- 用量转换：pi Usage → TokenUsage ------------------------- */
 
-    /**
-     * 语义（core TokenUsage，OpenAI 计数范式）：inputTokens = 全部输入（含缓存命中部分），
-     * cachedInputTokens ⊆ inputTokens。pi-ai 的 cacheRead/cacheWrite 为独立细分字段；
-     * 此处沿用保守映射：input/output 原样、cacheRead → cachedInputTokens、reasoning → reasoningTokens。
-     * totalTokens 按 core 定义取 inputTokens + outputTokens。
-     */
+    /** pi-ai Usage → core TokenUsage（全量口径归一，见文件底部 normalizePiUsage）。 */
     function toUsage(usage: PiUsage): TokenUsage {
-        const inputTokens = usage.input;
-        const outputTokens = usage.output;
-        const result: TokenUsage = {
-            inputTokens,
-            outputTokens,
-            totalTokens: inputTokens + outputTokens,
-        };
-        if (usage.cacheRead > 0) {
-            result.cachedInputTokens = usage.cacheRead;
-        }
-        if (usage.reasoning !== undefined) {
-            result.reasoningTokens = usage.reasoning;
-        }
-        return result;
+        return normalizePiUsage(usage);
     }
 
     /* ------------------------- 错误转换：pi 错误 → ProviderError ------------------------- */
@@ -653,4 +635,33 @@ function mapDoneReason(reason: 'stop' | 'length' | 'toolUse' | 'deferred'): LLMF
         default:
             return 'other';
     }
+}
+/**
+ * pi-ai Usage 计数 → core TokenUsage（全量口径归一，[CORE §8]）。
+ *
+ * pi-ai 的 input 是「未命中缓存」的部分（其 totalTokens = input + output + cacheRead + cacheWrite），
+ * 而 core 契约规定 inputTokens 为全部输入、缓存为其子集。本函数把缓存读/写加回 inputTokens，
+ * 并以 cachedInputTokens / cachedWriteInputTokens 保留子集；reasoning 是 output 的子集，原样透传。
+ * 纯函数、不依赖 pi-ai 运行时类型，便于单测。
+ */
+export function normalizePiUsage(usage: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    reasoning?: number;
+}): TokenUsage {
+    const cacheRead = usage.cacheRead ?? 0;
+    const cacheWrite = usage.cacheWrite ?? 0;
+    const inputTokens = usage.input + cacheRead + cacheWrite;
+    const outputTokens = usage.output;
+    const result: TokenUsage = {
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+    };
+    if (cacheRead > 0) result.cachedInputTokens = cacheRead;
+    if (cacheWrite > 0) result.cachedWriteInputTokens = cacheWrite;
+    if (usage.reasoning !== undefined) result.reasoningTokens = usage.reasoning;
+    return result;
 }

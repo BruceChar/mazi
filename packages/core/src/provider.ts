@@ -262,6 +262,8 @@ export interface TokenUsage {
     outputTokens?: number;
     /** inputTokens 的子集:缓存命中的输入部分 */
     cachedInputTokens?: number;
+    /** inputTokens 的子集:缓存写入(创建)的输入部分(Anthropic 型厂商) */
+    cachedWriteInputTokens?: number;
     /** outputTokens 的子集:模型推理/思考部分 */
     reasoningTokens?: number;
     /** inputTokens + outputTokens */

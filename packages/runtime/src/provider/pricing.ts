@@ -55,12 +55,13 @@ export type ComponentUnits = Record<CostComponent, number>;
 /** 从全量口径 usage 派生计费成分（§5.2；拆分/并入语义由单价表决定）。 */
 export function deriveComponentUnits(usage: TokenUsage, pricing: PricingSchedule): ComponentUnits {
     const cr = usage.cachedInputTokens ?? 0;
+    const cw = usage.cachedWriteInputTokens ?? 0;
     const reasoning = usage.reasoningTokens ?? 0;
     const units: ComponentUnits = {
-        input: (usage.inputTokens ?? 0) - cr,
+        input: Math.max((usage.inputTokens ?? 0) - cr - cw, 0),
         output: usage.outputTokens ?? 0,
         'cache-read': cr,
-        'cache-write': 0,
+        'cache-write': cw,
         reasoning: 0,
     };
     if (pricing.base.reasoningPerMTok !== undefined) {

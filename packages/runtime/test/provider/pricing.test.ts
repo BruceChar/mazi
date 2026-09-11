@@ -48,6 +48,23 @@ describe('Pricer（AHF_RUNTIME_PROVIDER §5）', () => {
         expect(cost).toBeCloseTo((800 * 3 + 200 * 1 + 300 * 15) / 1e6, 10);
     });
 
+    it('缓存写子集：cacheWrite 独立计量，input 扣除读与写', () => {
+        const schedule = baseSchedule({ inputPerMTok: 3, cacheReadPerMTok: 1, cacheWritePerMTok: 5 });
+        const cost = computeCostUsd(
+            usage({
+                inputTokens: 1000,
+                cachedInputTokens: 200,
+                cachedWriteInputTokens: 100,
+                outputTokens: 0,
+                totalTokens: 1000,
+            }),
+            schedule,
+            new Date('2026-01-01T12:00:00Z'),
+        );
+        // input = 1000 − 200(读) − 100(写) = 700；cacheRead 200；cacheWrite 100
+        expect(cost).toBeCloseTo((700 * 3 + 200 * 1 + 100 * 5) / 1e6, 10);
+    });
+
     it('reasoning 拆分语义：声明 reasoningPerMTok 时 output − R、reasoning = R', () => {
         const schedule = baseSchedule({ outputPerMTok: 20, reasoningPerMTok: 5 });
         const units = deriveComponentUnits(
