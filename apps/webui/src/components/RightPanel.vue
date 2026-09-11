@@ -69,26 +69,13 @@ function usageStats(usage) {
         hasData: total > 0 || cache > 0 || reasoning > 0,
     };
 }
-function eventColorClass(type) {
-    if (type?.startsWith('goal')) return 'ev-goal';
-    if (type?.startsWith('task')) return 'ev-task';
-    if (type?.startsWith('step')) return 'ev-step';
-    return 'ev-other';
-}
-function eventSummary(e) {
-    const p = e.payload || {};
-    if (p.summary) return String(p.summary);
-    if (p.error) return String(p.error);
-    if (p.outcome?.status) return String(p.outcome.status);
-    return '';
-}
-
-/* ---- 日志 / 事件：系统日志 + 会话事件的统一视图 ---- */
+/* ---- 日志：系统日志视图（事件面板暂时下线，待系统/会话流梳理清楚） ---- */
 const LOG_LEVELS = [
     { value: 'all', label: '全部' },
     { value: 'error', label: '错误' },
     { value: 'warn', label: '告警' },
     { value: 'info', label: '信息' },
+    { value: 'debug', label: '调试' },
 ];
 const logLevel = ref('all');
 
@@ -108,37 +95,6 @@ const systemLogRows = computed(() => {
     return filtered.slice().reverse();
 });
 
-/**
- * 会话事件行：把同一 step 的 step.started / step.ended 合并为一行，
- * 避免「全是 step start / step end」的刷屏；非 step 事件原样展示。
- */
-const eventRows = computed(() => {
-    const rows = [];
-    const stepMap = new Map();
-    for (const e of props.filteredEvents || []) {
-        if (e.type === 'step.started' || e.type === 'step.ended') {
-            const stepId = e.stepId || e.eventId;
-            let row = stepMap.get(stepId);
-            if (!row) {
-                row = { id: 'step-' + stepId, ts: e.timestamp, type: 'step', text: 'step' };
-                stepMap.set(stepId, row);
-                rows.push(row);
-            }
-            row.ts = Math.min(row.ts, e.timestamp);
-            const attrs = (e.attributes || {});
-            const payload = (e.payload || {});
-            const kind = attrs['harness.step_kind'] || payload.kind || '';
-            if (e.type === 'step.ended') {
-                row.text = (kind ? kind + ' · ' : '') + (payload.status || 'ended');
-            } else if (row.text === 'step') {
-                row.text = kind || 'step';
-            }
-        } else {
-            rows.push({ id: e.eventId, ts: e.timestamp, type: e.type, text: eventSummary(e) });
-        }
-    }
-    return rows.sort((a, b) => b.ts - a.ts);
-});
 
 /* ---- Audit panel helpers (docs/web/观测看板设计.md v2) ---- */
 function cacheHitRate(vendor) {
@@ -286,7 +242,6 @@ const contextGroups = computed(() => {
                     <button :class="{ on: activeTab === 'audit' }" @click="emit('update:activeTab', 'audit')">审计</button>
                     <button :class="{ on: activeTab === 'context' }" @click="emit('update:activeTab', 'context')">Context</button>
                     <button :class="{ on: activeTab === 'log' }" @click="emit('update:activeTab', 'log')">日志</button>
-                    <button :class="{ on: activeTab === 'events' }" @click="emit('update:activeTab', 'events')">事件</button>
                 </div>
                 <div class="drawer-head-actions">
                     <button class="icon-btn" :title="maximized ? '还原' : '最大化'" @click="emit('toggleMaximize')">
@@ -593,7 +548,7 @@ const contextGroups = computed(() => {
                     <div v-if="!contextModelRows.length" class="audit-muted">暂无可追踪的步骤</div>
                 </section>
             </div>
-            <div v-else-if="activeTab === 'log'" class="drawer-body">
+            <div v-else class="drawer-body">
                 <div class="drawer-tabs sub">
                     <select v-model="logLevel" title="日志级别">
                         <option v-for="l in LOG_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
@@ -617,26 +572,6 @@ const contextGroups = computed(() => {
                         <span class="event-summary">{{ row.message }}</span>
                     </div>
                     <div v-if="!systemLogRows.length" class="empty-hint">暂无系统日志</div>
-                </div>
-            </div>
-
-            <div v-else class="drawer-body">
-                <div class="drawer-tabs sub">
-                    <select :value="activeEventType" @change="emit('update:activeEventType', $event.target.value)" title="事件类型">
-                        <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
-                    </select>
-                    <button class="ev-toggle" :class="{ on: showAllEvents }" @click="emit('toggleShowAll')">
-                        {{ showAllEvents ? '全部' : '仅关键' }}
-                    </button>
-                </div>
-                <div class="event-log">
-                    <div v-for="row in eventRows" :key="row.id" class="event-row">
-                        <span class="ev-dot" :class="eventColorClass(row.type)"></span>
-                        <span class="event-time">{{ fmtClock(row.ts) }}</span>
-                        <span class="event-type" :class="eventColorClass(row.type)">{{ row.type }}</span>
-                        <span class="event-summary" :title="row.text">{{ row.text }}</span>
-                    </div>
-                    <div v-if="!eventRows.length" class="empty-hint">暂无事件</div>
                 </div>
             </div>
             <!-- 日志 hover 弹窗：宽度不足时显示完整内容 -->
@@ -946,10 +881,10 @@ const contextGroups = computed(() => {
     border-radius: 50%;
     flex-shrink: 0;
 }
-.ev-goal { background: #8b5cf6; }
-.ev-task { background: #3b82f6; }
-.ev-step { background: #10b981; }
-.ev-other { background: var(--fg-tertiary); }
+.ev-dot.ev-goal { background: #8b5cf6; }
+.ev-dot.ev-task { background: #3b82f6; }
+.ev-dot.ev-step { background: #10b981; }
+.ev-dot.ev-other { background: var(--fg-tertiary); }
 .ev-dot.ev-error { background: #ef4444; }
 .ev-dot.ev-warn { background: #f59e0b; }
 .ev-dot.ev-info { background: #10b981; }
