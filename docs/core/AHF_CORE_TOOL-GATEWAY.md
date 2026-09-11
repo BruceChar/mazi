@@ -1,9 +1,10 @@
-
 # ToolGateway 设计文档
 
-**文档版本**：v1.0 | **状态**：设计定稿 | **关联**：《Agent Harness 权限系统设计 v1.1》（父规范，下称 Perm-v1.1）；AHF v2 分层架构（宿主架构）
+**文档版本**：v1.0 | **状态**：设计定稿 
 
-**契约位置**：`packages/core/src/tool-gateway.ts` | **实现位置**：`packages/executor/src/gateway/`
+**契约位置**：`packages/core/src/tool-gateway.ts` 
+
+ **实现位置**：`packages/runtime/src/tool-gateway/`
 
 ## 1. 概述
 
@@ -14,13 +15,14 @@ Perm-v1.1 中的“Capacity 执行管线”（十步管线）在本设计中被�
 
 ### 1.2 供给面与执行面的分工
 
-|                                                                                                                                                                                                             | Capacity                 | ToolGateway                            |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | -------------------------------------- |
-| 回答                                                                                                                                                                                                        | 这一轮**允许什么** | 这一次调用**是否放行、如何执行** |
-| 形态                                                                                                                                                                                                        | 静态数据包               | 动态行为组件                           |
-| 生产者                                                                                                                                                                                                      | planner（L2）组装        | executor（L2）持有                     |
-| 生命周期                                                                                                                                                                                                    | Turn 创建时              | Turn 绑定实例，Turn 结束即弃           |
-| 交接发生在 executor 为 Turn 构造 Gateway 实例时：从 Capacity 取`effectivePolicy` / `dangerRules` / `budget` / `sandbox`，连同 harness 注入的 `sessionId` / `turnId` 填入 `GatewayBindInput`。 |                          |                                        |
+|          | Capacity                 | ToolGateway                            |
+| -------- | ------------------------ | -------------------------------------- |
+| 回答     | 这一轮**允许什么** | 这一次调用**是否放行、如何执行** |
+| 形态     | 静态数据包               | 动态行为组件                           |
+| 生产者   | planner（L2）组装        | executor（L2）持有                     |
+| 生命周期 | Turn 创建时              | Turn 绑定实例，Turn 结束即弃           |
+
+交接发生在 executor 为 Turn 构造 Gateway 实例时：从 Capacity 取`effectivePolicy` / `dangerRules` / `budget` / `sandbox`，连同 harness 注入的 `sessionId` / `turnId` 填入 `GatewayBindInput`。
 
 ### 1.3 隐喻与词汇对齐
 
@@ -88,7 +90,6 @@ L4  apps                    createHarness()，可整体替换 Gateway 实现做 
 | GatewayAuditEvent | 必带 stage + decision + TraceIdentifiers 三层 ID                                                                |
 | ToolGateway       | invoke / checkPending / settle；每实例绑定一个 Turn                                                             |
 | GatewayBindInput  | 身份（注入）+ 权限数据（派生产物）+ 周边服务；无任何字段能凭空放宽权限                                          |
-
 
 `HandlerContext` 刻意最小化：只有 `AbortSignal`。没有 policy 访问、没有注册表、没有权限判断 API——handler 结构上无法做权限判断（P7）。
 
