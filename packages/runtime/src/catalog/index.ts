@@ -1,5 +1,6 @@
 export * from './ledger.js';
 export * from './router.js';
+export * from './seed.js';
 export * from './service.js';
 export * from './snapshot.js';
 export * from './state.js';
