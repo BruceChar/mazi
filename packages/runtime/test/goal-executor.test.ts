@@ -192,7 +192,7 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(invoked).toBe(false);
     });
 
-    it('usage 归属：vendor/runtime/cost/timing 挂到本轮首个 Step，后续 Step 不带', async () => {
+    it('usage 归属：优先挂到模型输出 intent（最终回答），thinking 不带（审计可见）', async () => {
         const store = new MemoryGoalStore();
         const t = task();
         const g = goal();
@@ -234,7 +234,7 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         const steps = await store.listSteps(t.taskId);
         const thinking = steps.find((s) => s.kind === 'thinking');
         const intent = steps.find((s) => s.kind === 'intent');
-        const usage = thinking?.usage as {
+        const usage = intent?.usage as {
             timing?: { tokensPerSecond?: number };
             cost?: { totalCostUsd?: number };
             estimatedCost?: { totalCostUsd?: number };
@@ -246,7 +246,7 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(usage?.cost?.totalCostUsd).toBeCloseTo(0.003, 12);
         expect(usage?.estimate?.outputTokens).toBe(18);
         expect(usage?.estimatedCost?.totalCostUsd).toBeCloseTo(0.0024, 12);
-        expect(intent?.usage).toBeUndefined();
+        expect(thinking?.usage).toBeUndefined();
     });
 
     it('连续相同工具调用 → 未收敛中止（防死循环，不烧完 maxSteps）', async () => {

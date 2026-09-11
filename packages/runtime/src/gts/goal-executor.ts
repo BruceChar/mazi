@@ -93,9 +93,8 @@ export async function executeTask(
         for (let roundIndex = 0; roundIndex < maxSteps; roundIndex += 1) {
             const round = await roundRequest();
 
-            // Token usage belongs to the model round; attach to the first step
-            // created in this round (thinking → intent → tool_call fallback),
-            // so runs without reasoning still carry usage data.
+            // 一轮 usage 归属唯一：优先挂到**模型输出**（intent，含最终回答），
+            // 无输出时挂 thinking，再退到 tool_call；保证对话流最后的模型输出在审计中可见。
             const generationMs = round.totalMs - round.ttftMs;
             const outputTokens = round.vendorUsage?.outputTokens ?? 0;
             const hasRoundFacts =
@@ -122,11 +121,15 @@ export async function executeTask(
                       },
                   }
                 : undefined;
-            let usageAttached = false;
+            const usageTarget: 'intent' | 'thinking' | 'tool_call' =
+                round.text.length > 0
+                    ? 'intent'
+                    : round.reasoning.length > 0
+                      ? 'thinking'
+                      : 'tool_call';
             const attachUsage = (step: Step) => {
-                if (!usageAttached && roundUsage) {
+                if (step.usage === undefined && roundUsage && step.kind === usageTarget) {
                     step.usage = roundUsage;
-                    usageAttached = true;
                 }
             };
 
