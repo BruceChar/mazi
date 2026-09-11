@@ -100,6 +100,19 @@ export class AuthorizationEngine {
         return query.kind === 'path' ? overlayResolve(base, query.value, this.overlay) : base;
     }
 
+    /**
+     * Static annotation only (no overlay). The hard layer (V17) must be driven
+     * solely by static annotations (P24), so the value layer uses this.
+     */
+    resolveStatic(query: AssetQuery): ResolvedLabel {
+        return this.opts.labelRegistry.resolve(query);
+    }
+
+    /** Record an arbitrary dataflow event at the linearization point. */
+    commitFlow(write: LedgerWrite): LedgerVersion {
+        return this.ledger.commit(this.ledger.beginWrite(), write);
+    }
+
     /** Record a read event at the ledger's linearization point. */
     commitRead(write: LedgerWrite): LedgerVersion {
         return this.ledger.commit(this.ledger.beginWrite(), write);

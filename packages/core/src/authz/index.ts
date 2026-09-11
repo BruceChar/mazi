@@ -1,8 +1,6 @@
 /**
- * @mazi/core authorization v2 — TCB data-semantics layer.
- *
- * Exported as a namespace from the package root to avoid collisions with the
- * legacy v1 contract types (authorization.ts / tool-gateway.ts).
+ * @mazi/core authorization v2 — TCB data-semantics layer + ToolGateway
+ * enforce pipeline. Exported as the `authz` namespace from the package root.
  */
 
 export * from './approval.js';
@@ -12,6 +10,8 @@ export * from './dataflow.js';
 export * from './derive.js';
 export * from './engine.js';
 export * from './escalation.js';
+export * from './gateway.js';
+export * from './gateway-types.js';
 export * from './glob.js';
 export * from './hash.js';
 export * from './labels.js';
