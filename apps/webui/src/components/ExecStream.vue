@@ -122,19 +122,16 @@ function taskStartedAt(task) {
 
 /**
  * Task 内的展示行：thinking/工具调用各一行；**中间轮**的 intent 作为同轮 thinking 的正文
- * （intentText）内联展示，不单独成步；**Task 最后一个 intent（最终模型输出）单独成行**，
- * 不内联到 thinking 下。无 thinking 的孤立 intent（如纯文本轮）也单独成行。
+ * （intentText）内联展示，不单独成步。**整条 run 的最后一个 intent（最终模型输出）**
+ * 不作为行，改由底部 Summary 区块独立展示（见 finalSummaryRowOf）。
  */
-function taskStepRows(task) {
+function taskStepRows(task, lastIntentId) {
     const steps = (task.steps || []).slice().sort((a, b) => a.startedAt - b.startedAt);
-    const intentSteps = steps.filter((s) => s.kind === 'intent');
-    const finalIntentId =
-        intentSteps.length > 0 ? intentSteps[intentSteps.length - 1].stepId : null;
     const intentByRound = new Map();
     for (const s of steps) {
         const rid = s.usage?.roundId;
         // 最终输出不参与内联配对
-        if (s.kind === 'intent' && rid && s.stepId !== finalIntentId) intentByRound.set(rid, s);
+        if (s.kind === 'intent' && rid && s.stepId !== lastIntentId) intentByRound.set(rid, s);
     }
     const rows = [];
     // 旧数据（无 roundId）回退：intent 紧邻前一个 thinking 时视为同轮。
@@ -142,10 +139,7 @@ function taskStepRows(task) {
     for (const s of steps) {
         if (s.kind === 'observation') continue;
         if (s.kind === 'intent') {
-            if (s.stepId === finalIntentId) {
-                rows.push(stepToRow(s, rows.length)); // 最终模型输出：单独成行
-                continue;
-            }
+            if (s.stepId === lastIntentId) continue; // 最终输出由底部 Summary 展示
             const rid = s.usage?.roundId;
             const paired =
                 rid && steps.some((o) => o.kind === 'thinking' && o.usage?.roundId === rid);
@@ -172,11 +166,36 @@ function taskStepRows(task) {
     return rows;
 }
 
+/** 整条 run 的最后一个 intent（最终模型输出）stepId；由底部 Summary 展示。 */
+function lastIntentStepId(detailObj) {
+    let last = null;
+    for (const goal of detailObj?.goals || []) {
+        for (const task of goal.tasks || []) {
+            for (const step of task.steps || []) {
+                if (
+                    step.kind === 'intent' &&
+                    (last === null || step.startedAt >= last.startedAt)
+                ) {
+                    last = step;
+                }
+            }
+        }
+    }
+    return last ? last.stepId : null;
+}
+
+/** 最终模型输出行（底部 Summary 区块：文本 + 该轮 usage）。 */
+function finalSummaryRowOf(detailObj) {
+    const intents = allStepsOf(detailObj).filter((r) => r.kind === 'intent');
+    return intents.length > 0 ? intents[intents.length - 1] : null;
+}
+
 /**
  * Display tree. Goals without tasks (the internal intake goal) are dropped, and
  * each task carries one full date/time so its steps only show time-of-day.
  */
 function buildExecTree(detailObj) {
+    const lastIntentId = lastIntentStepId(detailObj);
     const goals = detailObj?.goals || [];
     return goals
         .filter((goal) => (goal.tasks || []).length > 0)
@@ -191,7 +210,7 @@ function buildExecTree(detailObj) {
                     title: task.title,
                     status: task.status,
                     time: startedAt ? fmtDateTime(startedAt) : '',
-                    steps: taskStepRows(task),
+                    steps: taskStepRows(task, lastIntentId),
                 };
             }),
         }));
@@ -264,6 +283,7 @@ function stepTitleSummary(row) {
 
 /* ---- Derived view state (computed once per render pass) ---- */
 const tree = computed(() => buildExecTree(props.runDetail));
+const summary = computed(() => finalSummaryRowOf(props.runDetail));
 const stats = computed(() => buildExecStats(props.runDetail));
 </script>
 
@@ -381,6 +401,21 @@ const stats = computed(() => buildExecStats(props.runDetail));
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- 最终模型输出：独立 Summary（与最后一步 thinking 同轮，审计数据相同） -->
+        <div
+            v-if="summary"
+            class="exec-summary"
+            :class="{ selected: selectedStepId === summary.stepId }"
+            @click="emit('select-step', { stepId: summary.stepId, taskId: summary.taskId })"
+        >
+            <div class="exec-summary-text markdown-body" v-html="renderMarkdown(summary.intentText)"></div>
+            <div v-if="usageStats(summary.usage)?.hasData" class="exec-step-usage">
+                {{ usageStats(summary.usage).total }} tokens
+                <template v-if="usageStats(summary.usage).cache"> · cache {{ usageStats(summary.usage).cache }}</template>
+                <template v-if="usageStats(summary.usage).reasoning"> · reasoning {{ usageStats(summary.usage).reasoning }}</template>
             </div>
         </div>
 
