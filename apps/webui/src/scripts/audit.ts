@@ -270,9 +270,15 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
     let ttftCount = 0;
     let outputTokens = 0;
     let hasTiming = false;
+    // 一轮模型调用的 usage 可能挂在同一 roundId 的 thinking + intent 两个 step 上；只计一次。
+    const seenRounds = new Set<string>();
     for (const step of steps) {
         const usage = step.usage;
         if (!usage) continue;
+        if (usage.roundId !== undefined) {
+            if (seenRounds.has(usage.roundId)) continue;
+            seenRounds.add(usage.roundId);
+        }
         if (usage.vendor) {
             if (!vendor) {
                 vendor = {

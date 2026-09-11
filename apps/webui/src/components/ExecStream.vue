@@ -67,6 +67,15 @@ function usageStats(usage) {
     };
 }
 
+/** 工具调用参数 → 一行命令/参数展示（shell.run 取 command，其余取单值或 JSON）。 */
+function formatToolArgs(toolName, args) {
+    if (!args || Object.keys(args).length === 0) return '';
+    if (toolName === 'shell.run' && typeof args.command === 'string') return args.command;
+    const entries = Object.entries(args);
+    if (entries.length === 1 && typeof entries[0][1] === 'string') return entries[0][1];
+    return JSON.stringify(args);
+}
+
 /* ---- Step row conversion ---- */
 function stepToRow(step, idx) {
     const durationMs = step.endedAt && step.startedAt ? step.endedAt - step.startedAt : null;
@@ -82,7 +91,11 @@ function stepToRow(step, idx) {
         status: step.status,
         statusLabel: statusLabel(step.status),
         toolName: step.toolName || '',
-        text: step.content || step.payloadText || '',
+        toolArgs: step.toolArguments || null,
+        commandText: step.toolArguments ? formatToolArgs(step.toolName, step.toolArguments) : '',
+        // 工具输出单独成体；其余 kind 的正文即 text
+        text: step.kind === 'tool_call' ? step.toolOutput || '' : step.content || step.payloadText || '',
+        outputText: step.toolOutput || '',
         durationMs,
         duration: durationMs != null ? formatDuration(durationMs) : '',
         usage: step.usage || null,
@@ -136,11 +149,17 @@ function buildExecStats(detailObj) {
     let inputTokens = 0;
     let outputTokens = 0;
     let totalMs = 0;
+    // 同轮 usage 会挂 thinking + intent 两处，按 roundId 去重后求和
+    const seenRounds = new Set();
     for (const r of rows) {
         const u = usageStats(r.usage);
         if (u) {
-            inputTokens += u.input || 0;
-            outputTokens += u.output || 0;
+            const roundId = r.usage?.roundId;
+            if (!roundId || !seenRounds.has(roundId)) {
+                if (roundId) seenRounds.add(roundId);
+                inputTokens += u.input || 0;
+                outputTokens += u.output || 0;
+            }
         }
         if (r.durationMs) totalMs += r.durationMs;
     }
@@ -179,6 +198,8 @@ function toggleStepCollapse(key) {
 function isStepLong(row) {
     if (!row.text) return false;
     if (row.kind === 'intent') return false;
+    // 工具调用始终可展开查看完整输出（命令/参数在标题行展示）
+    if (row.kind === 'tool_call') return true;
     return row.text.length > 80 || row.text.includes('\n');
 }
 function stepTitleSummary(row) {
@@ -281,7 +302,14 @@ const stats = computed(() => buildExecStats(props.runDetail));
                                 />
                                 <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                                 <span class="exec-step-name">{{ row.toolName || row.kind }}</span>
-                                <span class="exec-step-summary">{{ stepTitleSummary(row) }}</span>
+                                <span
+                                    class="exec-step-summary"
+                                    :title="row.toolArgs ? JSON.stringify(row.toolArgs) : undefined"
+                                >{{ row.kind === 'tool_call' ? row.commandText : stepTitleSummary(row) }}</span>
+                                <span
+                                    v-if="row.status === 'error' || row.status === 'failed'"
+                                    class="exec-step-status"
+                                >失败</span>
                                 <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
                                 <span class="exec-step-time">{{ row.time }}</span>
                             </div>
@@ -668,6 +696,14 @@ const stats = computed(() => buildExecStats(props.runDetail));
 }
 .exec-step.error .exec-step-summary {
     color: var(--error);
+}
+.exec-step-status {
+    flex: none;
+    font-size: 11px;
+    color: var(--danger, #ef4444);
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    padding: 0 4px;
 }
 .exec-step-duration {
     font-size: 11px;

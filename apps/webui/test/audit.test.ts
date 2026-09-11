@@ -192,6 +192,24 @@ describe('audit aggregateUsage', () => {
         expect(usage.runtime?.totalContextTokens).toBe(1200);
     });
 
+    it('同 roundId 的 thinking + intent 只计一次（不同轮次仍累加）', () => {
+        const shared = stepUsage({ roundId: 'r1' });
+        const deduped = aggregateUsage([
+            { startedAt: 1, usage: shared },
+            { startedAt: 2, usage: shared },
+        ]);
+        expect(deduped.vendor?.input).toBe(100);
+        expect(deduped.vendor?.output).toBe(20);
+        expect(deduped.cost?.total).toBeCloseTo(0.002, 12);
+
+        const twoRounds = aggregateUsage([
+            { startedAt: 1, usage: stepUsage({ roundId: 'r1' }) },
+            { startedAt: 2, usage: stepUsage({ roundId: 'r2' }) },
+        ]);
+        expect(twoRounds.vendor?.input).toBe(200);
+        expect(twoRounds.vendor?.output).toBe(40);
+    });
+
     it('无 usage → 空聚合', () => {
         const usage = aggregateUsage([{ startedAt: 1 }, { startedAt: 2, usage: null }]);
         expect(usage).toEqual({
