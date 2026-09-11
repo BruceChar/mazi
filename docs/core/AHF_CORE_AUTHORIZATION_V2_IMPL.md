@@ -126,9 +126,20 @@ type AuthzErrorCode =
 - `grantForPermissionLevel(level)`：把 UI 的 `text/read-only/draft/approved/autonomous` 映射为 root `AgentGrant`（ceiling 即用户的常设授权）；
 - `capabilityForTool(tool)`：由 `sideEffects`/`irreversible`/工具名推导 `CapabilityKey`（`shell.run→fs.exec`、`net→net.fetch`、`fs+irreversible→fs.write.workspace`、其余 `fs.read.workspace`）；
 - `RuntimeToolGateway`：构建 `AuthorizationEngine` + `DefaultToolGateway`，按 ceiling 收窄 supply 视图（`visibleToolNames()`），每次调用走 11 阶段管线；
-- `runtime.ts` 的 `goalExecutionConfig(rootGoalId, goalId)` 用网关产出的可见工具集替换原白名单，`invoker.invoke` 经网关结果映射为 `ToolCallResult`，阶段审计事件回发到事件总线（`policy.check` / `policy.denied`）。
+- `runtime.ts` 的 `goalExecutionConfig(rootGoalId, goalId)` 用网关产出的可见工具集替换原白名单，`invoker.invoke` 经网关结果映射为 `ToolCallResult`。
 
-**待办**：`standingApprovalSeam()` 是 ceiling 常设授权的过渡实现；真正的 HIL 审批 seam（composer 审批交互 → `ApprovalSeam`）后续替换。
+### 6.1 人审审批（V18/T8）
+
+- `packages/runtime/src/tool-gateway/approval.ts`：`ApprovalBroker implements ApprovalSeam`；gated 调用发 `approval.requested`（含签名回显摘要：数据流来源 / 交易对手 / 金额 / derived-label 来源 / 世代级知情文案），阻塞等待结算；`granted: once/session/workspace | rejected | cancelled`；TTL（默认 5min）到期 fail-closed 为 cancelled；结算发 `approval.granted` / `approval.cancelled`。
+- `HarnessRuntime.setApprovalSeam(seam)` 注入；API 侧 `ApiRuntimeService` 为每个 workspace 运行时装配 broker。缺省（未注入，如测试/CLI）仍回退 `standingApprovalSeam()`。
+- REST：`GET /api/approvals`（待审列表）、`POST /api/approvals/:id`（结算）；事件同时经 `/api/events/:id` SSE 推送。
+- WebUI：`store.ts` 消费 `approval.*` 事件；`App.vue` 顶部「需要你的批准」横幅，提供「允许一次 / 本会话允许 / 拒绝」。
+
+### 6.2 审计压缩
+
+`packages/runtime/src/tool-gateway/policy-audit.ts`：`RuntimePolicyAuditSink` 按 stepId 缓冲 11 阶段事件，成功时合并为单条 `policy.check`（payload.stages 保留全序阶段列表），拒绝时立即发 `policy.denied`，避免每次调用 11 条总线事件刷屏。
+
+**残余**：世代级知情豁免（`generation-attestation`）在 broker 中尚未开放为可选项（仅 once/session/workspace）；待后续把 engine 的 attestation 工厂接入审批回执。
 
 ## 7. 非目标（本文不实现）
 
