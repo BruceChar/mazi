@@ -28,6 +28,8 @@ const props = defineProps({
     audit: { type: Object, default: null },
     /** 整条会话流的步骤行（Context 追踪用，不随选择变化）。 */
     contextRows: { type: Array, default: () => [] },
+    /** 进程内系统日志（GET /api/logs）：错误/告警/信息。 */
+    systemLogs: { type: Array, default: () => [] },
 });
 const emit = defineEmits([
     'update:activeTab',
@@ -38,6 +40,7 @@ const emit = defineEmits([
     'select-step',
     'locate-step',
     'select-conversation',
+    'refresh-logs',
 ]);
 
 function fmtClock(ts) {
@@ -79,6 +82,53 @@ function eventSummary(e) {
     if (p.outcome?.status) return String(p.outcome.status);
     return '';
 }
+
+/* ---- 日志 / 事件：系统日志 + 会话事件的统一视图 ---- */
+const LOG_LEVELS = [
+    { value: 'all', label: '全部' },
+    { value: 'error', label: '错误' },
+    { value: 'warn', label: '告警' },
+    { value: 'info', label: '信息' },
+];
+const logLevel = ref('all');
+/** 事件来源：all | system | conversation。 */
+const eventSource = ref('all');
+
+const systemLogRows = computed(() => {
+    const list = props.systemLogs || [];
+    const filtered =
+        logLevel.value === 'all' ? list : list.filter((entry) => entry.level === logLevel.value);
+    return filtered.slice().reverse();
+});
+
+/** 系统日志 + 当前会话事件，按时间倒序合并（来源可过滤）。 */
+const mergedEventRows = computed(() => {
+    const rows = [];
+    if (eventSource.value !== 'conversation') {
+        for (const entry of (props.systemLogs || []).slice(-200)) {
+            rows.push({
+                id: 'sys-' + entry.ts + '-' + entry.module,
+                source: 'system',
+                ts: entry.ts,
+                level: entry.level,
+                module: entry.module,
+                text: entry.message,
+            });
+        }
+    }
+    if (eventSource.value !== 'system') {
+        for (const e of props.filteredEvents || []) {
+            rows.push({
+                id: e.eventId,
+                source: 'conversation',
+                ts: e.timestamp,
+                type: e.type,
+                text: eventSummary(e),
+            });
+        }
+    }
+    return rows.sort((a, b) => a.ts - b.ts).reverse();
+});
 
 /* ---- Audit panel helpers (docs/web/观测看板设计.md v2) ---- */
 function cacheHitRate(vendor) {
@@ -235,7 +285,7 @@ const contextGroups = computed(() => {
                 </div>
             </div>
 
-            <div v-if="activeTab === 'audit' && audit" class="drawer-body audit-body">
+            <div v-if="activeTab === 'audit' && audit" class="drawer-body audit-body audit-grid">
                 <div class="audit-head">
                     <div class="audit-head-main">
                         <div class="audit-title">{{ audit.title }}</div>
@@ -426,7 +476,7 @@ const contextGroups = computed(() => {
                     </template>
 
                     <!-- 步骤明细（会话流全局线 / 单个 Task） -->
-                    <section v-if="audit.rows.length" class="audit-section">
+                    <section v-if="audit.rows.length" class="audit-section audit-span">
                         <div class="audit-section-title">
                             {{ audit.kind === 'task' ? '步骤' : '会话步骤' }}（{{ audit.rows.length }}）
                         </div>
@@ -534,56 +584,32 @@ const contextGroups = computed(() => {
                 </section>
             </div>
             <div v-else-if="activeTab === 'log'" class="drawer-body">
-                <div v-if="current" class="exec-log">
-                    <div v-if="rootOutcome" class="log-result" :class="rootOutcome.ok ? 'ok' : 'fail'">
-                        <div class="log-line">
-                            <span class="log-tag">{{ rootOutcome.ok ? '成功' : '失败' }}</span>
-                            <span class="log-reason">reason: {{ rootOutcome.reason || '-' }}</span>
-                        </div>
-                        <div class="log-msg">{{ rootOutcome.ok ? rootOutcome.finalMessage : rootOutcome.errorMessage }}</div>
-                    </div>
-                    <div v-if="busy && !rootOutcome" class="empty-hint">执行中…（流式步骤实时到达）</div>
-
-                    <template v-if="stepRows.length">
-                        <div class="log-head">
-                            <span>步骤（{{ stepRows.length }}）</span>
-                            <span class="log-head-total">
-                                总耗时 {{ formatDuration(stepRows.reduce((s, r) => s + (r.durationMs || 0), 0)) }}
-                            </span>
-                        </div>
-                        <div v-for="line in stepRows" :key="line.key" class="kanban-card" :class="`kanban-${line.kind}`">
-                            <div class="kanban-head">
-                                <span class="kanban-kind">{{ line.kindLabel }}</span>
-                                <span class="kanban-status" :class="line.status">{{ line.statusLabel }}</span>
-                                <span class="kanban-time">{{ line.time }}</span>
-                                <span v-if="line.duration" class="kanban-duration">{{ line.duration }}</span>
-                            </div>
-                            <div v-if="line.toolName" class="kanban-tool">{{ line.toolName }}</div>
-                            <pre v-if="line.text" class="kanban-content">{{ line.text }}</pre>
-                            <div v-if="usageStats(line.usage)?.hasData" class="kanban-usage">
-                                <div class="usage-row">
-                                    <span class="usage-label">tokens</span>
-                                    <span class="usage-value">{{ usageStats(line.usage).total }}</span>
-                                    <span class="usage-breakdown">
-                                        in {{ usageStats(line.usage).input }} · out {{ usageStats(line.usage).output }}
-                                        <template v-if="usageStats(line.usage).cache"> · cache {{ usageStats(line.usage).cache }}</template>
-                                        <template v-if="usageStats(line.usage).reasoning"> · reasoning {{ usageStats(line.usage).reasoning }}</template>
-                                    </span>
-                                </div>
-                                <div v-if="usageStats(line.usage).context != null" class="usage-row">
-                                    <span class="usage-label">context</span>
-                                    <span class="usage-value">{{ usageStats(line.usage).context }}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </template>
-                    <div v-else-if="!busy" class="empty-hint">暂无步骤事件</div>
+                <div class="drawer-tabs sub">
+                    <select v-model="logLevel" title="日志级别">
+                        <option v-for="l in LOG_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+                    </select>
+                    <button class="ev-toggle" @click="emit('refresh-logs')">刷新</button>
+                    <span class="log-count">{{ systemLogRows.length }} 条</span>
                 </div>
-                <div v-else class="empty-hint">选择一个 Goal run 后在此查看执行日志</div>
+                <div class="event-log">
+                    <div v-for="row in systemLogRows" :key="row.id" class="event-row">
+                        <span class="ev-dot" :class="'ev-' + row.level"></span>
+                        <span class="event-time">{{ fmtClock(row.ts) }}</span>
+                        <span class="event-type" :class="'ev-' + row.level">{{ row.level }}</span>
+                        <span class="event-module">{{ row.module }}</span>
+                        <span class="event-summary" :title="row.message">{{ row.message }}</span>
+                    </div>
+                    <div v-if="!systemLogRows.length" class="empty-hint">暂无系统日志</div>
+                </div>
             </div>
 
             <div v-else class="drawer-body">
                 <div class="drawer-tabs sub">
+                    <select :value="eventSource" @change="eventSource = $event.target.value" title="事件来源">
+                        <option value="all">全部来源</option>
+                        <option value="system">系统</option>
+                        <option value="conversation">会话</option>
+                    </select>
                     <select :value="activeEventType" @change="emit('update:activeEventType', $event.target.value)" title="事件类型">
                         <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
                     </select>
@@ -592,15 +618,16 @@ const contextGroups = computed(() => {
                     </button>
                 </div>
                 <div class="event-log">
-                    <div v-for="e in filteredEvents" :key="e.eventId" class="event-row">
-                        <span class="ev-dot" :class="eventColorClass(e.type)"></span>
-                        <span class="event-time">{{ fmtClock(e.timestamp) }}</span>
-                        <span class="event-type" :class="eventColorClass(e.type)">{{ e.type }}</span>
-                        <span class="event-summary" :title="eventSummary(e)">{{ eventSummary(e) }}</span>
+                    <div v-for="row in mergedEventRows" :key="row.id" class="event-row">
+                        <span class="ev-dot" :class="row.source === 'system' ? 'ev-' + row.level : eventColorClass(row.type)"></span>
+                        <span class="event-time">{{ fmtClock(row.ts) }}</span>
+                        <span class="event-type" :class="row.source === 'system' ? 'ev-' + row.level : eventColorClass(row.type)">
+                            {{ row.source === 'system' ? row.level : row.type }}
+                        </span>
+                        <span v-if="row.source === 'system'" class="event-module">{{ row.module }}</span>
+                        <span class="event-summary" :title="row.text">{{ row.text }}</span>
                     </div>
-                    <div v-if="!filteredEvents.length" class="empty-hint">
-                        {{ showAllEvents ? '暂无事件' : '暂无关键事件（切换「全部」查看 step 等细节）' }}
-                    </div>
+                    <div v-if="!mergedEventRows.length" class="empty-hint">暂无事件</div>
                 </div>
             </div>
         </div>
@@ -620,8 +647,8 @@ const contextGroups = computed(() => {
     position: relative;
 }
 .right-panel.open {
-    width: 340px;
-    flex-basis: 340px;
+    width: 440px;
+    flex-basis: 440px;
     border-left-width: 1px;
 }
 .right-panel.maximized {
@@ -630,6 +657,30 @@ const contextGroups = computed(() => {
     min-width: 0 !important;
     position: static;
     border-left: 1px solid var(--border);
+}
+/*
+ * 最大化 = 内容适配，而不是把窄栏拉满：居中限宽 + 宽屏双栏。
+ */
+.right-panel.maximized .drawer-body {
+    width: min(100%, 1280px);
+    margin: 0 auto;
+    padding-left: 24px;
+    padding-right: 24px;
+}
+@media (min-width: 1180px) {
+    .right-panel.maximized .audit-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        column-gap: 32px;
+        align-content: start;
+    }
+    .right-panel.maximized .audit-grid > .audit-section {
+        margin-bottom: 6px;
+    }
+    .right-panel.maximized .audit-grid > .audit-span {
+        grid-column: 1 / -1;
+        margin-top: 10px;
+    }
 }
 .right-panel-handle {
     position: absolute;
@@ -887,6 +938,26 @@ const contextGroups = computed(() => {
 .ev-task { background: #3b82f6; }
 .ev-step { background: #10b981; }
 .ev-other { background: var(--fg-tertiary); }
+.ev-dot.ev-error { background: #ef4444; }
+.ev-dot.ev-warn { background: #f59e0b; }
+.ev-dot.ev-info { background: #10b981; }
+.ev-dot.ev-debug { background: var(--fg-tertiary); }
+.event-type.ev-error { color: #ef4444; }
+.event-type.ev-warn { color: #f59e0b; }
+.event-type.ev-info { color: #10b981; }
+.event-type.ev-debug { color: var(--fg-tertiary); }
+.event-module {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    min-width: 64px;
+    flex-shrink: 0;
+}
+.log-count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+}
 .event-time {
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;

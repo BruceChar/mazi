@@ -32,7 +32,9 @@ import {
     liveSteps,
     loadConfig,
     loadConversations,
+    loadSystemLogs,
     loadWorkspace,
+    systemLogs,
     freeChatWorkspace,
     pickFreeChatWorkspace,
     saveFreeChatWorkspace,
@@ -62,9 +64,9 @@ import {
 const prompt = ref('');
 const q = ref('');
 const drawerTab = ref('audit');
-const rightWidth = ref(320);
-const MIN_PANEL_W = 240;
-const MAX_PANEL_W = 640;
+const rightWidth = ref(440);
+const MIN_PANEL_W = 280;
+const MAX_PANEL_W = 960;
 const searchOpen = ref(false);
 const projectCollapsed = ref(new Set());
 const accountOpen = ref(false);
@@ -724,6 +726,7 @@ onMounted(async () => {
         await loadConfig();
         await loadConversations();
         await loadWorkspace();
+        await loadSystemLogs();
         const firstConversation = activeConvList.value[0];
         if (firstConversation) {
             await openConversation(firstConversation);
@@ -733,6 +736,11 @@ onMounted(async () => {
     }
     pingApi();
     latencyTimer = setInterval(pingApi, 5000);
+});
+
+// 打开「日志 / 事件」时刷新系统日志（系统错误可能发生在会话之外）。
+watch(drawerTab, (tab) => {
+    if (tab === 'log' || tab === 'events') void loadSystemLogs();
 });
 
 onBeforeUnmount(() => {
@@ -873,6 +881,8 @@ onBeforeUnmount(() => {
             :show-all-events="showAllEvents"
             :audit="auditView"
             :context-rows="conversationAudit.rows"
+            :system-logs="systemLogs"
+            @refresh-logs="loadSystemLogs()"
             @select-step="onSelectStep"
             @locate-step="onLocateStep"
             @select-conversation="onSelectConversation"
