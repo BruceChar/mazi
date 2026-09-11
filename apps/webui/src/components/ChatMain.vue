@@ -24,6 +24,9 @@ const props = defineProps({
     selectedModel: { type: String, default: '' },
     reasoningLevel: { type: String, default: 'high' },
     reasoningLevels: { type: Array, default: () => [] },
+    /** 权限审批等级（透传给 Composer 左下角）。 */
+    permission: { type: String, default: 'read-only' },
+    permissionLevels: { type: Array, default: () => [] },
     taskCount: { type: Number, default: 0 },
     stepCount: { type: Number, default: 0 },
     /** Conversation-wide totals for the status bar (App.conversationStats). */
@@ -41,6 +44,7 @@ const emit = defineEmits([
     'exit-workspace',
     'update:selectedModel',
     'update:reasoningLevel',
+    'update:permission',
     'select-step',
     'select-task',
 ]);
@@ -278,6 +282,8 @@ onMounted(() => {
             :selected-model="selectedModel"
             :reasoning-level="reasoningLevel"
             :reasoning-levels="reasoningLevels"
+            :permission="permission"
+            :permission-levels="permissionLevels"
             @update:model-value="emit('update:prompt', $event)"
             @submit="emit('submit')"
             @switch-project="emit('switch-project', $event)"
@@ -285,6 +291,7 @@ onMounted(() => {
             @exit-workspace="emit('exit-workspace')"
             @update:selected-model="emit('update:selectedModel', $event)"
             @update:reasoning-level="emit('update:reasoningLevel', $event)"
+            @update:permission="emit('update:permission', $event)"
         />
         <div class="statusbar">
             <span class="stat">{{ stats.sessions || 0 }} sessions</span>

@@ -30,6 +30,7 @@ const paths = {
     cpu: 'M6 6h12v12H6zM9 9h6v6H9zM3 9h3M3 15h3M18 9h3M18 15h3M9 3v3M15 3v3M9 18v3M15 18v3',
     plug: 'M9 2v6M15 2v6M7 8h10v4a5 5 0 0 1-10 0zM12 17v5',
     info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 8v.01M11 12h1v5h1',
+    shield: 'M12 3l7 3v6c0 4.5-3 7.4-7 9-4-1.6-7-4.5-7-9V6z',
     rename: 'M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17zM14.5 6.5l3 3',
     archive: 'M4 8h16M6 8v11h12V8M4 4h16v4H4z',
     restore: 'M4 12a8 8 0 1 0 2.4-5.7M4 4v5h5',

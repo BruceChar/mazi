@@ -12,6 +12,7 @@ import FeedbackModal from './components/FeedbackModal.vue';
 import PromptDialog from './components/PromptDialog.vue';
 import UserPreferencesPage from './components/UserPreferencesPage.vue';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
+import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
 import { buildAuditView } from './scripts/audit.ts';
 import { API_BASE } from './api.js';
@@ -84,6 +85,11 @@ function setSelectedModel(value) {
     selectedModel.value = value;
     saveRunSettings({ model: value });
 }
+/** 权限审批等级（Composer 左下角）→ 写入运行默认值。 */
+function onPermissionChange(value) {
+    saveRunSettings({ permission: value });
+}
+
 function setReasoningLevel(value) {
     reasoningLevel.value = value;
     saveRunSettings({ reasoningLevel: value });
@@ -832,6 +838,8 @@ onBeforeUnmount(() => {
                     :selected-model="selectedModel"
                     :reasoning-level="reasoningLevel"
                     :reasoning-levels="REASONING_LEVELS"
+                    :permission="runSettings.permission"
+                    :permission-levels="PERMISSION_LEVELS"
                     :task-count="taskCount"
                     :step-count="stepCount"
                     :stats="conversationStats"
@@ -847,6 +855,7 @@ onBeforeUnmount(() => {
                     @exit-workspace="exitWorkspace"
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"
+                    @update:permission="onPermissionChange"
                 />
             </template>
 

@@ -13,6 +13,9 @@ const props = defineProps({
     selectedModel: { type: String, default: '' },
     reasoningLevel: { type: String, default: 'high' },
     reasoningLevels: { type: Array, default: () => [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }] },
+    /** 权限审批等级（GoalContract.permissionCeiling）。 */
+    permission: { type: String, default: 'read-only' },
+    permissionLevels: { type: Array, default: () => [] },
 });
 const emit = defineEmits([
     'update:modelValue',
@@ -22,11 +25,32 @@ const emit = defineEmits([
     'exit-workspace',
     'update:selectedModel',
     'update:reasoningLevel',
+    'update:permission',
 ]);
 
 /* Internal UI state */
 const workspaceMenu = ref(false);
+const permMenu = ref(false);
 const pickerType = ref(null); // 'model' | 'reasoning' | null
+
+/** 权限审批等级 → 展示文案。 */
+const PERMISSION_LABELS = {
+    text: '文本',
+    'read-only': '只读',
+    draft: '草稿',
+    approved: '审批',
+    autonomous: '自主',
+};
+function permissionLabel() {
+    return PERMISSION_LABELS[props.permission] || props.permission || '权限';
+}
+function permissionText(level) {
+    return PERMISSION_LABELS[level] || level;
+}
+function selectPermission(level) {
+    emit('update:permission', level);
+    permMenu.value = false;
+}
 
 /* Computed labels */
 function currentModelLabel() {
@@ -147,6 +171,32 @@ function doExitWorkspace() {
                                 <button v-if="workspaceRoot" class="ws-menu-item danger" @click="doExitWorkspace">
                                     <LineIcon name="close" size="13" />
                                     <span>Exit workspace</span>
+                                </button>
+                            </div>
+                        </div>
+                        <!-- 权限审批：输入框左下角 -->
+                        <div class="ws-picker-wrap">
+                            <div v-if="permMenu" class="picker-backdrop" @click="permMenu = false"></div>
+                            <button
+                                class="ws-btn perm-btn"
+                                :class="{ active: permMenu }"
+                                title="权限审批等级"
+                                @click="permMenu = !permMenu"
+                            >
+                                <LineIcon name="shield" size="13" />
+                                <span>{{ permissionLabel() }}</span>
+                            </button>
+                            <div v-if="permMenu" class="ws-menu">
+                                <div class="ws-menu-section">权限审批</div>
+                                <button
+                                    v-for="level in permissionLevels"
+                                    :key="level"
+                                    class="ws-menu-item"
+                                    :class="{ active: level === permission }"
+                                    @click="selectPermission(level)"
+                                >
+                                    <LineIcon name="shield" size="13" />
+                                    <span>{{ permissionText(level) }}</span>
                                 </button>
                             </div>
                         </div>
