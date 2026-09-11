@@ -843,6 +843,7 @@ export class HarnessRuntime {
                 allowedTools: exec.allowedTools,
                 ...(history.length > 0 ? { history } : {}),
                 ...(model ? { model } : {}),
+                ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
                 onStep: (step) => this.emitStep(rootGoalId, step),
             },
             goals,

@@ -244,6 +244,8 @@ export interface StepView {
     toolName?: string;
     /** Tool call arguments (for tool_call steps; 展示命令/参数). */
     toolArguments?: Record<string, unknown>;
+    /** 工具实际执行的工作目录（tool_call steps）. */
+    toolCwd?: string;
     /** Tool call output text (for tool_call steps). */
     toolOutput?: string;
     /** Payload summary (≤240 chars) for audit/log display. */

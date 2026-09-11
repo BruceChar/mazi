@@ -173,6 +173,7 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
                 toolName: 'shell.run',
                 arguments: { command: 'ls -la' },
                 callId: 'c1',
+                cwd: '/Users/bruce/.mazi',
                 output: 'total 0',
             },
         };
@@ -180,6 +181,7 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
         const view = snap.goals[0]?.tasks[0]?.steps[0];
         expect(view?.toolName).toBe('shell.run');
         expect(view?.toolArguments).toEqual({ command: 'ls -la' });
+        expect(view?.toolCwd).toBe('/Users/bruce/.mazi');
         expect(view?.toolOutput).toBe('total 0');
         expect(view?.content).toBe('total 0');
     });

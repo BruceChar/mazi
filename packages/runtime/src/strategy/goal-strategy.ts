@@ -22,6 +22,8 @@ export interface GoalRunDeps {
     allowedTools?: string[];
     /** Conversation 共享上下文：前置历史消息（透传 executeTask） */
     history?: GoalExecutorDeps['history'];
+    /** 工作目录（透传 executeTask；入库到 tool_call payload.cwd） */
+    workspaceRoot?: string;
     /** Step 流式回调（透传 executeTask.onStep） */
     onStep?: GoalExecutorDeps['onStep'];
 }
@@ -58,6 +60,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                 ...(deps.model !== undefined ? { model: deps.model } : {}),
                 ...(deps.invoker !== undefined ? { invoker: deps.invoker } : {}),
                 ...(deps.allowedTools !== undefined ? { allowedTools: deps.allowedTools } : {}),
+                ...(deps.workspaceRoot !== undefined ? { workspaceRoot: deps.workspaceRoot } : {}),
                 ...(history.length > 0 ? { history } : {}),
                 ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
             },

@@ -33,6 +33,8 @@ export interface GoalExecutorDeps {
     allowedTools?: string[];
     /** Conversation 共享上下文：本轮任务前置的历史消息 */
     history?: LLMMessage[];
+    /** 工作目录（工具实际执行目录；入库到 tool_call payload.cwd 供展示/追溯） */
+    workspaceRoot?: string;
     maxSteps?: number;
     now?: () => number;
     /** Step 落库后即时回调（流式上报：思考/工具/观察），供事件总线实时推送给 UI */
@@ -244,7 +246,11 @@ export async function executeTask(
                     taskId: task.taskId,
                     goalId: task.goalId,
                     kind: 'tool_call',
-                    payload: { toolName: blocked.toolName, arguments: blocked.arguments },
+                    payload: {
+                        toolName: blocked.toolName,
+                        arguments: blocked.arguments,
+                        ...(deps.workspaceRoot !== undefined ? { cwd: deps.workspaceRoot } : {}),
+                    },
                     status: 'blocked',
                     startedAt: now(),
                     endedAt: now(),
@@ -276,6 +282,7 @@ export async function executeTask(
                         toolName: call.toolName,
                         arguments: call.arguments,
                         callId: call.callId,
+                        ...(deps.workspaceRoot !== undefined ? { cwd: deps.workspaceRoot } : {}),
                     },
                     status: 'running',
                     startedAt: now(),

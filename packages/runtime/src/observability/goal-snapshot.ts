@@ -82,6 +82,9 @@ export function snapshotGoalTree(
                         ...(step.kind === 'tool_call' && p?.arguments !== undefined
                             ? { toolArguments: p.arguments as Record<string, unknown> }
                             : {}),
+                        ...(step.kind === 'tool_call' && p?.cwd !== undefined
+                            ? { toolCwd: String(p.cwd) }
+                            : {}),
                         ...(step.kind === 'tool_call' && p?.output !== undefined
                             ? { toolOutput: String(p.output) }
                             : {}),
