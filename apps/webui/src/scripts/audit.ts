@@ -150,6 +150,18 @@ export interface CostDrift {
     rate: number | null;
 }
 
+/** 工具调用专用审计视图（tool_call step）：命令 / 参数 / 输出 / 耗时。 */
+export interface AuditToolView {
+    name: string;
+    /** 展示用命令（shell.run 取 command；其余取单值或 JSON） */
+    command: string;
+    arguments: Record<string, unknown> | null;
+    output: string;
+    durationMs: number | null;
+    status: string;
+    isError: boolean;
+}
+
 /** 面板视图。 */
 export interface AuditView {
     kind: 'step' | 'task' | 'conversation' | 'none';
@@ -171,6 +183,8 @@ export interface AuditView {
     estimatedTotal: number | null;
     /** Σvendor total */
     vendorTotal: number | null;
+    /** tool_call step 的专用视图；非工具步为 null */
+    tool: AuditToolView | null;
 }
 
 /** 一个 run（Session）及其快照，按 Conversation 内时间顺序。 */
@@ -208,6 +222,10 @@ interface ResolvedStep {
     durationMs: number | null;
     usage: StepUsage | null;
     text: string;
+    /** tool_call：命令参数（展示/审计用） */
+    toolArguments: Record<string, unknown> | null;
+    /** tool_call：完整输出 */
+    toolOutput: string | null;
     /** 相对上一轮新增的上下文内容（截断，合并） */
     diffContent: string;
     /** 相对上一轮各段新增内容（截断） */
@@ -658,6 +676,8 @@ function collectSnapshotSteps(
                     index: i + 1,
                     kind: step.kind,
                     toolName: step.toolName ?? '',
+                    toolArguments: step.toolArguments ?? null,
+                    toolOutput: step.toolOutput ?? null,
                     status: step.status,
                     startedAt: step.startedAt ?? 0,
                     endedAt: step.endedAt ?? null,
@@ -720,6 +740,8 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             index: next,
             kind: step.kind,
             toolName: step.toolName,
+            toolArguments: null,
+            toolOutput: step.kind === 'tool_call' ? step.content || null : null,
             status: step.status,
             startedAt: step.startedAt,
             endedAt: step.endedAt,
@@ -787,6 +809,29 @@ function extrasOf(
     };
 }
 
+/** 工具调用参数 → 展示用命令（shell.run 取 command；单值取该值；否则 JSON）。 */
+function formatToolCommand(toolName: string, args: Record<string, unknown> | null): string {
+    if (args === null) return '';
+    const entries = Object.entries(args);
+    if (entries.length === 0) return '';
+    if (toolName === 'shell.run' && typeof args.command === 'string') return args.command;
+    const single = entries[0]?.[1];
+    if (entries.length === 1 && typeof single === 'string') return single;
+    return JSON.stringify(args);
+}
+
+function toolViewOf(step: ResolvedStep): AuditToolView {
+    return {
+        name: step.toolName || step.kind,
+        command: formatToolCommand(step.toolName, step.toolArguments),
+        arguments: step.toolArguments,
+        output: step.toolOutput ?? step.text ?? '',
+        durationMs: step.durationMs,
+        status: step.status,
+        isError: step.status === 'error' || step.status === 'failed',
+    };
+}
+
 const EMPTY_USAGE: AggregatedUsage = {
     vendor: null,
     runtime: null,
@@ -813,6 +858,7 @@ function noneView(stale: boolean): AuditView {
         costDrift: null,
         estimatedTotal: null,
         vendorTotal: null,
+        tool: null,
     };
 }
 
@@ -868,6 +914,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             rows: [],
             diffContent: runtime?.diffContent ?? '',
             ...extrasOf(usage),
+            tool: selected.kind === 'tool_call' ? toolViewOf(selected) : null,
         };
     }
 
@@ -890,6 +937,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             rows: taskRows.map((row) => toRow(row, stepId)),
             diffContent: '',
             ...extrasOf(usage),
+            tool: null,
         };
     }
 
@@ -910,6 +958,7 @@ export function buildAuditView(input: AuditInput): AuditView {
         rows: rows.map((row) => toRow(row, stepId)),
         diffContent: '',
         ...extrasOf(usage),
+        tool: null,
     };
 }
 

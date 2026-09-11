@@ -368,6 +368,40 @@ describe('audit buildAuditView', () => {
         expect(step.diff).toEqual({ delta: 300, from: 1200, to: 1500 });
     });
 
+    it('tool_call 目标：专用 tool 视图（命令/参数/输出/耗时），非 vendor token', () => {
+        const toolStep = {
+            ...stepView('tc1', 'tool_call', 1, null),
+            toolName: 'shell.run',
+            toolArguments: { command: 'ls -la' },
+            toolOutput: 'total 0',
+        };
+        const view = buildAuditView({ snapshot: snapshotOf([toolStep]), stepId: 'tc1' });
+        expect(view.kind).toBe('step');
+        expect(view.tool?.name).toBe('shell.run');
+        expect(view.tool?.command).toBe('ls -la');
+        expect(view.tool?.arguments).toEqual({ command: 'ls -la' });
+        expect(view.tool?.output).toBe('total 0');
+        expect(view.tool?.durationMs).toBe(200);
+        expect(view.tool?.isError).toBe(false);
+
+        // 单字符串参数 → 直接作为命令展示
+        const fdStep = {
+            ...stepView('tc2', 'tool_call', 2, null),
+            toolName: 'fd',
+            toolArguments: { pattern: '*' },
+            toolOutput: 'a\nb',
+        };
+        const fd = buildAuditView({ snapshot: snapshotOf([fdStep]), stepId: 'tc2' });
+        expect(fd.tool?.command).toBe('*');
+
+        // 非工具步 tool = null
+        const thinking = buildAuditView({
+            snapshot: snapshotOf([stepView('s1', 'thinking', 1, stepUsage())]),
+            stepId: 's1',
+        });
+        expect(thinking.tool).toBeNull();
+    });
+
     it('task 目标：只列本任务步骤，diff 为 null', () => {
         const snapshot = snapshotOf([
             stepView('s1', 'thinking', 1, stepUsage()),

@@ -223,6 +223,22 @@ const contextChart = computed(() => {
                 </div>
 
                 <template v-else>
+                    <!-- 工具调用：专用审计 view（命令/参数/输出/耗时），不显示 vendor token -->
+                    <section v-if="audit.tool" class="audit-section">
+                        <div class="audit-section-title">工具调用 · {{ audit.tool.name }}</div>
+                        <div class="audit-row"><span class="audit-key">命令</span><span class="audit-val audit-mono">{{ audit.tool.command || audit.tool.name }}</span></div>
+                        <div v-if="audit.tool.arguments && Object.keys(audit.tool.arguments).length" class="audit-tool-block">
+                            <div class="audit-key">参数</div>
+                            <pre class="seg-content">{{ JSON.stringify(audit.tool.arguments, null, 2) }}</pre>
+                        </div>
+                        <div class="audit-row"><span class="audit-key">耗时</span><span class="audit-val">{{ formatDuration(audit.tool.durationMs) || '-' }}</span></div>
+                        <div class="audit-row"><span class="audit-key">状态</span><span class="audit-val" :class="{ 'audit-warn': audit.tool.isError }">{{ audit.tool.status }}</span></div>
+                        <div class="audit-tool-block">
+                            <div class="audit-key">输出</div>
+                            <pre class="seg-content audit-tool-output">{{ audit.tool.output || '(空)' }}</pre>
+                        </div>
+                    </section>
+                    <template v-else>
                     <!-- Vendor 实际 -->
                     <section class="audit-section">
                         <div class="audit-section-title">Vendor 用量</div>
@@ -373,6 +389,8 @@ const contextChart = computed(() => {
                         </template>
                         <div v-else class="audit-muted">暂无耗时</div>
                     </section>
+
+                    </template>
 
                     <!-- 步骤明细（会话流全局线 / 单个 Task） -->
                     <section v-if="audit.rows.length" class="audit-section">
@@ -920,6 +938,17 @@ const contextChart = computed(() => {
 .audit-muted {
     color: var(--fg-tertiary);
     font-size: 12px;
+}
+.audit-mono {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--fg);
+}
+.audit-tool-block {
+    margin: 6px 0;
+}
+.audit-tool-output {
+    max-height: 360px;
 }
 .audit-warn {
     color: var(--warn);
