@@ -43,6 +43,11 @@ const DRAFT_CAPABILITIES = [
     'fs.exec',
     'net.fetch',
 ] as const;
+const WORKSPACE_WRITE_CAPABILITIES = [
+    ...READ_CAPABILITIES,
+    'fs.write.workspace',
+    'fs.write.draft',
+] as const;
 const APPROVED_CAPABILITIES = [
     ...DRAFT_CAPABILITIES,
     'net.send',
@@ -62,6 +67,8 @@ const AUTONOMOUS_CAPABILITIES = [
 const CAPABILITIES_BY_LEVEL: Record<string, readonly string[]> = {
     text: [],
     'read-only': READ_CAPABILITIES,
+    // UI level "工作区写": read + workspace writes auto; exec/net stay gated.
+    'workspace-write': WORKSPACE_WRITE_CAPABILITIES,
     draft: DRAFT_CAPABILITIES,
     approved: APPROVED_CAPABILITIES,
     autonomous: AUTONOMOUS_CAPABILITIES,

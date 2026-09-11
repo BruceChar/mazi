@@ -2,7 +2,6 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFilePromise = promisify(execFile);
-
 export interface RunCliOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
@@ -22,6 +21,7 @@ export const runcli = async (
     options?: RunCliOptions,
 ): Promise<RunCliResult> => {
     try {
+        console.log(`======runcli: ${command} ${args.join(' ')} cwd=${options?.cwd ?? process.cwd()}`);
         return await execFilePromise(command, args, options);
     } catch (error) {
         throw new Error(`Failed to execute command: ${command} ${args.join(' ')}\nError: ${error}`);

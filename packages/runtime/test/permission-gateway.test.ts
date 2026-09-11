@@ -56,6 +56,12 @@ describe('runtime permission bridge', () => {
         expect(readOnly['fs.exec']).toMatchObject({ tier: 'gated' });
         expect(readOnly['fs.write.workspace']).toMatchObject({ tier: 'gated' });
 
+        const workspaceWrite = grantForPermissionLevel('workspace-write');
+        expect(workspaceWrite['fs.read.workspace']).toMatchObject({ tier: 'auto' });
+        expect(workspaceWrite['fs.write.workspace']).toMatchObject({ tier: 'auto' });
+        expect(workspaceWrite['fs.exec']).toMatchObject({ tier: 'gated' });
+        expect(workspaceWrite['net.fetch']).toMatchObject({ tier: 'gated' });
+
         const draft = grantForPermissionLevel('draft');
         expect(draft['fs.exec']).toMatchObject({ tier: 'auto' });
         expect(draft['fs.write.workspace']).toMatchObject({ tier: 'auto' });

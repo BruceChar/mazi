@@ -92,6 +92,11 @@ function onPermissionChange(value) {
     saveRunSettings({ permission: value });
 }
 
+/** 审批弹窗回执：{ invocationId, decision, scope? } → POST /api/approvals/:id。 */
+function onApprovalResponse(payload) {
+    void respondApproval(payload.invocationId, payload.decision, payload.scope);
+}
+
 function setReasoningLevel(value) {
     reasoningLevel.value = value;
     saveRunSettings({ reasoningLevel: value });
@@ -823,39 +828,6 @@ onBeforeUnmount(() => {
         <main class="workspace">
             <template v-if="ui.view === 'chat'">
                 <div v-if="ui.err && conversations.length" class="error-banner">{{ ui.err }}</div>
-                <div v-if="approvals.length" class="approval-banner">
-                    <div class="approval-head">需要你的批准（{{ approvals.length }}）</div>
-                    <div
-                        v-for="item in approvals"
-                        :key="item.invocationId"
-                        class="approval-item"
-                    >
-                        <pre class="approval-text">{{ item.summary }}</pre>
-                        <div class="approval-actions">
-                            <button
-                                type="button"
-                                class="approval-allow"
-                                @click="respondApproval(item.invocationId, 'granted', 'once')"
-                            >
-                                允许一次
-                            </button>
-                            <button
-                                type="button"
-                                class="approval-allow"
-                                @click="respondApproval(item.invocationId, 'granted', 'session')"
-                            >
-                                本会话允许
-                            </button>
-                            <button
-                                type="button"
-                                class="approval-deny"
-                                @click="respondApproval(item.invocationId, 'rejected')"
-                            >
-                                拒绝
-                            </button>
-                        </div>
-                    </div>
-                </div>
                 <ChatMain
                     :active-conversation="activeConversation"
                     :workspace-display-name="workspaceDisplayName"
@@ -875,6 +847,7 @@ onBeforeUnmount(() => {
                     :reasoning-levels="REASONING_LEVELS"
                     :permission="runSettings.permission"
                     :permission-levels="PERMISSION_LEVELS"
+                    :approvals="approvals"
                     :task-count="taskCount"
                     :step-count="stepCount"
                     :stats="conversationStats"
@@ -891,6 +864,7 @@ onBeforeUnmount(() => {
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"
                     @update:permission="onPermissionChange"
+                    @respond-approval="onApprovalResponse"
                 />
             </template>
 

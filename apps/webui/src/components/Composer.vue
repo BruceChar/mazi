@@ -37,15 +37,28 @@ const pickerType = ref(null); // 'model' | 'reasoning' | null
 const PERMISSION_LABELS = {
     text: '文本',
     'read-only': '只读',
+    'workspace-write': '工作区写',
     draft: '草稿',
     approved: '审批',
-    autonomous: '自主',
+    autonomous: '完全',
+};
+/** 每档一句话说明，避免用户不知道选哪个。 */
+const PERMISSION_HINTS = {
+    text: '纯对话，不提供工具',
+    'read-only': '只能读；写文件/执行命令/联网需批准',
+    'workspace-write': '可读写工作区；执行命令/联网需批准',
+    draft: '读写工作区 + 联网；执行命令需批准',
+    approved: '读写/联网免批准；执行命令需批准',
+    autonomous: '全部免批准（secret 写入仍禁止）',
 };
 function permissionLabel() {
     return PERMISSION_LABELS[props.permission] || props.permission || '权限';
 }
 function permissionText(level) {
     return PERMISSION_LABELS[level] || level;
+}
+function permissionHint(level) {
+    return PERMISSION_HINTS[level] || '';
 }
 function selectPermission(level) {
     emit('update:permission', level);
@@ -191,12 +204,15 @@ function doExitWorkspace() {
                                 <button
                                     v-for="level in permissionLevels"
                                     :key="level"
-                                    class="ws-menu-item"
+                                    class="ws-menu-item perm-option"
                                     :class="{ active: level === permission }"
                                     @click="selectPermission(level)"
                                 >
                                     <LineIcon name="shield" size="13" />
-                                    <span>{{ permissionText(level) }}</span>
+                                    <span class="perm-option-text">
+                                        <span class="perm-option-title">{{ permissionText(level) }}</span>
+                                        <span class="perm-option-hint">{{ permissionHint(level) }}</span>
+                                    </span>
                                 </button>
                             </div>
                         </div>
@@ -388,6 +404,28 @@ function doExitWorkspace() {
     height: 1px;
     background: var(--border-soft);
     margin: 4px 0;
+}
+.perm-option {
+    align-items: flex-start;
+}
+.perm-option-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+.perm-option-title {
+    font-size: 13px;
+    line-height: 1.3;
+}
+.perm-option-hint {
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--fg-tertiary);
+    white-space: normal;
+}
+.perm-option.active .perm-option-hint {
+    color: color-mix(in srgb, var(--accent) 70%, var(--fg-tertiary));
 }
 /* Model / reasoning pickers */
 .picker-wrap {

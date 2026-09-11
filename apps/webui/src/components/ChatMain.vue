@@ -1,6 +1,7 @@
 <script setup>
 import { nextTick, onMounted, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import ApprovalPrompt from './ApprovalPrompt.vue';
 import ExecStream from './ExecStream.vue';
 import Composer from './Composer.vue';
 import { formatCost, formatTokens } from '../scripts/audit.ts';
@@ -27,6 +28,8 @@ const props = defineProps({
     /** 权限审批等级（透传给 Composer 左下角）。 */
     permission: { type: String, default: 'read-only' },
     permissionLevels: { type: Array, default: () => [] },
+    /** 待人审的 gated 调用（store.approvals）。 */
+    approvals: { type: Array, default: () => [] },
     taskCount: { type: Number, default: 0 },
     stepCount: { type: Number, default: 0 },
     /** Conversation-wide totals for the status bar (App.conversationStats). */
@@ -47,6 +50,7 @@ const emit = defineEmits([
     'update:permission',
     'select-step',
     'select-task',
+    'respond-approval',
 ]);
 
 function conversationTitle(conversation) {
@@ -272,27 +276,33 @@ onMounted(() => {
 
         <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
 
-        <Composer
-            :model-value="prompt"
-            :busy="busy"
-            :active-conversation="activeConversation"
-            :projects="projects"
-            :workspace-root="workspaceRoot"
-            :cfg="cfg"
-            :selected-model="selectedModel"
-            :reasoning-level="reasoningLevel"
-            :reasoning-levels="reasoningLevels"
-            :permission="permission"
-            :permission-levels="permissionLevels"
-            @update:model-value="emit('update:prompt', $event)"
-            @submit="emit('submit')"
-            @switch-project="emit('switch-project', $event)"
-            @open-system-picker="emit('open-system-picker')"
-            @exit-workspace="emit('exit-workspace')"
-            @update:selected-model="emit('update:selectedModel', $event)"
-            @update:reasoning-level="emit('update:reasoningLevel', $event)"
-            @update:permission="emit('update:permission', $event)"
-        />
+        <div class="composer-dock">
+            <ApprovalPrompt
+                :approvals="approvals"
+                @respond="emit('respond-approval', $event)"
+            />
+            <Composer
+                :model-value="prompt"
+                :busy="busy"
+                :active-conversation="activeConversation"
+                :projects="projects"
+                :workspace-root="workspaceRoot"
+                :cfg="cfg"
+                :selected-model="selectedModel"
+                :reasoning-level="reasoningLevel"
+                :reasoning-levels="reasoningLevels"
+                :permission="permission"
+                :permission-levels="permissionLevels"
+                @update:model-value="emit('update:prompt', $event)"
+                @submit="emit('submit')"
+                @switch-project="emit('switch-project', $event)"
+                @open-system-picker="emit('open-system-picker')"
+                @exit-workspace="emit('exit-workspace')"
+                @update:selected-model="emit('update:selectedModel', $event)"
+                @update:reasoning-level="emit('update:reasoningLevel', $event)"
+                @update:permission="emit('update:permission', $event)"
+            />
+        </div>
         <div class="statusbar">
             <span class="stat">{{ stats.sessions || 0 }} sessions</span>
             <span class="stat">{{ stats.goals || 0 }} goals</span>
@@ -306,6 +316,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Anchor for the approval popover that rises from the composer. */
+.composer-dock {
+    position: relative;
+}
 .chat-main {
     /* Message column width; kept a bit wider than the composer (760px). */
     --chat-max: 880px;

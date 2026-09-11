@@ -5,7 +5,15 @@
  * the composer each carried their own copy of the permission/budget fields.
  */
 
-export const PERMISSION_LEVELS = ['text', 'read-only', 'draft', 'approved', 'autonomous'] as const;
+/**
+ * Composer permission levels (three choices). The backend still accepts the
+ * full set (text/read-only/draft/approved/autonomous); the UI narrows to the
+ * three that matter to a user:
+ *   read-only       — read only; writes/exec/net require approval
+ *   workspace-write — read + workspace writes; exec/net require approval
+ *   autonomous      — everything auto except the hard layer (secret writes)
+ */
+export const PERMISSION_LEVELS = ['read-only', 'workspace-write', 'autonomous'] as const;
 
 export const LOOP_MODES = [
     { value: 'goal-plan-execute-reflect', label: 'GPER · default' },

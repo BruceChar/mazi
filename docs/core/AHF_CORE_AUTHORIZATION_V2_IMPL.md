@@ -124,6 +124,7 @@ type AuthzErrorCode =
 `packages/runtime/src/tool-gateway/permission.ts` 是执行面的接线层：
 
 - `grantForPermissionLevel(level)`：把 UI 的 `text/read-only/draft/approved/autonomous` 映射为 root `AgentGrant`。**ceiling 是 auto 边界而非可见性过滤**：标准能力面全部授予，处于所选档位内的能力 `auto`，高于档位的为 `gated`（模型仍看到工具，调用即触发人审，而不是静默无工具）；只有 `text` 隐藏整个工具面。`forbidden` 仅由 hard 层（V17）与后端封顶（V15）产生，任何档位不可放宽；
+- UI 只暴露 3 档（`PERMISSION_LEVELS`）：**只读 / 工作区写 / 完全**，分别对应后端 `read-only` / `workspace-write` / `autonomous`；`draft/approved/text` 后端仍支持但不在 UI 出现。菜单每档带一句说明，避免用户不知道怎么选；
 - `capabilityForTool(tool)`：由 `sideEffects`/`irreversible`/工具名推导 `CapabilityKey`（`shell.run→fs.exec`、`net→net.fetch`、`fs+irreversible→fs.write.workspace`、其余 `fs.read.workspace`）；
 - `RuntimeToolGateway`：构建 `AuthorizationEngine` + `DefaultToolGateway`，`visibleToolNames()` 暴露 auto+gated（仅剔除 forbidden），每次调用走 11 阶段管线；
 - `runtime.ts` 的 `goalExecutionConfig(rootGoalId, goalId, level)` 用网关产出的可见工具集替换原白名单，`invoker.invoke` 经网关结果映射为 `ToolCallResult`；
@@ -134,7 +135,7 @@ type AuthzErrorCode =
 - `packages/runtime/src/tool-gateway/approval.ts`：`ApprovalBroker implements ApprovalSeam`；gated 调用发 `approval.requested`（含签名回显摘要：数据流来源 / 交易对手 / 金额 / derived-label 来源 / 世代级知情文案），阻塞等待结算；`granted: once/session/workspace | rejected | cancelled`；TTL（默认 5min）到期 fail-closed 为 cancelled；结算发 `approval.granted` / `approval.cancelled`。
 - `HarnessRuntime.setApprovalSeam(seam)` 注入；API 侧 `ApiRuntimeService` 为每个 workspace 运行时装配 broker。缺省（未注入，如测试/CLI）仍回退 `standingApprovalSeam()`。
 - REST：`GET /api/approvals`（待审列表）、`POST /api/approvals/:id`（结算）；事件同时经 `/api/events/:id` SSE 推送。
-- WebUI：`store.ts` 消费 `approval.*` 事件；`App.vue` 顶部「需要你的批准」横幅，提供「允许一次 / 本会话允许 / 拒绝」。
+- WebUI：`store.ts` 消费 `approval.*` 事件；`ApprovalPrompt.vue` **由输入框上方弹出**（复用系统弹窗样式），提供「允许一次 / 本会话允许 / 本工作区允许 / 拒绝」——与 `ApprovalSettlement` 的 once/session/workspace/rejected 一一对应。
 
 ### 6.2 审计压缩
 
