@@ -36,6 +36,9 @@ export function isAtLeastSensitive(label: SensitivityLabel): boolean {
     return LABEL_RANK[label] >= LABEL_RANK.sensitive;
 }
 
+/** Monotonic dataflow-ledger version (N8). */
+export type LedgerVersion = number;
+
 export type AssetKind = 'path' | 'db' | 'host' | 'env' | 'registry' | 'topic';
 
 export type LabelOrigin = 'platform' | 'user' | 'platform-curated-negative';
@@ -224,6 +227,11 @@ export interface PinnedVersions {
 export interface EffectiveCapability {
     key: CapabilityKey;
     rule: CapabilityRule;
+    /** Effective role (credentials resolved, §4.3); drives R3 pair classification. */
+    role: Role;
+    /** Reachable target sensitivity / boundary for this capability. */
+    targetLabel: SensitivityLabel;
+    boundary: boolean;
     /** meet of declared wills (V3). */
     meetTier: EffectTier;
     /** after rule floors + hard layer + backend cap. */
