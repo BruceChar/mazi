@@ -23,6 +23,9 @@ const LIVE_EVENT_TYPES = [
     'step.started',
     'step.ended',
     'llm.stream_event',
+    'approval.requested',
+    'approval.granted',
+    'approval.cancelled',
 ] as const;
 const REFRESH_EVENT_TYPES = new Set<string>(['session.ended', 'goal.ended']);
 
@@ -141,7 +144,7 @@ export const systemLogs = ref<SystemLogEntry[]>([]);
 export async function loadSystemLogs(level = 'all', limit = 500): Promise<void> {
     try {
         const state = await api(
-            '/api/logs?level=' + encodeURIComponent(level) + '&limit=' + String(limit),
+            `/api/logs?level=${encodeURIComponent(level)}&limit=${String(limit)}`,
         );
         systemLogs.value = Array.isArray(state?.logs) ? (state.logs as SystemLogEntry[]) : [];
     } catch {
@@ -385,6 +388,18 @@ export function latestRun(conversation: Conversation | null | undefined) {
     return runs.length > 0 ? runs[runs.length - 1] : null;
 }
 
+/** 待人审的 gated 调用（approval.requested 累积，granted/cancelled 移除）。 */
+export interface PendingApproval {
+    invocationId: string;
+    tool: string;
+    capability: string;
+    summary: string;
+    identifiers?: { rootGoalId?: string };
+    requestedAt?: number;
+}
+
+export const approvals = ref<PendingApproval[]>([]);
+
 let eventSource: EventSource | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -477,6 +492,7 @@ export function stopEvents(): void {
     }
     liveStreams.value = {};
     for (const key of Object.keys(liveSteps)) delete liveSteps[key];
+    approvals.value = [];
 }
 
 export function watchEvents(rootGoalId: string): void {
@@ -497,6 +513,23 @@ export function watchEvents(rootGoalId: string): void {
             }
             if (!events.list.some((e) => e.eventId === event.eventId)) {
                 events.list.push(event);
+            }
+            if (event.type === 'approval.requested') {
+                const pending = event.payload as PendingApproval | undefined;
+                if (
+                    pending?.invocationId &&
+                    !approvals.value.some((a) => a.invocationId === pending.invocationId)
+                ) {
+                    approvals.value = [...approvals.value, pending];
+                }
+                return;
+            }
+            if (event.type === 'approval.granted' || event.type === 'approval.cancelled') {
+                const id = (event.payload as { invocationId?: string } | undefined)?.invocationId;
+                if (id) {
+                    approvals.value = approvals.value.filter((a) => a.invocationId !== id);
+                }
+                return;
             }
             if (event.type === 'step.started') {
                 applyStepStarted(rootGoalId, event);
@@ -519,6 +552,20 @@ export function watchEvents(rootGoalId: string): void {
         source.addEventListener(type, consume);
     }
     eventSource = source;
+}
+
+/** 结算一条人审审批（允许一次/本会话/拒绝）。 */
+export async function respondApproval(
+    invocationId: string,
+    decision: 'granted' | 'rejected' | 'cancelled',
+    scope?: 'once' | 'session' | 'workspace',
+): Promise<void> {
+    await api(`/api/approvals/${encodeURIComponent(invocationId)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ decision, ...(scope ? { scope } : {}) }),
+    });
+    approvals.value = approvals.value.filter((a) => a.invocationId !== invocationId);
 }
 
 export async function loadEvents(rootGoalId: string): Promise<void> {

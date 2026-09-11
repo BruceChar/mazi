@@ -596,6 +596,62 @@
     color: var(--ok);
 }
 
+.approval-banner {
+    margin: 8px 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--warn);
+    background: color-mix(in srgb, var(--warn) 10%, var(--bg-panel));
+    border-radius: 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.approval-head {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--warn);
+}
+
+.approval-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.approval-text {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    color: var(--fg);
+}
+
+.approval-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.approval-actions button {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    color: var(--fg);
+    cursor: pointer;
+}
+
+.approval-actions .approval-allow {
+    border-color: var(--ok);
+    color: var(--ok);
+}
+
+.approval-actions .approval-deny {
+    border-color: var(--error);
+    color: var(--error);
+}
+
 .assistant-line.bullet {
     padding-left: 4px;
 }
