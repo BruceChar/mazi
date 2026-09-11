@@ -6,6 +6,7 @@
 
 export type * from './approval.js';
 export type * from './authorization.js';
+export * as authz from './authz/index.js';
 export * from './catalog.js';
 export type * from './gts.js';
 export { validateAttributionChain, validateCeilingMonotonicity } from './gts.js';
