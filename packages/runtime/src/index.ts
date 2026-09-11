@@ -28,8 +28,13 @@ export type {
     ToolConfig,
     ToolSpecLike,
 } from './config.js';
-export type { FileRuntimeConfig } from './config-io.js';
-export { configOverview, loadRuntimeConfig, toRuntimeConfig } from './config-io.js';
+export type { FileRuntimeConfig, RuntimeSettingsFile } from './config-io.js';
+export {
+    configOverview,
+    loadRuntimeConfig,
+    saveRuntimeSettings,
+    toRuntimeConfig,
+} from './config-io.js';
 export type { GoalStore } from './memory/goal-store.js';
 // 观测层（事件总线；apps 直接消费）
 export type { EventBusOptions, NewEventInput } from './observability/event-bus.js';

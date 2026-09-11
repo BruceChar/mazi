@@ -12,7 +12,6 @@ import FeedbackModal from './components/FeedbackModal.vue';
 import PromptDialog from './components/PromptDialog.vue';
 import UserPreferencesPage from './components/UserPreferencesPage.vue';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
-import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
 import { buildAuditView } from './scripts/audit.ts';
 import { API_BASE } from './api.js';
@@ -53,6 +52,7 @@ import {
     selectedStepId,
     selectedTaskId,
     sendFeedback,
+    setPermissionCeiling,
     setTheme,
     short,
     statusLabel,
@@ -87,11 +87,6 @@ function setSelectedModel(value) {
     selectedModel.value = value;
     saveRunSettings({ model: value });
 }
-/** 权限审批等级（Composer 左下角）→ 写入运行默认值。 */
-function onPermissionChange(value) {
-    saveRunSettings({ permission: value });
-}
-
 /** 审批弹窗回执：{ invocationId, decision, scope? } → POST /api/approvals/:id。 */
 function onApprovalResponse(payload) {
     void respondApproval(payload.invocationId, payload.decision, payload.scope);
@@ -845,8 +840,6 @@ onBeforeUnmount(() => {
                     :selected-model="selectedModel"
                     :reasoning-level="reasoningLevel"
                     :reasoning-levels="REASONING_LEVELS"
-                    :permission="runSettings.permission"
-                    :permission-levels="PERMISSION_LEVELS"
                     :approvals="approvals"
                     :task-count="taskCount"
                     :step-count="stepCount"
@@ -863,7 +856,6 @@ onBeforeUnmount(() => {
                     @exit-workspace="exitWorkspace"
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"
-                    @update:permission="onPermissionChange"
                     @respond-approval="onApprovalResponse"
                 />
             </template>
@@ -878,12 +870,14 @@ onBeforeUnmount(() => {
                     :reasoning-levels="REASONING_LEVELS"
                     :syncing="syncingModels"
                     :free-chat-workspace="freeChatWorkspace"
+                    :permission-ceiling="cfg?.permissionCeiling || 'read-only'"
                     @update:theme="setTheme"
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"
                     @sync-models="syncModels"
                     @save-free-workspace="onSaveFreeChatWorkspace"
                     @pick-free-workspace="onPickFreeChatWorkspace"
+                    @save-permission="setPermissionCeiling"
                 />
             </template>
 

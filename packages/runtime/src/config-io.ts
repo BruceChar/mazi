@@ -1,12 +1,22 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import type { PermissionLevel } from '@mazi/core';
 import type { ProviderOverview } from '@mazi/libs';
 import { builtinModelsFor } from '@mazi/provider';
 import type { ProviderConfig, RuntimeConfig, ToolConfig } from './config.js';
 import { ensureMaziDirs, maziPaths } from './paths.js';
 
+/** settings.json 结构：系统级 Goal 配置（权限 grant 等），与 providers/tools 分离。 */
+export interface RuntimeSettingsFile {
+    goal?: {
+        permissionCeiling?: PermissionLevel;
+        allowedTools?: string[];
+    };
+}
+
 export interface FileRuntimeConfig {
     providers: ProviderConfig[];
     tools: ToolConfig[];
+    goal?: RuntimeSettingsFile['goal'];
 }
 
 function readJson(file: string): unknown {
@@ -28,10 +38,25 @@ export function loadRuntimeConfig(configDir?: string): FileRuntimeConfig {
         | { providers?: ProviderConfig[] }
         | undefined;
     const toolsJson = readJson(paths.toolsFile) as { tools?: ToolConfig[] } | undefined;
+    const settingsJson = readJson(paths.settingsFile) as RuntimeSettingsFile | undefined;
     return {
         providers: providersJson?.providers ?? [],
         tools: toolsJson?.tools ?? [],
+        ...(settingsJson?.goal ? { goal: settingsJson.goal } : {}),
     };
+}
+
+/** 写入 settings.json（与既有内容合并；用于系统级 Goal 配置，如权限 grant）。 */
+export function saveRuntimeSettings(settings: RuntimeSettingsFile, configDir?: string): void {
+    const home = configDir && configDir.length > 0 ? configDir : undefined;
+    const paths = home ? maziPaths(home) : ensureMaziDirs();
+    const current = (readJson(paths.settingsFile) as RuntimeSettingsFile | undefined) ?? {};
+    const next: RuntimeSettingsFile = {
+        ...current,
+        goal: { ...current.goal, ...settings.goal },
+    };
+    mkdirSync(paths.home, { recursive: true });
+    writeFileSync(paths.settingsFile, `${JSON.stringify(next, null, 2)}\n`);
 }
 
 /** 由已加载文件配置 + 存储路径默认值组装 RuntimeConfig（未显式传入则用 home 存储） */

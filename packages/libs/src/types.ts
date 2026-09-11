@@ -78,6 +78,10 @@ export interface ConfigOverview {
     home: string;
     providers: ProviderOverview[];
     hasProvidersFile: boolean;
+    /** Free-chat default workspace (backend-persisted). */
+    freeChatWorkspace?: string;
+    /** System-level permission grant (Settings → General, backend-persisted). */
+    permissionCeiling?: string;
 }
 
 // ============================================================

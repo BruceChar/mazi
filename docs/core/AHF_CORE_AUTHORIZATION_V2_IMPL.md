@@ -124,11 +124,11 @@ type AuthzErrorCode =
 `packages/runtime/src/tool-gateway/permission.ts` 是执行面的接线层：
 
 - `grantForPermissionLevel(level)`：把 UI 的 `text/read-only/draft/approved/autonomous` 映射为 root `AgentGrant`。**ceiling 是 auto 边界而非可见性过滤**：标准能力面全部授予，处于所选档位内的能力 `auto`，高于档位的为 `gated`（模型仍看到工具，调用即触发人审，而不是静默无工具）；只有 `text` 隐藏整个工具面。`forbidden` 仅由 hard 层（V17）与后端封顶（V15）产生，任何档位不可放宽；
-- UI 只暴露 3 档（`PERMISSION_LEVELS`）：**只读 / 工作区写 / 完全**，分别对应后端 `read-only` / `workspace-write` / `autonomous`；`draft/approved/text` 后端仍支持但不在 UI 出现。菜单每档带一句说明，避免用户不知道怎么选；
+- **系统权限 grant（Settings → General，持久化）**：`settings.json` 的 `goal.permissionCeiling` 是唯一默认来源。`config-io.ts` 的 `loadRuntimeConfig/saveRuntimeSettings` 读写它；`GET /api/config` 返回 `permissionCeiling`，`POST /api/config/goal` 写入并重建运行时；`ApiRuntimeService.setPermissionCeiling` 落盘 + 刷新 `config` + `restartRuntimes()`，新会话即按新档位派生。已在跑的会话不受影响（钉版语义）；
+- UI 只暴露 3 档（`PERMISSION_LEVELS`）：**只读 / 工作区写 / 完全**，分别对应后端 `read-only` / `workspace-write` / `autonomous`；`draft/approved/text` 后端仍支持但不在 UI 出现。档位选择只在 Settings → General（`PERMISSION_META` 带一句说明），输入框不再放选择器；
 - `capabilityForTool(tool)`：由 `sideEffects`/`irreversible`/工具名推导 `CapabilityKey`（`shell.run→fs.exec`、`net→net.fetch`、`fs+irreversible→fs.write.workspace`、其余 `fs.read.workspace`）；
 - `RuntimeToolGateway`：构建 `AuthorizationEngine` + `DefaultToolGateway`，`visibleToolNames()` 暴露 auto+gated（仅剔除 forbidden），每次调用走 11 阶段管线；
-- `runtime.ts` 的 `goalExecutionConfig(rootGoalId, goalId, level)` 用网关产出的可见工具集替换原白名单，`invoker.invoke` 经网关结果映射为 `ToolCallResult`；
-- **每轮档位透传**：`sessions.service` 把 `goal.permissionCeiling` 传入 `createGoalSession`，落库到 work Goal；`executeGoalTree` 以 work Goal 的 `permissionCeiling`（而非仅配置默认）调用 `goalExecutionConfig`，重启后仍按落库档位执行。
+- `runtime.ts` 的 `goalExecutionConfig(rootGoalId, goalId, level)` 用网关产出的可见工具集替换原白名单，`invoker.invoke` 经网关结果映射为 `ToolCallResult`；`createGoalSession` 以系统 grant 落库到 work Goal，`executeGoalTree` 以 work Goal 的 `permissionCeiling` 调用（重启后仍按落库档位）。
 
 ### 6.1 人审审批（V18/T8）
 

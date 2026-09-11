@@ -14,7 +14,7 @@ describe('GoalContract defaults', () => {
 
     it('creates a fresh draft with the documented defaults', () => {
         const draft = createGoalContractDraft();
-        expect(draft).toMatchObject({ permission: 'read-only', budgetUsd: 0.5, maxSteps: 8 });
+        expect(draft).toMatchObject({ budgetUsd: 0.5, maxSteps: 8 });
     });
 
     it('maps the draft onto the wire payload (empty userId becomes undefined)', () => {
@@ -23,7 +23,8 @@ describe('GoalContract defaults', () => {
             statement: 'hello',
             userId: '',
         });
-        expect(payload.permissionCeiling).toBe('read-only');
+        // Permission is a system setting now, not a per-run field.
+        expect(payload.permissionCeiling).toBeUndefined();
         expect(payload.maxCostUsd).toBe(0.5);
         expect(payload.userId).toBeUndefined();
     });

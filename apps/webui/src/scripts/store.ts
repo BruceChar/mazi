@@ -282,6 +282,20 @@ export async function loadConfig(): Promise<void> {
     }
 }
 
+/** 写入系统级权限 grant（POST /api/config/goal；Settings → General）并刷新配置。 */
+export async function setPermissionCeiling(value: string): Promise<void> {
+    try {
+        cfg.value = await api('/api/config/goal', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ permissionCeiling: value }),
+        });
+        ui.err = null;
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
 /** 从服务端重新同步模型目录（POST /api/config/sync）并刷新配置。 */
 export async function syncConfig(): Promise<void> {
     try {

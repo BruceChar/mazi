@@ -9,10 +9,7 @@ import {
 const STORAGE_KEY = 'mazi.web.run-settings';
 
 /** GoalContract fields configured globally (System Settings → Run defaults) + model defaults. */
-export type RunSettings = Pick<
-    GoalContractDraft,
-    'permission' | 'budgetUsd' | 'maxSteps' | 'loopMode'
-> & {
+export type RunSettings = Pick<GoalContractDraft, 'budgetUsd' | 'maxSteps' | 'loopMode'> & {
     /** 默认模型 id（空 = provider 默认）。 */
     model: string;
     /** 默认推理等级（off/low/medium/high）。 */
@@ -22,7 +19,6 @@ export type RunSettings = Pick<
 function defaultRunSettings(): RunSettings {
     const draft = createGoalContractDraft();
     return {
-        permission: draft.permission,
         budgetUsd: draft.budgetUsd,
         maxSteps: draft.maxSteps,
         loopMode: draft.loopMode,
@@ -39,7 +35,6 @@ function readRunSettings(): RunSettings {
         if (!raw) return base;
         const parsed = JSON.parse(raw) as Partial<RunSettings>;
         return {
-            permission: typeof parsed.permission === 'string' ? parsed.permission : base.permission,
             budgetUsd: typeof parsed.budgetUsd === 'number' ? parsed.budgetUsd : base.budgetUsd,
             maxSteps: typeof parsed.maxSteps === 'number' ? parsed.maxSteps : base.maxSteps,
             loopMode: typeof parsed.loopMode === 'string' ? parsed.loopMode : base.loopMode,

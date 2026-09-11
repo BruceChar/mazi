@@ -18,6 +18,7 @@ function expandHome(path: string): string {
 export const HOME_FILE_PROVIDERS = 'providers.json';
 export const HOME_FILE_TOOLS = 'tools.json';
 export const HOME_FILE_FLAGS = 'flags.json';
+export const HOME_FILE_SETTINGS = 'settings.json';
 export const HOME_DB_FILE = 'mazi.db';
 export const HOME_EVENTS_DIR = 'events';
 
@@ -26,6 +27,7 @@ export interface MaziPaths {
     providersFile: string;
     toolsFile: string;
     flagsFile: string;
+    settingsFile: string;
     dbPath: string;
     eventDir: string;
 }
@@ -36,6 +38,7 @@ export function maziPaths(home = maziHome()): MaziPaths {
         providersFile: join(home, HOME_FILE_PROVIDERS),
         toolsFile: join(home, HOME_FILE_TOOLS),
         flagsFile: join(home, HOME_FILE_FLAGS),
+        settingsFile: join(home, HOME_FILE_SETTINGS),
         dbPath: join(home, HOME_DB_FILE),
         eventDir: join(home, HOME_EVENTS_DIR),
     };

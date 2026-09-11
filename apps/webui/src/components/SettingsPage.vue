@@ -1,11 +1,18 @@
 <script setup>
 import { ref, watch } from 'vue';
-import { LOOP_MODES, PERMISSION_LEVELS } from '../scripts/goal-contract.ts';
+import { LOOP_MODES, PERMISSION_LEVELS, PERMISSION_META } from '../scripts/goal-contract.ts';
 import { runSettings, saveRunSettings } from '../scripts/run-settings.ts';
 
 /** Update one run-default field and persist it. */
 function updateRun(key, value) {
     saveRunSettings({ [key]: value });
+}
+
+function permissionLabel(level) {
+    return PERMISSION_META[level]?.label || level;
+}
+function permissionHint(level) {
+    return PERMISSION_META[level]?.hint || '';
 }
 
 const props = defineProps({
@@ -18,6 +25,8 @@ const props = defineProps({
     syncing: { type: Boolean, default: false },
     /** 随心聊默认工作区（后端配置）。 */
     freeChatWorkspace: { type: String, default: '' },
+    /** 系统级权限 grant（后端 settings.json 持久化）。 */
+    permissionCeiling: { type: String, default: 'read-only' },
 });
 const emit = defineEmits([
     'update:theme',
@@ -26,6 +35,7 @@ const emit = defineEmits([
     'sync-models',
     'save-free-workspace',
     'pick-free-workspace',
+    'save-permission',
 ]);
 
 const freeChatDraft = ref(props.freeChatWorkspace);
@@ -74,15 +84,19 @@ watch(
                 <div class="settings-group-title">Run defaults</div>
                 <div class="setting-item">
                     <div class="setting-info">
-                        <div class="setting-name">Permission ceiling</div>
-                        <div class="setting-desc">Highest permission a new goal may request</div>
+                        <div class="setting-name">System permission grant</div>
+                        <div class="setting-desc">
+                            应用到所有新会话 · {{ permissionHint(permissionCeiling) }}
+                        </div>
                     </div>
                     <select
                         class="setting-select"
-                        :value="runSettings.permission"
-                        @change="updateRun('permission', $event.target.value)"
+                        :value="permissionCeiling"
+                        @change="emit('save-permission', $event.target.value)"
                     >
-                        <option v-for="p in PERMISSION_LEVELS" :key="p" :value="p">{{ p }}</option>
+                        <option v-for="p in PERMISSION_LEVELS" :key="p" :value="p">
+                            {{ permissionLabel(p) }}
+                        </option>
                     </select>
                 </div>
                 <div class="setting-item">

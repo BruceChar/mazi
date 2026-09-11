@@ -1,7 +1,15 @@
 import 'reflect-metadata';
-import { Controller, Get, Post, Query } from '@nestjs/common';
+import type { PermissionLevel } from '@mazi/core';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { ApiError } from '../common/api-error.js';
 import { recentLogs } from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
+
+const PERMISSION_CEILINGS: readonly PermissionLevel[] = [
+    'read-only',
+    'workspace-write',
+    'autonomous',
+];
 
 /** /api/health 与 /api/config：契约对齐旧 node:http 实现（docs v0.2 §10.4） */
 @Controller()
@@ -49,6 +57,19 @@ export class HealthController {
     @Post('runtime/restart')
     async restart(): Promise<Record<string, unknown>> {
         return this.runtime.restart();
+    }
+
+    /** POST /api/config/goal：写入系统级权限 grant（Settings → General）。 */
+    @Post('config/goal')
+    async setGoalConfig(
+        @Body() body: { permissionCeiling?: unknown },
+    ): Promise<Record<string, unknown>> {
+        const value = body?.permissionCeiling;
+        if (typeof value !== 'string' || !PERMISSION_CEILINGS.includes(value)) {
+            throw new ApiError(400, `permissionCeiling 非法：${String(value)}`);
+        }
+        await this.runtime.setPermissionCeiling(value);
+        return this.config();
     }
 
     /** POST /api/config/sync：在线发现端点模型并返回最新配置。 */

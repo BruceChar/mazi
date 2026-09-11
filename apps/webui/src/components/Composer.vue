@@ -13,9 +13,6 @@ const props = defineProps({
     selectedModel: { type: String, default: '' },
     reasoningLevel: { type: String, default: 'high' },
     reasoningLevels: { type: Array, default: () => [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }] },
-    /** 权限审批等级（GoalContract.permissionCeiling）。 */
-    permission: { type: String, default: 'read-only' },
-    permissionLevels: { type: Array, default: () => [] },
 });
 const emit = defineEmits([
     'update:modelValue',
@@ -25,45 +22,11 @@ const emit = defineEmits([
     'exit-workspace',
     'update:selectedModel',
     'update:reasoningLevel',
-    'update:permission',
 ]);
 
 /* Internal UI state */
 const workspaceMenu = ref(false);
-const permMenu = ref(false);
 const pickerType = ref(null); // 'model' | 'reasoning' | null
-
-/** 权限审批等级 → 展示文案。 */
-const PERMISSION_LABELS = {
-    text: '文本',
-    'read-only': '只读',
-    'workspace-write': '工作区写',
-    draft: '草稿',
-    approved: '审批',
-    autonomous: '完全',
-};
-/** 每档一句话说明，避免用户不知道选哪个。 */
-const PERMISSION_HINTS = {
-    text: '纯对话，不提供工具',
-    'read-only': '只能读；写文件/执行命令/联网需批准',
-    'workspace-write': '可读写工作区；执行命令/联网需批准',
-    draft: '读写工作区 + 联网；执行命令需批准',
-    approved: '读写/联网免批准；执行命令需批准',
-    autonomous: '全部免批准（secret 写入仍禁止）',
-};
-function permissionLabel() {
-    return PERMISSION_LABELS[props.permission] || props.permission || '权限';
-}
-function permissionText(level) {
-    return PERMISSION_LABELS[level] || level;
-}
-function permissionHint(level) {
-    return PERMISSION_HINTS[level] || '';
-}
-function selectPermission(level) {
-    emit('update:permission', level);
-    permMenu.value = false;
-}
 
 /* Computed labels */
 function currentModelLabel() {
@@ -184,35 +147,6 @@ function doExitWorkspace() {
                                 <button v-if="workspaceRoot" class="ws-menu-item danger" @click="doExitWorkspace">
                                     <LineIcon name="close" size="13" />
                                     <span>Exit workspace</span>
-                                </button>
-                            </div>
-                        </div>
-                        <!-- 权限审批：输入框左下角 -->
-                        <div class="ws-picker-wrap">
-                            <div v-if="permMenu" class="picker-backdrop" @click="permMenu = false"></div>
-                            <button
-                                class="ws-btn perm-btn"
-                                :class="{ active: permMenu }"
-                                title="权限审批等级"
-                                @click="permMenu = !permMenu"
-                            >
-                                <LineIcon name="shield" size="13" />
-                                <span>{{ permissionLabel() }}</span>
-                            </button>
-                            <div v-if="permMenu" class="ws-menu">
-                                <div class="ws-menu-section">权限审批</div>
-                                <button
-                                    v-for="level in permissionLevels"
-                                    :key="level"
-                                    class="ws-menu-item perm-option"
-                                    :class="{ active: level === permission }"
-                                    @click="selectPermission(level)"
-                                >
-                                    <LineIcon name="shield" size="13" />
-                                    <span class="perm-option-text">
-                                        <span class="perm-option-title">{{ permissionText(level) }}</span>
-                                        <span class="perm-option-hint">{{ permissionHint(level) }}</span>
-                                    </span>
                                 </button>
                             </div>
                         </div>
@@ -404,28 +338,6 @@ function doExitWorkspace() {
     height: 1px;
     background: var(--border-soft);
     margin: 4px 0;
-}
-.perm-option {
-    align-items: flex-start;
-}
-.perm-option-text {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 0;
-}
-.perm-option-title {
-    font-size: 13px;
-    line-height: 1.3;
-}
-.perm-option-hint {
-    font-size: 11px;
-    line-height: 1.3;
-    color: var(--fg-tertiary);
-    white-space: normal;
-}
-.perm-option.active .perm-option-hint {
-    color: color-mix(in srgb, var(--accent) 70%, var(--fg-tertiary));
 }
 /* Model / reasoning pickers */
 .picker-wrap {

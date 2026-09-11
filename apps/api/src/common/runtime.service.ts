@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { CatalogChange } from '@mazi/core';
+import type { CatalogChange, PermissionLevel } from '@mazi/core';
 import type {
     MaziPaths,
     ProviderModelInfo,
@@ -21,6 +21,7 @@ import {
     loadRuntimeConfig,
     observedCatalogFromProviderConfigs,
     type PendingApproval,
+    saveRuntimeSettings,
     toRuntimeConfig,
 } from '@mazi/runtime';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
@@ -503,8 +504,25 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         providers: Array<{ id: string; models: Array<{ id: string; name?: string }> }>;
         hasProvidersFile: boolean;
         freeChatWorkspace: string;
+        permissionCeiling: PermissionLevel;
     } {
-        return { ...configOverview(), freeChatWorkspace: this.freeChatWorkspaceValue };
+        return {
+            ...configOverview(),
+            freeChatWorkspace: this.freeChatWorkspaceValue,
+            permissionCeiling: this.config.goal?.permissionCeiling ?? 'read-only',
+        };
+    }
+
+    /**
+     * 系统级权限 grant（Settings → General）。写入 settings.json 并重建运行时，
+     * 新会话即按新档位派生；已在跑的会话不受影响（钉版语义）。
+     */
+    async setPermissionCeiling(value: PermissionLevel): Promise<PermissionLevel> {
+        saveRuntimeSettings({ goal: { permissionCeiling: value } }, this.paths.home);
+        this.config = { ...this.config, goal: { ...this.config.goal, permissionCeiling: value } };
+        await this.restartRuntimes();
+        this.logger.log(`setPermissionCeiling → ${value}`);
+        return value;
     }
 
     /**
