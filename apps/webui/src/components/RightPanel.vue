@@ -36,6 +36,7 @@ const emit = defineEmits([
     'update:activeEventType',
     'toggleShowAll',
     'select-step',
+    'locate-step',
     'select-conversation',
 ]);
 
@@ -147,7 +148,12 @@ const contextModelRows = computed(() =>
 const contextToolRows = computed(() =>
     contextRowList.value.filter((row) => row.contextTotal == null),
 );
-const showContextTools = ref(false);
+const openToolGroups = ref(new Set());
+function toggleToolGroup(key) {
+    const next = new Set(openToolGroups.value);
+    next.has(key) ? next.delete(key) : next.add(key);
+    openToolGroups.value = next;
+}
 const contextPeak = computed(() =>
     contextModelRows.value.reduce((max, row) => Math.max(max, row.contextTotal || 0), 0),
 );
@@ -170,19 +176,38 @@ const contextLegend = computed(() => {
     }
     return [...seen.values()];
 });
-const contextChart = computed(() => {
+/** 按模型轮分组：每个有 context 的 step 一组，其后的工具调用挂在组内（即在对应 thinking 之下）。 */
+const contextGroups = computed(() => {
     const max = Math.max(1, contextPeak.value);
-    return contextModelRows.value.map((row) => ({
-        ...row,
-        barWidth: Math.min(100, ((row.contextTotal || 0) / max) * 100),
-        segs: (row.segments || []).map((seg) => ({
-            key: seg.key,
-            label: seg.label,
-            colorVar: seg.colorVar,
-            tokens: seg.tokens,
-            width: row.contextTotal ? (seg.tokens / row.contextTotal) * 100 : 0,
-        })),
-    }));
+    const groups = [];
+    let current = null;
+    for (const row of contextRowList.value) {
+        if (row.contextTotal != null) {
+            current = {
+                key: row.stepId,
+                row: {
+                    ...row,
+                    barWidth: Math.min(100, ((row.contextTotal || 0) / max) * 100),
+                    segs: (row.segments || []).map((seg) => ({
+                        key: seg.key,
+                        label: seg.label,
+                        colorVar: seg.colorVar,
+                        tokens: seg.tokens,
+                        width: row.contextTotal ? (seg.tokens / row.contextTotal) * 100 : 0,
+                    })),
+                },
+                tools: [],
+            };
+            groups.push(current);
+        } else {
+            if (current === null) {
+                current = { key: 'lead:' + groups.length, row: null, tools: [] };
+                groups.push(current);
+            }
+            current.tools.push(row);
+        }
+    }
+    return groups;
 });
 </script>
 
@@ -406,9 +431,7 @@ const contextChart = computed(() => {
                             {{ audit.kind === 'task' ? '步骤' : '会话步骤' }}（{{ audit.rows.length }}）
                         </div>
                         <div class="audit-step-head">
-                            <span class="audit-step-tag">R#</span>
-                            <span class="audit-step-task">T#</span>
-                            <span class="audit-step-tag">S#</span>
+                            <span class="audit-step-loc">位置</span>
                             <span class="audit-step-kind">类型</span>
                             <span class="audit-step-ctx">上下文</span>
                             <span class="audit-step-delta">Δ</span>
@@ -419,11 +442,9 @@ const contextChart = computed(() => {
                             :key="row.stepId"
                             class="audit-step-row"
                             :class="{ selected: row.selected }"
-                            @click="emit('select-step', { stepId: row.stepId })"
+                            @click="emit('locate-step', { stepId: row.stepId })"
                         >
-                            <span class="audit-step-tag">R#{{ row.runIndex }}</span>
-                            <span class="audit-step-task">T#{{ row.taskIndex }}</span>
-                            <span class="audit-step-tag">S#{{ row.index }}</span>
+                            <span class="audit-step-loc">R#{{ row.runIndex }} T#{{ row.taskIndex }} S#{{ row.index }}</span>
                             <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
                             <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
                             <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
@@ -451,22 +472,21 @@ const contextChart = computed(() => {
                 </section>
 
                 <section class="audit-section">
-                    <div v-for="row in contextChart" :key="row.stepId" class="ctx-item">
-                        <div class="ctx-row" :class="{ selected: row.selected }">
+                    <div v-for="group in contextGroups" :key="group.key" class="ctx-item">
+                        <div v-if="group.row" class="ctx-row" :class="{ selected: group.row.selected }">
                             <button
                                 class="ctx-caret-btn"
-                                :title="openContext.has(row.stepId) ? '收起 diff' : '展开该步 diff'"
-                                @click="toggleContext(row.stepId)"
+                                :title="openContext.has(group.row.stepId) ? '收起 diff' : '展开该步 diff'"
+                                @click="toggleContext(group.row.stepId)"
                             >
-                                {{ openContext.has(row.stepId) ? '−' : '+' }}
+                                {{ openContext.has(group.row.stepId) ? '−' : '+' }}
                             </button>
-                            <span class="audit-step-tag">S#{{ row.lineIndex }}</span>
-                            <span class="ctx-run">R#{{ row.runIndex }}</span>
-                            <span class="ctx-kind">{{ row.toolName || row.kind }}</span>
-                            <div class="ctx-bar" @click="toggleContext(row.stepId)">
-                                <div class="ctx-bar-fill" :style="{ width: row.barWidth + '%' }">
+                            <span class="ctx-loc" @click="emit('locate-step', { stepId: group.row.stepId })">R#{{ group.row.runIndex }} T#{{ group.row.taskIndex }} S#{{ group.row.index }}</span>
+                            <span class="ctx-kind" @click="emit('locate-step', { stepId: group.row.stepId })">{{ group.row.toolName || group.row.kind }}</span>
+                            <div class="ctx-bar" @click="toggleContext(group.row.stepId)">
+                                <div class="ctx-bar-fill" :style="{ width: group.row.barWidth + '%' }">
                                     <span
-                                        v-for="seg in row.segs"
+                                        v-for="seg in group.row.segs"
                                         :key="seg.key"
                                         class="ctx-seg"
                                         :style="{ width: seg.width + '%', background: 'var(' + seg.colorVar + ')' }"
@@ -474,40 +494,37 @@ const contextChart = computed(() => {
                                     ></span>
                                 </div>
                             </div>
-                            <span class="ctx-total">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
-                            <span class="ctx-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
+                            <span class="ctx-total">{{ group.row.contextTotal != null ? formatTokens(group.row.contextTotal) : '-' }}</span>
+                            <span class="ctx-delta" :class="diffClass(group.row.contextDelta)">{{ formatSigned(group.row.contextDelta) }}</span>
                         </div>
-                        <div v-if="openContext.has(row.stepId)" class="ctx-diff">
-                            <template v-for="part in row.diffParts" :key="part.key">
+                        <div v-if="group.row && openContext.has(group.row.stepId)" class="ctx-diff">
+                            <template v-for="part in group.row.diffParts" :key="part.key">
                                 <div class="ctx-diff-label">{{ part.label }}</div>
                                 <pre class="seg-content">{{ part.text }}</pre>
                             </template>
-                            <div v-if="!row.diffParts.length" class="audit-muted">（本步无新增内容）</div>
+                            <div v-if="!group.row.diffParts.length" class="audit-muted">（本步无新增内容）</div>
+                        </div>
+                        <!-- 该模型轮产生的工具调用：折叠在对应 thinking 之下（不是独立面板） -->
+                        <div v-if="group.tools.length" class="ctx-tools-inline">
+                            <button class="ctx-tools-toggle" @click="toggleToolGroup(group.key)">
+                                <span class="ctx-tools-caret">{{ openToolGroups.has(group.key) ? '−' : '+' }}</span>
+                                工具调用（{{ group.tools.length }}）
+                            </button>
+                            <div v-if="openToolGroups.has(group.key)">
+                                <button
+                                    v-for="tool in group.tools"
+                                    :key="tool.stepId"
+                                    class="ctx-tool-line"
+                                    :class="{ selected: tool.selected }"
+                                    @click="emit('locate-step', { stepId: tool.stepId })"
+                                >
+                                    <span class="ctx-loc">R#{{ tool.runIndex }} T#{{ tool.taskIndex }} S#{{ tool.index }}</span>
+                                    <span class="ctx-tool-text">【{{ tool.toolName }}：{{ tool.toolCommand }}】</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
-                    <div v-if="!contextChart.length" class="audit-muted">暂无可追踪的步骤</div>
-                </section>
-
-                <!-- 对 context 无影响的工具调用：折叠成一行一个【工具：命令+参数】 -->
-                <section v-if="contextToolRows.length" class="audit-section">
-                    <button class="ctx-tools-toggle" @click="showContextTools = !showContextTools">
-                        <span class="ctx-tools-caret">{{ showContextTools ? '−' : '+' }}</span>
-                        工具调用（{{ contextToolRows.length }}）· 不影响 context
-                    </button>
-                    <div v-if="showContextTools" class="ctx-tools">
-                        <button
-                            v-for="row in contextToolRows"
-                            :key="row.stepId"
-                            class="ctx-tool-line"
-                            :class="{ selected: row.selected }"
-                            @click="emit('select-step', { stepId: row.stepId })"
-                        >
-                            <span class="audit-step-tag">R#{{ row.runIndex }}</span>
-                            <span class="audit-step-task">T#{{ row.taskIndex }}</span>
-                            <span class="audit-step-tag">S#{{ row.index }}</span>
-                            <span class="ctx-tool-text">【{{ row.toolName }}：{{ row.toolCommand }}】</span>
-                        </button>
-                    </div>
+                    <div v-if="!contextModelRows.length" class="audit-muted">暂无可追踪的步骤</div>
                 </section>
             </div>
             <div v-else-if="activeTab === 'log'" class="drawer-body">
@@ -1069,10 +1086,19 @@ const contextChart = computed(() => {
     border-bottom: 1px solid var(--border-soft);
     margin-bottom: 2px;
 }
-.audit-step-head .audit-step-tag,
-.audit-step-head .audit-step-task {
+.audit-step-head .audit-step-loc {
     background: transparent;
     color: var(--fg-tertiary);
+}
+.audit-step-loc {
+    font-family: ui-monospace, monospace;
+    font-weight: 700;
+    color: var(--fg-tertiary);
+    background: var(--bg-code);
+    border-radius: 3px;
+    padding: 0 4px;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 .audit-step-row {
     display: flex;
@@ -1291,7 +1317,7 @@ const contextChart = computed(() => {
 }
 .ctx-row {
     display: grid;
-    grid-template-columns: 18px 34px 26px minmax(52px, 84px) 1fr 52px 44px;
+    grid-template-columns: 18px minmax(96px, 122px) minmax(52px, 84px) 1fr 52px 44px;
     align-items: center;
     gap: 4px;
     padding: 2px 4px;
@@ -1318,10 +1344,18 @@ const contextChart = computed(() => {
     background: var(--bg-code);
     color: var(--fg);
 }
-.ctx-run {
+.ctx-loc {
     font-family: ui-monospace, monospace;
     font-size: 10px;
     color: var(--fg-tertiary);
+    white-space: nowrap;
+    cursor: pointer;
+}
+.ctx-loc:hover {
+    color: var(--fg);
+}
+.ctx-tools-inline {
+    margin-left: 22px;
 }
 .ctx-kind {
     overflow: hidden;

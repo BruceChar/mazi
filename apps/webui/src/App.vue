@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './assets/LineIcon.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import SettingsPage from './components/SettingsPage.vue';
@@ -300,6 +300,23 @@ function onSelectStep(target) {
     if (!target?.stepId) return;
     selectStep(target.stepId, target.taskId);
     drawerTab.value = 'audit';
+}
+
+/** 右侧面板（审计/Context）点击 step：选中并滚动主对话流到该 step。 */
+function scrollToStep(stepId) {
+    if (typeof document === 'undefined') return;
+    const el = document.querySelector('[data-step-id="' + stepId + '"]');
+    if (el instanceof HTMLElement) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+}
+
+async function onLocateStep(target) {
+    if (!target?.stepId) return;
+    selectStep(target.stepId, target.taskId);
+    drawerTab.value = 'audit';
+    await nextTick();
+    scrollToStep(target.stepId);
 }
 
 function onSelectTask(taskId) {
@@ -831,6 +848,7 @@ onBeforeUnmount(() => {
             :audit="auditView"
             :context-rows="conversationAudit.rows"
             @select-step="onSelectStep"
+            @locate-step="onLocateStep"
             @select-conversation="onSelectConversation"
             @update:active-tab="drawerTab = $event"
             @toggle-maximize="togglePanelMax"

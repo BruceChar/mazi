@@ -327,6 +327,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
                 <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
                     <div
                         class="exec-task-head"
+                        :data-task-id="task.taskId"
                         :class="{ selected: task.taskId === selectedTaskId }"
                         title="单击查看审计 · 双击折叠/展开"
                         @click="emit('select-task', task.taskId)"
@@ -351,6 +352,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
                         >
                             <div
                                 class="exec-step-head"
+                                :data-step-id="row.stepId"
                                 :class="{ selected: row.stepId === selectedStepId }"
                                 title="单击查看审计 · 双击折叠/展开"
                                 @click="emit('select-step', { stepId: row.stepId, taskId: row.taskId })"
