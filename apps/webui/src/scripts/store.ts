@@ -114,6 +114,8 @@ export function saveUserPreferences(next: Partial<UserPreferences>): void {
 export const conversations = ref<Conversation[]>([]);
 export const cfg = ref<ConfigOverview | null>(null);
 export const workspaceRoot = ref<string>('');
+/** 随心聊（未选项目）默认工作区；后端配置，用于标题展示与设置。 */
+export const freeChatWorkspace = ref<string>('');
 export const projects = ref<Project[]>([]);
 export const busy = ref<boolean>(false);
 /** Currently open Goal run (rootGoalId). */
@@ -281,9 +283,32 @@ export async function loadWorkspace(): Promise<void> {
         const state = await api('/api/workspaces/current');
         workspaceRoot.value = state.path || '';
         projects.value = state.projects || [];
+        freeChatWorkspace.value = state.freeChatPath || '';
     } catch {
         workspaceRoot.value = '';
     }
+}
+
+/** 保存「随心聊」默认工作区（空 → 后端回退 $MAZI_HOME/workspace）。 */
+export async function saveFreeChatWorkspace(path: string): Promise<string> {
+    const state = await api('/api/workspaces/free-chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: path?.trim() || '' }),
+    });
+    freeChatWorkspace.value = state.path || '';
+    await loadWorkspace();
+    return state.path;
+}
+
+/** 系统目录选择器选「随心聊」默认工作区。 */
+export async function pickFreeChatWorkspace(): Promise<string | undefined> {
+    const state = await api('/api/workspaces/pick-free-chat', { method: 'POST' });
+    if (state?.path) {
+        freeChatWorkspace.value = state.path;
+        await loadWorkspace();
+    }
+    return state?.path;
 }
 
 export async function selectWorkspace(path: string): Promise<void> {

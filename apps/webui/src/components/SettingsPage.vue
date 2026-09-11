@@ -1,4 +1,5 @@
 <script setup>
+import { ref, watch } from 'vue';
 import { LOOP_MODES, PERMISSION_LEVELS } from '../scripts/goal-contract.ts';
 import { runSettings, saveRunSettings } from '../scripts/run-settings.ts';
 
@@ -7,7 +8,7 @@ function updateRun(key, value) {
     saveRunSettings({ [key]: value });
 }
 
-defineProps({
+const props = defineProps({
     activeTab: { type: String, default: 'general' },
     theme: { type: String, default: 'system' },
     cfg: { type: Object, default: null },
@@ -15,13 +16,25 @@ defineProps({
     reasoningLevel: { type: String, default: 'high' },
     reasoningLevels: { type: Array, default: () => ['low', 'medium', 'high'] },
     syncing: { type: Boolean, default: false },
+    /** 随心聊默认工作区（后端配置）。 */
+    freeChatWorkspace: { type: String, default: '' },
 });
 const emit = defineEmits([
     'update:theme',
     'update:selectedModel',
     'update:reasoningLevel',
     'sync-models',
+    'save-free-workspace',
+    'pick-free-workspace',
 ]);
+
+const freeChatDraft = ref(props.freeChatWorkspace);
+watch(
+    () => props.freeChatWorkspace,
+    (value) => {
+        freeChatDraft.value = value;
+    },
+);
 </script>
 
 <template>
@@ -41,6 +54,20 @@ const emit = defineEmits([
                         <option value="dark">Dark</option>
                         <option value="system">System</option>
                     </select>
+                </div>
+            </div>
+            <div class="settings-group">
+                <div class="settings-group-title">Workspace</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Free chat workspace</div>
+                        <div class="setting-desc">{{ freeChatWorkspace || '未设置（默认 $MAZI_HOME/workspace）' }}</div>
+                    </div>
+                    <div class="setting-actions">
+                        <input class="setting-input" v-model="freeChatDraft" placeholder="~/.mazi/workspace" />
+                        <button class="setting-sync" @click="emit('save-free-workspace', freeChatDraft)">保存</button>
+                        <button class="setting-sync" @click="emit('pick-free-workspace')">选择…</button>
+                    </div>
                 </div>
             </div>
             <div class="settings-group">
@@ -289,6 +316,11 @@ const emit = defineEmits([
 .setting-sync:disabled {
     opacity: 0.6;
     cursor: wait;
+}
+.setting-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 .setting-input {
     width: 120px;

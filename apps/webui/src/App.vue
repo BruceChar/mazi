@@ -33,6 +33,9 @@ import {
     loadConfig,
     loadConversations,
     loadWorkspace,
+    freeChatWorkspace,
+    pickFreeChatWorkspace,
+    saveFreeChatWorkspace,
     openRun,
     pickWorkspace,
     projects,
@@ -101,6 +104,25 @@ const workspaceDisplayName = computed(() => {
     const parts = p.replace(/\/+$/, '').split('/');
     return parts[parts.length - 1] || p;
 });
+
+/** 对话窗口标题显示的工作区：已选项目优先，否则随心聊默认工作区。 */
+const effectiveWorkspace = computed(() => workspaceRoot.value || freeChatWorkspace.value);
+
+async function onSaveFreeChatWorkspace(path) {
+    try {
+        await saveFreeChatWorkspace(path);
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
+async function onPickFreeChatWorkspace() {
+    try {
+        await pickFreeChatWorkspace();
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
 function useSuggestion(card) {
     prompt.value = card.prompt;
 }
@@ -773,7 +795,7 @@ onBeforeUnmount(() => {
                 <div v-if="ui.err && conversations.length" class="error-banner">{{ ui.err }}</div>
                 <ChatMain
                     :active-conversation="activeConversation"
-                    :workspace-root="workspaceRoot"
+                    :workspace-root="effectiveWorkspace"
                     :workspace-display-name="workspaceDisplayName"
                     :runs="runs"
                     :run-details="runDetails"
@@ -816,10 +838,13 @@ onBeforeUnmount(() => {
                     :reasoning-level="reasoningLevel"
                     :reasoning-levels="REASONING_LEVELS"
                     :syncing="syncingModels"
+                    :free-chat-workspace="freeChatWorkspace"
                     @update:theme="setTheme"
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"
                     @sync-models="syncModels"
+                    @save-free-workspace="onSaveFreeChatWorkspace"
+                    @pick-free-workspace="onPickFreeChatWorkspace"
                 />
             </template>
 
