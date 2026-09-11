@@ -128,4 +128,32 @@ describe('catalog API（模型目录与计费数据架构）', () => {
         expect(res.statusCode).toBe(200);
         expect(res.json().configs[0].fallbackOfferingIds).toEqual(['deepseek/deepseek-v4-pro']);
     });
+
+    it('POST /api/catalog/aliases 登记改名 alias，并在审计中留痕', async () => {
+        const res = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/catalog/aliases',
+            payload: {
+                oldModelId: 'deepseek-v4-pro',
+                canonicalModelId: 'deepseek-v4-flash',
+                reason: 'vendor-rename',
+            },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json().alias.reason).toBe('vendor-rename');
+        const changes = await h.fastify.inject({ method: 'GET', url: '/api/catalog/changes' });
+        const aliasChange = changes
+            .json()
+            .changes.find((change: { kind: string }) => change.kind === 'alias-created');
+        expect(aliasChange.payload.oldModelId).toBe('deepseek-v4-pro');
+    });
+
+    it('POST /api/catalog/aliases 非法 body → 400', async () => {
+        const res = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/catalog/aliases',
+            payload: { oldModelId: 'x' },
+        });
+        expect(res.statusCode).toBe(400);
+    });
 });

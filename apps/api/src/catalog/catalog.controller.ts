@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import type { DriverConfig, OfferingId } from '@mazi/core';
+import type { DriverConfig, ModelAliasReason, ModelId, OfferingId } from '@mazi/core';
 import type { UsageFilter, UsageSummary } from '@mazi/runtime';
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
@@ -54,6 +54,33 @@ function driverConfigOf(body: unknown): DriverConfig {
     };
 }
 
+function aliasInputOf(body: unknown): {
+    oldModelId: ModelId;
+    canonicalModelId: ModelId;
+    reason: ModelAliasReason;
+} {
+    if (typeof body !== 'object' || body === null) {
+        throw new ApiError(400, '缺少 alias');
+    }
+    const record = body as Record<string, unknown>;
+    const oldModelId = typeof record.oldModelId === 'string' ? record.oldModelId : '';
+    const canonicalModelId =
+        typeof record.canonicalModelId === 'string' ? record.canonicalModelId : '';
+    const reason = record.reason;
+    if (
+        oldModelId.length === 0 ||
+        canonicalModelId.length === 0 ||
+        (reason !== 'vendor-rename' && reason !== 'operator-merge')
+    ) {
+        throw new ApiError(400, 'oldModelId / canonicalModelId / reason 非法');
+    }
+    return {
+        oldModelId: oldModelId as ModelId,
+        canonicalModelId: canonicalModelId as ModelId,
+        reason,
+    };
+}
+
 /** 模型目录与计费：目录快照 / 供应账本 / 审计变更 / DriverConfig（只读优先，写走 PG 语义的持久层）。 */
 @Controller('catalog')
 export class CatalogController {
@@ -103,6 +130,14 @@ export class CatalogController {
         const service = await this.runtime.catalog();
         await service.setDriverConfig(driverConfigOf(body));
         return { configs: service.facts().driverConfigs };
+    }
+
+    /** POST /api/catalog/aliases：登记厂商改名/换代 alias（历史凭证可解析旧 id）。 */
+    @Post('aliases')
+    async createAlias(@Body() body: unknown): Promise<Record<string, unknown>> {
+        const service = await this.runtime.catalog();
+        const alias = await service.createAlias(aliasInputOf(body));
+        return { alias };
     }
 
     /** POST /api/catalog/sync：把 providers.json 重新同步进目录，返回 diff 与 epoch。 */
