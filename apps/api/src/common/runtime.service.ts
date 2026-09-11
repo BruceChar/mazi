@@ -108,7 +108,9 @@ export class ApiRuntimeService implements OnApplicationShutdown {
      * @returns 是否发生变更
      */
     syncProviderModels(): boolean {
+        this.logger.log('syncProviderModels: start');
         const file = this.paths.providersFile;
+        this.logger.debug(`syncProviderModels: file=${file}`);
         if (!existsSync(file)) {
             return false;
         }

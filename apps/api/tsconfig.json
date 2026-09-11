@@ -8,7 +8,7 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "test/post-status.interceptor.test.ts"],
   "exclude": ["src/**/*.test.ts"],
   "references": [
     { "path": "../../packages/core" },

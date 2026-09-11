@@ -3,7 +3,7 @@ import type { CallHandler, ExecutionContext } from '@nestjs/common';
 import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
 import { firstValueFrom, of } from 'rxjs';
 import { describe, expect, it } from 'vitest';
-import { PostStatus200Interceptor } from './post-status.interceptor.js';
+import { PostStatus200Interceptor } from '../src/common/post-status.interceptor.js';
 
 describe('PostStatus200Interceptor（POST 统一 200 契约）', () => {
     const interceptor = new PostStatus200Interceptor();

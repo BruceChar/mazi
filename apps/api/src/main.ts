@@ -39,9 +39,16 @@ async function bootstrap(): Promise<void> {
         allowedHeaders: ['content-type'],
     });
     app.enableShutdownHooks();
+
     await app.listen(PORT, HOST);
     logger.log(`mazi running on ${process.env.NODE_ENV}:${HOST}:${PORT}`);
     logger.debug(`MAZI_HOME=${process.env.MAZI_HOME}`);
 }
 
 void bootstrap();
+
+
+async function startup(): Promise<void> {
+
+
+}
