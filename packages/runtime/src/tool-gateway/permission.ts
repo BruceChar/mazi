@@ -91,12 +91,16 @@ function capRule(capability: string): authz.CapabilityRule {
     if (capability.startsWith('db.')) {
         return { action: capability, domain: 'host', tier: 'auto', maxLabel: 'sensitive' };
     }
-    const [action, domain] = capability.split('.');
+    if (capability.startsWith('net.') || capability === 'publish' || capability === 'pay') {
+        return { action: capability, domain: 'external', tier: 'auto', maxLabel: 'internal' };
+    }
+    // fs.read.workspace / fs.write.workspace / delete: the capability string is
+    // also the action name (`isWriteAction` recognizes the write/delete forms).
     return {
-        action: capability.includes('.') ? `${action}.${domain}` : capability,
-        domain: capability.includes('.') ? (domain as authz.Domain) : 'workspace',
+        action: capability,
+        domain: 'workspace',
         tier: 'auto',
-        maxLabel: 'internal',
+        maxLabel: capability === 'fs.read.workspace' ? 'internal' : 'sensitive',
         ...(capability === 'fs.read.workspace' ? { severance: 'plain' as const } : {}),
     };
 }

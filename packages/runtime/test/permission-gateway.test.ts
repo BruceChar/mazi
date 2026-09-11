@@ -56,6 +56,25 @@ describe('runtime permission bridge', () => {
         expect(Object.keys(grantForPermissionLevel('approved'))).toContain('net.send');
     });
 
+    it('derives a valid action/domain for each granted capability', () => {
+        const grant = grantForPermissionLevel('autonomous');
+        expect(grant['fs.read.workspace']).toMatchObject({
+            action: 'fs.read.workspace',
+            domain: 'workspace',
+        });
+        expect(grant['fs.write.workspace']).toMatchObject({
+            action: 'fs.write.workspace',
+            domain: 'workspace',
+        });
+        expect(grant['net.fetch']).toMatchObject({ domain: 'external' });
+        expect(grant['db.read']).toMatchObject({ domain: 'host' });
+        expect(grant['fs.read.host']).toMatchObject({
+            action: 'fs.read',
+            domain: 'host',
+            maxLabel: 'secret',
+        });
+    });
+
     it('derives the dispatch capability from the tool shape', () => {
         expect(capabilityForTool(TOOLS[0])).toBe('fs.read.workspace');
         expect(capabilityForTool(TOOLS[2])).toBe('fs.write.workspace');
