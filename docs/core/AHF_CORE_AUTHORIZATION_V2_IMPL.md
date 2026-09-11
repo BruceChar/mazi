@@ -36,9 +36,10 @@
 | `trust-ladder.ts` | T0/T1/T2 状态机 + 行为签名 + 稳定性判据 + 即时降级 | §4.6, N6 |
 | `approval.ts` | V18 审批回显、审批令牌绑定、重复扣款防护、双人规则 | §9.5.2, §12, V18, §8.2 |
 | `engine.ts` | 组合根 `AuthorizationEngine`：derive / resolveAsset / ⑩ overlay / 条件裁决 / 见证 / flush | §17.3 |
+| `gateway-types.ts` | ToolGateway v2 契约：注册、调用、三态结果、hook、审批 seam、11 阶段常量、审计事件 | ToolGateway §4–5 |
+| `gateway.ts` | `DefaultToolGateway` 11 阶段管线（tier 分派 / 值层标注+R3-flow+出站检查 / 动词 / 审批 / budget / 执行+代签 / ⑩打标+账本+overlay） | ToolGateway §5, V2 §5.5/§9.3 |
 | `telemetry.ts` | 授权面宽度遥测 | §9.4 T7 |
-| `audit.ts` | `DECISION_EVENT_TYPES` 事件目录 | §11 |
-| `types.ts` | 上述共享类型 | §4 |
+| `types.ts` | 上述共享类型；`DECISION_EVENT_TYPES` 事件目录见 audit.ts | §4, §11 |
 
 ## 3. 关键契约
 
@@ -115,10 +116,22 @@ type AuthzErrorCode =
 | `authz-tcb.test.ts` | 钉版快照不可变 + 审计链篡改检测 + 撤销后钉版 fail-closed + 根签名轮换 |
 | `authz-trust-ladder.test.ts` | 全转移覆盖 + 小样本集合比较 + D_KL 边界 + 跨版本回落 T0 |
 | `authz-engine.test.ts` | 组合根 E2E：sensitive 读→写 artifact→overlay→egress 破缺 + flush/overlay 解耦 + A2a 同步失效 + T7 遥测 + 重复扣款 + N8 重读 |
+| `authz-gateway.test.ts` | 11 阶段逐段断言 + V5/V13/V14 + R3-flow 条件 + N4 句柄 + V17 值层 + danger-verb + budget + output-taint + full-trust + L1 句柄 |
+| `permission-gateway.test.ts`（runtime） | permissionCeiling→AgentGrant、ToolConfig→v2 注册、supply 收窄、draft 执行、审计事件 |
 
-## 6. 非目标（本文不实现）
+## 6. runtime 接线
+
+`packages/runtime/src/tool-gateway/permission.ts` 是执行面的接线层：
+
+- `grantForPermissionLevel(level)`：把 UI 的 `text/read-only/draft/approved/autonomous` 映射为 root `AgentGrant`（ceiling 即用户的常设授权）；
+- `capabilityForTool(tool)`：由 `sideEffects`/`irreversible`/工具名推导 `CapabilityKey`（`shell.run→fs.exec`、`net→net.fetch`、`fs+irreversible→fs.write.workspace`、其余 `fs.read.workspace`）；
+- `RuntimeToolGateway`：构建 `AuthorizationEngine` + `DefaultToolGateway`，按 ceiling 收窄 supply 视图（`visibleToolNames()`），每次调用走 11 阶段管线；
+- `runtime.ts` 的 `goalExecutionConfig(rootGoalId, goalId)` 用网关产出的可见工具集替换原白名单，`invoker.invoke` 经网关结果映射为 `ToolCallResult`，阶段审计事件回发到事件总线（`policy.check` / `policy.denied`）。
+
+**待办**：`standingApprovalSeam()` 是 ceiling 常设授权的过渡实现；真正的 HIL 审批 seam（composer 审批交互 → `ApprovalSeam`）后续替换。
+
+## 7. 非目标（本文不实现）
 
 - 沙盒后端（bwrap/Landlock/Seatbelt）与 Deployer profile 生成；
 - egress proxy 的网络实现（仅定义域名校验接口）；
-- 11 阶段管线的编排（ToolGateway 文档范围）；
 - 形式化 TLA+/Alloy 规格（V2 §15.1）。
