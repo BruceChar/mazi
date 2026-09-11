@@ -9,6 +9,7 @@ import type {
     LLMMessage,
     LLMProvider,
     LLMRequest,
+    PermissionLevel,
     RuntimeContextBreakdown,
     Step,
     Task,
@@ -64,6 +65,8 @@ export interface ConversationTurn {
 
 export interface RunOptions {
     userId?: string;
+    /** 本次 Goal 的权限档位（composer 选择）；缺省用配置默认。 */
+    permissionCeiling?: PermissionLevel;
     /** 工作区根路径；文件工具只允许读取该目录内文件 */
     workspaceRoot?: string;
     /** providerId → LLMProvider 覆盖（离线测试注入；优先生效） */
@@ -758,7 +761,8 @@ export class HarnessRuntime {
             this.pendingModel.set(rootGoalId, opts.modelId);
         }
         const goalId = ulid();
-        const ceiling = this.config.goal?.permissionCeiling ?? 'read-only';
+        const ceiling =
+            opts.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only';
         const intake: Goal = {
             goalId: rootGoalId,
             rootGoalId,
@@ -841,9 +845,11 @@ export class HarnessRuntime {
         const modelId = this.pendingModel.get(rootGoalId);
         this.pendingModel.delete(rootGoalId);
         const model = this.resolveModelChoice(modelId);
+        const workGoal = goals.find((goal) => goal.kind === 'work');
         const exec = this.goalExecutionConfig(
             rootGoalId,
-            goals.find((goal) => goal.kind === 'work')?.goalId ?? rootGoalId,
+            workGoal?.goalId ?? rootGoalId,
+            workGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
         );
         const result = await runGoalTree(
             {
@@ -985,6 +991,7 @@ export class HarnessRuntime {
     private goalExecutionConfig(
         rootGoalId: string,
         goalId: string,
+        level: PermissionLevel,
     ): {
         tools: ToolSchema[];
         invoker: GoalToolInvoker;
@@ -1000,7 +1007,6 @@ export class HarnessRuntime {
                 merged.push(tool);
             }
         }
-        const level = this.config.goal?.permissionCeiling ?? 'read-only';
         const gateway = new RuntimeToolGateway({
             rootGoalId,
             goalId,

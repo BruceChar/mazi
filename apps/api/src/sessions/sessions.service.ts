@@ -64,6 +64,10 @@ export class SessionsService {
             body.goal && typeof body.goal === 'object'
                 ? (body.goal as Record<string, unknown>)
                 : undefined;
+        const permissionCeiling =
+            typeof goalBody?.permissionCeiling === 'string'
+                ? goalBody.permissionCeiling
+                : undefined;
         const reasoningLevel =
             typeof goalBody?.reasoningLevel === 'string'
                 ? goalBody.reasoningLevel
@@ -79,6 +83,7 @@ export class SessionsService {
         const history = conversationId ? await this.conversationHistory(conversationId) : [];
         const created = await this.runtime.harness().createGoalSession(input, {
             userId,
+            ...(permissionCeiling ? { permissionCeiling } : {}),
             ...(history.length > 0 ? { history } : {}),
             ...(reasoningLevel ? { reasoningLevel } : {}),
             ...(modelId ? { modelId } : {}),
