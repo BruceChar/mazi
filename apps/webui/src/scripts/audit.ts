@@ -1191,22 +1191,23 @@ export function kindLabel(kind: string): string {
     return kind || '-';
 }
 
+/** token 数：保留两位小数（1.85K / 2.34M），<1000 显示整数。 */
 export function formatTokens(value: number | null | undefined): string {
     const n = value ?? 0;
     if (n < 1000) return String(n);
-    if (n < 1000000) return `${trimZero(n / 1000)}K`;
-    return `${trimZero(n / 1000000)}M`;
+    if (n < 1_000_000) return `${(n / 1000).toFixed(2)}K`;
+    return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
-function trimZero(value: number): string {
-    const fixed = value.toFixed(1);
-    return fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed;
-}
-
-export function formatCost(usd: number | null | undefined): string {
-    const n = Number(usd ?? 0);
-    if (!Number.isFinite(n) || n === 0) return '$0';
-    return `$${n.toFixed(6)}`;
+/**
+ * 金额：最多 6 位小数（去掉末尾多余的 0），单位统一为人民币「¥」。
+ * 计价口径为元（pricing 快照入库时即元）。
+ */
+export function formatCost(value: number | null | undefined): string {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n) || n === 0) return '¥0';
+    const fixed = n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+    return `¥${fixed}`;
 }
 
 export function formatPercent(ratio: number | null | undefined): string {

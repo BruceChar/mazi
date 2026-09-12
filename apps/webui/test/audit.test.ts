@@ -552,10 +552,14 @@ describe('audit buildAuditView', () => {
 describe('audit formatting', () => {
     it('formatTokens / formatCost / formatPercent / formatDuration', () => {
         expect(formatTokens(0)).toBe('0');
-        expect(formatTokens(1500)).toBe('1.5K');
-        expect(formatTokens(2000000)).toBe('2M');
-        expect(formatCost(0)).toBe('$0');
-        expect(formatCost(0.0012)).toBe('$0.001200');
+        expect(formatTokens(1500)).toBe('1.50K');
+        expect(formatTokens(1850)).toBe('1.85K');
+        expect(formatTokens(2000000)).toBe('2.00M');
+        // 金额单位统一人民币；最多 6 位小数并去掉末尾 0
+        expect(formatCost(0)).toBe('¥0');
+        expect(formatCost(0.0012)).toBe('¥0.0012');
+        expect(formatCost(2.4)).toBe('¥2.4');
+        expect(formatCost(0.000123)).toBe('¥0.000123');
         expect(formatPercent(0.785)).toBe('78.5%');
         expect(formatDuration(90_000)).toBe('1m 30s');
     });

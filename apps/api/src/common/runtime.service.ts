@@ -159,6 +159,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     } = { projects: [] };
     /** 作用域权限覆盖：`workspace:<path>` / `conversation:<id>`（settings.json 持久化）。 */
     private permissions: Record<string, string> = {};
+    /** 价格/模型定时校准（默认 5 分钟；MAZI_PRICE_SYNC_MS 可覆盖）。 */
+    private priceSyncTimer?: ReturnType<typeof setInterval>;
     private readonly paths: MaziPaths = ensureMaziDirs();
     private config: RuntimeConfig;
 
@@ -190,6 +192,25 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             .catch((error) =>
                 this.logger.warn(`online model sync on boot failed: ${String(error)}`),
             );
+        // 价格与模型目录定时校准：与启动时同一条链路（本地目录 + 在线发现 → providers.json pricing）。
+        const priceSyncMs = Number(process.env.MAZI_PRICE_SYNC_MS ?? 5 * 60 * 1000);
+        if (Number.isFinite(priceSyncMs) && priceSyncMs > 0) {
+            this.priceSyncTimer = setInterval(() => {
+                void this.syncProviderModelsOnline()
+                    .then(async (result) => {
+                        if (!result.changed || this.running) return;
+                        this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
+                            consoleEnabled: false,
+                        });
+                        await this.restartRuntimes();
+                        this.logger.log('periodic model/price sync: config + runtimes refreshed');
+                    })
+                    .catch((error) =>
+                        this.logger.warn(`periodic model/price sync failed: ${String(error)}`),
+                    );
+            }, priceSyncMs);
+            this.priceSyncTimer.unref?.();
+        }
     }
 
     /** 读取 providers.json；缺失/损坏 → undefined（调用方跳过，不覆盖）。 */
@@ -611,6 +632,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     }
 
     async onApplicationShutdown(): Promise<void> {
+        if (this.priceSyncTimer) clearInterval(this.priceSyncTimer);
         for (const broker of this.approvalBrokers.values()) broker.cancelAll();
         this.approvalBrokers.clear();
         await this.runtime?.close();
