@@ -224,6 +224,8 @@ function buildExecStats(detailObj) {
     let inputTokens = 0;
     let outputTokens = 0;
     let totalMs = 0;
+    // 模型生成耗时（thinking / intent）用于输出速率；工具耗时不参与。
+    let generationMs = 0;
     // 同轮 usage 会挂 thinking + intent 两处，按 roundId 去重后求和
     const seenRounds = new Set();
     for (const r of rows) {
@@ -236,12 +238,22 @@ function buildExecStats(detailObj) {
                 outputTokens += u.output || 0;
             }
         }
-        if (r.durationMs) totalMs += r.durationMs;
+        if (r.durationMs) {
+            totalMs += r.durationMs;
+            if (r.kind === 'thinking' || r.kind === 'intent') generationMs += r.durationMs;
+        }
     }
     const tree = buildExecTree(detailObj);
     const taskCount = tree.reduce((s, g) => s + g.tasks.length, 0);
     const stepCount = rows.filter((r) => r.kind !== 'intent' && r.kind !== 'observation').length;
-    return { inputTokens, outputTokens, totalTime: formatDuration(totalMs), taskCount, stepCount };
+    return {
+        inputTokens,
+        outputTokens,
+        totalTime: formatDuration(totalMs),
+        taskCount,
+        stepCount,
+        tokensPerSecond: generationMs > 0 ? (outputTokens / generationMs) * 1000 : 0,
+    };
 }
 
 
@@ -341,7 +353,6 @@ const stats = computed(() => buildExecStats(props.runDetail));
                         <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
                         <span class="exec-task-title">{{ task.title }}</span>
                         <span class="exec-task-count">{{ task.steps.length }} steps</span>
-                        <span v-if="task.time" class="exec-task-time">{{ task.time }}</span>
                     </div>
                     <div v-if="!collapsedTasks.has(task.taskId)" class="exec-task-body">
                         <div
@@ -387,8 +398,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
                                     v-if="row.status === 'error' || row.status === 'failed'"
                                     class="exec-step-status"
                                 >失败</span>
-                                <span v-if="row.duration" class="exec-step-duration">{{ row.duration }}</span>
-                                <span class="exec-step-time">{{ row.time }}</span>
+
                             </div>
                             <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
                                 <pre class="exec-step-code-inner">{{ row.text }}</pre>
@@ -399,11 +409,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
                                 class="exec-intent-inline markdown-body"
                                 v-html="renderMarkdown(row.intentText)"
                             ></div>
-                            <div v-if="usageStats(row.usage)?.hasData" class="exec-step-usage">
-                                {{ usageStats(row.usage).total }} tokens
-                                <template v-if="usageStats(row.usage).cache"> · cache {{ usageStats(row.usage).cache }}</template>
-                                <template v-if="usageStats(row.usage).reasoning"> · reasoning {{ usageStats(row.usage).reasoning }}</template>
-                            </div>
+
                         </div>
                     </div>
                 </div>
@@ -418,11 +424,6 @@ const stats = computed(() => buildExecStats(props.runDetail));
             @click="emit('select-step', { stepId: summary.stepId, taskId: summary.taskId })"
         >
             <div class="exec-summary-text markdown-body" v-html="renderMarkdown(summary.intentText)"></div>
-            <div v-if="usageStats(summary.usage)?.hasData" class="exec-step-usage">
-                {{ usageStats(summary.usage).total }} tokens
-                <template v-if="usageStats(summary.usage).cache"> · cache {{ usageStats(summary.usage).cache }}</template>
-                <template v-if="usageStats(summary.usage).reasoning"> · reasoning {{ usageStats(summary.usage).reasoning }}</template>
-            </div>
         </div>
 
         <!-- Per-run stats + feedback -->
@@ -438,6 +439,8 @@ const stats = computed(() => buildExecStats(props.runDetail));
             <span>{{ stats.totalTime }}</span>
             <span>·</span>
             <span>{{ stats.inputTokens }} in / {{ stats.outputTokens }} out tokens</span>
+            <span>·</span>
+            <span>{{ stats.tokensPerSecond.toFixed(1) }} tok/s</span>
         </div>
     </div>
     <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>

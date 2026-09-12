@@ -426,8 +426,8 @@ describe('audit buildAuditView', () => {
         // 每步的 diff 原文随行带出（Context 追踪用），并按段拆分为有序列表
         expect(conversation.rows[0]?.diffContent).toContain('NI');
         expect(conversation.rows[0]?.diffParts.map((part) => part.label)).toEqual([
-            'system prompt',
-            'tool schema',
+            'system',
+            'tools (schema)',
             'user input',
         ]);
 

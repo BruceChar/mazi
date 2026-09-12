@@ -341,10 +341,7 @@ function pricingRate(perMTok) {
 
                     <!-- Input 估算（breakdown）：环形饼图 + 占比 + diff + 漂移 -->
                     <section class="audit-section">
-                        <div class="audit-section-title">
-                            Input 估算（breakdown）
-                            <span v-if="audit.utilization != null" class="audit-pct">窗口 {{ formatPercent(audit.utilization) }}</span>
-                        </div>
+                        <div class="audit-section-title">Input breakdown</div>
                         <template v-if="audit.segments.length">
                             <div ref="donutWrap" class="donut-wrap" @mouseleave="onArcLeave">
                                 <svg class="donut-svg" viewBox="0 0 100 100" role="img" aria-label="context 占比">
@@ -395,18 +392,17 @@ function pricingRate(perMTok) {
                         </template>
                         <div v-else class="audit-muted">Runtime 未采集</div>
 
-                        <div v-if="audit.utilization != null" class="context-bar">
-                            <div class="context-bar-fill" :style="{ width: Math.min(100, audit.utilization * 100) + '%' }"></div>
-                        </div>
-
                         <div v-if="audit.diff" class="audit-row">
                             <span class="audit-key">context diff</span>
                             <span class="audit-val audit-diff" :class="diffClass(audit.diff.delta)">{{ formatSigned(audit.diff.delta) }}（{{ formatTokens(audit.diff.from) }} → {{ formatTokens(audit.diff.to) }}）</span>
                         </div>
-                        <button v-if="audit.diffContent" class="diff-toggle" @click="toggleDiff">
-                            {{ openDiff ? '收起' : '查看' }}与上一轮相比的新增内容
-                        </button>
-                        <pre v-if="openDiff && audit.diffContent" class="seg-content">{{ audit.diffContent }}</pre>
+                        <div v-if="audit.diffParts.length" class="audit-diff-parts">
+                            <div class="audit-section-sub">与上一轮相比的新增内容</div>
+                            <template v-for="part in audit.diffParts" :key="part.key">
+                                <div class="ctx-diff-label">{{ part.label }}</div>
+                                <pre class="seg-content">{{ part.text }}</pre>
+                            </template>
+                        </div>
 
                         <div v-if="audit.usage.estimate" class="audit-row">
                             <span class="audit-key">input 漂移</span>
@@ -420,30 +416,9 @@ function pricingRate(perMTok) {
                         <div v-if="audit.budgetPressureAction" class="audit-note audit-warn">预算压力：{{ audit.budgetPressureAction }}</div>
                     </section>
 
-                    <!-- 输出估算 -->
-                    <section class="audit-section">
-                        <div class="audit-section-title">输出估算</div>
-                        <template v-if="audit.usage.estimate">
-                            <div class="audit-row"><span class="audit-key">estimate output</span><span class="audit-val">{{ formatTokens(audit.usage.estimate.outputTotal) }}</span></div>
-                            <div v-if="audit.usage.vendor" class="audit-row"><span class="audit-key">vendor output（非 reasoning）</span><span class="audit-val">{{ formatTokens(vendorNonReasoning(audit.usage.vendor)) }}</span></div>
-                            <div class="audit-row">
-                                <span class="audit-key">output 漂移</span>
-                                <span class="audit-val" :class="diffClass(audit.usage.estimate.outputDrift)">
-                                    {{ formatSigned(audit.usage.estimate.outputDrift) }}
-                                    <span class="audit-note-inline">{{ formatRate(audit.usage.estimate.outputDriftRate) }}</span>
-                                </span>
-                            </div>
-                            <div v-if="audit.estimatedTotal != null" class="audit-row audit-total">
-                                <span class="audit-key">估算总量 / vendor total</span>
-                                <span class="audit-val">{{ formatTokens(audit.estimatedTotal) }} / {{ audit.vendorTotal != null ? formatTokens(audit.vendorTotal) : '-' }}</span>
-                            </div>
-                        </template>
-                        <div v-else class="audit-muted">无输出估算</div>
-                    </section>
-
                     <!-- Output 分段（reasoning / tool-call args / text） -->
                     <section class="audit-section">
-                        <div class="audit-section-title">Output（分段）</div>
+                        <div class="audit-section-title">Output breakdown</div>
                         <template v-if="outputSegments.length">
                             <div class="output-bar">
                                 <span
@@ -468,7 +443,13 @@ function pricingRate(perMTok) {
                             </button>
                             <div class="audit-row audit-total">
                                 <span class="audit-key">total</span>
-                                <span class="audit-val">{{ formatTokens(audit.output.totalOutputTokens) }}</span>
+                                <span class="audit-val">
+                                    {{ formatTokens(audit.output.totalOutputTokens) }}
+                                    <span v-if="audit.usage.vendor" class="audit-note-inline">
+                                        · vendor {{ formatTokens(audit.usage.vendor.output) }}
+                                        （差 {{ formatSigned(audit.output.totalOutputTokens - audit.usage.vendor.output) }}）
+                                    </span>
+                                </span>
                             </div>
                             <pre v-if="openOutput && outputContent" class="seg-content">{{ outputContent }}</pre>
                         </template>
@@ -564,7 +545,7 @@ function pricingRate(perMTok) {
                     <div class="ctx-summary">
                         <span>峰值 {{ formatTokens(contextPeak) }}</span>
                         <span>最新 {{ formatTokens(contextLatest) }}</span>
-                        <span v-if="contextUtil != null">窗口 {{ formatPercent(contextUtil) }}</span>
+                        <span v-if="contextUtil != null">context ratio {{ formatPercent(contextUtil) }}</span>
                     </div>
                     <div class="ctx-legend">
                         <span v-for="seg in contextLegend" :key="seg.key" class="ctx-legend-item">

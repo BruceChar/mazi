@@ -28,12 +28,13 @@ export interface AuditDiffPart {
  * 其中 toolSchema = 工具定义、toolCalls = 模型产生的调用参数、observation = 工具返回结果。
  * retrieved / examples 为保留段，当前无生产者，恒为 0。
  */
+// 按 role 分组展示；contextDiffParts 会过滤空段（diff=0 不展示）。
 const DIFF_SEGMENT_LABELS: Array<{ key: keyof StepContextContents; label: string }> = [
-    { key: 'systemPrompt', label: 'system prompt' },
+    { key: 'systemPrompt', label: 'system' },
     { key: 'historyUser', label: 'user history' },
     { key: 'historyAssistant', label: 'assistant' },
-    { key: 'toolCalls', label: 'tool-call args' },
-    { key: 'toolSchema', label: 'tool schema' },
+    { key: 'toolCalls', label: 'assistant tool-call args' },
+    { key: 'toolSchema', label: 'tools (schema)' },
     { key: 'newInput', label: 'user input' },
     // observation = 回灌进模型上下文的工具结果（tool result messages）。
     { key: 'observation', label: 'tool results' },
@@ -242,6 +243,8 @@ export interface AuditView {
     vendorCost: AuditVendorCost | null;
     /** 最新一轮计价快照 */
     pricing: StepPricingUsage | null;
+    /** 与上一轮相比的新增内容，按 role 分段（空段已过滤） */
+    diffParts: AuditDiffPart[];
     /** tool_call step 的专用视图；非工具步为 null */
     tool: AuditToolView | null;
 }
@@ -1057,6 +1060,7 @@ function noneView(stale: boolean): AuditView {
         budgetPressureAction: '',
         rows: [],
         diffContent: '',
+        diffParts: [],
         costDrift: null,
         estimatedTotal: null,
         vendorTotal: null,
@@ -1120,6 +1124,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             budgetPressureAction: runtime?.budgetPressureAction ?? '',
             rows: [],
             diffContent: runtime?.diffContent ?? '',
+            diffParts: contextDiffParts(selected.diffContents),
             ...extrasOf(usage),
             tool: selected.kind === 'tool_call' ? toolViewOf(selected) : null,
         };
@@ -1135,7 +1140,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             kind: 'task',
             stale: false,
             title: `R#${runIndex}·T#${index} · ${title}`,
-            subtitle: `${taskRows.length} steps`,
+            subtitle: `${taskRows.length} steps · ${formatDuration(usage.timing?.totalMs ?? null)}`,
             usage,
             segments: contextSegments(runtime),
             utilization: runtime?.contextWindowUtilization ?? null,
@@ -1144,6 +1149,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             budgetPressureAction: runtime?.budgetPressureAction ?? '',
             rows: taskRows.map((row) => toRow(row, stepId)),
             diffContent: '',
+            diffParts: contextDiffParts(runtime?.diffContents),
             ...extrasOf(usage),
             tool: null,
         };
@@ -1165,6 +1171,7 @@ export function buildAuditView(input: AuditInput): AuditView {
         budgetPressureAction: runtime?.budgetPressureAction ?? '',
         rows: rows.map((row) => toRow(row, stepId)),
         diffContent: '',
+        diffParts: contextDiffParts(runtime?.diffContents),
         ...extrasOf(usage),
         tool: null,
     };
