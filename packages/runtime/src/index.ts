@@ -15,7 +15,12 @@ export {
     builtinModelsFor,
     builtinVendors,
     type CatalogModel,
+    DEEPSEEK_CNY_PRICING,
+    DEEPSEEK_PEAK_TIERS,
+    DEEPSEEK_PRICING_SOURCE,
+    DEEPSEEK_PRICING_VERSION,
     type DiscoverModelsOptions,
+    deepseekTierOf,
     discoverModels,
     type ModelDiscoveryResult,
 } from '@mazi/provider';

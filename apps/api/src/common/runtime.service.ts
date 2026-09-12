@@ -14,6 +14,8 @@ import {
     builtinModelsFor,
     CatalogService,
     configOverview,
+    DEEPSEEK_PEAK_TIERS,
+    DEEPSEEK_PRICING_VERSION,
     discoverModels,
     ensureMaziDirs,
     FileCatalogStore,
@@ -43,13 +45,6 @@ function modelEntryOf(info: ProviderModelInfo): Record<string, unknown> {
         supportsVision: caps.inputTypes.includes('image'),
     };
 }
-
-/** DeepSeek 空闲时段（UTC 小时）：北京时间周中 9-12/14-18 为高峰，其余半价。 */
-const OFF_PEAK_TIERS = [
-    { name: 'off-peak', windowHoursUtc: [0, 1] as [number, number], multiplier: 0.5 },
-    { name: 'off-peak', windowHoursUtc: [4, 6] as [number, number], multiplier: 0.5 },
-    { name: 'off-peak', windowHoursUtc: [10, 24] as [number, number], multiplier: 0.5 },
-];
 
 /** 用目录默认模型价格刷新 provider 级 pricing.base（保留 tiers/version，缺失补默认）。 */
 function applyCatalogPricing(
@@ -85,10 +80,10 @@ function applyCatalogPricing(
             current.tiers && current.tiers.length > 0
                 ? current.tiers
                 : currency === 'CNY'
-                  ? OFF_PEAK_TIERS
+                  ? DEEPSEEK_PEAK_TIERS
                   : [],
         effectiveAt: current.effectiveAt ?? 0,
-        version: current.version ?? 'catalog',
+        version: currency === 'CNY' ? DEEPSEEK_PRICING_VERSION : (current.version ?? 'catalog'),
     };
     if (JSON.stringify(next) === JSON.stringify(current)) {
         return false;

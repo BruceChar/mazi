@@ -16,10 +16,30 @@ import { deepseekAdapter, knownDeepseekModels } from './from-config.js';
  */
 export const DEEPSEEK_PRICING_SOURCE = 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/';
 export const DEEPSEEK_PRICING_VERSION = 'deepseek-2026-09';
+// base = 空闲时段价（元/百万 tokens）；高峰时段 = ×2（见 DEEPSEEK_PEAK_TIERS）。
 export const DEEPSEEK_CNY_PRICING: Readonly<Record<'flash' | 'pro', ProviderModelPricing>> = {
-    flash: { inputPerMTok: 2, cacheReadPerMTok: 0.04, outputPerMTok: 8, currency: 'CNY' },
-    pro: { inputPerMTok: 9, cacheReadPerMTok: 0.3, outputPerMTok: 27, currency: 'CNY' },
+    flash: { inputPerMTok: 1, cacheReadPerMTok: 0.02, outputPerMTok: 4, currency: 'CNY' },
+    pro: { inputPerMTok: 4.5, cacheReadPerMTok: 0.15, outputPerMTok: 13.5, currency: 'CNY' },
 };
+
+/**
+ * 高峰时段 tier（×2）：北京时间周一至周五 9:00-12:00、14:00-18:00。
+ * 换算 UTC 小时 = 1:00-4:00 与 6:00-10:00；UTC 星期 1-5（这些窗口不跨 UTC 日界）。
+ */
+export const DEEPSEEK_PEAK_TIERS = [
+    {
+        name: 'peak',
+        weekdays: [1, 2, 3, 4, 5],
+        windowHoursUtc: [1, 4] as [number, number],
+        multiplier: 2,
+    },
+    {
+        name: 'peak',
+        weekdays: [1, 2, 3, 4, 5],
+        windowHoursUtc: [6, 10] as [number, number],
+        multiplier: 2,
+    },
+];
 
 /** pro (reasoner) vs flash 归类；未知按 flash。 */
 export function deepseekTierOf(modelId: string): 'flash' | 'pro' {

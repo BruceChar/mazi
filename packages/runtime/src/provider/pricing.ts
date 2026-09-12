@@ -36,8 +36,10 @@ export interface PricingTier {
     name: string;
     /** UTC 小时，半开区间 [start, end)；start > end 表示跨午夜（如 [22,6)） */
     windowHoursUtc: [number, number];
-    /** > 0；0.5 = 半价 */
+    /** > 0；0.5 = 半价，2 = 两倍（如高峰相对空闲的加价） */
     multiplier: number;
+    /** 生效的 UTC 星期（0=周日..6=周六）；缺省 = 每天 */
+    weekdays?: number[];
     /** 缺省 = 作用于全部成分 */
     appliesTo?: CostComponent[];
 }
@@ -104,12 +106,14 @@ export function tierMultiplier(
     pricing: PricingSchedule,
     hourUtc: number,
     component: CostComponent,
+    dayUtc = 0,
 ): number {
     for (const tier of pricing.tiers) {
         const [start, end] = tier.windowHoursUtc;
         const inWindow =
             start > end ? hourUtc >= start || hourUtc < end : hourUtc >= start && hourUtc < end;
         if (!inWindow) continue;
+        if (tier.weekdays !== undefined && !tier.weekdays.includes(dayUtc)) continue;
         if (tier.appliesTo === undefined || tier.appliesTo.includes(component)) {
             return tier.multiplier;
         }
@@ -118,12 +122,12 @@ export function tierMultiplier(
 }
 
 /** 命中的档位名：第一个窗口命中的 tier；无命中回落 base。 */
-export function appliedTierName(pricing: PricingSchedule, hourUtc: number): string {
+export function appliedTierName(pricing: PricingSchedule, hourUtc: number, dayUtc = 0): string {
     for (const tier of pricing.tiers) {
         const [start, end] = tier.windowHoursUtc;
         const inWindow =
             start > end ? hourUtc >= start || hourUtc < end : hourUtc >= start && hourUtc < end;
-        if (inWindow) {
+        if (inWindow && (tier.weekdays === undefined || tier.weekdays.includes(dayUtc))) {
             return tier.name;
         }
     }
@@ -138,8 +142,9 @@ export function computeCostBreakdown(
 ): CostBreakdown {
     const units = deriveComponentUnits(usage, pricing);
     const hourUtc = now.getUTCHours();
+    const dayUtc = now.getUTCDay();
     const costOf = (component: CostComponent): number =>
-        tierMultiplier(pricing, hourUtc, component) *
+        tierMultiplier(pricing, hourUtc, component, dayUtc) *
         unitPricePerToken(pricing, component) *
         units[component];
     const costs: Record<CostComponent, number> = {
@@ -160,7 +165,7 @@ export function computeCostBreakdown(
         cacheReadCostUsd: costs['cache-read'],
         reasoningCostUsd: costs.reasoning,
         totalCostUsd,
-        priceTierApplied: appliedTierName(pricing, hourUtc),
+        priceTierApplied: appliedTierName(pricing, hourUtc, dayUtc),
         pricingVersion: pricing.version,
         currency: pricing.currency,
         calculatedAt: now.getTime(),
