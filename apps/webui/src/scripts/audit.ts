@@ -689,8 +689,9 @@ function collectSnapshotSteps(
         for (const task of goal.tasks ?? []) {
             taskIndex += 1;
             const steps = (task.steps ?? []).slice().sort((a, b) => a.startedAt - b.startedAt);
+            const taskRows: ResolvedStep[] = [];
             steps.forEach((step, i) => {
-                out.push({
+                taskRows.push({
                     stepId: step.stepId,
                     taskId: task.taskId,
                     goalId: goal.goalId,
@@ -718,9 +719,60 @@ function collectSnapshotSteps(
                     previousContextTotal: null,
                 });
             });
+            attachEmittedToolCalls(taskRows);
+            out.push(...taskRows);
         }
     }
     return out;
+}
+
+const EMPTY_CONTEXT_CONTENTS: StepContextContents = {
+    systemPrompt: '',
+    historyUser: '',
+    historyAssistant: '',
+    toolCalls: '',
+    toolSchema: '',
+    newInput: '',
+    observation: '',
+    retrieved: '',
+    examples: '',
+};
+
+/**
+ * 一次 assistant thinking 产出的 tool_call 参数，是**该 thinking 的输出**：归到该
+ * thinking 步的 diff（Context 面板「新增内容」里可见），而不是归到下一轮请求；同时
+ * 清掉下一轮 thinking 上重复的 tool-call args diff。无 roundId 时按相邻 tool_call 回退。
+ */
+function attachEmittedToolCalls(rows: ResolvedStep[]): void {
+    for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        if (row?.kind !== 'thinking') continue;
+        const roundId = row.usage?.roundId;
+        const args: string[] = [];
+        let j = i + 1;
+        for (; j < rows.length; j += 1) {
+            const next = rows[j];
+            if (next?.kind !== 'tool_call') break;
+            if (roundId && next.usage?.roundId && next.usage.roundId !== roundId) break;
+            args.push(
+                JSON.stringify({ toolName: next.toolName, arguments: next.toolArguments ?? {} }),
+            );
+        }
+        if (args.length === 0) continue;
+        row.diffContents = {
+            ...(row.diffContents ?? EMPTY_CONTEXT_CONTENTS),
+            toolCalls: args.join('\n'),
+        };
+        for (let k = j; k < rows.length; k += 1) {
+            const later = rows[k];
+            if (later?.kind === 'thinking') {
+                if (later.diffContents?.toolCalls) {
+                    later.diffContents = { ...later.diffContents, toolCalls: '' };
+                }
+                break;
+            }
+        }
+    }
 }
 
 /**

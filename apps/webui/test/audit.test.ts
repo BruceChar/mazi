@@ -361,6 +361,7 @@ describe('audit buildAuditView', () => {
         expect(conversation.rows[0]?.diffContent).toContain('NI');
         expect(conversation.rows[0]?.diffParts.map((part) => part.label)).toEqual([
             'system prompt',
+            'tool-call args',
             'tool schema',
             'user input',
         ]);
@@ -422,6 +423,24 @@ describe('audit buildAuditView', () => {
         expect(view.usage.vendor?.total).toBe(120);
         expect(view.usage.estimate?.inputDrift).toBe(900);
         expect(view.rows.map((r) => r.contextTotal)).toEqual([1000, null]);
+    });
+
+    it('thinking 展示它产出的 tool-call args（归到该 thinking，而非下一轮请求）', () => {
+        const roundUsage = { ...stepUsage(), roundId: 'r1' };
+        const snapshot = snapshotOf([
+            stepView('s1', 'thinking', 1, roundUsage),
+            {
+                ...stepView('s2', 'tool_call', 2, roundUsage),
+                toolName: 'shell.run',
+                toolArguments: { command: 'ls -la' },
+            },
+        ]);
+        const view = buildAuditView({ snapshot, taskId: 't1' });
+        const thinking = view.rows[0];
+        expect(thinking?.kind).toBe('thinking');
+        const args = thinking?.diffParts.find((part) => part.label === 'tool-call args');
+        expect(args?.text).toContain('shell.run');
+        expect(args?.text).toContain('ls -la');
     });
 
     it('thinking + intent 折叠为同一轮一步，S# 不跳号', () => {

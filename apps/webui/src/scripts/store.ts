@@ -1,4 +1,4 @@
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { API_BASE, api } from '../api.js';
 import type {
     ConfigOverview,
@@ -171,7 +171,9 @@ export async function setSessionPermission(value: string): Promise<void> {
         });
         ui.err = null;
     } catch (error) {
+        // 写入失败（如后端未就绪）不要留下「全局改了」的假象：回退到解析值。
         ui.err = String(error);
+        refreshSessionPermission();
     }
 }
 export const projects = ref<Project[]>([]);
@@ -179,6 +181,9 @@ export const busy = ref<boolean>(false);
 /** Currently open Goal run (rootGoalId). */
 export const current = ref<string | null>(null);
 export const currentConversation = ref<string | null>(null);
+// 切换会话 → 重新解析该会话的权限（会话覆盖 → 工作区覆盖 → 系统默认），
+// 因此一个会话/项目的设置不会串到其他会话/项目。
+watch(currentConversation, () => refreshSessionPermission());
 /** Goal-tree snapshot of the current run (GET /api/sessions/:id/timeline). */
 export const detail = ref<GoalTreeSnapshot | null>(null);
 /** Per-run timeline cache (rootGoalId -> snapshot) for displaying old runs */

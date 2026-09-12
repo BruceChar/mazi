@@ -61,6 +61,8 @@ vi.mock('vue', () => ({
             return fn();
         },
     }),
+    // The store registers one module-level watcher (session permission).
+    watch: () => () => {},
 }));
 
 const { liveSteps, runDetails, stopEvents, watchEvents } = await import('../src/scripts/store.ts');
