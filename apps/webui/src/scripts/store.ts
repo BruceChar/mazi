@@ -121,67 +121,58 @@ export const workspaceRoot = ref<string>('');
 export const freeChatWorkspace = ref<string>('');
 
 /**
- * Per-workspace permission overrides (composer selector).
- *
- * Keyed by the current project path, or the free-chat workspace path for 随心聊,
- * so changing one project never affects another. The system default
- * (Settings → General) is a **seed for new workspaces/sessions**: a workspace
- * gets its own value the first time it is used, and changing the default later
- * does not touch workspaces that already ran.
+ * Effective permission for the current context, resolved by the backend scope
+ * maps: `conversation:<id>` override → `workspace:<path>` override → system
+ * default. The two scopes are independent and persisted in settings.json
+ * (server-authoritative; no client-side seed).
  */
-const WORKSPACE_PERMISSION_KEY = 'mazi.web.workspace-permission';
-
-function workspacePermissionKey(): string {
-    return workspaceRoot.value || freeChatWorkspace.value || '__default__';
-}
-
-function readWorkspacePermissions(): Record<string, string> {
-    if (typeof localStorage === 'undefined') return {};
-    try {
-        const raw = localStorage.getItem(WORKSPACE_PERMISSION_KEY);
-        const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-        return Object.fromEntries(
-            Object.entries(parsed).filter(([, value]) => typeof value === 'string'),
-        ) as Record<string, string>;
-    } catch {
-        return {};
-    }
-}
-
-function writeWorkspacePermission(key: string, value: string): void {
-    if (typeof localStorage === 'undefined') return;
-    try {
-        const map = readWorkspacePermissions();
-        map[key] = value;
-        localStorage.setItem(WORKSPACE_PERMISSION_KEY, JSON.stringify(map));
-    } catch {
-        // Storage can be unavailable; the in-memory value still applies.
-    }
-}
-
-/** 当前工作区的有效权限（会话覆盖 / 首次 seed 系统默认）。 */
 export const sessionPermission = ref<string>('read-only');
 
-export function refreshSessionPermission(): void {
-    const key = workspacePermissionKey();
-    let value = readWorkspacePermissions()[key];
-    // Seed a workspace with the current system default the first time it is
-    // used; afterwards the default no longer affects it (default = new sessions).
-    if (value === undefined && cfg.value?.permissionCeiling !== undefined) {
-        value = cfg.value.permissionCeiling;
-        // Persist only once the workspace identity is known, so we do not seed a
-        // stale '__default__' entry before the free-chat workspace loads.
-        if (workspaceRoot.value || freeChatWorkspace.value) {
-            writeWorkspacePermission(key, value);
-        }
-    }
-    sessionPermission.value = value ?? 'read-only';
+function effectiveWorkspaceKey(): string {
+    // Match the backend resolution (targetContext.workspace → selected → free):
+    // the active conversation's workspace wins, else the selected workspace.
+    const active = conversations.value.find((c) => c.conversationId === currentConversation.value);
+    return active?.workspace || workspaceRoot.value || '__free__';
 }
 
-/** 输入框选择器：写入当前工作区（项目/随心聊）的权限，不影响其他工作区。 */
-export function setSessionPermission(value: string): void {
+export function refreshSessionPermission(): void {
+    const permissions = cfg.value?.permissions ?? {};
+    const conversationKey = currentConversation.value
+        ? `conversation:${currentConversation.value}`
+        : undefined;
+    const workspaceKey = `workspace:${effectiveWorkspaceKey()}`;
+    sessionPermission.value =
+        (conversationKey ? permissions[conversationKey] : undefined) ??
+        permissions[workspaceKey] ??
+        cfg.value?.permissionCeiling ??
+        'read-only';
+}
+
+/**
+ * 输入框选择器：写入当前**会话**（有活动会话时）或当前**工作区**（项目/随心聊）
+ * 的独立覆盖。不改系统默认，也不影响其他会话/工作区。
+ */
+export async function setSessionPermission(value: string): Promise<void> {
     sessionPermission.value = value;
-    writeWorkspacePermission(workspacePermissionKey(), value);
+    const conversationId = currentConversation.value;
+    try {
+        cfg.value = await api('/api/permissions', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(
+                conversationId
+                    ? { scope: 'conversation', key: conversationId, permissionCeiling: value }
+                    : {
+                          scope: 'workspace',
+                          key: effectiveWorkspaceKey(),
+                          permissionCeiling: value,
+                      },
+            ),
+        });
+        ui.err = null;
+    } catch (error) {
+        ui.err = String(error);
+    }
 }
 export const projects = ref<Project[]>([]);
 export const busy = ref<boolean>(false);
@@ -694,6 +685,7 @@ export async function openRun(rootGoalId: string): Promise<void> {
 /** Open a conversation (selects its latest run by default). */
 export async function openConversation(conversationId: string): Promise<void> {
     currentConversation.value = conversationId;
+    refreshSessionPermission();
     const conversation = conversations.value.find((item) => item.conversationId === conversationId);
     const run = latestRun(conversation);
     if (run) {
@@ -745,6 +737,7 @@ export async function createRun({
         });
         if (created.conversationId) {
             currentConversation.value = created.conversationId;
+            refreshSessionPermission();
         }
         await loadConversations();
         await openRun(created.sessionId);

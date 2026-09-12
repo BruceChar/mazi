@@ -63,6 +63,7 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         const runtime = {
             selectedWorkspaceRoot: undefined,
             setWorkspaceRoot: () => {},
+            resolvePermission: () => 'workspace-write',
             harness: () => ({
                 createGoalSession: async (_input: string, opts: Record<string, unknown>) => {
                     captured.push(opts);
@@ -77,6 +78,8 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         });
         expect(captured[0]?.reasoningLevel).toBe('high');
         expect(captured[0]?.modelId).toBe('deepseek-v4-pro');
+        // No client hint → the backend resolves the scoped effective permission.
+        expect(captured[0]?.permissionCeiling).toBe('workspace-write');
     });
 
     it('无最终回答时只输出 user 输入', async () => {

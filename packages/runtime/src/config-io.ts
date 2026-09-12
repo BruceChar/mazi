@@ -5,12 +5,19 @@ import { builtinModelsFor } from '@mazi/provider';
 import type { ProviderConfig, RuntimeConfig, ToolConfig } from './config.js';
 import { ensureMaziDirs, maziPaths } from './paths.js';
 
-/** settings.json 结构：系统级 Goal 配置（权限 grant 等），与 providers/tools 分离。 */
+/**
+ * settings.json 结构：系统级 Goal 配置，与 providers/tools 分离。
+ *
+ * - `goal.permissionCeiling` 是新工作区/会话的默认权限；
+ * - `permissions` 是按作用域的覆盖：`workspace:<path>` 与 `conversation:<id>`，
+ *   二者相互独立，解析顺序 会话 → 工作区 → 默认。
+ */
 export interface RuntimeSettingsFile {
     goal?: {
         permissionCeiling?: PermissionLevel;
         allowedTools?: string[];
     };
+    permissions?: Record<string, string>;
 }
 
 export interface FileRuntimeConfig {
@@ -46,17 +53,43 @@ export function loadRuntimeConfig(configDir?: string): FileRuntimeConfig {
     };
 }
 
-/** 写入 settings.json（与既有内容合并；用于系统级 Goal 配置，如权限 grant）。 */
+/** 读取 settings.json（不存在返回空对象）。 */
+export function loadRuntimeSettings(configDir?: string): RuntimeSettingsFile {
+    const home = configDir && configDir.length > 0 ? configDir : undefined;
+    const paths = home ? maziPaths(home) : ensureMaziDirs();
+    return (readJson(paths.settingsFile) as RuntimeSettingsFile | undefined) ?? {};
+}
+
+/** 写入 settings.json（与既有内容合并；goal 与 permissions 各自浅合并）。 */
 export function saveRuntimeSettings(settings: RuntimeSettingsFile, configDir?: string): void {
     const home = configDir && configDir.length > 0 ? configDir : undefined;
     const paths = home ? maziPaths(home) : ensureMaziDirs();
     const current = (readJson(paths.settingsFile) as RuntimeSettingsFile | undefined) ?? {};
     const next: RuntimeSettingsFile = {
         ...current,
-        goal: { ...current.goal, ...settings.goal },
+        ...(settings.goal ? { goal: { ...current.goal, ...settings.goal } } : {}),
+        ...(settings.permissions
+            ? { permissions: { ...current.permissions, ...settings.permissions } }
+            : {}),
     };
     mkdirSync(paths.home, { recursive: true });
     writeFileSync(paths.settingsFile, `${JSON.stringify(next, null, 2)}\n`);
+}
+
+/**
+ * 解析生效权限：`conversation:<id>` 覆盖 → `workspace:<path>` 覆盖 → 默认。
+ * 二者独立，互不影响（不同会话/不同项目各自持有）。
+ */
+export function resolveScopedPermission(
+    permissions: Record<string, string> | undefined,
+    opts: { workspace?: string; conversationId?: string; fallback: PermissionLevel },
+): PermissionLevel {
+    const map = permissions ?? {};
+    const conversationKey = opts.conversationId ? `conversation:${opts.conversationId}` : undefined;
+    if (conversationKey && map[conversationKey]) return map[conversationKey] as PermissionLevel;
+    const workspaceKey = `workspace:${opts.workspace && opts.workspace.length > 0 ? opts.workspace : '__free__'}`;
+    if (map[workspaceKey]) return map[workspaceKey] as PermissionLevel;
+    return opts.fallback;
 }
 
 /** 由已加载文件配置 + 存储路径默认值组装 RuntimeConfig（未显式传入则用 home 存储） */

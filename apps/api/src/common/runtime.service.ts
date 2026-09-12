@@ -19,8 +19,10 @@ import {
     FileCatalogStore,
     HarnessRuntime,
     loadRuntimeConfig,
+    loadRuntimeSettings,
     observedCatalogFromProviderConfigs,
     type PendingApproval,
+    resolveScopedPermission,
     saveRuntimeSettings,
     toRuntimeConfig,
 } from '@mazi/runtime';
@@ -155,6 +157,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         projects: { title: string; path: string; sessionIds?: string[] }[];
         freeChatWorkspace?: string;
     } = { projects: [] };
+    /** 作用域权限覆盖：`workspace:<path>` / `conversation:<id>`（settings.json 持久化）。 */
+    private permissions: Record<string, string> = {};
     private readonly paths: MaziPaths = ensureMaziDirs();
     private config: RuntimeConfig;
 
@@ -168,6 +172,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
             consoleEnabled: false,
         });
+        this.permissions = loadRuntimeSettings(this.paths.home).permissions ?? {};
         // 随心聊默认工作区：workspaces.json 配置优先，缺省 $MAZI_HOME/workspace（避免落在进程 cwd 如 apps/api）。
         this.readWorkspacesState();
         this.freeChatWorkspaceValue =
@@ -505,12 +510,35 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         hasProvidersFile: boolean;
         freeChatWorkspace: string;
         permissionCeiling: PermissionLevel;
+        permissions: Record<string, string>;
     } {
         return {
             ...configOverview(),
             freeChatWorkspace: this.freeChatWorkspaceValue,
             permissionCeiling: this.config.goal?.permissionCeiling ?? 'read-only',
+            permissions: this.permissions,
         };
+    }
+
+    /** 解析某工作区/会话的生效权限：会话覆盖 → 工作区覆盖 → 系统默认。 */
+    resolvePermission(workspace?: string, conversationId?: string): PermissionLevel {
+        return resolveScopedPermission(this.permissions, {
+            ...(workspace !== undefined ? { workspace } : {}),
+            ...(conversationId !== undefined ? { conversationId } : {}),
+            fallback: this.config.goal?.permissionCeiling ?? 'read-only',
+        });
+    }
+
+    /** 写入某工作区/会话的独立权限覆盖；不影响其他工作区/会话。 */
+    setScopedPermission(
+        scope: 'workspace' | 'conversation',
+        key: string,
+        value: PermissionLevel,
+    ): void {
+        const mapKey = `${scope}:${key}`;
+        this.permissions = { ...this.permissions, [mapKey]: value };
+        saveRuntimeSettings({ permissions: { [mapKey]: value } }, this.paths.home);
+        this.logger.log(`setScopedPermission ${mapKey} → ${value}`);
     }
 
     /**

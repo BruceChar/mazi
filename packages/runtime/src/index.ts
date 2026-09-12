@@ -32,6 +32,8 @@ export type { FileRuntimeConfig, RuntimeSettingsFile } from './config-io.js';
 export {
     configOverview,
     loadRuntimeConfig,
+    loadRuntimeSettings,
+    resolveScopedPermission,
     saveRuntimeSettings,
     toRuntimeConfig,
 } from './config-io.js';

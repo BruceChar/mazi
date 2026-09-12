@@ -64,10 +64,14 @@ export class SessionsService {
             body.goal && typeof body.goal === 'object'
                 ? (body.goal as Record<string, unknown>)
                 : undefined;
-        const permissionCeiling =
+        // Client hint (immediate run) wins; otherwise the backend resolves the
+        // scoped override: conversation → workspace → system default.
+        const requestedCeiling =
             typeof goalBody?.permissionCeiling === 'string'
                 ? goalBody.permissionCeiling
                 : undefined;
+        const permissionCeiling =
+            requestedCeiling ?? this.runtime.resolvePermission(workspace, conversationId);
         const reasoningLevel =
             typeof goalBody?.reasoningLevel === 'string'
                 ? goalBody.reasoningLevel

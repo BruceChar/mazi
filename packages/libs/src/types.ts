@@ -82,6 +82,8 @@ export interface ConfigOverview {
     freeChatWorkspace?: string;
     /** System-level permission grant (Settings → General, backend-persisted). */
     permissionCeiling?: string;
+    /** Scoped permission overrides: `workspace:<path>` / `conversation:<id>`. */
+    permissions?: Record<string, string>;
 }
 
 // ============================================================

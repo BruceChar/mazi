@@ -72,6 +72,27 @@ export class HealthController {
         return this.config();
     }
 
+    /** POST /api/permissions：写入某工作区/会话的独立权限覆盖（互不影响）。 */
+    @Post('permissions')
+    setScopedPermission(
+        @Body() body: { scope?: unknown; key?: unknown; permissionCeiling?: unknown },
+    ): Record<string, unknown> {
+        const scope = body?.scope;
+        const key = body?.key;
+        const value = body?.permissionCeiling;
+        if (scope !== 'workspace' && scope !== 'conversation') {
+            throw new ApiError(400, `scope 非法：${String(scope)}`);
+        }
+        if (typeof key !== 'string' || key.length === 0) {
+            throw new ApiError(400, 'key 非法');
+        }
+        if (typeof value !== 'string' || !PERMISSION_CEILINGS.includes(value)) {
+            throw new ApiError(400, `permissionCeiling 非法：${String(value)}`);
+        }
+        this.runtime.setScopedPermission(scope, key, value);
+        return this.config();
+    }
+
     /** POST /api/config/sync：在线发现端点模型并返回最新配置。 */
     @Post('config/sync')
     async syncConfig(): Promise<Record<string, unknown>> {
