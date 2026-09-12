@@ -12,6 +12,7 @@ export type {
     TaskNodeView,
 } from '@mazi/libs';
 export {
+    buildPricingAnalysisPrompt,
     builtinModelsFor,
     builtinVendors,
     type CatalogModel,
@@ -21,7 +22,11 @@ export {
     type DiscoverModelsOptions,
     deepseekTierOf,
     discoverModels,
+    htmlToText,
     type ModelDiscoveryResult,
+    type ParsedDeepseekPricing,
+    type ParsedModelPricing,
+    parseAgentPricingJson,
     parseDeepseekPricingPage,
     peakMultiplierOf,
 } from '@mazi/provider';
@@ -56,6 +61,9 @@ export {
     maziHome,
     maziPaths,
 } from './paths.js';
+export type { PricingSchedule } from './provider/pricing.js';
+export type { PricingPage, PricingPageAnalyst } from './provider/pricing-analyst.js';
+export { createPricingAnalyst } from './provider/pricing-analyst.js';
 export type { RunOptions } from './runtime.js';
 export { HarnessRuntime } from './runtime.js';
 export type { GoalRunResult } from './strategy/goal-strategy.js';

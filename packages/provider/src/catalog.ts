@@ -10,8 +10,9 @@ import type { ProviderModelInfo } from '@mazi/core';
 import { deepseekAdapter, knownDeepseekModels } from './from-config.js';
 
 /**
- * DeepSeek 官方人民币价表（元 / 百万 tokens）——高峰价；
- * 空闲时段为半价，由 PricingSchedule.tiers 表达（见 runtime 的 off-peak tiers）。
+ * DeepSeek 官方价目页地址与高峰时段定义（元 / 百万 tokens）。
+ * 具体单价**不在此写死**：由设置中的 `pricing.sourceUrl` 抓取官网页面解析写入
+ * （见 @mazi/provider 的 deepseek-pricing 解析器与 apps/api 的 syncOfficialPricing）。
  * 来源：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
  */
 export const DEEPSEEK_PRICING_SOURCE = 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/';

@@ -1096,8 +1096,18 @@ export class HarnessRuntime {
         return entry?.driver.model || entry?.models?.[0]?.id || '';
     }
 
-    private pricingOf(providerId: string): PricingSchedule | undefined {
-        return this.config.providers.find((p) => p.id === providerId)?.pricing;
+    /**
+     * 解析计价表：优先该模型的专属价目（官网抓取按 flash/pro 分别写入），
+     * 缺省回落到 provider 级 pricing。
+     */
+    private pricingOf(providerId: string, modelId?: string): PricingSchedule | undefined {
+        const entry = this.config.providers.find((p) => p.id === providerId);
+        if (entry === undefined) return undefined;
+        if (modelId !== undefined) {
+            const model = entry.models?.find((item) => item.id === modelId);
+            if (model?.pricing !== undefined) return model.pricing;
+        }
+        return entry.pricing;
     }
 
     /** 解析候选 provider 的模型 id：命中 ctx 目标且非占位值时用 ctx 模型，否则取配置/默认模型 */
@@ -1142,7 +1152,9 @@ export class HarnessRuntime {
                     providerId: id,
                     provider,
                     ...(modelId !== undefined ? { modelId } : {}),
-                    ...(this.pricingOf(id) !== undefined ? { pricing: this.pricingOf(id) } : {}),
+                    ...(this.pricingOf(id, modelId) !== undefined
+                        ? { pricing: this.pricingOf(id, modelId) }
+                        : {}),
                 };
             });
     }
@@ -1346,7 +1358,7 @@ export class HarnessRuntime {
 
     /** 本轮计价快照（生效倍率后的单价，$/MTok），随 usage 入库。 */
     private pricingSnapshot(outcome: RoundOutcome): PricingSnapshot | undefined {
-        const pricing = this.pricingOf(outcome.metrics.providerId);
+        const pricing = this.pricingOf(outcome.metrics.providerId, outcome.metrics.modelId);
         if (pricing === undefined) {
             return undefined;
         }
@@ -1400,7 +1412,7 @@ export class HarnessRuntime {
     /** 本轮成本拆分：仅当厂商上报 usage 且候选命中计价表时产出。 */
     private roundCost(outcome: RoundOutcome): CostBreakdown | undefined {
         const usage = outcome.metrics.usage;
-        const pricing = this.pricingOf(outcome.metrics.providerId);
+        const pricing = this.pricingOf(outcome.metrics.providerId, outcome.metrics.modelId);
         if (usage === undefined || pricing === undefined) {
             return undefined;
         }
@@ -1437,7 +1449,7 @@ export class HarnessRuntime {
         contextUsage: RuntimeContextBreakdown,
         estimate: RoundEstimate | undefined,
     ): CostBreakdown | undefined {
-        const pricing = this.pricingOf(outcome.metrics.providerId);
+        const pricing = this.pricingOf(outcome.metrics.providerId, outcome.metrics.modelId);
         if (pricing === undefined || estimate === undefined) {
             return undefined;
         }

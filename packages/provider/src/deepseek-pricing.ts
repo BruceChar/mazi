@@ -85,6 +85,122 @@ export function parseDeepseekPricingPage(
     };
 }
 
+/** 送入 Agent 的页面正文上限（价格表通常在页面前部；避免撑爆上下文）。 */
+export const MAX_PRICING_PAGE_CHARS = 24_000;
+
+/**
+ * 交给 Agent 的价目页解析提示：要求只回一个 JSON 对象（无解释/Markdown），
+ * 便于 {@link parseAgentPricingJson} 严格解析；解析失败视为无结果（调用方保留既有配置）。
+ */
+export function buildPricingAnalysisPrompt(pageText: string, sourceUrl: string): string {
+    const body =
+        pageText.length > MAX_PRICING_PAGE_CHARS
+            ? pageText.slice(0, MAX_PRICING_PAGE_CHARS)
+            : pageText;
+    return [
+        '你是计费配置抽取器。下面是模型厂商官方价目页的纯文本，请抽取每个模型的价格（元 / 百万 tokens）。',
+        '只输出一个 JSON 对象，不要任何解释文字，也不要用 Markdown 代码块。JSON 结构：',
+        '{"currency":"CNY","models":[{"id":"<模型id>","tier":"flash|pro","idle":{"inputPerMTok":<数>,"cacheReadPerMTok":<数>,"outputPerMTok":<数>},"peak":{"inputPerMTok":<数>,"cacheReadPerMTok":<数>,"outputPerMTok":<数>}}]}',
+        '说明：空闲时段价填 idle，高峰时段价填 peak；页面只给单一价格时 peak 与 idle 相同。数字不要带单位或千分位。',
+        `来源：${sourceUrl}`,
+        '页面文本：',
+        body,
+    ].join('\n');
+}
+
+/** 从 Agent 回复中抽取首个完整 JSON 对象（容忍 Markdown 代码块与前后解释文字）。 */
+export function extractJsonObject(reply: string): string | null {
+    const fenced = reply.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const source = fenced?.[1] ?? reply;
+    const start = source.indexOf('{');
+    if (start < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < source.length; index += 1) {
+        const char = source[index];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (char === '\\') escaped = true;
+            else if (char === '"') inString = false;
+            continue;
+        }
+        if (char === '"') inString = true;
+        else if (char === '{') depth += 1;
+        else if (char === '}') {
+            depth -= 1;
+            if (depth === 0) return source.slice(start, index + 1);
+        }
+    }
+    return null;
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+        const parsed = Number(value.replace(/[^0-9.]/g, ''));
+        if (Number.isFinite(parsed)) return parsed;
+    }
+    return undefined;
+}
+
+function priceFromUnknown(raw: unknown): ProviderModelPricing | undefined {
+    if (typeof raw !== 'object' || raw === null) return undefined;
+    const record = raw as Record<string, unknown>;
+    const inputPerMTok = numberOrUndefined(record.inputPerMTok);
+    const outputPerMTok = numberOrUndefined(record.outputPerMTok);
+    if (inputPerMTok === undefined || outputPerMTok === undefined) return undefined;
+    const cacheReadPerMTok = numberOrUndefined(record.cacheReadPerMTok);
+    return {
+        inputPerMTok,
+        outputPerMTok,
+        ...(cacheReadPerMTok !== undefined ? { cacheReadPerMTok } : {}),
+        currency: 'CNY',
+    };
+}
+
+/**
+ * 解析 Agent 按 {@link buildPricingAnalysisPrompt} 返回的 JSON；不合法 → null。
+ * 仅接受人民币（官网价目页口径），非 CNY 一律拒绝，避免把 USD 当 CNY 静默写入。
+ */
+export function parseAgentPricingJson(
+    reply: string,
+    sourceUrl: string,
+): ParsedDeepseekPricing | null {
+    const raw = extractJsonObject(reply);
+    if (raw === null) return null;
+    let value: unknown;
+    try {
+        value = JSON.parse(raw);
+    } catch {
+        return null;
+    }
+    if (typeof value !== 'object' || value === null) return null;
+    const record = value as Record<string, unknown>;
+    const currency = typeof record.currency === 'string' ? record.currency.toUpperCase() : 'CNY';
+    if (currency !== 'CNY') return null;
+    if (!Array.isArray(record.models) || record.models.length === 0) return null;
+    const models: ParsedModelPricing[] = [];
+    for (const item of record.models) {
+        if (typeof item !== 'object' || item === null) continue;
+        const entry = item as Record<string, unknown>;
+        const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+        if (id.length === 0) continue;
+        const idle = priceFromUnknown(entry.idle);
+        if (idle === undefined) continue;
+        const peak = priceFromUnknown(entry.peak) ?? idle;
+        const tier: 'flash' | 'pro' =
+            entry.tier === 'pro' || entry.tier === 'flash'
+                ? entry.tier
+                : /pro|reasoner/i.test(id)
+                  ? 'pro'
+                  : 'flash';
+        models.push({ id, tier, idle, peak });
+    }
+    if (models.length === 0) return null;
+    return { sourceUrl, currency: 'CNY', models };
+}
+
 /** 高峰/空闲倍率（用于生成 PricingSchedule.tiers）；各成分一致时返回该倍率，否则 null。 */
 export function peakMultiplierOf(model: ParsedModelPricing): number | null {
     const ratios = [

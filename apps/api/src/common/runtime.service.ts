@@ -4,6 +4,7 @@ import { basename, dirname, join } from 'node:path';
 import type { CatalogChange, PermissionLevel } from '@mazi/core';
 import type {
     MaziPaths,
+    PricingSchedule,
     ProviderModelInfo,
     ProviderModelPricing,
     RuntimeConfig,
@@ -14,6 +15,7 @@ import {
     builtinModelsFor,
     CatalogService,
     configOverview,
+    createPricingAnalyst,
     DEEPSEEK_PEAK_TIERS,
     DEEPSEEK_PRICING_SOURCE,
     DEEPSEEK_PRICING_VERSION,
@@ -22,10 +24,13 @@ import {
     ensureMaziDirs,
     FileCatalogStore,
     HarnessRuntime,
+    htmlToText,
     loadRuntimeConfig,
     loadRuntimeSettings,
     observedCatalogFromProviderConfigs,
+    type ParsedModelPricing,
     type PendingApproval,
+    type PricingPageAnalyst,
     parseDeepseekPricingPage,
     peakMultiplierOf,
     resolveScopedPermission,
@@ -63,6 +68,15 @@ function applyCatalogPricing(
         version?: string;
     };
     const currency = (pricing.currency ?? 'USD') as 'USD' | 'CNY';
+    // 官网抓取的官方人民币价优先：目录价（USD）不得覆盖已落地的官方价，
+    // 否则手动/周期性模型同步会把官方价回退成 pi-ai 目录价。
+    if (
+        current.currency === 'CNY' &&
+        current.version === DEEPSEEK_PRICING_VERSION &&
+        currency !== 'CNY'
+    ) {
+        return false;
+    }
     const next = {
         ...current,
         currency,
@@ -94,6 +108,35 @@ function applyCatalogPricing(
     }
     provider.pricing = next;
     return true;
+}
+
+/**
+ * 由官网解析结果构造 CNY 价目表（空闲时段为 base，高峰时段为 tiers）。
+ * rates 未变时沿用 previous.effectiveAt，避免每次同步都刷新时间戳（触发无谓重建）。
+ */
+function buildCnySchedule(entry: ParsedModelPricing, previous?: PricingSchedule): PricingSchedule {
+    const base = {
+        inputPerMTok: entry.idle.inputPerMTok ?? 0,
+        outputPerMTok: entry.idle.outputPerMTok ?? 0,
+        cacheReadPerMTok: entry.idle.cacheReadPerMTok ?? 0,
+    };
+    const tiers = DEEPSEEK_PEAK_TIERS.map((tier) => ({
+        ...tier,
+        multiplier: peakMultiplierOf(entry) ?? tier.multiplier,
+    }));
+    const unchanged =
+        previous !== undefined &&
+        previous.currency === 'CNY' &&
+        previous.version === DEEPSEEK_PRICING_VERSION &&
+        JSON.stringify(previous.base) === JSON.stringify(base) &&
+        JSON.stringify(previous.tiers) === JSON.stringify(tiers);
+    return {
+        currency: 'CNY',
+        base,
+        tiers,
+        effectiveAt: unchanged ? (previous.effectiveAt ?? Date.now()) : Date.now(),
+        version: DEEPSEEK_PRICING_VERSION,
+    };
 }
 
 function driverProviderOf(provider: Record<string, unknown>): string | undefined {
@@ -176,6 +219,12 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private priceSyncTimer?: ReturnType<typeof setInterval>;
     /** 官方价目页地址（设置可配置；抓取→解析→写 providers.json）。 */
     private pricingSourceUrl: string = DEEPSEEK_PRICING_SOURCE;
+    /** 价目页 Agent 解析器（确定性解析失败时的兜底；宿主/测试可覆盖）。 */
+    private pricingAnalystOverride?: PricingPageAnalyst;
+    /** 最近一次官网抓取是否给出了模型清单（给出则跳过单独的端点模型发现）。 */
+    private officialModelListAt = 0;
+    /** 价目页抓取实现（测试/宿主可覆盖；缺省用全局 fetch）。 */
+    private pricingFetch?: typeof fetch;
     private readonly paths: MaziPaths = ensureMaziDirs();
     private config: RuntimeConfig;
 
@@ -198,47 +247,41 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.freeChatWorkspaceValue =
             this.workspacesState.freeChatWorkspace?.trim() || join(this.paths.home, 'workspace');
         mkdirSync(this.freeChatWorkspaceValue, { recursive: true });
-        void this.syncProviderModelsOnline()
-            .then((result) => {
-                if (result.changed) {
-                    this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
-                        consoleEnabled: false,
-                    });
-                }
-                for (const warning of result.warnings) this.logger.warn(`model sync: ${warning}`);
-            })
-            .catch((error) =>
-                this.logger.warn(`online model sync on boot failed: ${String(error)}`),
-            );
-        // 启动即从官网抓取价目（覆盖 pi-ai 目录价）。
-        void this.syncOfficialPricing()
-            .then((result) => {
-                if (result.error) this.logger.warn(`official pricing sync: ${result.error}`);
-            })
-            .catch((error) =>
-                this.logger.warn(`official pricing sync on boot failed: ${String(error)}`),
-            );
-        // 价格与模型目录定时校准：与启动时同一条链路（本地目录 + 在线发现 → providers.json pricing）。
+        // 启动即做一次在线校准：官网价目（可能内含权威模型清单）→ 按需端点模型发现。
+        void this.syncModelsAndPricing('boot').catch((error) =>
+            this.logger.warn(`online sync on boot failed: ${String(error)}`),
+        );
+        // 价格与模型目录定时校准（默认 5 分钟；MAZI_PRICE_SYNC_MS 可覆盖）。
         const priceSyncMs = Number(process.env.MAZI_PRICE_SYNC_MS ?? 5 * 60 * 1000);
         if (Number.isFinite(priceSyncMs) && priceSyncMs > 0) {
             this.priceSyncTimer = setInterval(() => {
-                void this.syncProviderModelsOnline()
-                    .then(async (result) => {
-                        if (!result.changed || this.running) return;
-                        this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
-                            consoleEnabled: false,
-                        });
-                        await this.restartRuntimes();
-                        this.logger.log('periodic model/price sync: config + runtimes refreshed');
-                    })
-                    .catch((error) =>
-                        this.logger.warn(`periodic model/price sync failed: ${String(error)}`),
-                    );
-                void this.syncOfficialPricing().catch((error) =>
-                    this.logger.warn(`periodic official pricing sync failed: ${String(error)}`),
+                void this.syncModelsAndPricing('periodic').catch((error) =>
+                    this.logger.warn(`periodic model/price sync failed: ${String(error)}`),
                 );
             }, priceSyncMs);
             this.priceSyncTimer.unref?.();
+        }
+    }
+
+    /**
+     * 启动/周期在线校准：先抓官网价目页（可能同时给出权威模型清单），再按需做端点模型发现。
+     * 官网给出清单 → 跳过端点发现（`officialModelListAt`）；价格由官网价覆盖（目录价不反向覆盖）。
+     */
+    private async syncModelsAndPricing(trigger: 'boot' | 'periodic'): Promise<void> {
+        this.officialModelListAt = 0;
+        const pricing = await this.syncOfficialPricing();
+        if (pricing.error) this.logger.warn(`official pricing sync: ${pricing.error}`);
+        if ((pricing.modelIds ?? []).length > 0) this.officialModelListAt = Date.now();
+        const models = await this.syncProviderModelsOnline();
+        if (models.changed && !this.running) {
+            this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
+                consoleEnabled: false,
+            });
+        }
+        for (const warning of models.warnings) this.logger.warn(`model sync: ${warning}`);
+        if (trigger === 'periodic' && models.changed && !this.running) {
+            await this.restartRuntimes();
+            this.logger.log('periodic model/price sync: config + runtimes refreshed');
         }
     }
 
@@ -303,6 +346,13 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         for (const provider of parsed.providers ?? []) {
             const vendor = driverProviderOf(provider);
             if (vendor === undefined) continue;
+            // 官网价目页已给出权威模型清单 → 跳过单独的端点发现（用户约定：减少冗余请求/覆盖）。
+            if (vendor === 'deepseek' && this.officialModelListAt > 0) {
+                this.logger.log(
+                    `skip endpoint model discovery for ${String(provider.id)}: official pricing page provided the model list`,
+                );
+                continue;
+            }
             const baseUrl = driverBaseUrlOf(provider);
             const result = await discoverModels(vendor, {
                 env: process.env,
@@ -581,49 +631,87 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return next;
     }
 
+    /** 注入/清除价目页 Agent 解析器（测试或宿主自定义；缺省按配置构造）。 */
+    setPricingAnalyst(analyst?: PricingPageAnalyst): void {
+        this.pricingAnalystOverride = analyst;
+    }
+
+    /** 注入/清除价目页抓取实现（测试注入 fake；缺省用全局 fetch）。 */
+    setPricingFetch(impl?: typeof fetch): void {
+        this.pricingFetch = impl;
+    }
+
     /**
      * 从官网抓取价目页 → 解析 → 写入 providers.json（覆盖 pi-ai 目录价）。
      * 解析失败只告警，不覆盖既有配置（fail-safe）。
      */
-    async syncOfficialPricing(): Promise<{ updated: boolean; models: number; error?: string }> {
+    async syncOfficialPricing(): Promise<{
+        updated: boolean;
+        models: number;
+        modelIds?: string[];
+        error?: string;
+    }> {
         const url = this.pricingSourceUrl;
         if (!url) return { updated: false, models: 0 };
-        // 测试环境禁止真实网络请求（保持 hermetic）
-        if (process.env.VITEST) return { updated: false, models: 0 };
+        // 测试环境禁止真实网络请求（保持 hermetic）；显式注入抓取实现时除外。
+        if (process.env.VITEST && this.pricingFetch === undefined) {
+            return { updated: false, models: 0 };
+        }
+        const doFetch = this.pricingFetch ?? fetch;
         try {
-            const res = await fetch(url);
+            const res = await doFetch(url);
             if (!res.ok) return { updated: false, models: 0, error: `HTTP ${res.status}` };
-            const parsed = parseDeepseekPricingPage(await res.text(), url);
+            const html = await res.text();
+            let parsed = parseDeepseekPricingPage(html, url);
+            if (!parsed) {
+                // 确定性解析失败 → 交给 Agent 兜底（无 provider / 失败则保持既有配置不覆盖）。
+                const analyst = this.pricingAnalystOverride ?? createPricingAnalyst(this.config);
+                if (analyst) {
+                    try {
+                        parsed = await analyst({ url, text: htmlToText(html) });
+                    } catch (error) {
+                        this.logger.warn(`pricing page agent analysis failed: ${String(error)}`);
+                    }
+                }
+            }
             if (!parsed) return { updated: false, models: 0, error: 'parse-failed' };
+            const modelIds = parsed.models.map((model) => model.id);
             const file = loadRuntimeConfig(this.paths.home);
             let changed = false;
             for (const provider of file.providers) {
                 const record = provider as unknown as Record<string, unknown>;
                 if (driverProviderOf(record) !== 'deepseek') continue;
+                // 官网同时给出模型清单 → 以官网为权威替换（保留同 id 的既有元数据）。
+                if (
+                    modelIds.length > 0 &&
+                    applyModelList(record, modelIds, builtinModelsFor('deepseek'))
+                ) {
+                    changed = true;
+                }
+                // 逐模型写入各自价目（flash/pro 单价不同）。
                 for (const model of provider.models ?? []) {
                     const entry = parsed.models.find((m) => m.tier === deepseekTierOf(model.id));
-                    if (!entry) continue;
-                    const pricing = {
-                        currency: 'CNY' as const,
-                        base: {
-                            inputPerMTok: entry.idle.inputPerMTok,
-                            outputPerMTok: entry.idle.outputPerMTok,
-                            cacheReadPerMTok: entry.idle.cacheReadPerMTok,
-                        },
-                        tiers: DEEPSEEK_PEAK_TIERS.map((tier) => ({
-                            ...tier,
-                            multiplier: peakMultiplierOf(entry) ?? tier.multiplier,
-                        })),
-                        effectiveAt: Date.now(),
-                        version: DEEPSEEK_PRICING_VERSION,
-                    };
-                    if (JSON.stringify(provider.pricing) !== JSON.stringify(pricing)) {
-                        (provider as { pricing?: unknown }).pricing = pricing;
+                    if (entry === undefined) continue;
+                    const next = buildCnySchedule(entry, model.pricing);
+                    if (JSON.stringify(next) !== JSON.stringify(model.pricing)) {
+                        model.pricing = next;
+                        changed = true;
+                    }
+                }
+                // provider 级 pricing = 默认模型（driver.model）的价目。
+                const defaultEntry =
+                    parsed.models.find(
+                        (m) => m.tier === deepseekTierOf(driverModelOf(record) ?? ''),
+                    ) ?? parsed.models[0];
+                if (defaultEntry !== undefined) {
+                    const next = buildCnySchedule(defaultEntry, provider.pricing);
+                    if (JSON.stringify(next) !== JSON.stringify(provider.pricing)) {
+                        provider.pricing = next;
                         changed = true;
                     }
                 }
             }
-            if (!changed) return { updated: false, models: parsed.models.length };
+            if (!changed) return { updated: false, models: parsed.models.length, modelIds };
             writeFileSync(
                 this.paths.providersFile,
                 JSON.stringify({ providers: file.providers }, null, 2),
@@ -635,7 +723,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             this.logger.log(
                 `syncOfficialPricing: updated ${parsed.models.length} model tiers from ${url}`,
             );
-            return { updated: true, models: parsed.models.length };
+            return { updated: true, models: parsed.models.length, modelIds };
         } catch (error) {
             return { updated: false, models: 0, error: String(error) };
         }

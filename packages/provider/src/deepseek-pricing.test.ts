@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseDeepseekPricingPage, peakMultiplierOf } from '../src/deepseek-pricing.js';
+import {
+    buildPricingAnalysisPrompt,
+    extractJsonObject,
+    parseAgentPricingJson,
+    parseDeepseekPricingPage,
+    peakMultiplierOf,
+} from '../src/deepseek-pricing.js';
 
 const SAMPLE = `
 <html><body><div>
@@ -18,14 +24,89 @@ describe('parseDeepseekPricingPage', () => {
         const flash = parsed?.models.find((m) => m.tier === 'flash');
         const pro = parsed?.models.find((m) => m.tier === 'pro');
         expect(flash?.id).toBe('deepseek-flash');
-        expect(flash?.idle).toMatchObject({ inputPerMTok: 1, cacheReadPerMTok: 0.02, outputPerMTok: 4, currency: 'CNY' });
-        expect(flash?.peak).toMatchObject({ inputPerMTok: 2, cacheReadPerMTok: 0.04, outputPerMTok: 8 });
-        expect(pro?.idle).toMatchObject({ inputPerMTok: 4.5, cacheReadPerMTok: 0.15, outputPerMTok: 13.5 });
-        expect(pro?.peak).toMatchObject({ inputPerMTok: 9, cacheReadPerMTok: 0.3, outputPerMTok: 27 });
+        expect(flash?.idle).toMatchObject({
+            inputPerMTok: 1,
+            cacheReadPerMTok: 0.02,
+            outputPerMTok: 4,
+            currency: 'CNY',
+        });
+        expect(flash?.peak).toMatchObject({
+            inputPerMTok: 2,
+            cacheReadPerMTok: 0.04,
+            outputPerMTok: 8,
+        });
+        expect(pro?.idle).toMatchObject({
+            inputPerMTok: 4.5,
+            cacheReadPerMTok: 0.15,
+            outputPerMTok: 13.5,
+        });
+        expect(pro?.peak).toMatchObject({
+            inputPerMTok: 9,
+            cacheReadPerMTok: 0.3,
+            outputPerMTok: 27,
+        });
         if (flash) expect(peakMultiplierOf(flash)).toBe(2);
     });
 
     it('returns null when the table is absent', () => {
         expect(parseDeepseekPricingPage('<html>no table</html>', 'x')).toBeNull();
+    });
+});
+describe('parseAgentPricingJson', () => {
+    it('parses a bare JSON reply into flash/pro tiers', () => {
+        const reply = JSON.stringify({
+            currency: 'CNY',
+            models: [
+                {
+                    id: 'deepseek-flash',
+                    tier: 'flash',
+                    idle: { inputPerMTok: 1, cacheReadPerMTok: 0.02, outputPerMTok: 4 },
+                    peak: { inputPerMTok: 2, cacheReadPerMTok: 0.04, outputPerMTok: 8 },
+                },
+                {
+                    id: 'deepseek-v4-pro',
+                    idle: { inputPerMTok: 4.5, cacheReadPerMTok: 0.15, outputPerMTok: 13.5 },
+                },
+            ],
+        });
+        const parsed = parseAgentPricingJson(reply, 'https://example.test/pricing');
+        expect(parsed?.currency).toBe('CNY');
+        expect(parsed?.models).toHaveLength(2);
+        const flash = parsed?.models.find((m) => m.id === 'deepseek-flash');
+        expect(flash?.tier).toBe('flash');
+        expect(flash?.peak.outputPerMTok).toBe(8);
+        // 未给 peak → 回退 idle；tier 由 id 推断为 pro
+        const pro = parsed?.models.find((m) => m.id === 'deepseek-v4-pro');
+        expect(pro?.tier).toBe('pro');
+        expect(pro?.peak).toEqual(pro?.idle);
+    });
+
+    it('tolerates markdown fences and surrounding prose', () => {
+        const reply = [
+            '好的，价格如下：',
+            '\u0060\u0060\u0060json',
+            '{"currency":"CNY","models":[{"id":"deepseek-flash","idle":{"inputPerMTok":"1","outputPerMTok":"4元"}}]}',
+            '\u0060\u0060\u0060',
+            '以上。',
+        ].join('\n');
+        expect(extractJsonObject(reply)).toContain('deepseek-flash');
+        const parsed = parseAgentPricingJson(reply, 'x');
+        expect(parsed?.models[0]?.idle.inputPerMTok).toBe(1);
+        expect(parsed?.models[0]?.idle.outputPerMTok).toBe(4);
+    });
+
+    it('rejects non-CNY or malformed payloads', () => {
+        expect(parseAgentPricingJson('not json', 'x')).toBeNull();
+        expect(parseAgentPricingJson('{"currency":"USD","models":[]}', 'x')).toBeNull();
+        expect(parseAgentPricingJson('{"currency":"CNY","models":[{"id":"x"}]}', 'x')).toBeNull();
+    });
+});
+
+describe('buildPricingAnalysisPrompt', () => {
+    it('embeds the url and truncates very long pages', () => {
+        const prompt = buildPricingAnalysisPrompt('a'.repeat(30_000), 'https://example.test/p');
+        expect(prompt).toContain('https://example.test/p');
+        expect(prompt).toContain('"currency":"CNY"');
+        expect(prompt.length).toBeLessThan(30_000);
     });
 });

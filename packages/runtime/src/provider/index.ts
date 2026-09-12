@@ -5,6 +5,7 @@ export * from './health.js';
 export * from './limiter.js';
 export * from './orchestrator.js';
 export * from './pricing.js';
+export * from './pricing-analyst.js';
 export * from './profile.js';
 export * from './registry.js';
 export * from './retry.js';

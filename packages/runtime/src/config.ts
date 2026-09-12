@@ -55,6 +55,8 @@ export interface ProviderConfig {
         supportsTools?: boolean;
         supportsThinking?: boolean;
         supportsVision?: boolean;
+        /** 该模型专属价目（官网抓取写入；缺省用 provider 级 pricing）。 */
+        pricing?: PricingSchedule;
     }>;
     driver: {
         type: 'pi-ai';
