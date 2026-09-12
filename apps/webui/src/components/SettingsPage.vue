@@ -27,6 +27,8 @@ const props = defineProps({
     freeChatWorkspace: { type: String, default: '' },
     /** 系统级权限 grant（后端 settings.json 持久化）。 */
     permissionCeiling: { type: String, default: 'read-only' },
+    /** 官方价目页地址（后端 settings.json 持久化；空 = 关闭抓取）。 */
+    pricingSourceUrl: { type: String, default: '' },
 });
 const emit = defineEmits([
     'update:theme',
@@ -36,7 +38,17 @@ const emit = defineEmits([
     'save-free-workspace',
     'pick-free-workspace',
     'save-permission',
+    'save-pricing-source',
+    'refresh-pricing',
 ]);
+
+const pricingDraft = ref(props.pricingSourceUrl);
+watch(
+    () => props.pricingSourceUrl,
+    (value) => {
+        pricingDraft.value = value;
+    },
+);
 
 const freeChatDraft = ref(props.freeChatWorkspace);
 watch(
@@ -77,6 +89,20 @@ watch(
                         <input class="setting-input" v-model="freeChatDraft" placeholder="~/.mazi/workspace" />
                         <button class="setting-sync" @click="emit('save-free-workspace', freeChatDraft)">保存</button>
                         <button class="setting-sync" @click="emit('pick-free-workspace')">选择…</button>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-group">
+                <div class="settings-group-title">Pricing</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Official pricing source</div>
+                        <div class="setting-desc">启动与每 5 分钟抓取该页面，解析模型价目并覆盖目录价（空 = 关闭）</div>
+                    </div>
+                    <div class="setting-actions">
+                        <input class="setting-input" v-model="pricingDraft" placeholder="https://api-docs.deepseek.com/zh-cn/quick_start/pricing/" />
+                        <button class="setting-sync" @click="emit('save-pricing-source', pricingDraft)">保存</button>
+                        <button class="setting-sync" @click="emit('refresh-pricing')">立即刷新</button>
                     </div>
                 </div>
             </div>

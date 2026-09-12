@@ -18,6 +18,8 @@ export interface RuntimeSettingsFile {
         allowedTools?: string[];
     };
     permissions?: Record<string, string>;
+    /** 官方价目页地址（设置里可配置；空 = 不抓取）。 */
+    pricing?: { sourceUrl?: string };
 }
 
 export interface FileRuntimeConfig {
@@ -71,6 +73,7 @@ export function saveRuntimeSettings(settings: RuntimeSettingsFile, configDir?: s
         ...(settings.permissions
             ? { permissions: { ...current.permissions, ...settings.permissions } }
             : {}),
+        ...(settings.pricing ? { pricing: { ...current.pricing, ...settings.pricing } } : {}),
     };
     mkdirSync(paths.home, { recursive: true });
     writeFileSync(paths.settingsFile, `${JSON.stringify(next, null, 2)}\n`);

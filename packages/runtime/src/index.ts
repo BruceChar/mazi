@@ -15,7 +15,6 @@ export {
     builtinModelsFor,
     builtinVendors,
     type CatalogModel,
-    DEEPSEEK_CNY_PRICING,
     DEEPSEEK_PEAK_TIERS,
     DEEPSEEK_PRICING_SOURCE,
     DEEPSEEK_PRICING_VERSION,
@@ -23,6 +22,8 @@ export {
     deepseekTierOf,
     discoverModels,
     type ModelDiscoveryResult,
+    parseDeepseekPricingPage,
+    peakMultiplierOf,
 } from '@mazi/provider';
 // 模型目录与计费数据架构（catalog）：目录事实 / 同步 / 快照 / 路由 / 账本
 export * from './catalog/index.js';

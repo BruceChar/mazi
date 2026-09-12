@@ -358,6 +358,30 @@ export async function setPermissionCeiling(value: string): Promise<void> {
     }
 }
 
+/** 设置官方价目页地址（POST /api/config/pricing）。 */
+export async function setPricingSource(url: string): Promise<void> {
+    try {
+        cfg.value = await api('/api/config/pricing', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sourceUrl: url }),
+        });
+        ui.err = null;
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
+/** 立即抓取并应用官网价目（POST /api/config/pricing/refresh）。 */
+export async function refreshPricing(): Promise<void> {
+    try {
+        cfg.value = await api('/api/config/pricing/refresh', { method: 'POST' });
+        ui.err = null;
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
 /** 从服务端重新同步模型目录（POST /api/config/sync）并刷新配置。 */
 export async function syncConfig(): Promise<void> {
     try {

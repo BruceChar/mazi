@@ -84,6 +84,8 @@ export interface ConfigOverview {
     permissionCeiling?: string;
     /** Scoped permission overrides: `workspace:<path>` / `conversation:<id>`. */
     permissions?: Record<string, string>;
+    /** Official pricing page URL (Settings → General). */
+    pricingSourceUrl?: string;
 }
 
 // ============================================================

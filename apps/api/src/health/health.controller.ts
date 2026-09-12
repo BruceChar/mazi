@@ -72,6 +72,20 @@ export class HealthController {
         return this.config();
     }
 
+    /** POST /api/config/pricing：设置官方价目页地址（空 = 关闭抓取）。 */
+    @Post('config/pricing')
+    setPricingSource(@Body() body: { sourceUrl?: unknown }): Record<string, unknown> {
+        this.runtime.setPricingSource(typeof body?.sourceUrl === 'string' ? body.sourceUrl : '');
+        return this.config();
+    }
+
+    /** POST /api/config/pricing/refresh：立即抓取并应用官网价目。 */
+    @Post('config/pricing/refresh')
+    async refreshPricing(): Promise<Record<string, unknown>> {
+        const result = await this.runtime.syncOfficialPricing();
+        return { ...this.config(), pricingSync: result };
+    }
+
     /** POST /api/permissions：写入某工作区/会话的独立权限覆盖（互不影响）。 */
     @Post('permissions')
     setScopedPermission(

@@ -15,7 +15,9 @@ import {
     CatalogService,
     configOverview,
     DEEPSEEK_PEAK_TIERS,
+    DEEPSEEK_PRICING_SOURCE,
     DEEPSEEK_PRICING_VERSION,
+    deepseekTierOf,
     discoverModels,
     ensureMaziDirs,
     FileCatalogStore,
@@ -24,6 +26,8 @@ import {
     loadRuntimeSettings,
     observedCatalogFromProviderConfigs,
     type PendingApproval,
+    parseDeepseekPricingPage,
+    peakMultiplierOf,
     resolveScopedPermission,
     saveRuntimeSettings,
     toRuntimeConfig,
@@ -170,6 +174,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private permissions: Record<string, string> = {};
     /** 价格/模型定时校准（默认 5 分钟；MAZI_PRICE_SYNC_MS 可覆盖）。 */
     private priceSyncTimer?: ReturnType<typeof setInterval>;
+    /** 官方价目页地址（设置可配置；抓取→解析→写 providers.json）。 */
+    private pricingSourceUrl: string = DEEPSEEK_PRICING_SOURCE;
     private readonly paths: MaziPaths = ensureMaziDirs();
     private config: RuntimeConfig;
 
@@ -184,6 +190,9 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             consoleEnabled: false,
         });
         this.permissions = loadRuntimeSettings(this.paths.home).permissions ?? {};
+        this.pricingSourceUrl =
+            loadRuntimeSettings(this.paths.home).pricing?.sourceUrl?.trim() ||
+            DEEPSEEK_PRICING_SOURCE;
         // 随心聊默认工作区：workspaces.json 配置优先，缺省 $MAZI_HOME/workspace（避免落在进程 cwd 如 apps/api）。
         this.readWorkspacesState();
         this.freeChatWorkspaceValue =
@@ -201,6 +210,14 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             .catch((error) =>
                 this.logger.warn(`online model sync on boot failed: ${String(error)}`),
             );
+        // 启动即从官网抓取价目（覆盖 pi-ai 目录价）。
+        void this.syncOfficialPricing()
+            .then((result) => {
+                if (result.error) this.logger.warn(`official pricing sync: ${result.error}`);
+            })
+            .catch((error) =>
+                this.logger.warn(`official pricing sync on boot failed: ${String(error)}`),
+            );
         // 价格与模型目录定时校准：与启动时同一条链路（本地目录 + 在线发现 → providers.json pricing）。
         const priceSyncMs = Number(process.env.MAZI_PRICE_SYNC_MS ?? 5 * 60 * 1000);
         if (Number.isFinite(priceSyncMs) && priceSyncMs > 0) {
@@ -217,6 +234,9 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                     .catch((error) =>
                         this.logger.warn(`periodic model/price sync failed: ${String(error)}`),
                     );
+                void this.syncOfficialPricing().catch((error) =>
+                    this.logger.warn(`periodic official pricing sync failed: ${String(error)}`),
+                );
             }, priceSyncMs);
             this.priceSyncTimer.unref?.();
         }
@@ -541,13 +561,84 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         freeChatWorkspace: string;
         permissionCeiling: PermissionLevel;
         permissions: Record<string, string>;
+        pricingSourceUrl: string;
     } {
         return {
             ...configOverview(),
             freeChatWorkspace: this.freeChatWorkspaceValue,
             permissionCeiling: this.config.goal?.permissionCeiling ?? 'read-only',
             permissions: this.permissions,
+            pricingSourceUrl: this.pricingSourceUrl,
         };
+    }
+
+    /** 设置官方价目页地址（settings.json 持久化）。 */
+    setPricingSource(url: string): string {
+        const next = url.trim();
+        this.pricingSourceUrl = next;
+        saveRuntimeSettings({ pricing: { sourceUrl: next } }, this.paths.home);
+        this.logger.log(`setPricingSource → ${next || '(disabled)'}`);
+        return next;
+    }
+
+    /**
+     * 从官网抓取价目页 → 解析 → 写入 providers.json（覆盖 pi-ai 目录价）。
+     * 解析失败只告警，不覆盖既有配置（fail-safe）。
+     */
+    async syncOfficialPricing(): Promise<{ updated: boolean; models: number; error?: string }> {
+        const url = this.pricingSourceUrl;
+        if (!url) return { updated: false, models: 0 };
+        // 测试环境禁止真实网络请求（保持 hermetic）
+        if (process.env.VITEST) return { updated: false, models: 0 };
+        try {
+            const res = await fetch(url);
+            if (!res.ok) return { updated: false, models: 0, error: `HTTP ${res.status}` };
+            const parsed = parseDeepseekPricingPage(await res.text(), url);
+            if (!parsed) return { updated: false, models: 0, error: 'parse-failed' };
+            const file = loadRuntimeConfig(this.paths.home);
+            let changed = false;
+            for (const provider of file.providers) {
+                const record = provider as unknown as Record<string, unknown>;
+                if (driverProviderOf(record) !== 'deepseek') continue;
+                for (const model of provider.models ?? []) {
+                    const entry = parsed.models.find((m) => m.tier === deepseekTierOf(model.id));
+                    if (!entry) continue;
+                    const pricing = {
+                        currency: 'CNY' as const,
+                        base: {
+                            inputPerMTok: entry.idle.inputPerMTok,
+                            outputPerMTok: entry.idle.outputPerMTok,
+                            cacheReadPerMTok: entry.idle.cacheReadPerMTok,
+                        },
+                        tiers: DEEPSEEK_PEAK_TIERS.map((tier) => ({
+                            ...tier,
+                            multiplier: peakMultiplierOf(entry) ?? tier.multiplier,
+                        })),
+                        effectiveAt: Date.now(),
+                        version: DEEPSEEK_PRICING_VERSION,
+                    };
+                    if (JSON.stringify(provider.pricing) !== JSON.stringify(pricing)) {
+                        (provider as { pricing?: unknown }).pricing = pricing;
+                        changed = true;
+                    }
+                }
+            }
+            if (!changed) return { updated: false, models: parsed.models.length };
+            writeFileSync(
+                this.paths.providersFile,
+                JSON.stringify({ providers: file.providers }, null, 2),
+            );
+            this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
+                consoleEnabled: false,
+            });
+            if (!this.running) await this.restartRuntimes();
+            this.logger.log(
+                `syncOfficialPricing: updated ${parsed.models.length} model tiers from ${url}`,
+            );
+            return { updated: true, models: parsed.models.length };
+        } catch (error) {
+            return { updated: false, models: 0, error: String(error) };
+        }
     }
 
     /** 解析某工作区/会话的生效权限：会话覆盖 → 工作区覆盖 → 系统默认。 */

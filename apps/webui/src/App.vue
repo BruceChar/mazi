@@ -52,9 +52,11 @@ import {
     selectWorkspace,
     selectedStepId,
     selectedTaskId,
+    refreshPricing,
     sendFeedback,
     sessionPermission,
     setPermissionCeiling,
+    setPricingSource,
     setSessionPermission,
     setTheme,
     short,
@@ -877,6 +879,7 @@ onBeforeUnmount(() => {
                     :syncing="syncingModels"
                     :free-chat-workspace="freeChatWorkspace"
                     :permission-ceiling="cfg?.permissionCeiling || 'read-only'"
+                    :pricing-source-url="cfg?.pricingSourceUrl || ''"
                     @update:theme="setTheme"
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"
@@ -884,6 +887,8 @@ onBeforeUnmount(() => {
                     @save-free-workspace="onSaveFreeChatWorkspace"
                     @pick-free-workspace="onPickFreeChatWorkspace"
                     @save-permission="setPermissionCeiling"
+                    @save-pricing-source="setPricingSource"
+                    @refresh-pricing="refreshPricing"
                 />
             </template>
 
