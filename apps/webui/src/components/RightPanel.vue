@@ -225,6 +225,41 @@ const contextGroups = computed(() => {
     }
     return groups;
 });
+
+/* ---- Output 分段（reasoning / tool-call args / text） ---- */
+const openOutput = ref(false);
+const outputSegments = computed(() => {
+    const out = props.audit?.output;
+    if (!out) return [];
+    const total = out.reasoningTokens + out.toolCallArgsTokens + out.textTokens;
+    const denom = total > 0 ? total : 1;
+    return [
+        { key: 'reasoning', label: 'reasoning', tokens: out.reasoningTokens, colorVar: '--seg-assistant' },
+        { key: 'toolCallArgs', label: 'tool-call args', tokens: out.toolCallArgsTokens, colorVar: '--seg-toolcall' },
+        { key: 'text', label: 'text', tokens: out.textTokens, colorVar: '--seg-input' },
+    ].map((seg) => ({
+        ...seg,
+        ratio: seg.tokens / denom,
+        width: (seg.tokens / denom) * 100,
+    }));
+});
+const outputContent = computed(() => {
+    const contents = props.audit?.output?.contents;
+    if (!contents) return '';
+    return [
+        contents.reasoning ? `[reasoning]\n${contents.reasoning}` : '',
+        contents.toolCalls ? `[tool-call args]\n${contents.toolCalls}` : '',
+        contents.text ? `[text]\n${contents.text}` : '',
+    ]
+        .filter((part) => part.length > 0)
+        .join('\n\n');
+});
+function toggleOutput() {
+    openOutput.value = !openOutput.value;
+}
+function pricingRate(perMTok) {
+    return `$${perMTok}/M`;
+}
 </script>
 
 <template>
@@ -406,6 +441,40 @@ const contextGroups = computed(() => {
                         <div v-else class="audit-muted">无输出估算</div>
                     </section>
 
+                    <!-- Output 分段（reasoning / tool-call args / text） -->
+                    <section class="audit-section">
+                        <div class="audit-section-title">Output（分段）</div>
+                        <template v-if="outputSegments.length">
+                            <div class="output-bar">
+                                <span
+                                    v-for="seg in outputSegments"
+                                    :key="seg.key"
+                                    class="output-seg"
+                                    :style="{ width: seg.width + '%', background: 'var(' + seg.colorVar + ')' }"
+                                    :title="seg.label + ' · ' + formatTokens(seg.tokens)"
+                                ></span>
+                            </div>
+                            <button
+                                v-for="seg in outputSegments"
+                                :key="seg.key"
+                                class="seg-row"
+                                :class="{ open: openOutput }"
+                                @click="toggleOutput"
+                            >
+                                <span class="seg-dot" :style="{ background: 'var(' + seg.colorVar + ')' }"></span>
+                                <span class="seg-label">{{ seg.label }}</span>
+                                <span class="seg-tokens">{{ formatTokens(seg.tokens) }}</span>
+                                <span class="seg-ratio">{{ formatPercent(seg.ratio) }}</span>
+                            </button>
+                            <div class="audit-row audit-total">
+                                <span class="audit-key">total</span>
+                                <span class="audit-val">{{ formatTokens(audit.output.totalOutputTokens) }}</span>
+                            </div>
+                            <pre v-if="openOutput && outputContent" class="seg-content">{{ outputContent }}</pre>
+                        </template>
+                        <div v-else class="audit-muted">无输出分段</div>
+                    </section>
+
                     <!-- Cost 双口径 -->
                     <section class="audit-section">
                         <div class="audit-section-title">Cost</div>
@@ -423,6 +492,24 @@ const contextGroups = computed(() => {
                             <div v-if="audit.usage.cost.cacheRead || audit.usage.cost.cacheWrite" class="audit-row"><span class="audit-key">cache</span><span class="audit-val">{{ formatCost(audit.usage.cost.cacheRead + audit.usage.cost.cacheWrite) }}</span></div>
                             <div v-if="audit.usage.cost.reasoning" class="audit-row"><span class="audit-key">reasoning</span><span class="audit-val">{{ formatCost(audit.usage.cost.reasoning) }}</span></div>
                             <div v-if="audit.usage.cost.tier" class="audit-row"><span class="audit-key">tier</span><span class="audit-val">{{ audit.usage.cost.tier }}</span></div>
+
+                            <!-- vendor 分解：按 vendor token + 入库计价快照重算 -->
+                            <template v-if="audit.vendorCost">
+                                <div class="audit-section-sub">vendor 分解</div>
+                                <div class="audit-row"><span class="audit-key">input missed</span><span class="audit-val">{{ formatCost(audit.vendorCost.inputMissedUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.inputMissedTokens) }} tok</span></span></div>
+                                <div class="audit-row"><span class="audit-key">input cached</span><span class="audit-val">{{ formatCost(audit.vendorCost.inputCachedUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.inputCachedTokens) }} tok</span></span></div>
+                                <div class="audit-row"><span class="audit-key">reasoning</span><span class="audit-val">{{ formatCost(audit.vendorCost.reasoningUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.reasoningTokens) }} tok</span></span></div>
+                                <div class="audit-row"><span class="audit-key">tool-call args</span><span class="audit-val">{{ formatCost(audit.vendorCost.toolCallArgsUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.toolCallArgsTokens) }} tok</span></span></div>
+                                <div class="audit-row"><span class="audit-key">text</span><span class="audit-val">{{ formatCost(audit.vendorCost.textUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.textTokens) }} tok</span></span></div>
+                                <div class="audit-row audit-total"><span class="audit-key">vendor 合计</span><span class="audit-val">{{ formatCost(audit.vendorCost.totalUsd) }}</span></div>
+                                <div class="audit-row">
+                                    <span class="audit-key">pricing</span>
+                                    <span class="audit-val audit-muted">
+                                        in {{ pricingRate(audit.vendorCost.pricing.inputPerMTok) }} · cached {{ pricingRate(audit.vendorCost.pricing.cachedInputPerMTok) }} · out {{ pricingRate(audit.vendorCost.pricing.outputPerMTok) }}
+                                        <span v-if="audit.vendorCost.pricing.version" class="audit-note-inline">{{ audit.vendorCost.pricing.version }}</span>
+                                    </span>
+                                </div>
+                            </template>
                         </template>
                         <div v-else class="audit-muted">未计价</div>
                     </section>
@@ -1513,6 +1600,26 @@ const contextGroups = computed(() => {
     white-space: nowrap;
     font-family: ui-monospace, monospace;
     color: var(--fg-secondary);
+}
+.audit-section-sub {
+    margin: 8px 0 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.output-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 4px 0 8px;
+    background: var(--border-soft);
+}
+.output-seg {
+    display: block;
+    height: 100%;
 }
 .seg-content {
     margin: 2px 0 6px;

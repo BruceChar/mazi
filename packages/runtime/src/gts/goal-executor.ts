@@ -107,6 +107,8 @@ export async function executeTask(
                 round.pin !== undefined ||
                 round.contextUsage !== undefined ||
                 round.estimate !== undefined ||
+                round.output !== undefined ||
+                round.pricing !== undefined ||
                 round.cost !== undefined;
             const roundUsage = hasRoundFacts
                 ? {
@@ -116,6 +118,8 @@ export async function executeTask(
                       ...(round.pin !== undefined ? { pin: round.pin } : {}),
                       ...(round.contextUsage !== undefined ? { runtime: round.contextUsage } : {}),
                       ...(round.estimate !== undefined ? { estimate: round.estimate } : {}),
+                      ...(round.output !== undefined ? { output: round.output } : {}),
+                      ...(round.pricing !== undefined ? { pricing: round.pricing } : {}),
                       ...(round.cost !== undefined ? { cost: round.cost } : {}),
                       ...(round.estimatedCost !== undefined
                           ? { estimatedCost: round.estimatedCost }

@@ -63,6 +63,43 @@ export interface RuntimeContextBreakdown {
     diffContents?: ContextSegmentContents;
 }
 
+/** 输出各段原文（截断，供 UI 查看；不参与计量） */
+export interface OutputSegmentContents {
+    reasoning: string;
+    /** tool_call 参数（JSON 行） */
+    toolCalls: string;
+    text: string;
+    /** 预留：多模态输出 */
+    image?: string;
+    video?: string;
+}
+
+/**
+ * Runtime 输出分段计数：reasoning / tool-call args / text（image/video 预留）。
+ * 第 N 轮产出的 tool_call 参数属于**本轮 output**，不是下一轮 input。
+ */
+export interface RuntimeOutputBreakdown {
+    reasoningTokens: number;
+    toolCallArgsTokens: number;
+    textTokens: number;
+    imageTokens?: number;
+    videoTokens?: number;
+    totalOutputTokens: number;
+    contents?: OutputSegmentContents;
+}
+
+/** 本轮计价快照（入库；审计可据此重算 vendor 成本分解）。 */
+export interface PricingSnapshot {
+    /** 生效倍率后的单价（$/MTok） */
+    inputPerMTok: number;
+    cachedInputPerMTok: number;
+    outputPerMTok: number;
+    reasoningPerMTok?: number;
+    currency: 'USD';
+    version: string;
+    tier: string;
+}
+
 /** Runtime 输出侧估算（非 reasoning 输出文本） */
 export interface UsageEstimate {
     /** 用同一 tokenizer 对非 reasoning 输出文本的估算 */
@@ -111,6 +148,10 @@ export interface Usage {
     runtime: RuntimeContextBreakdown;
     /** output 估算与漂移 */
     estimate: UsageEstimate;
+    /** 输出分段估算（reasoning / tool-call args / text） */
+    output?: RuntimeOutputBreakdown;
+    /** 本轮计价快照（生效倍率后的单价） */
+    pricing?: PricingSnapshot;
     /** vendor token 口径成本 */
     cost: CostBreakdown;
     /** runtime 估算 token 口径成本（对照） */

@@ -7,6 +7,8 @@
 import type {
     GoalTreeSnapshot,
     StepContextContents,
+    StepOutputContents,
+    StepPricingUsage,
     StepRuntimeUsage,
     StepUsage,
 } from '../types.ts';
@@ -104,6 +106,31 @@ export interface EstimateAggregate {
     outputDriftRate: number | null;
 }
 
+/** 输出分段聚合（reasoning / tool-call args / text）。 */
+export interface OutputAggregate {
+    reasoningTokens: number;
+    toolCallArgsTokens: number;
+    textTokens: number;
+    totalOutputTokens: number;
+    contents: StepOutputContents | null;
+}
+
+/** vendor 成本分解（按 vendor token + 入库计价快照重算）。 */
+export interface AuditVendorCost {
+    pricing: StepPricingUsage;
+    inputMissedTokens: number;
+    inputCachedTokens: number;
+    reasoningTokens: number;
+    textTokens: number;
+    toolCallArgsTokens: number;
+    inputMissedUsd: number;
+    inputCachedUsd: number;
+    reasoningUsd: number;
+    textUsd: number;
+    toolCallArgsUsd: number;
+    totalUsd: number;
+}
+
 /** 聚合后的用量事实。 */
 export interface AggregatedUsage {
     vendor: {
@@ -117,6 +144,10 @@ export interface AggregatedUsage {
     /** 最新一轮的 input 分段（用于占比环形图） */
     runtime: StepRuntimeUsage | null;
     estimate: EstimateAggregate | null;
+    /** 输出分段聚合（reasoning / tool-call args / text） */
+    output: OutputAggregate | null;
+    /** 最新一轮的计价快照 */
+    pricing: StepPricingUsage | null;
     cost: CostAggregate | null;
     estimatedCost: CostAggregate | null;
     timing: { ttftMs: number; totalMs: number; tokensPerSecond: number } | null;
@@ -205,6 +236,12 @@ export interface AuditView {
     estimatedTotal: number | null;
     /** Σvendor total */
     vendorTotal: number | null;
+    /** 输出分段（reasoning / tool-call args / text） */
+    output: OutputAggregate | null;
+    /** vendor 成本分解（按入库计价快照重算） */
+    vendorCost: AuditVendorCost | null;
+    /** 最新一轮计价快照 */
+    pricing: StepPricingUsage | null;
     /** tool_call step 的专用视图；非工具步为 null */
     tool: AuditToolView | null;
 }
@@ -259,6 +296,8 @@ interface ResolvedStep {
     /** 会话流中相对上一步的上下文 delta / 上一步总量（collectRows 结束后赋值） */
     contextDelta: number | null;
     previousContextTotal: number | null;
+    /** 被折叠进来的 stepId（如 intent 并入 thinking）：点击这些 stepId 仍可定位到本行 */
+    aliasStepIds?: string[];
 }
 
 interface UsageBearingStep {
@@ -302,6 +341,9 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
     let estimatedCost: CostAggregate | null = null;
     let runtime: StepRuntimeUsage | null = null;
     let runtimeAt = Number.NEGATIVE_INFINITY;
+    let output: OutputAggregate | null = null;
+    let pricing: StepPricingUsage | null = null;
+    let pricingAt = Number.NEGATIVE_INFINITY;
     let estimateInput = 0;
     let estimateOutput = 0;
     let hasEstimate = false;
@@ -358,6 +400,26 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
             estimateOutput += usage.estimate.outputTokens ?? 0;
             hasEstimate = true;
         }
+        if (usage.output) {
+            output ??= {
+                reasoningTokens: 0,
+                toolCallArgsTokens: 0,
+                textTokens: 0,
+                totalOutputTokens: 0,
+                contents: null,
+            };
+            output.reasoningTokens += usage.output.reasoningTokens ?? 0;
+            output.toolCallArgsTokens += usage.output.toolCallArgsTokens ?? 0;
+            output.textTokens += usage.output.textTokens ?? 0;
+            output.totalOutputTokens += usage.output.totalOutputTokens ?? 0;
+            if (output.contents === null && usage.output.contents) {
+                output.contents = usage.output.contents;
+            }
+        }
+        if (usage.pricing && step.startedAt >= pricingAt) {
+            pricing = usage.pricing;
+            pricingAt = step.startedAt;
+        }
         if (usage.timing) {
             hasTiming = true;
             totalMs += usage.timing.totalMs ?? 0;
@@ -390,7 +452,7 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
                       : 0,
           }
         : null;
-    return { vendor, runtime, estimate, cost, estimatedCost, timing };
+    return { vendor, runtime, estimate, output, pricing, cost, estimatedCost, timing };
 }
 
 // ============================================================
@@ -719,60 +781,10 @@ function collectSnapshotSteps(
                     previousContextTotal: null,
                 });
             });
-            attachEmittedToolCalls(taskRows);
             out.push(...taskRows);
         }
     }
     return out;
-}
-
-const EMPTY_CONTEXT_CONTENTS: StepContextContents = {
-    systemPrompt: '',
-    historyUser: '',
-    historyAssistant: '',
-    toolCalls: '',
-    toolSchema: '',
-    newInput: '',
-    observation: '',
-    retrieved: '',
-    examples: '',
-};
-
-/**
- * 一次 assistant thinking 产出的 tool_call 参数，是**该 thinking 的输出**：归到该
- * thinking 步的 diff（Context 面板「新增内容」里可见），而不是归到下一轮请求；同时
- * 清掉下一轮 thinking 上重复的 tool-call args diff。无 roundId 时按相邻 tool_call 回退。
- */
-function attachEmittedToolCalls(rows: ResolvedStep[]): void {
-    for (let i = 0; i < rows.length; i += 1) {
-        const row = rows[i];
-        if (row?.kind !== 'thinking') continue;
-        const roundId = row.usage?.roundId;
-        const args: string[] = [];
-        let j = i + 1;
-        for (; j < rows.length; j += 1) {
-            const next = rows[j];
-            if (next?.kind !== 'tool_call') break;
-            if (roundId && next.usage?.roundId && next.usage.roundId !== roundId) break;
-            args.push(
-                JSON.stringify({ toolName: next.toolName, arguments: next.toolArguments ?? {} }),
-            );
-        }
-        if (args.length === 0) continue;
-        row.diffContents = {
-            ...(row.diffContents ?? EMPTY_CONTEXT_CONTENTS),
-            toolCalls: args.join('\n'),
-        };
-        for (let k = j; k < rows.length; k += 1) {
-            const later = rows[k];
-            if (later?.kind === 'thinking') {
-                if (later.diffContents?.toolCalls) {
-                    later.diffContents = { ...later.diffContents, toolCalls: '' };
-                }
-                break;
-            }
-        }
-    }
 }
 
 /**
@@ -788,6 +800,9 @@ function collapseModelRows(rows: ResolvedStep[]): ResolvedStep[] {
             if (prev && prev.kind === 'thinking' && prev.taskId === row.taskId) {
                 if (prev.text.length === 0) prev.text = row.text;
                 if (row.endedAt !== null) prev.endedAt = row.endedAt;
+                // Keep the absorbed intent selectable (bottom Summary links to it).
+                if (!prev.aliasStepIds) prev.aliasStepIds = [];
+                prev.aliasStepIds.push(row.stepId);
                 continue;
             }
             out.push({ ...row, kind: 'thinking' });
@@ -903,7 +918,7 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         diffContent: step.diffContent,
         diffParts: contextDiffParts(step.diffContents),
         segments: contextSegments(runtime),
-        selected: step.stepId === selectedId,
+        selected: step.stepId === selectedId || step.aliasStepIds?.includes(selectedId) === true,
     };
 }
 
@@ -913,15 +928,62 @@ function driftOf(cost: CostAggregate | null, estimated: CostAggregate | null): C
     return { usd, rate: usd / cost.total };
 }
 
+/** vendor 成本分解：vendor token 用量 × 入库计价快照（输出按分段比例拆分）。 */
+export function vendorCostOf(usage: AggregatedUsage): AuditVendorCost | null {
+    const vendor = usage.vendor;
+    const pricing = usage.pricing;
+    if (!vendor || !pricing) return null;
+    const inputCachedTokens = vendor.cacheRead ?? 0;
+    const inputMissedTokens = Math.max(
+        0,
+        vendor.input - inputCachedTokens - (vendor.cacheCreation ?? 0),
+    );
+    const reasoningTokens = vendor.reasoning ?? 0;
+    const nonReasoning = Math.max(0, vendor.output - reasoningTokens);
+    const estText = usage.output?.textTokens ?? 0;
+    const estArgs = usage.output?.toolCallArgsTokens ?? 0;
+    const estTotal = estText + estArgs;
+    const textTokens =
+        estTotal > 0 ? Math.round(nonReasoning * (estText / estTotal)) : nonReasoning;
+    const toolCallArgsTokens = Math.max(0, nonReasoning - textTokens);
+    const reasoningRate = pricing.reasoningPerMTok ?? pricing.outputPerMTok;
+    const usd = (tokens: number, rate: number): number => (tokens / 1_000_000) * rate;
+    const inputMissedUsd = usd(inputMissedTokens, pricing.inputPerMTok);
+    const inputCachedUsd = usd(inputCachedTokens, pricing.cachedInputPerMTok);
+    const reasoningUsd = usd(reasoningTokens, reasoningRate);
+    const textUsd = usd(textTokens, pricing.outputPerMTok);
+    const toolCallArgsUsd = usd(toolCallArgsTokens, pricing.outputPerMTok);
+    return {
+        pricing,
+        inputMissedTokens,
+        inputCachedTokens,
+        reasoningTokens,
+        textTokens,
+        toolCallArgsTokens,
+        inputMissedUsd,
+        inputCachedUsd,
+        reasoningUsd,
+        textUsd,
+        toolCallArgsUsd,
+        totalUsd: inputMissedUsd + inputCachedUsd + reasoningUsd + textUsd + toolCallArgsUsd,
+    };
+}
+
 function extrasOf(
     usage: AggregatedUsage,
-): Pick<AuditView, 'costDrift' | 'estimatedTotal' | 'vendorTotal'> {
+): Pick<
+    AuditView,
+    'costDrift' | 'estimatedTotal' | 'vendorTotal' | 'output' | 'vendorCost' | 'pricing'
+> {
     return {
         costDrift: driftOf(usage.cost, usage.estimatedCost),
         estimatedTotal: usage.estimate
             ? usage.estimate.inputTotal + usage.estimate.outputTotal
             : null,
         vendorTotal: usage.vendor ? usage.vendor.total : null,
+        output: usage.output,
+        vendorCost: vendorCostOf(usage),
+        pricing: usage.pricing,
     };
 }
 
@@ -974,6 +1036,8 @@ const EMPTY_USAGE: AggregatedUsage = {
     vendor: null,
     runtime: null,
     estimate: null,
+    output: null,
+    pricing: null,
     cost: null,
     estimatedCost: null,
     timing: null,
@@ -996,6 +1060,9 @@ function noneView(stale: boolean): AuditView {
         costDrift: null,
         estimatedTotal: null,
         vendorTotal: null,
+        output: null,
+        vendorCost: null,
+        pricing: null,
         tool: null,
     };
 }
@@ -1005,7 +1072,9 @@ export function buildAuditView(input: AuditInput): AuditView {
     const rows = collectRows(input);
     const stepId = input.stepId ?? '';
     const taskId = input.taskId ?? '';
-    const selected = stepId ? rows.find((row) => row.stepId === stepId) : undefined;
+    const selected = stepId
+        ? rows.find((row) => row.stepId === stepId || row.aliasStepIds?.includes(stepId))
+        : undefined;
     const taskRows = taskId ? rows.filter((row) => row.taskId === taskId) : [];
     const snapshots =
         input.runs && input.runs.length > 0

@@ -125,6 +125,61 @@ function runtimeView(source: Record<string, unknown>): StepUsage['runtime'] | un
     return view;
 }
 
+function outputView(source: Record<string, unknown>): StepUsage['output'] | undefined {
+    const totalOutputTokens = numberOf(source.totalOutputTokens);
+    if (totalOutputTokens === undefined) {
+        return undefined;
+    }
+    const view: NonNullable<StepUsage['output']> = {
+        reasoningTokens: numberOf(source.reasoningTokens) ?? 0,
+        toolCallArgsTokens: numberOf(source.toolCallArgsTokens) ?? 0,
+        textTokens: numberOf(source.textTokens) ?? 0,
+        totalOutputTokens,
+    };
+    const image = numberOf(source.imageTokens);
+    if (image !== undefined) view.imageTokens = image;
+    const video = numberOf(source.videoTokens);
+    if (video !== undefined) view.videoTokens = video;
+    const contents = subRecord(source.contents);
+    if (contents !== undefined) {
+        const mapped: NonNullable<StepUsage['output']>['contents'] = {
+            reasoning: '',
+            toolCalls: '',
+            text: '',
+        };
+        let any = false;
+        for (const key of ['reasoning', 'toolCalls', 'text', 'image', 'video'] as const) {
+            const value = contents[key];
+            if (typeof value === 'string') {
+                mapped[key] = value;
+                any = true;
+            }
+        }
+        if (any) view.contents = mapped;
+    }
+    return view;
+}
+
+function pricingView(source: Record<string, unknown>): StepUsage['pricing'] | undefined {
+    const inputPerMTok = numberOf(source.inputPerMTok);
+    const outputPerMTok = numberOf(source.outputPerMTok);
+    if (inputPerMTok === undefined || outputPerMTok === undefined) {
+        return undefined;
+    }
+    const view: NonNullable<StepUsage['pricing']> = {
+        inputPerMTok,
+        cachedInputPerMTok: numberOf(source.cachedInputPerMTok) ?? 0,
+        outputPerMTok,
+    };
+    const reasoning = numberOf(source.reasoningPerMTok);
+    if (reasoning !== undefined) view.reasoningPerMTok = reasoning;
+    const version = stringOf(source.version);
+    if (version !== undefined) view.version = version;
+    const tier = stringOf(source.tier);
+    if (tier !== undefined) view.tier = tier;
+    return view;
+}
+
 function estimateView(source: Record<string, unknown>): StepUsage['estimate'] | undefined {
     const outputTokens = numberOf(source.outputTokens);
     if (outputTokens === undefined) {
@@ -276,6 +331,16 @@ export function usageViewOf(usage: unknown): StepUsage | undefined {
     if (runtime !== undefined) view.runtime = runtimeView(runtime);
     const estimate = subRecord(root.estimate);
     if (estimate !== undefined) view.estimate = estimateView(estimate);
+    const output = subRecord(root.output);
+    if (output !== undefined) {
+        const mapped = outputView(output);
+        if (mapped !== undefined) view.output = mapped;
+    }
+    const pricing = subRecord(root.pricing);
+    if (pricing !== undefined) {
+        const mapped = pricingView(pricing);
+        if (mapped !== undefined) view.pricing = mapped;
+    }
     const cost = subRecord(root.cost);
     if (cost !== undefined) view.cost = costView(cost);
     const estimatedCost = subRecord(root.estimatedCost);
@@ -288,7 +353,9 @@ export function usageViewOf(usage: unknown): StepUsage | undefined {
         view.estimatedCost === undefined &&
         view.timing === undefined &&
         view.raw === undefined &&
-        view.pin === undefined
+        view.pin === undefined &&
+        view.output === undefined &&
+        view.pricing === undefined
     ) {
         return undefined;
     }

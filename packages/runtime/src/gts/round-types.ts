@@ -7,7 +7,9 @@
 import type {
     CostBreakdown,
     LLMMessage,
+    PricingSnapshot,
     RuntimeContextBreakdown,
+    RuntimeOutputBreakdown,
     ToolSchema,
     VendorUsage,
 } from '@mazi/core';
@@ -81,6 +83,10 @@ export interface RoundResult {
     cost?: CostBreakdown;
     /** Runtime 输入估算（system/user/assistant/tool-call/schema/input/observation） */
     contextUsage?: RuntimeContextBreakdown;
+    /** Runtime 输出分段估算（reasoning / tool-call args / text） */
+    output?: RuntimeOutputBreakdown;
+    /** 本轮计价快照 */
+    pricing?: PricingSnapshot;
     /** Runtime 输出估算与漂移 */
     estimate?: RoundEstimate;
     /** 以估算 token 重算的成本（对照） */

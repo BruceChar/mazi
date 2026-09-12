@@ -13,6 +13,7 @@ import {
     formatRate,
     formatSigned,
     formatTokens,
+    vendorCostOf,
 } from '../src/scripts/audit.ts';
 
 function stepUsage(over: Partial<StepUsage> = {}): StepUsage {
@@ -216,10 +217,75 @@ describe('audit aggregateUsage', () => {
             vendor: null,
             runtime: null,
             estimate: null,
+            output: null,
+            pricing: null,
             cost: null,
             estimatedCost: null,
             timing: null,
         });
+    });
+});
+
+describe('audit output & vendor cost', () => {
+    it('aggregateUsage 聚合 output 分段并保留 pricing', () => {
+        const usage = stepUsage({
+            output: {
+                reasoningTokens: 10,
+                toolCallArgsTokens: 20,
+                textTokens: 30,
+                totalOutputTokens: 60,
+            },
+            pricing: {
+                inputPerMTok: 3,
+                cachedInputPerMTok: 0.3,
+                outputPerMTok: 15,
+                currency: 'USD',
+                version: 'v1',
+                tier: 'base',
+            },
+        });
+        const aggregated = aggregateUsage([{ startedAt: 1, usage }]);
+        expect(aggregated.output).toMatchObject({
+            reasoningTokens: 10,
+            toolCallArgsTokens: 20,
+            textTokens: 30,
+            totalOutputTokens: 60,
+        });
+        expect(aggregated.pricing?.inputPerMTok).toBe(3);
+    });
+
+    it('vendorCostOf 按 vendor token + pricing 快照分解成本', () => {
+        const usage = stepUsage({
+            vendor: {
+                inputTokens: 1_000_000,
+                outputTokens: 400_000,
+                reasoningOutputTokens: 100_000,
+                cacheReadInputTokens: 200_000,
+                totalTokens: 1_400_000,
+            },
+            output: {
+                reasoningTokens: 100_000,
+                toolCallArgsTokens: 100_000,
+                textTokens: 200_000,
+                totalOutputTokens: 400_000,
+            },
+            pricing: {
+                inputPerMTok: 3,
+                cachedInputPerMTok: 0.3,
+                outputPerMTok: 15,
+                currency: 'USD',
+                version: 'v1',
+                tier: 'base',
+            },
+        });
+        const cost = vendorCostOf(aggregateUsage([{ startedAt: 1, usage }]));
+        expect(cost).not.toBeNull();
+        expect(cost?.inputMissedUsd).toBeCloseTo(2.4, 6);
+        expect(cost?.inputCachedUsd).toBeCloseTo(0.06, 6);
+        expect(cost?.reasoningUsd).toBeCloseTo(1.5, 6);
+        expect(cost?.textUsd).toBeCloseTo(3, 6);
+        expect(cost?.toolCallArgsUsd).toBeCloseTo(1.5, 6);
+        expect(cost?.totalUsd).toBeCloseTo(2.4 + 0.06 + 1.5 + 3 + 1.5, 6);
     });
 });
 
@@ -361,7 +427,6 @@ describe('audit buildAuditView', () => {
         expect(conversation.rows[0]?.diffContent).toContain('NI');
         expect(conversation.rows[0]?.diffParts.map((part) => part.label)).toEqual([
             'system prompt',
-            'tool-call args',
             'tool schema',
             'user input',
         ]);
@@ -425,22 +490,17 @@ describe('audit buildAuditView', () => {
         expect(view.rows.map((r) => r.contextTotal)).toEqual([1000, null]);
     });
 
-    it('thinking 展示它产出的 tool-call args（归到该 thinking，而非下一轮请求）', () => {
+    it('被折叠的 intent stepId 仍可定位（底部 Summary 点击不失效）', () => {
         const roundUsage = { ...stepUsage(), roundId: 'r1' };
         const snapshot = snapshotOf([
             stepView('s1', 'thinking', 1, roundUsage),
-            {
-                ...stepView('s2', 'tool_call', 2, roundUsage),
-                toolName: 'shell.run',
-                toolArguments: { command: 'ls -la' },
-            },
+            stepView('s2', 'intent', 2, roundUsage),
+            stepView('s3', 'tool_call', 3, roundUsage),
         ]);
-        const view = buildAuditView({ snapshot, taskId: 't1' });
-        const thinking = view.rows[0];
-        expect(thinking?.kind).toBe('thinking');
-        const args = thinking?.diffParts.find((part) => part.label === 'tool-call args');
-        expect(args?.text).toContain('shell.run');
-        expect(args?.text).toContain('ls -la');
+        // Rows collapse to [thinking(s1, alias s2), tool_call(s3)].
+        const view = buildAuditView({ snapshot, stepId: 's2' });
+        expect(view.kind).toBe('step');
+        expect(view.stale).toBe(false);
     });
 
     it('thinking + intent 折叠为同一轮一步，S# 不跳号', () => {

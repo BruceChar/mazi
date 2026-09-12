@@ -118,7 +118,7 @@ export function tierMultiplier(
 }
 
 /** 命中的档位名：第一个窗口命中的 tier；无命中回落 base。 */
-function appliedTierName(pricing: PricingSchedule, hourUtc: number): string {
+export function appliedTierName(pricing: PricingSchedule, hourUtc: number): string {
     for (const tier of pricing.tiers) {
         const [start, end] = tier.windowHoursUtc;
         const inWindow =

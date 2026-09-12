@@ -10,7 +10,9 @@ import type {
     LLMProvider,
     LLMRequest,
     PermissionLevel,
+    PricingSnapshot,
     RuntimeContextBreakdown,
+    RuntimeOutputBreakdown,
     Step,
     Task,
     TokenUsage,
@@ -37,11 +39,14 @@ import {
     usageViewOf,
 } from './observability/index.js';
 import {
+    appliedTierName,
     computeCostBreakdown,
     type PricingSchedule,
     RoundExecutor,
     type RoundOutcome,
     type RoundStreamListener,
+    tierMultiplier,
+    unitPricePerMTok,
 } from './provider/index.js';
 import { type GoalRunResult, runGoalTree } from './strategy/goal-strategy.js';
 import { configureTokenizer, estimateTokens } from './token-estimator.js';
@@ -1295,14 +1300,70 @@ export class HarnessRuntime {
         const estimate = this.roundEstimate(result);
         const cost = this.roundCost(outcome);
         const estimatedCost = this.roundEstimatedCost(outcome, contextUsage, estimate);
+        const output = this.outputBreakdown(result);
+        const pricing = this.pricingSnapshot(outcome);
         const pin = await this.recordCatalogUsage(outcome);
         return {
             ...result,
             contextUsage,
             ...(pin !== undefined ? { pin } : {}),
             ...(estimate !== undefined ? { estimate } : {}),
+            ...(output !== undefined ? { output } : {}),
+            ...(pricing !== undefined ? { pricing } : {}),
             ...(cost !== undefined ? { cost } : {}),
             ...(estimatedCost !== undefined ? { estimatedCost } : {}),
+        };
+    }
+
+    /** 输出分段估算：reasoning / tool-call args / text（image/video 预留）。 */
+    private outputBreakdown(result: RoundResult): RuntimeOutputBreakdown | undefined {
+        const reasoningTokens = estimateTokens(result.reasoning);
+        const textTokens = estimateTokens(result.text);
+        const toolCalls = result.toolCalls ?? [];
+        const toolCallArgsTokens = toolCalls.reduce(
+            (sum, call) => sum + estimateTokens(JSON.stringify(call)),
+            0,
+        );
+        const totalOutputTokens = reasoningTokens + toolCallArgsTokens + textTokens;
+        if (result.vendorUsage === undefined && totalOutputTokens === 0) {
+            return undefined;
+        }
+        return {
+            reasoningTokens,
+            toolCallArgsTokens,
+            textTokens,
+            totalOutputTokens,
+            contents: {
+                reasoning: truncateText(result.reasoning, SEGMENT_CONTENT_MAX),
+                toolCalls: truncateText(
+                    toolCalls.map((call) => JSON.stringify(call)).join('\n'),
+                    SEGMENT_CONTENT_MAX,
+                ),
+                text: truncateText(result.text, SEGMENT_CONTENT_MAX),
+            },
+        };
+    }
+
+    /** 本轮计价快照（生效倍率后的单价，$/MTok），随 usage 入库。 */
+    private pricingSnapshot(outcome: RoundOutcome): PricingSnapshot | undefined {
+        const pricing = this.pricingOf(outcome.metrics.providerId);
+        if (pricing === undefined) {
+            return undefined;
+        }
+        const hourUtc = new Date().getUTCHours();
+        const effective = (component: 'input' | 'cache-read' | 'output' | 'reasoning'): number =>
+            tierMultiplier(pricing, hourUtc, component) *
+            (unitPricePerMTok(pricing, component) ?? 0);
+        return {
+            inputPerMTok: effective('input'),
+            cachedInputPerMTok: effective('cache-read'),
+            outputPerMTok: effective('output'),
+            ...(pricing.base.reasoningPerMTok !== undefined
+                ? { reasoningPerMTok: effective('reasoning') }
+                : {}),
+            currency: 'USD',
+            version: pricing.version,
+            tier: appliedTierName(pricing, hourUtc),
         };
     }
 

@@ -159,6 +159,37 @@ export interface StepRuntimeUsage {
     diffContents?: StepContextContents;
 }
 
+/** 输出各段原文（截断） */
+export interface StepOutputContents {
+    reasoning: string;
+    toolCalls: string;
+    text: string;
+    image?: string;
+    video?: string;
+}
+
+/** Runtime 输出分段（reasoning / tool-call args / text；image/video 预留）。 */
+export interface StepOutputUsage {
+    reasoningTokens: number;
+    toolCallArgsTokens: number;
+    textTokens: number;
+    imageTokens?: number;
+    videoTokens?: number;
+    totalOutputTokens: number;
+    contents?: StepOutputContents;
+}
+
+/** 本轮计价快照（生效倍率后的单价，$/MTok）。 */
+export interface StepPricingUsage {
+    inputPerMTok: number;
+    cachedInputPerMTok: number;
+    outputPerMTok: number;
+    reasoningPerMTok?: number;
+    currency?: 'USD';
+    version?: string;
+    tier?: string;
+}
+
 /** Runtime 输出估算与漂移（core UsageEstimate 的线协议投影）。 */
 export interface StepEstimateUsage {
     /** 非 reasoning 输出文本的 token 估算 */
@@ -228,6 +259,10 @@ export interface StepUsage {
     runtime?: StepRuntimeUsage;
     /** output 估算 */
     estimate?: StepEstimateUsage;
+    /** 输出分段估算（reasoning / tool-call args / text） */
+    output?: StepOutputUsage;
+    /** 本轮计价快照（入库；审计重算 vendor 成本分解） */
+    pricing?: StepPricingUsage;
     /** vendor token 口径成本 */
     cost?: StepCostUsage;
     /** 估算 token 口径成本（对照） */
