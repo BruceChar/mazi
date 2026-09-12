@@ -77,8 +77,9 @@ describe('ApiRuntimeService 模型同步（权威替换 + 在线发现）', () =
         expect(ids).not.toContain('deepseek-v41-flash');
         // driver.model 被修正为有效模型
         expect(ids).toContain(ds?.driver.model);
-        // 平台价格从目录补全（cacheRead）
-        expect(ds?.pricing?.base?.cacheReadPerMTok).toBeCloseTo(0.0028, 10);
+        // 平台价格从目录补全（DeepSeek 官方人民币价，flash cacheRead=0.04 元/MTok）
+        expect(ds?.pricing?.base?.cacheReadPerMTok).toBeCloseTo(0.04, 10);
+        expect(ds?.pricing?.currency).toBe('CNY');
         const faux = parsed.providers.find((provider) => provider.id === 'faux');
         expect(faux?.models).toEqual([{ id: 'keep-model' }]);
     });
