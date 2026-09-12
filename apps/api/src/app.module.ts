@@ -15,6 +15,8 @@ import { HealthController } from './health/health.controller.js';
 import { RunsController } from './runs/runs.controller.js';
 import { SessionsController } from './sessions/sessions.controller.js';
 import { SessionsService } from './sessions/sessions.service.js';
+import { StorageController } from './storage/storage.controller.js';
+import { StorageService } from './storage/storage.service.js';
 import { WorkspacesController } from './workspaces/workspaces.controller.js';
 
 /** 根模块：全局错误过滤（{error} 契约）+ 各 feature 控制器 */
@@ -30,6 +32,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         EventsController,
         WorkspacesController,
         ApprovalsController,
+        StorageController,
     ],
     providers: [
         { provide: APP_FILTER, useClass: ApiExceptionsFilter },
@@ -37,6 +40,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         SessionsService,
         GoalsService,
         ConversationsService,
+        StorageService,
     ],
 })
 export class AppModule {}

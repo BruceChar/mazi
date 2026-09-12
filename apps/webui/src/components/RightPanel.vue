@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import StoragePanel from './StoragePanel.vue';
 import {
     donutArcs,
     formatBytes,
@@ -292,6 +293,7 @@ function pricingRate(perMTok) {
                     <button :class="{ on: activeTab === 'audit' }" @click="emit('update:activeTab', 'audit')">审计</button>
                     <button :class="{ on: activeTab === 'context' }" @click="emit('update:activeTab', 'context')">Context</button>
                     <button :class="{ on: activeTab === 'log' }" @click="emit('update:activeTab', 'log')">日志</button>
+                    <button :class="{ on: activeTab === 'storage' }" @click="emit('update:activeTab', 'storage')">存储</button>
                 </div>
                 <div class="drawer-head-actions">
                     <button class="icon-btn" :title="maximized ? '还原' : '最大化'" @click="emit('toggleMaximize')">
@@ -655,6 +657,7 @@ function pricingRate(perMTok) {
                     <div v-if="!contextModelRows.length" class="audit-muted">暂无可追踪的步骤</div>
                 </section>
             </div>
+            <StoragePanel v-else-if="activeTab === 'storage'" />
             <div v-else class="drawer-body">
                 <div class="drawer-tabs sub">
                     <select v-model="logLevel" title="日志级别">
