@@ -18,6 +18,14 @@ export interface AuditDiffPart {
     text: string;
 }
 
+/**
+ * Context 分段的两个轴（三段工具相关段落互不重叠）：
+ *  - 请求固定开销：systemPrompt、toolSchema（每轮原样重发，不随历史增长）
+ *  - 消息历史：historyUser、historyAssistant、toolCalls（assistant 的 tool_call 参数）、
+ *    observation（role=tool 的工具结果）、newInput（本轮用户输入）
+ * 其中 toolSchema = 工具定义、toolCalls = 模型产生的调用参数、observation = 工具返回结果。
+ * retrieved / examples 为保留段，当前无生产者，恒为 0。
+ */
 const DIFF_SEGMENT_LABELS: Array<{ key: keyof StepContextContents; label: string }> = [
     { key: 'systemPrompt', label: 'system prompt' },
     { key: 'historyUser', label: 'user history' },
