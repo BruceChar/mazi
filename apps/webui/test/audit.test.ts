@@ -353,6 +353,8 @@ describe('audit buildAuditView', () => {
         expect(conversation.kind).toBe('conversation');
         expect(conversation.rows.map((r) => r.lineIndex)).toEqual([1, 2, 3]);
         expect(conversation.rows.map((r) => r.runIndex)).toEqual([1, 1, 2]);
+        // T# restarts at 1 for each run (Session), not accumulated.
+        expect(conversation.rows.map((r) => r.taskIndex)).toEqual([1, 1, 1]);
         expect(conversation.rows.map((r) => r.contextDelta)).toEqual([null, 200, 300]);
         expect(conversation.rows[2]?.contextTotal).toBe(1500);
         // 每步的 diff 原文随行带出（Context 追踪用），并按段拆分为有序列表
@@ -415,11 +417,23 @@ describe('audit buildAuditView', () => {
         ]);
         const view = buildAuditView({ snapshot, taskId: 't1' });
         expect(view.kind).toBe('task');
-        expect(view.title).toBe('T#1 · Read file');
+        expect(view.title).toBe('R#1·T#1 · Read file');
         expect(view.diff).toBeNull();
         expect(view.usage.vendor?.total).toBe(120);
         expect(view.usage.estimate?.inputDrift).toBe(900);
         expect(view.rows.map((r) => r.contextTotal)).toEqual([1000, null]);
+    });
+
+    it('thinking + intent 折叠为同一轮一步，S# 不跳号', () => {
+        const snapshot = snapshotOf([
+            stepView('s1', 'thinking', 1, stepUsage()),
+            stepView('s2', 'intent', 2, stepUsage()),
+            stepView('s3', 'tool_call', 3, null),
+        ]);
+        const view = buildAuditView({ snapshot, taskId: 't1' });
+        expect(view.rows.map((r) => r.kind)).toEqual(['thinking', 'tool_call']);
+        expect(view.rows.map((r) => r.index)).toEqual([1, 2]);
+        expect(view.rows.map((r) => r.lineIndex)).toEqual([1, 2]);
     });
 
     it('会话汇总 / stale / live 回退', () => {

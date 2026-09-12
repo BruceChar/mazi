@@ -25,7 +25,8 @@ const DIFF_SEGMENT_LABELS: Array<{ key: keyof StepContextContents; label: string
     { key: 'toolCalls', label: 'tool-call args' },
     { key: 'toolSchema', label: 'tool schema' },
     { key: 'newInput', label: 'user input' },
-    { key: 'observation', label: 'observation' },
+    // observation = 回灌进模型上下文的工具结果（tool result messages）。
+    { key: 'observation', label: 'tool results' },
     { key: 'retrieved', label: 'retrieved' },
     { key: 'examples', label: 'examples' },
 ];
@@ -120,7 +121,7 @@ export interface AuditStepRow {
     lineIndex: number;
     /** 所属 run 序号（1-based） */
     runIndex: number;
-    /** 所属 task 序号（1-based，跨 run 累计） */
+    /** 所属 task 序号（1-based，每个 run/Session 内重新从 1 起） */
     taskIndex: number;
     /** task 内步骤序号（1-based） */
     index: number;
@@ -450,8 +451,9 @@ function segmentDefs(runtime: StepRuntimeUsage): SegmentDef[] {
         pick: (r) => r.newInputTokens ?? 0,
     });
     defs.push({
+        // observation 段 = 上下文里回灌的工具结果（message.role === 'tool'）。
         key: 'observation',
-        label: 'observation',
+        label: 'tool results',
         colorVar: '--seg-observation',
         pick: (r) => r.observationTokens ?? 0,
     });
@@ -658,7 +660,7 @@ export function conicGradient(segments: AuditSegment[], minShare = DONUT_MIN_SHA
 // View building
 // ============================================================
 
-function countTasks(snapshot: GoalTreeSnapshot | null): number {
+function _countTasks(snapshot: GoalTreeSnapshot | null): number {
     let count = 0;
     for (const goal of snapshot?.goals ?? []) {
         count += (goal.tasks ?? []).length;
@@ -714,8 +716,34 @@ function collectSnapshotSteps(
 }
 
 /**
+ * thinking 与 intent 属同一轮模型调用（同一 step 的推理 + 输出）：折叠为一行，
+ * 以 thinking 代表该轮（S# 因此不跳号）。若某轮只有 intent（无推理），把它改标为
+ * thinking 保留可见。
+ */
+function collapseModelRows(rows: ResolvedStep[]): ResolvedStep[] {
+    const out: ResolvedStep[] = [];
+    for (const row of rows) {
+        if (row.kind === 'intent') {
+            const prev = out[out.length - 1];
+            if (prev && prev.kind === 'thinking' && prev.taskId === row.taskId) {
+                if (prev.text.length === 0) prev.text = row.text;
+                if (row.endedAt !== null) prev.endedAt = row.endedAt;
+                continue;
+            }
+            out.push({ ...row, kind: 'thinking' });
+            continue;
+        }
+        out.push(row);
+    }
+    return out;
+}
+
+/**
  * 会话流步骤表：按 Conversation 内 run 顺序拼接所有 run/task/step，
  * 并在整条线上计算 context delta（当前步总量 − 上一步总量）。
+ *
+ * 编号语义：R# = run（Session）；T# = 该 run 内的 task（每个 run 从 1 起）；
+ * S# = 该 task 内的 step（折叠 thinking/intent 后从 1 起）。
  */
 function collectRows(input: AuditInput): ResolvedStep[] {
     const runs: AuditRunInput[] =
@@ -724,34 +752,36 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             : [{ rootGoalId: '', input: '', snapshot: input.snapshot ?? null }];
     const out: ResolvedStep[] = [];
     const indexMap = new Map<string, { index: number; title: string }>();
-    let taskStart = 0;
     for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
         const run = runs[runIndex];
         const snapshot = run.snapshot ?? null;
-        const runRows = collectSnapshotSteps(snapshot, runIndex + 1, run.input ?? '', taskStart);
+        // T# restarts at 1 for every run (Session), not accumulated across runs.
+        const runRows = collectSnapshotSteps(snapshot, runIndex + 1, run.input ?? '', 0);
         for (const row of runRows) {
             if (!indexMap.has(row.taskId)) {
                 indexMap.set(row.taskId, { index: row.taskIndex, title: row.taskTitle });
             }
         }
-        taskStart += countTasks(snapshot);
         out.push(...runRows);
     }
     // 实时步骤（执行中的 run 尚未落快照）追加在会话线末尾
     const known = new Set(out.map((row) => row.stepId));
     const liveCount = new Map<string, number>();
+    let nextLiveTaskIndex = 0;
     for (const step of input.liveSteps ?? []) {
         if (known.has(step.stepId)) continue;
         const next = (liveCount.get(step.taskId) ?? 0) + 1;
         liveCount.set(step.taskId, next);
         const meta = indexMap.get(step.taskId);
+        // Unknown (brand-new) task in the live run: number it within that run.
+        if (!meta) nextLiveTaskIndex += 1;
         out.push({
             stepId: step.stepId,
             taskId: step.taskId,
             goalId: '',
             runIndex: runs.length + 1,
             runInput: '',
-            taskIndex: meta?.index ?? 0,
+            taskIndex: meta?.index ?? nextLiveTaskIndex,
             taskTitle: meta?.title ?? '',
             index: next,
             kind: step.kind,
@@ -772,10 +802,15 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             previousContextTotal: null,
         });
     }
-    // 整条会话线的全局序号与 context delta
+    // 折叠 thinking/intent，并重排每 task 的 S#（会话线全局序号 + context delta）
+    const collapsed = collapseModelRows(out);
+    const stepCount = new Map<string, number>();
     let lineIndex = 0;
     let prevTotal: number | null = null;
-    for (const row of out) {
+    for (const row of collapsed) {
+        const nextIndex = (stepCount.get(row.taskId) ?? 0) + 1;
+        stepCount.set(row.taskId, nextIndex);
+        row.index = nextIndex;
         lineIndex += 1;
         row.lineIndex = lineIndex;
         const total = row.usage?.runtime?.totalContextTokens ?? null;
@@ -783,7 +818,7 @@ function collectRows(input: AuditInput): ResolvedStep[] {
         row.previousContextTotal = prevTotal;
         if (total !== null) prevTotal = total;
     }
-    return out;
+    return collapsed;
 }
 
 function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
@@ -943,7 +978,7 @@ export function buildAuditView(input: AuditInput): AuditView {
         return {
             kind: 'step',
             stale: false,
-            title: `S#${selected.index} · ${kindLabel(selected.kind)}${toolSuffix}`,
+            title: `R#${selected.runIndex}·T#${selected.taskIndex}·S#${selected.index} · ${kindLabel(selected.kind)}${toolSuffix}`,
             subtitle: formatDuration(selected.durationMs) + statusSuffix,
             usage,
             segments: contextSegments(runtime),
@@ -966,10 +1001,11 @@ export function buildAuditView(input: AuditInput): AuditView {
         const runtime = usage.runtime;
         const title = taskRows[0]?.taskTitle || 'Task';
         const index = taskRows[0]?.taskIndex ?? 0;
+        const runIndex = taskRows[0]?.runIndex ?? 1;
         return {
             kind: 'task',
             stale: false,
-            title: `T#${index} · ${title}`,
+            title: `R#${runIndex}·T#${index} · ${title}`,
             subtitle: `${taskRows.length} steps`,
             usage,
             segments: contextSegments(runtime),
