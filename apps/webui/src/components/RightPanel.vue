@@ -580,21 +580,23 @@ function pricingRate(perMTok) {
 
                 <section class="audit-section">
                     <div v-for="group in contextGroups" :key="group.key" class="ctx-item">
-                        <!-- 双击定位主会话流（保留 Context 面板）；hover 才显示折叠 icon，单击它折叠/展开 -->
+                        <!-- 单击整行（含 title）折叠/展开 diff；R#T#S# 单击定位主会话流 -->
                         <div
                             v-if="group.row"
                             class="ctx-row"
                             :class="{ selected: group.row.selected }"
+                            :title="openContext.has(group.row.stepId) ? '单击折叠 diff · 双击定位会话流' : '单击展开 diff · 双击定位会话流'"
+                            @click="toggleContext(group.row.stepId)"
                             @dblclick="emit('locate-step', { stepId: group.row.stepId, keepTab: true })"
                         >
-                            <button
-                                class="ctx-caret-btn"
-                                :title="openContext.has(group.row.stepId) ? '收起 diff' : '展开该步 diff'"
-                                @click.stop="toggleContext(group.row.stepId)"
-                            >
+                            <span class="ctx-caret" :class="{ open: openContext.has(group.row.stepId) }">
                                 {{ openContext.has(group.row.stepId) ? '−' : '+' }}
-                            </button>
-                            <span class="ctx-loc">R#{{ group.row.runIndex }}·T#{{ group.row.taskIndex }}·S#{{ group.row.index }}</span>
+                            </span>
+                            <span
+                                class="ctx-loc"
+                                title="定位到会话流"
+                                @click.stop="emit('locate-step', { stepId: group.row.stepId, keepTab: true })"
+                            >R#{{ group.row.runIndex }}·T#{{ group.row.taskIndex }}·S#{{ group.row.index }}</span>
                             <span class="ctx-kind">{{ group.row.toolName || group.row.kind }}</span>
                             <div class="ctx-bar">
                                 <div class="ctx-bar-fill" :style="{ width: group.row.barWidth + '%' }">
@@ -1486,14 +1488,14 @@ function pricingRate(perMTok) {
     padding: 6px 4px;
 }
 .context-body .ctx-tools-inline {
-    margin-left: 10px;
+    padding-left: 24px;
 }
 .ctx-item {
     margin-bottom: 2px;
 }
 .ctx-row {
     display: grid;
-    grid-template-columns: 18px minmax(96px, 122px) minmax(52px, 84px) 1fr 52px 44px;
+    grid-template-columns: 16px minmax(96px, 122px) minmax(52px, 84px) 1fr 52px 44px;
     align-items: center;
     gap: 4px;
     padding: 2px 4px;
@@ -1505,26 +1507,25 @@ function pricingRate(perMTok) {
 .ctx-row.selected {
     background: var(--bg-hover);
 }
-.ctx-caret-btn {
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--fg-tertiary);
+/* 折叠标识：与 title 同排、垂直居中；hover 或展开时可见（整行可点）。 */
+.ctx-caret {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
     font-weight: 700;
     line-height: 1;
-    cursor: pointer;
+    color: var(--fg-tertiary);
     opacity: 0;
     transition: opacity 0.1s ease;
 }
-.ctx-row:hover .ctx-caret-btn {
+.ctx-row:hover .ctx-caret,
+.ctx-caret.open {
     opacity: 1;
 }
-.ctx-caret-btn:hover {
-    background: var(--bg-code);
-    color: var(--fg);
+.ctx-caret.open {
+    color: var(--fg-secondary);
 }
 .ctx-loc {
     font-family: ui-monospace, monospace;
@@ -1536,8 +1537,9 @@ function pricingRate(perMTok) {
 .ctx-loc:hover {
     color: var(--fg);
 }
+/* 工具调用缩进到模型步内容之下（不可比 thinking 更靠左）。 */
 .ctx-tools-inline {
-    margin-left: 22px;
+    padding-left: 24px;
 }
 .ctx-kind {
     overflow: hidden;
