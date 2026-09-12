@@ -105,8 +105,10 @@ export interface ConfigOverview {
     permissionCeiling?: string;
     /** Scoped permission overrides: `workspace:<path>` / `conversation:<id>`. */
     permissions?: Record<string, string>;
-    /** Official pricing page URL (Settings → General). */
+    /** @deprecated 旧版单一价目源；等价于 pricingSources.deepseek。 */
     pricingSourceUrl?: string;
+    /** 各厂商（vendor）官方价目源：vendor → URL（Settings → Providers 下按 vendor 配置）。 */
+    pricingSources?: Record<string, string>;
 }
 
 // ============================================================

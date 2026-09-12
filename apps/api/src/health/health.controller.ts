@@ -72,17 +72,26 @@ export class HealthController {
         return this.config();
     }
 
-    /** POST /api/config/pricing：设置官方价目页地址（空 = 关闭抓取）。 */
+    /** POST /api/config/pricing：按厂商（vendor）设置官方价目页地址（空 = 关闭该厂商抓取）。 */
     @Post('config/pricing')
-    setPricingSource(@Body() body: { sourceUrl?: unknown }): Record<string, unknown> {
-        this.runtime.setPricingSource(typeof body?.sourceUrl === 'string' ? body.sourceUrl : '');
+    setPricingSource(
+        @Body() body: { vendor?: unknown; sourceUrl?: unknown },
+    ): Record<string, unknown> {
+        const vendor =
+            typeof body?.vendor === 'string' && body.vendor.length > 0 ? body.vendor : 'deepseek';
+        this.runtime.setPricingSource(
+            vendor,
+            typeof body?.sourceUrl === 'string' ? body.sourceUrl : '',
+        );
         return this.config();
     }
 
-    /** POST /api/config/pricing/refresh：立即抓取并应用官网价目。 */
+    /** POST /api/config/pricing/refresh：立即抓取并应用某厂商（缺省全部）官网价目。 */
     @Post('config/pricing/refresh')
-    async refreshPricing(): Promise<Record<string, unknown>> {
-        const result = await this.runtime.syncOfficialPricing();
+    async refreshPricing(@Body() body?: { vendor?: unknown }): Promise<Record<string, unknown>> {
+        const vendor =
+            typeof body?.vendor === 'string' && body.vendor.length > 0 ? body.vendor : undefined;
+        const result = await this.runtime.syncOfficialPricing(vendor);
         return { ...this.config(), pricingSync: result };
     }
 

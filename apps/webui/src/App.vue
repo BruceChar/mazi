@@ -346,11 +346,15 @@ async function syncModels() {
 }
 
 const syncingPricing = ref(false);
-/** 手动触发官网价目抓取（Settings → Providers）；完成后 cfg 已刷新。 */
-async function refreshPricingNow() {
+/** 保存某厂商（vendor）的官方价目源（Settings → Providers → vendor 下）。 */
+function onSavePricingSource(vendor, url) {
+    void setPricingSource(vendor, url);
+}
+/** 手动触发某厂商（缺省全部）官网价目抓取；完成后 cfg 已刷新。 */
+async function refreshPricingNow(vendor) {
     syncingPricing.value = true;
     try {
-        await refreshPricing();
+        await refreshPricing(vendor);
     } finally {
         syncingPricing.value = false;
     }
@@ -892,6 +896,8 @@ onBeforeUnmount(() => {
                     :free-chat-workspace="freeChatWorkspace"
                     :permission-ceiling="cfg?.permissionCeiling || 'read-only'"
                     :pricing-source-url="cfg?.pricingSourceUrl || ''"
+                    :pricing-sources="cfg?.pricingSources || {}"
+                    :pricing-sync-state="cfg?.pricingSyncState || {}"
                     @update:theme="setTheme"
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"
@@ -899,7 +905,7 @@ onBeforeUnmount(() => {
                     @save-free-workspace="onSaveFreeChatWorkspace"
                     @pick-free-workspace="onPickFreeChatWorkspace"
                     @save-permission="setPermissionCeiling"
-                    @save-pricing-source="setPricingSource"
+                    @save-pricing-source="onSavePricingSource"
                     @refresh-pricing="refreshPricingNow"
                 />
             </template>

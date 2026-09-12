@@ -39,12 +39,17 @@ export type {
     ToolConfig,
     ToolSpecLike,
 } from './config.js';
-export type { FileRuntimeConfig, RuntimeSettingsFile } from './config-io.js';
+export type {
+    FileRuntimeConfig,
+    RuntimeSettingsFile,
+    VendorPricingSource,
+} from './config-io.js';
 export {
     configOverview,
     loadRuntimeConfig,
     loadRuntimeSettings,
     resolveScopedPermission,
+    resolveVendorPricingSource,
     saveRuntimeSettings,
     toRuntimeConfig,
 } from './config-io.js';

@@ -5,9 +5,12 @@ import type { CatalogChange, PermissionLevel } from '@mazi/core';
 import type {
     MaziPaths,
     PricingSchedule,
+    ProviderConfig,
     ProviderModelInfo,
     ProviderModelPricing,
     RuntimeConfig,
+    RuntimeSettingsFile,
+    VendorPricingSource,
 } from '@mazi/runtime';
 import {
     ApprovalBroker,
@@ -34,6 +37,7 @@ import {
     parseDeepseekPricingPage,
     peakMultiplierOf,
     resolveScopedPermission,
+    resolveVendorPricingSource,
     saveRuntimeSettings,
     toRuntimeConfig,
 } from '@mazi/runtime';
@@ -139,6 +143,40 @@ function buildCnySchedule(entry: ParsedModelPricing, previous?: PricingSchedule)
     };
 }
 
+/** provider 条目的厂商（vendor）：显式 vendor → driver.provider。 */
+function vendorKeyOf(provider: { vendor?: unknown; driver?: { provider?: unknown } }): string {
+    if (typeof provider.vendor === 'string' && provider.vendor.trim().length > 0) {
+        return provider.vendor.trim();
+    }
+    if (typeof provider.driver?.provider === 'string') return provider.driver.provider;
+    return '';
+}
+
+/** 各厂商内置默认价目源（可被设置覆盖）。 */
+const DEFAULT_PRICING_SOURCES: Record<string, string> = {
+    deepseek: DEEPSEEK_PRICING_SOURCE,
+};
+
+/**
+ * 生效价目源表：以配置里出现的 vendor（含默认 deepseek）为键，
+ * 取值顺序 `pricing.vendors[vendor].sourceUrl` → 旧 `pricing.sourceUrl`(deepseek) → 内置默认。
+ */
+function resolvePricingSources(
+    settings: RuntimeSettingsFile,
+    providers: ProviderConfig[],
+): Record<string, string> {
+    const vendors = new Set<string>(Object.keys(DEFAULT_PRICING_SOURCES));
+    for (const provider of providers) {
+        const vendor = vendorKeyOf(provider);
+        if (vendor.length > 0) vendors.add(vendor);
+    }
+    const out: Record<string, string> = {};
+    for (const vendor of vendors) {
+        out[vendor] = resolveVendorPricingSource(settings, vendor, DEFAULT_PRICING_SOURCES[vendor]);
+    }
+    return out;
+}
+
 function driverProviderOf(provider: Record<string, unknown>): string | undefined {
     const driver = provider.driver as { provider?: unknown } | undefined;
     return typeof driver?.provider === 'string' && driver.provider.length > 0
@@ -217,12 +255,12 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private permissions: Record<string, string> = {};
     /** 价格/模型定时校准（默认 5 分钟；MAZI_PRICE_SYNC_MS 可覆盖）。 */
     private priceSyncTimer?: ReturnType<typeof setInterval>;
-    /** 官方价目页地址（设置可配置；抓取→解析→写 providers.json）。 */
-    private pricingSourceUrl: string = DEEPSEEK_PRICING_SOURCE;
+    /** 各厂商（vendor）官方价目源：vendor → URL（设置可配置；抓取→解析→写 providers.json）。 */
+    private pricingSources: Record<string, string> = {};
     /** 价目页 Agent 解析器（确定性解析失败时的兜底；宿主/测试可覆盖）。 */
     private pricingAnalystOverride?: PricingPageAnalyst;
-    /** 最近一次官网抓取是否给出了模型清单（给出则跳过单独的端点模型发现）。 */
-    private officialModelListAt = 0;
+    /** 最近一次官网抓取给出模型清单的 vendor 集合（这些 vendor 跳过单独的端点模型发现）。 */
+    private officialModelListVendors = new Set<string>();
     /** 价目页抓取实现（测试/宿主可覆盖；缺省用全局 fetch）。 */
     private pricingFetch?: typeof fetch;
     private readonly paths: MaziPaths = ensureMaziDirs();
@@ -238,10 +276,10 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
             consoleEnabled: false,
         });
-        this.permissions = loadRuntimeSettings(this.paths.home).permissions ?? {};
-        this.pricingSourceUrl =
-            loadRuntimeSettings(this.paths.home).pricing?.sourceUrl?.trim() ||
-            DEEPSEEK_PRICING_SOURCE;
+        const settings = loadRuntimeSettings(this.paths.home);
+        this.permissions = settings.permissions ?? {};
+        // 价目源按 vendor 生效（deepseek 默认内置地址；其余 vendor 由设置提供）。
+        this.pricingSources = resolvePricingSources(settings, this.config.providers);
         // 随心聊默认工作区：workspaces.json 配置优先，缺省 $MAZI_HOME/workspace（避免落在进程 cwd 如 apps/api）。
         this.readWorkspacesState();
         this.freeChatWorkspaceValue =
@@ -264,14 +302,17 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     }
 
     /**
-     * 启动/周期在线校准：先抓官网价目页（可能同时给出权威模型清单），再按需做端点模型发现。
-     * 官网给出清单 → 跳过端点发现（`officialModelListAt`）；价格由官网价覆盖（目录价不反向覆盖）。
+     * 启动/周期在线校准：先抓各 vendor 官网价目页（可能同时给出权威模型清单），再按需做端点模型发现。
+     * 官网给出清单的 vendor → 跳过其端点发现；价格由官网价覆盖（目录价不反向覆盖）。
      */
     private async syncModelsAndPricing(trigger: 'boot' | 'periodic'): Promise<void> {
-        this.officialModelListAt = 0;
         const pricing = await this.syncOfficialPricing();
         if (pricing.error) this.logger.warn(`official pricing sync: ${pricing.error}`);
-        if ((pricing.modelIds ?? []).length > 0) this.officialModelListAt = Date.now();
+        this.officialModelListVendors = new Set(
+            Object.entries(pricing.vendors)
+                .filter(([, result]) => (result.modelIds ?? []).length > 0)
+                .map(([vendor]) => vendor),
+        );
         const models = await this.syncProviderModelsOnline();
         if (models.changed && !this.running) {
             this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
@@ -346,8 +387,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         for (const provider of parsed.providers ?? []) {
             const vendor = driverProviderOf(provider);
             if (vendor === undefined) continue;
-            // 官网价目页已给出权威模型清单 → 跳过单独的端点发现（用户约定：减少冗余请求/覆盖）。
-            if (vendor === 'deepseek' && this.officialModelListAt > 0) {
+            // 该 vendor 的官网价目页已给出权威模型清单 → 跳过单独的端点发现（减少冗余请求/覆盖）。
+            if (this.officialModelListVendors.has(vendorKeyOf(provider))) {
                 this.logger.log(
                     `skip endpoint model discovery for ${String(provider.id)}: official pricing page provided the model list`,
                 );
@@ -611,24 +652,36 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         freeChatWorkspace: string;
         permissionCeiling: PermissionLevel;
         permissions: Record<string, string>;
+        /** 各 vendor 生效的官方价目源。 */
+        pricingSources: Record<string, string>;
+        /** 各 vendor 最近同步状态（时间 / 错误 / 模型档数）。 */
+        pricingSyncState: Record<string, VendorPricingSource>;
+        /** @deprecated 兼容旧前端：默认厂商（deepseek）的价目源。 */
         pricingSourceUrl: string;
     } {
+        const settings = loadRuntimeSettings(this.paths.home);
         return {
             ...configOverview(),
             freeChatWorkspace: this.freeChatWorkspaceValue,
             permissionCeiling: this.config.goal?.permissionCeiling ?? 'read-only',
             permissions: this.permissions,
-            pricingSourceUrl: this.pricingSourceUrl,
+            pricingSources: this.pricingSources,
+            pricingSyncState: settings.pricing?.vendors ?? {},
+            pricingSourceUrl: this.pricingSources.deepseek ?? '',
         };
     }
 
-    /** 设置官方价目页地址（settings.json 持久化）。 */
-    setPricingSource(url: string): string {
+    /** 设置某厂商（vendor）的官方价目源（settings.json 持久化）；返回最新价目源表。 */
+    setPricingSource(vendor: string, url: string): Record<string, string> {
+        const key = vendor.trim() || 'deepseek';
         const next = url.trim();
-        this.pricingSourceUrl = next;
-        saveRuntimeSettings({ pricing: { sourceUrl: next } }, this.paths.home);
-        this.logger.log(`setPricingSource → ${next || '(disabled)'}`);
-        return next;
+        this.pricingSources = { ...this.pricingSources, [key]: next };
+        saveRuntimeSettings(
+            { pricing: { vendors: { [key]: { sourceUrl: next } } } },
+            this.paths.home,
+        );
+        this.logger.log(`setPricingSource[${key}] → ${next || '(disabled)'}`);
+        return this.pricingSources;
     }
 
     /** 注入/清除价目页 Agent 解析器（测试或宿主自定义；缺省按配置构造）。 */
@@ -642,17 +695,66 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     }
 
     /**
-     * 从官网抓取价目页 → 解析 → 写入 providers.json（覆盖 pi-ai 目录价）。
-     * 解析失败只告警，不覆盖既有配置（fail-safe）。
+     * 抓取各 vendor 官网价目页 → 解析 → 写 providers.json（覆盖 pi-ai 目录价）。
+     * 单厂商失败只告警、不覆盖该厂商既有配置（fail-safe）。缺省处理全部已配置厂商。
      */
-    async syncOfficialPricing(): Promise<{
+    async syncOfficialPricing(vendor?: string): Promise<{
+        updated: boolean;
+        models: number;
+        modelIds?: string[];
+        error?: string;
+        vendors: Record<
+            string,
+            { updated: boolean; models: number; modelIds?: string[]; error?: string }
+        >;
+    }> {
+        const targets =
+            vendor !== undefined
+                ? [vendor]
+                : Object.keys(this.pricingSources).filter(
+                      (key) => (this.pricingSources[key] ?? '').trim().length > 0,
+                  );
+        const vendors: Record<
+            string,
+            { updated: boolean; models: number; modelIds?: string[]; error?: string }
+        > = {};
+        let anyUpdated = false;
+        let totalModels = 0;
+        const modelIds: string[] = [];
+        let firstError: string | undefined;
+        for (const key of targets) {
+            const result = await this.syncVendorPricing(key);
+            vendors[key] = result;
+            if (result.updated) anyUpdated = true;
+            totalModels += result.models;
+            if (result.modelIds) modelIds.push(...result.modelIds);
+            if (result.error !== undefined && firstError === undefined) {
+                firstError = result.error;
+            }
+        }
+        return {
+            updated: anyUpdated,
+            models: totalModels,
+            ...(modelIds.length > 0 ? { modelIds } : {}),
+            ...(firstError !== undefined ? { error: firstError } : {}),
+            vendors,
+        };
+    }
+
+    /** 持久化某 vendor 的同步状态（成功清 lastError，失败清上次成功时间）。 */
+    private recordPricingState(vendor: string, state: VendorPricingSource): void {
+        saveRuntimeSettings({ pricing: { vendors: { [vendor]: state } } }, this.paths.home);
+    }
+
+    /** 单 vendor：抓取 → 解析（确定性优先，Agent 兜底）→ 写该 vendor 的 providers 条目。 */
+    private async syncVendorPricing(vendor: string): Promise<{
         updated: boolean;
         models: number;
         modelIds?: string[];
         error?: string;
     }> {
-        const url = this.pricingSourceUrl;
-        if (!url) return { updated: false, models: 0 };
+        const url = (this.pricingSources[vendor] ?? '').trim();
+        if (url.length === 0) return { updated: false, models: 0 };
         // 测试环境禁止真实网络请求（保持 hermetic）；显式注入抓取实现时除外。
         if (process.env.VITEST && this.pricingFetch === undefined) {
             return { updated: false, models: 0 };
@@ -660,35 +762,48 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         const doFetch = this.pricingFetch ?? fetch;
         try {
             const res = await doFetch(url);
-            if (!res.ok) return { updated: false, models: 0, error: `HTTP ${res.status}` };
+            if (!res.ok) {
+                this.recordPricingState(vendor, {
+                    lastError: `HTTP ${res.status}`,
+                    lastSyncedAt: undefined,
+                    models: undefined,
+                });
+                return { updated: false, models: 0, error: `HTTP ${res.status}` };
+            }
             const html = await res.text();
-            let parsed = parseDeepseekPricingPage(html, url);
+            // 已知厂商走确定性解析；其余厂商交给 Agent。
+            let parsed = vendor === 'deepseek' ? parseDeepseekPricingPage(html, url) : null;
             if (!parsed) {
-                // 确定性解析失败 → 交给 Agent 兜底（无 provider / 失败则保持既有配置不覆盖）。
-                const analyst = this.pricingAnalystOverride ?? createPricingAnalyst(this.config);
+                const analyst =
+                    this.pricingAnalystOverride ?? createPricingAnalyst(this.config, { vendor });
                 if (analyst) {
                     try {
                         parsed = await analyst({ url, text: htmlToText(html) });
                     } catch (error) {
-                        this.logger.warn(`pricing page agent analysis failed: ${String(error)}`);
+                        this.logger.warn(
+                            `pricing page agent analysis failed[${vendor}]: ${String(error)}`,
+                        );
                     }
                 }
             }
-            if (!parsed) return { updated: false, models: 0, error: 'parse-failed' };
-            const modelIds = parsed.models.map((model) => model.id);
+            if (!parsed) {
+                this.recordPricingState(vendor, { lastError: 'parse-failed' });
+                return { updated: false, models: 0, error: 'parse-failed' };
+            }
+            const vendorModelIds = parsed.models.map((model) => model.id);
             const file = loadRuntimeConfig(this.paths.home);
             let changed = false;
             for (const provider of file.providers) {
                 const record = provider as unknown as Record<string, unknown>;
-                if (driverProviderOf(record) !== 'deepseek') continue;
+                if (vendorKeyOf(record) !== vendor) continue;
                 // 官网同时给出模型清单 → 以官网为权威替换（保留同 id 的既有元数据）。
                 if (
-                    modelIds.length > 0 &&
-                    applyModelList(record, modelIds, builtinModelsFor('deepseek'))
+                    vendorModelIds.length > 0 &&
+                    applyModelList(record, vendorModelIds, builtinModelsFor(vendor))
                 ) {
                     changed = true;
                 }
-                // 逐模型写入各自价目（flash/pro 单价不同）+ 页面标注的上下文/输出窗口。
+                // 逐模型写入各自价目（如 flash/pro 单价不同）+ 页面标注的上下文/输出窗口。
                 for (const model of provider.models ?? []) {
                     const entry = parsed.models.find((m) => m.tier === deepseekTierOf(model.id));
                     if (entry === undefined) continue;
@@ -725,7 +840,14 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                     }
                 }
             }
-            if (!changed) return { updated: false, models: parsed.models.length, modelIds };
+            this.recordPricingState(vendor, {
+                lastSyncedAt: Date.now(),
+                models: parsed.models.length,
+                lastError: undefined,
+            });
+            if (!changed) {
+                return { updated: false, models: parsed.models.length, modelIds: vendorModelIds };
+            }
             writeFileSync(
                 this.paths.providersFile,
                 JSON.stringify({ providers: file.providers }, null, 2),
@@ -735,10 +857,11 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             });
             if (!this.running) await this.restartRuntimes();
             this.logger.log(
-                `syncOfficialPricing: updated ${parsed.models.length} model tiers from ${url}`,
+                `syncOfficialPricing[${vendor}]: updated ${parsed.models.length} model tiers from ${url}`,
             );
-            return { updated: true, models: parsed.models.length, modelIds };
+            return { updated: true, models: parsed.models.length, modelIds: vendorModelIds };
         } catch (error) {
+            this.recordPricingState(vendor, { lastError: String(error) });
             return { updated: false, models: 0, error: String(error) };
         }
     }

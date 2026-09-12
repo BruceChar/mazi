@@ -7,6 +7,7 @@ import {
     loadRuntimeConfig,
     loadRuntimeSettings,
     resolveScopedPermission,
+    resolveVendorPricingSource,
     saveRuntimeSettings,
 } from '../src/config-io.js';
 
@@ -50,6 +51,37 @@ describe('system settings (settings.json)', () => {
             'workspace:/p/a': 'read-only',
             'conversation:c1': 'autonomous',
         });
+    });
+});
+
+describe('per-vendor pricing sources', () => {
+    it('persists vendor sources independently and merges status without dropping the URL', () => {
+        const dir = tmp();
+        saveRuntimeSettings({ pricing: { vendors: { deepseek: { sourceUrl: 'https://a' } } } }, dir);
+        saveRuntimeSettings({ pricing: { vendors: { deepseek: { lastSyncedAt: 123 } } } }, dir);
+        saveRuntimeSettings({ pricing: { vendors: { openai: { sourceUrl: 'https://b' } } } }, dir);
+        expect(loadRuntimeSettings(dir).pricing?.vendors).toEqual({
+            deepseek: { sourceUrl: 'https://a', lastSyncedAt: 123 },
+            openai: { sourceUrl: 'https://b' },
+        });
+    });
+
+    it('resolves the vendor source with legacy fallback and default', () => {
+        expect(
+            resolveVendorPricingSource(
+                { pricing: { vendors: { deepseek: { sourceUrl: ' https://v ' } } } },
+                'deepseek',
+                'def',
+            ),
+        ).toBe('https://v');
+        expect(
+            resolveVendorPricingSource({ pricing: { sourceUrl: 'https://legacy' } }, 'deepseek', 'def'),
+        ).toBe('https://legacy');
+        expect(resolveVendorPricingSource({}, 'deepseek', 'def')).toBe('def');
+        // 旧全局 sourceUrl 只视为 deepseek，不影响其他 vendor。
+        expect(
+            resolveVendorPricingSource({ pricing: { sourceUrl: 'https://legacy' } }, 'openai', 'def'),
+        ).toBe('def');
     });
 });
 

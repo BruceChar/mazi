@@ -12,6 +12,7 @@ import {
     deepseekAdapter,
     type ParsedDeepseekPricing,
     parseAgentPricingJson,
+    providerCatalog,
 } from '@mazi/provider';
 import type { RuntimeConfig } from '../config.js';
 
@@ -25,34 +26,47 @@ export type PricingPageAnalyst = (page: PricingPage) => Promise<ParsedDeepseekPr
 
 export interface CreatePricingAnalystOptions {
     env?: Record<string, string | undefined>;
-    /** 覆盖调用方（测试注入）；缺省按配置构造 deepseek adapter。 */
+    /** 覆盖调用方（测试注入）；缺省按配置构造适配器。 */
     provider?: LLMProvider;
+    /** 目标厂商（vendor）；缺省 deepseek。 */
+    vendor?: string;
 }
 
-/** 由配置构造 Agent 解析器；无可用的 deepseek provider → undefined（仅走确定性解析）。 */
+/**
+ * 由配置构造某厂商的 Agent 解析器；该厂商无可用 provider / 无对应 adapter → undefined
+ * （调用方仅走确定性解析）。按 vendor 选择 provider，支持后续接入多厂商。
+ */
 export function createPricingAnalyst(
     config: RuntimeConfig,
     options: CreatePricingAnalystOptions = {},
 ): PricingPageAnalyst | undefined {
-    const entry = config.providers.find((item) => item.driver.provider === DEEPSEEK_ADAPTER_ID);
+    const vendor = options.vendor ?? DEEPSEEK_ADAPTER_ID;
+    const entry = config.providers.find(
+        (item) => (item.vendor?.trim() || item.driver.provider) === vendor,
+    );
     if (entry === undefined) return undefined;
     let provider = options.provider;
     if (provider === undefined) {
+        const factory = providerCatalog[entry.driver.provider];
+        if (factory === undefined) return undefined;
+        const adapterConfig = {
+            id: entry.id,
+            adapter: entry.driver.provider,
+            ...(entry.driver.apiKeyEnv !== undefined ? { apiKeyEnv: entry.driver.apiKeyEnv } : {}),
+            models:
+                entry.models !== undefined && entry.models.length > 0
+                    ? entry.models.map((model) => ({ id: model.id }))
+                    : [{ id: entry.driver.model }],
+        };
         try {
-            provider = deepseekAdapter(
-                {
-                    id: entry.id,
-                    adapter: DEEPSEEK_ADAPTER_ID,
-                    ...(entry.driver.apiKeyEnv !== undefined
-                        ? { apiKeyEnv: entry.driver.apiKeyEnv }
-                        : {}),
-                    models:
-                        entry.models !== undefined && entry.models.length > 0
-                            ? entry.models.map((model) => ({ id: model.id }))
-                            : [{ id: entry.driver.model }],
-                },
-                options.env !== undefined ? { env: options.env } : {},
-            );
+            // deepseek adapter 支持注入 env；其余 adapter 走目录工厂（读 process.env）。
+            provider =
+                entry.driver.provider === DEEPSEEK_ADAPTER_ID
+                    ? deepseekAdapter(
+                          adapterConfig,
+                          options.env !== undefined ? { env: options.env } : {},
+                      )
+                    : factory(adapterConfig);
         } catch {
             return undefined;
         }

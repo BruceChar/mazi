@@ -12,14 +12,50 @@ import { ensureMaziDirs, maziPaths } from './paths.js';
  * - `permissions` 是按作用域的覆盖：`workspace:<path>` 与 `conversation:<id>`，
  *   二者相互独立，解析顺序 会话 → 工作区 → 默认。
  */
+/** 单个厂商（vendor）的官方价目源与最近同步状态。 */
+export interface VendorPricingSource {
+    /** 官方价目页地址（空 = 该厂商不抓取）。 */
+    sourceUrl?: string;
+    /** 最近一次成功同步时间（epoch ms）。 */
+    lastSyncedAt?: number;
+    /** 最近一次失败原因（成功时清除）。 */
+    lastError?: string;
+    /** 最近一次解析到的模型档数。 */
+    models?: number;
+}
+
 export interface RuntimeSettingsFile {
     goal?: {
         permissionCeiling?: PermissionLevel;
         allowedTools?: string[];
     };
     permissions?: Record<string, string>;
-    /** 官方价目页地址（设置里可配置；空 = 不抓取）。 */
-    pricing?: { sourceUrl?: string };
+    /**
+     * 官方价目源：按**厂商（vendor）**配置（如 deepseek），而非全局单一地址；
+     * 以后接入多个 vendor 时各自独立。`sourceUrl` 为兼容旧数据的默认厂商字段。
+     */
+    pricing?: {
+        /** @deprecated 旧版单一地址；等价于 `vendors.deepseek.sourceUrl`。 */
+        sourceUrl?: string;
+        vendors?: Record<string, VendorPricingSource>;
+    };
+}
+
+/**
+ * 解析某厂商生效的价目源：`pricing.vendors[vendor]` → 旧 `pricing.sourceUrl`（视为 deepseek）
+ * → 传入的默认地址。
+ */
+export function resolveVendorPricingSource(
+    settings: RuntimeSettingsFile,
+    vendor: string,
+    defaultSource?: string,
+): string {
+    const direct = settings.pricing?.vendors?.[vendor]?.sourceUrl;
+    if (direct !== undefined) return direct.trim();
+    if (vendor === 'deepseek' && settings.pricing?.sourceUrl !== undefined) {
+        return settings.pricing.sourceUrl.trim();
+    }
+    return defaultSource?.trim() ?? '';
 }
 
 export interface FileRuntimeConfig {
@@ -73,7 +109,33 @@ export function saveRuntimeSettings(settings: RuntimeSettingsFile, configDir?: s
         ...(settings.permissions
             ? { permissions: { ...current.permissions, ...settings.permissions } }
             : {}),
-        ...(settings.pricing ? { pricing: { ...current.pricing, ...settings.pricing } } : {}),
+        ...(settings.pricing
+            ? {
+                  pricing: {
+                      ...current.pricing,
+                      ...settings.pricing,
+                      ...(settings.pricing.vendors
+                          ? {
+                                vendors: {
+                                    ...current.pricing?.vendors,
+                                    // 厂商条目内部也做浅合并，避免局部更新（如 lastSyncedAt）丢掉 sourceUrl。
+                                    ...Object.fromEntries(
+                                        Object.entries(settings.pricing.vendors).map(
+                                            ([vendor, next]) => [
+                                                vendor,
+                                                {
+                                                    ...current.pricing?.vendors?.[vendor],
+                                                    ...next,
+                                                },
+                                            ],
+                                        ),
+                                    ),
+                                },
+                            }
+                          : {}),
+                  },
+              }
+            : {}),
     };
     mkdirSync(paths.home, { recursive: true });
     writeFileSync(paths.settingsFile, `${JSON.stringify(next, null, 2)}\n`);
@@ -198,7 +260,8 @@ export function configOverview(): {
             const byId = new Map(infos.map((info) => [info.id, info]));
             return {
                 id: p.id,
-                vendor: p.vendor,
+                // vendor 缺省回退 driver.provider：与价目源按 vendor 归组的口径保持一致。
+                vendor: p.vendor?.trim() || p.driver?.provider || p.id,
                 ...(p.pricing ? { pricing: schedulePricingView(p.pricing) } : {}),
                 models: (p.models ?? []).map((m) => {
                     const info = byId.get(m.id);

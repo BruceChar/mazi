@@ -92,7 +92,8 @@ describe('配置加载与 RuntimeConfig 组装（U1）', () => {
         process.env.MAZI_HOME = home;
         const overview = configOverview();
         expect(overview.home).toBe(home);
-        expect(overview.providers).toEqual([{ id: 'deepseek', vendor: undefined, models: [] }]);
+        // vendor 缺省回退 driver.provider → id（与价目源按 vendor 归组口径一致）
+        expect(overview.providers).toEqual([{ id: 'deepseek', vendor: 'deepseek', models: [] }]);
         expect(overview.hasProvidersFile).toBe(true);
     });
 });

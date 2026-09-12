@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { LOOP_MODES, PERMISSION_LEVELS, PERMISSION_META } from '../scripts/goal-contract.ts';
 import { runSettings, saveRunSettings } from '../scripts/run-settings.ts';
 
@@ -32,14 +32,48 @@ function priceOf(pricing, key, multiplier) {
     if (base == null) return '-';
     return fmtPrice(base * (multiplier ?? 1), pricing.currency);
 }
-/** 去重后的分时倍率（多个时段同倍率只展示一次）。 */
+/** 分时倍率档位（每档带各自时段；不再按倍率去重，以便显示多个时间段）。 */
 function pricingTiers(pricing) {
-    const seen = new Map();
-    for (const tier of pricing?.tiers || []) {
-        const key = tier.name + ':' + tier.multiplier;
-        if (!seen.has(key)) seen.set(key, tier);
+    return pricing?.tiers || [];
+}
+const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const TIER_LABELS = { peak: '高峰', 'off-peak': '低谷', idle: '空闲' };
+function tierLabel(tier) {
+    return TIER_LABELS[tier?.name] || tier?.name || '分时';
+}
+/** 星期集合 → 文案（周一至周五 / 每天 / 列举）。 */
+function weekdayLabel(days) {
+    if (!Array.isArray(days) || days.length === 0) return '每天';
+    const sorted = [...days].sort((a, b) => a - b);
+    const isWeekdays =
+        sorted.length === 5 && sorted.every((day, index) => day === index + 1);
+    if (isWeekdays) return '周一至周五';
+    return sorted.map((day) => WEEKDAY_NAMES[day] || `周${day}`).join('、');
+}
+/** UTC 小时 → 本地 HH:MM（价目档位的时段来自入库的 UTC window）。 */
+function fmtHourLocal(hour) {
+    const offset = -new Date().getTimezoneOffset() / 60;
+    const value = (((hour + offset) % 24) + 24) % 24;
+    const hh = Math.floor(value);
+    const mm = Math.round((value - hh) * 60);
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+/** 档位时段文案：`周一至周五 09:00–12:00`。 */
+function tierWindow(tier) {
+    const window = tier?.windowHoursUtc;
+    if (!Array.isArray(window) || window.length !== 2) return '';
+    return `${weekdayLabel(tier.weekdays)} ${fmtHourLocal(window[0])}–${fmtHourLocal(window[1])}`;
+}
+/** 最近同步状态文案。 */
+function syncStateText(state) {
+    if (!state) return '';
+    if (state.lastError) return `上次失败：${state.lastError}`;
+    if (state.lastSyncedAt) {
+        const at = new Date(state.lastSyncedAt);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `已同步 ${state.models ?? 0} 档 · ${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
     }
-    return [...seen.values()];
+    return '';
 }
 
 const props = defineProps({
@@ -56,8 +90,12 @@ const props = defineProps({
     freeChatWorkspace: { type: String, default: '' },
     /** 系统级权限 grant（后端 settings.json 持久化）。 */
     permissionCeiling: { type: String, default: 'read-only' },
-    /** 官方价目页地址（后端 settings.json 持久化；空 = 关闭抓取）。 */
+    /** @deprecated 旧版单一价目源；改用 pricingSources。 */
     pricingSourceUrl: { type: String, default: '' },
+    /** 各 vendor 的官方价目源：vendor → URL（后端 settings.json 持久化）。 */
+    pricingSources: { type: Object, default: () => ({}) },
+    /** 各 vendor 最近同步状态：vendor → { lastSyncedAt, lastError, models }。 */
+    pricingSyncState: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
     'update:theme',
@@ -71,13 +109,30 @@ const emit = defineEmits([
     'refresh-pricing',
 ]);
 
-const pricingDraft = ref(props.pricingSourceUrl);
+/** 各 vendor 的价目源草稿（编辑中；保存后由 cfg 刷新覆盖）。 */
+const pricingDrafts = reactive({});
 watch(
-    () => props.pricingSourceUrl,
-    (value) => {
-        pricingDraft.value = value;
+    () => props.pricingSources,
+    (sources) => {
+        for (const [vendor, url] of Object.entries(sources || {})) {
+            pricingDrafts[vendor] = url || '';
+        }
     },
+    { immediate: true, deep: true },
 );
+
+/** 按 vendor 分组（同一 vendor 的多个 provider 归一组，价目源在 vendor 层配置）。 */
+const vendorGroups = computed(() => {
+    const groups = new Map();
+    for (const provider of props.cfg?.providers || []) {
+        const vendor = provider.vendor || provider.id;
+        if (!groups.has(vendor)) {
+            groups.set(vendor, { vendor, providers: [] });
+        }
+        groups.get(vendor).providers.push(provider);
+    }
+    return [...groups.values()];
+});
 
 const freeChatDraft = ref(props.freeChatWorkspace);
 watch(
@@ -247,30 +302,33 @@ watch(
             </div>
         </template>
 
-        <!-- Providers -->
+        <!-- Providers：按 vendor 分组，价目源配置在 vendor 下 -->
         <template v-else-if="activeTab === 'providers'">
             <h1 class="settings-title">Providers</h1>
-            <div class="settings-group">
-                <div class="settings-group-title">Pricing</div>
+            <div v-for="group in vendorGroups" :key="group.vendor" class="settings-group">
+                <div class="vendor-head">
+                    <div class="settings-group-title">{{ group.vendor }}</div>
+                    <span v-if="group.providers.length > 1" class="setting-badge soft">{{ group.providers.length }} providers</span>
+                </div>
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-name">Official pricing source</div>
-                        <div class="setting-desc">启动与每 5 分钟抓取该页面，解析模型分时价目并覆盖目录价（空 = 关闭）</div>
+                        <div class="setting-desc">
+                            该 vendor 的官方价目页：启动与每 5 分钟抓取，解析分时价目覆盖目录价（空 = 关闭）
+                            <template v-if="syncStateText(pricingSyncState[group.vendor])"> · {{ syncStateText(pricingSyncState[group.vendor]) }}</template>
+                        </div>
                     </div>
                     <div class="setting-actions">
-                        <input class="setting-input" v-model="pricingDraft" placeholder="https://api-docs.deepseek.com/zh-cn/quick_start/pricing/" />
-                        <button class="setting-sync" @click="emit('save-pricing-source', pricingDraft)">保存</button>
-                        <button class="setting-sync" :disabled="pricingSyncing" @click="emit('refresh-pricing')">
+                        <input class="setting-input" v-model="pricingDrafts[group.vendor]" placeholder="https://…/pricing" />
+                        <button class="setting-sync" @click="emit('save-pricing-source', group.vendor, pricingDrafts[group.vendor])">保存</button>
+                        <button class="setting-sync" :disabled="pricingSyncing" @click="emit('refresh-pricing', group.vendor)">
                             {{ pricingSyncing ? '更新中…' : '更新价格' }}
                         </button>
                     </div>
                 </div>
-            </div>
-            <div class="settings-group">
-                <div class="settings-group-title">Configured providers</div>
-                <div v-for="p in cfg?.providers || []" :key="p.id" class="setting-item provider-item">
+                <div v-for="p in group.providers" :key="p.id" class="setting-item provider-item">
                     <div class="setting-info">
-                        <div class="setting-name">{{ p.vendor || p.id }}</div>
+                        <div class="setting-name">{{ p.id }}<span v-if="p.vendor && p.vendor !== p.id" class="setting-name-sub"> · {{ p.vendor }}</span></div>
                         <div v-for="m in p.models || []" :key="m.id" class="model-block">
                             <div class="model-meta">
                                 <span class="model-id">{{ m.name || m.id }}</span>
@@ -281,12 +339,18 @@ watch(
                             </div>
                             <div v-if="m.pricing" class="model-price">
                                 <span class="price-badge idle">
-                                    空闲 · in {{ priceOf(m.pricing, 'inputPerMTok') }}
+                                    空闲（其余时段） · in {{ priceOf(m.pricing, 'inputPerMTok') }}
                                     <template v-if="hasRate(m.pricing, 'cacheReadPerMTok')"> · cached {{ priceOf(m.pricing, 'cacheReadPerMTok') }}</template>
                                     · out {{ priceOf(m.pricing, 'outputPerMTok') }}
                                 </span>
-                                <span v-for="t in pricingTiers(m.pricing)" :key="t.name + t.multiplier" class="price-badge peak">
-                                    {{ t.name }} ×{{ t.multiplier }} · in {{ priceOf(m.pricing, 'inputPerMTok', t.multiplier) }}
+                                <span
+                                    v-for="t in pricingTiers(m.pricing)"
+                                    :key="t.name + ':' + (t.windowHoursUtc || []).join('-')"
+                                    class="price-badge peak"
+                                >
+                                    {{ tierLabel(t) }} ×{{ t.multiplier }}
+                                    <template v-if="tierWindow(t)"> · {{ tierWindow(t) }}</template>
+                                    · in {{ priceOf(m.pricing, 'inputPerMTok', t.multiplier) }}
                                     · out {{ priceOf(m.pricing, 'outputPerMTok', t.multiplier) }}
                                 </span>
                             </div>
@@ -296,8 +360,8 @@ watch(
                     </div>
                     <span class="setting-badge ok">configured</span>
                 </div>
-                <div v-if="!cfg?.providers?.length" class="setting-empty">No providers configured. Add API keys in ~/.mazi/providers.json</div>
             </div>
+            <div v-if="!vendorGroups.length" class="setting-empty">No providers configured. Add API keys in ~/.mazi/providers.json</div>
         </template>
 
         <!-- About -->
@@ -453,6 +517,23 @@ watch(
     padding: 1px 6px;
     font-size: 11px;
     font-family: ui-monospace, monospace;
+}
+.vendor-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.vendor-head .settings-group-title {
+    margin-bottom: 0;
+}
+.setting-name-sub {
+    color: var(--fg-tertiary);
+    font-weight: 400;
+}
+.setting-badge.soft {
+    background: var(--bg-hover);
+    color: var(--fg-secondary);
 }
 .model-block {
     margin-top: 6px;

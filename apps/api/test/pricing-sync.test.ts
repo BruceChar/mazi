@@ -168,4 +168,34 @@ describe('ApiRuntimeService 官网价目抓取', () => {
         expect(ds.pricing?.currency).toBe('CNY');
         expect(ds.pricing?.version).toBe('deepseek-2026-09');
     });
+
+    it('价目源按 vendor 配置：overview 暴露、持久化、可定向更新并记录同步状态', async () => {
+        home = mkdtempSync(join(tmpdir(), 'mazi-pricing-'));
+        process.env.MAZI_HOME = home;
+        writeProviders(home);
+        stubModelEndpoint();
+        const service = new ApiRuntimeService();
+        // 默认内置 deepseek 价目源；按 vendor 归组（provider 未写 vendor 时回退 driver.provider）
+        expect(service.overview().providers[0]?.vendor).toBe('deepseek');
+        expect(service.overview().pricingSources.deepseek).toContain('deepseek.com');
+
+        service.setPricingSource('deepseek', 'https://example.test/pricing');
+        expect(service.overview().pricingSources.deepseek).toBe('https://example.test/pricing');
+        // 持久化：重开服务仍读到该 vendor 的源
+        expect(new ApiRuntimeService().overview().pricingSources.deepseek).toBe(
+            'https://example.test/pricing',
+        );
+
+        service.setPricingFetch(async () => new Response(PAGE, { status: 200 }));
+        const result = await service.syncOfficialPricing('deepseek');
+        expect(result.vendors.deepseek?.updated).toBe(true);
+        expect(result.vendors.deepseek?.modelIds).toEqual([
+            'deepseek-flash',
+            'deepseek-v4-pro',
+        ]);
+        const state = service.overview().pricingSyncState.deepseek;
+        expect(state?.models).toBe(2);
+        expect(state?.lastSyncedAt).toBeGreaterThan(0);
+        expect(state?.lastError).toBeUndefined();
+    });
 });

@@ -358,13 +358,13 @@ export async function setPermissionCeiling(value: string): Promise<void> {
     }
 }
 
-/** 设置官方价目页地址（POST /api/config/pricing）。 */
-export async function setPricingSource(url: string): Promise<void> {
+/** 设置某厂商（vendor）官方价目页地址（POST /api/config/pricing）。 */
+export async function setPricingSource(vendor: string, url: string): Promise<void> {
     try {
         cfg.value = await api('/api/config/pricing', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sourceUrl: url }),
+            body: JSON.stringify({ vendor, sourceUrl: url }),
         });
         ui.err = null;
     } catch (error) {
@@ -372,10 +372,14 @@ export async function setPricingSource(url: string): Promise<void> {
     }
 }
 
-/** 立即抓取并应用官网价目（POST /api/config/pricing/refresh）。 */
-export async function refreshPricing(): Promise<void> {
+/** 立即抓取并应用官网价目（POST /api/config/pricing/refresh；缺省全部厂商）。 */
+export async function refreshPricing(vendor?: string): Promise<void> {
     try {
-        cfg.value = await api('/api/config/pricing/refresh', { method: 'POST' });
+        cfg.value = await api('/api/config/pricing/refresh', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(vendor ? { vendor } : {}),
+        });
         ui.err = null;
     } catch (error) {
         ui.err = String(error);
