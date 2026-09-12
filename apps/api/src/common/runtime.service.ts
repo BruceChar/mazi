@@ -673,8 +673,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         pricingSyncState: Record<string, VendorPricingSource>;
         /** @deprecated 兼容旧前端：默认厂商（deepseek）的价目源。 */
         pricingSourceUrl: string;
-        /** provider id → 是否已配置 API Key（不回显明文）。 */
-        apiKeySet: Record<string, boolean>;
+        /** provider id → 已配置 API Key 的遮蔽形态（中间隐私；不回显明文）。 */
+        apiKeyMasked: Record<string, string>;
     } {
         const settings = loadRuntimeSettings(this.paths.home);
         return {
@@ -685,7 +685,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             pricingSources: this.pricingSources,
             pricingSyncState: settings.pricing?.vendors ?? {},
             pricingSourceUrl: this.pricingSources.deepseek ?? '',
-            apiKeySet: apiKeyStatus(this.secrets),
+            apiKeyMasked: apiKeyStatus(this.secrets),
         };
     }
 

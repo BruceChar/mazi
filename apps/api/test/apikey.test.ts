@@ -39,11 +39,15 @@ describe('ApiRuntimeService API Key（secrets.json）', () => {
         vi.stubGlobal('fetch', async () => new Response('boom', { status: 500 }));
 
         const service = new ApiRuntimeService();
-        expect(service.overview().apiKeySet.deepseek).toBeUndefined();
+        expect(service.overview().apiKeyMasked.deepseek).toBeUndefined();
 
         await service.setApiKey('deepseek', 'sk-test-key');
-        expect(service.overview().apiKeySet.deepseek).toBe(true);
-        // 明文写入独立密钥文件，不回显在 overview
+        // overview 只暴露遮蔽形态（中间隐私），不含明文
+        const masked = service.overview().apiKeyMasked.deepseek;
+        expect(masked).toContain('sk-t');
+        expect(masked).toContain('········');
+        expect(masked).not.toContain('sk-test-key');
+        // 明文写入独立密钥文件
         const secrets = JSON.parse(readFileSync(join(home, 'secrets.json'), 'utf8')) as {
             providers?: Record<string, { apiKey?: string }>;
         };
@@ -51,6 +55,6 @@ describe('ApiRuntimeService API Key（secrets.json）', () => {
         expect(JSON.stringify(service.overview())).not.toContain('sk-test-key');
 
         await service.setApiKey('deepseek', '');
-        expect(service.overview().apiKeySet.deepseek).toBeFalsy();
+        expect(service.overview().apiKeyMasked.deepseek).toBeFalsy();
     });
 });

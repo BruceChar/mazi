@@ -75,6 +75,7 @@ export type { SecretsFile } from './secrets.js';
 export {
     apiKeyStatus,
     loadSecrets,
+    maskApiKey,
     saveProviderApiKey,
     withProviderSecrets,
 } from './secrets.js';

@@ -109,6 +109,8 @@ export interface ConfigOverview {
     pricingSourceUrl?: string;
     /** 各厂商（vendor）官方价目源：vendor → URL（Settings → Providers 下按 vendor 配置）。 */
     pricingSources?: Record<string, string>;
+    /** provider id → 已配置 API Key 的遮蔽形态（中间隐私；明文不回显）。 */
+    apiKeyMasked?: Record<string, string>;
 }
 
 // ============================================================

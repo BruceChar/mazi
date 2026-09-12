@@ -96,8 +96,8 @@ const props = defineProps({
     pricingSources: { type: Object, default: () => ({}) },
     /** 各 vendor 最近同步状态：vendor → { lastSyncedAt, lastError, models }。 */
     pricingSyncState: { type: Object, default: () => ({}) },
-    /** provider id → 是否已配置 API Key（不回显明文）。 */
-    apiKeySet: { type: Object, default: () => ({}) },
+    /** provider id → 已配置 API Key 的遮蔽形态（中间隐私；明文不回显）。 */
+    apiKeyMasked: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
     'update:theme',
@@ -331,7 +331,12 @@ watch(
                         </div>
                     </div>
                     <div class="setting-actions">
-                        <input class="setting-input" v-model="pricingDrafts[group.vendor]" placeholder="https://…/pricing" />
+                        <input
+                            class="setting-input wide"
+                            v-model="pricingDrafts[group.vendor]"
+                            placeholder="https://…/pricing"
+                            :title="pricingDrafts[group.vendor]"
+                        />
                         <button class="setting-sync" @click="emit('save-pricing-source', group.vendor, pricingDrafts[group.vendor])">保存</button>
                         <button class="setting-sync" :disabled="pricingSyncing" @click="emit('refresh-pricing', group.vendor)">
                             {{ pricingSyncing ? '更新中…' : '更新价格' }}
@@ -373,17 +378,20 @@ watch(
                         <div class="provider-apikey">
                             <span class="provider-apikey-label">API Key</span>
                             <input
-                                class="setting-input"
+                                class="setting-input wide"
                                 type="password"
                                 autocomplete="off"
                                 v-model="apiKeyDrafts[p.id]"
-                                :placeholder="apiKeySet[p.id] ? '已配置（输入可覆盖）' : 'sk-…'"
+                                :placeholder="apiKeyMasked[p.id] ? '已配置（输入可覆盖）' : 'sk-…'"
                             />
                             <button class="setting-sync" @click="saveApiKey(p.id, false)">保存</button>
-                            <button v-if="apiKeySet[p.id]" class="setting-sync" @click="saveApiKey(p.id, true)">清除</button>
+                            <button v-if="apiKeyMasked[p.id]" class="setting-sync" @click="saveApiKey(p.id, true)">清除</button>
                         </div>
                         <div class="setting-desc">
-                            {{ apiKeySet[p.id] ? 'Key 已写入 secrets.json（0600）' : '未配置；回退环境变量 ' + (p.apiKeyEnv || 'DEEPSEEK_API_KEY') }}
+                            <template v-if="apiKeyMasked[p.id]">
+                                已配置：<span class="apikey-masked" title="出于安全，完整 Key 不回显">{{ apiKeyMasked[p.id] }}</span>
+                            </template>
+                            <template v-else>未配置；回退环境变量 {{ p.apiKeyEnv || 'DEEPSEEK_API_KEY' }}</template>
                         </div>
                     </div>
                     <span class="setting-badge ok">configured</span>
@@ -508,6 +516,18 @@ watch(
     color: var(--fg);
     font-size: 13px;
 }
+/* 价目源 / API Key：加长输入框；超长文本截断，hover（title）显示完整信息。 */
+.setting-input.wide {
+    width: 300px;
+    max-width: 48vw;
+    min-width: 0;
+    text-overflow: ellipsis;
+}
+.apikey-masked {
+    font-family: ui-monospace, monospace;
+    color: var(--fg-secondary);
+    letter-spacing: 0.02em;
+}
 .setting-badge {
     font-size: 11px;
     padding: 2px 8px;
@@ -571,6 +591,11 @@ watch(
     align-items: center;
     gap: 8px;
     margin-top: 8px;
+}
+.provider-apikey .setting-input.wide {
+    width: 100%;
+    max-width: none;
+    flex: 1;
 }
 .provider-apikey-label {
     font-size: 12px;

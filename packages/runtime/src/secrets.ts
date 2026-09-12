@@ -75,11 +75,26 @@ export function withProviderSecrets(config: RuntimeConfig, secrets: SecretsFile)
     };
 }
 
-/** provider id → 是否已配置 Key（供 UI 显示，不回显明文）。 */
-export function apiKeyStatus(secrets: SecretsFile): Record<string, boolean> {
-    const out: Record<string, boolean> = {};
+/**
+ * Key 的隐私展示形态：保留首 4 + 尾 4，中间以 · 遮蔽；过短则整体遮蔽。
+ * 只用于 UI 展示「已配置哪个 Key」，绝不回显完整明文。
+ */
+export function maskApiKey(apiKey: string): string {
+    const key = apiKey.trim();
+    if (key.length === 0) return '';
+    if (key.length <= 8) return '········';
+    return `${key.slice(0, 4)}········${key.slice(-4)}`;
+}
+
+/**
+ * provider id → 已配置 Key 的**遮蔽**形态（未配置则不含该键）。
+ * 供 UI 显示「已配置：sk-1········ab12」，不回显明文。
+ */
+export function apiKeyStatus(secrets: SecretsFile): Record<string, string> {
+    const out: Record<string, string> = {};
     for (const [id, entry] of Object.entries(secrets.providers ?? {})) {
-        out[id] = (entry.apiKey ?? '').length > 0;
+        const masked = maskApiKey(entry.apiKey ?? '');
+        if (masked.length > 0) out[id] = masked;
     }
     return out;
 }

@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
-import { apiKeyStatus, loadSecrets, saveProviderApiKey, withProviderSecrets } from '../src/secrets.js';
+import {
+    apiKeyStatus,
+    loadSecrets,
+    maskApiKey,
+    saveProviderApiKey,
+    withProviderSecrets,
+} from '../src/secrets.js';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -39,7 +45,9 @@ describe('secrets (API Key)', () => {
 
         saveProviderApiKey('deepseek', 'sk-secret', dir);
         expect(loadSecrets(dir).providers?.deepseek?.apiKey).toBe('sk-secret');
-        expect(apiKeyStatus(loadSecrets(dir))).toEqual({ deepseek: true });
+        // UI 只拿遮蔽形态：中间隐私，不回显明文
+        expect(apiKeyStatus(loadSecrets(dir))).toEqual({ deepseek: maskApiKey('sk-secret') });
+        expect(apiKeyStatus(loadSecrets(dir)).deepseek).not.toContain('secret');
 
         const injected = withProviderSecrets(config(), loadSecrets(dir));
         expect(injected.providers[0]?.driver.apiKey).toBe('sk-secret');
