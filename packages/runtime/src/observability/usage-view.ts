@@ -81,6 +81,12 @@ function runtimeView(source: Record<string, unknown>): StepUsage['runtime'] | un
     const view: NonNullable<StepUsage['runtime']> = {
         totalContextTokens,
         systemPromptTokens: numberOf(source.systemPromptTokens) ?? 0,
+        ...(numberOf(source.contextBytes) !== undefined
+            ? { contextBytes: numberOf(source.contextBytes) }
+            : {}),
+        ...(numberOf(source.contextWindowTokens) !== undefined
+            ? { contextWindowTokens: numberOf(source.contextWindowTokens) }
+            : {}),
         historyTokens: numberOf(source.historyTokens) ?? 0,
         toolSchemaTokens: numberOf(source.toolSchemaTokens) ?? 0,
         newInputTokens: numberOf(source.newInputTokens) ?? 0,

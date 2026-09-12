@@ -46,19 +46,38 @@ export interface Project {
 // Provider / model configuration (GET /api/config)
 // ============================================================
 
+/**
+ * 价目表视图（configOverview 投影）：base = 基础/空闲单价，tiers = 分时段倍率
+ * （如 DeepSeek 高峰 ×2）；人民币价来自官网抓取，USD 来自 pi-ai 目录。
+ */
+export interface ProviderPricingView {
+    currency?: 'USD' | 'CNY';
+    base: {
+        inputPerMTok?: number;
+        outputPerMTok?: number;
+        cacheReadPerMTok?: number;
+        cacheWritePerMTok?: number;
+        reasoningPerMTok?: number;
+    };
+    tiers?: Array<{
+        name: string;
+        /** UTC 小时半开区间 [start, end)；start > end 表示跨午夜 */
+        windowHoursUtc: [number, number];
+        multiplier: number;
+        /** 生效 UTC 星期（0=周日..6=周六）；缺省 = 每天 */
+        weekdays?: number[];
+    }>;
+    version?: string;
+    effectiveAt?: number;
+}
+
 export interface ProviderModel {
     id: string;
     name?: string;
     contextWindow?: number;
     maxTokens?: number;
-    /** 平台价格（USD / 百万 token） */
-    pricing?: {
-        inputPerMTok?: number;
-        outputPerMTok?: number;
-        cacheReadPerMTok?: number;
-        cacheWritePerMTok?: number;
-        currency?: 'USD' | 'CNY';
-    };
+    /** 该模型价目（优先入库的官方分时价，缺省回退目录价） */
+    pricing?: ProviderPricingView;
     capabilities?: {
         supportsTools?: boolean;
         supportsReasoning?: boolean;
@@ -70,6 +89,8 @@ export interface ProviderModel {
 export interface ProviderOverview {
     id: string;
     vendor?: string;
+    /** provider 级价目（缺省模型的价目；逐模型价见 models[].pricing） */
+    pricing?: ProviderPricingView;
     models: ProviderModel[];
 }
 
@@ -127,6 +148,10 @@ export interface StepContextContents {
 export interface StepRuntimeUsage {
     totalContextTokens: number;
     systemPromptTokens: number;
+    /** 实际装配进请求的上下文字节数（UTF-8；入库原始事实） */
+    contextBytes?: number;
+    /** 本次采用的模型上下文窗口（token） */
+    contextWindowTokens?: number;
     /** 聚合 = 下面三个之和（旧数据可能只有该字段） */
     historyTokens: number;
     /** 历史用户消息 */
@@ -302,6 +327,10 @@ export interface TaskNodeView {
     taskId: string;
     status: string;
     title: string;
+    /** Task 开始时间（executor 进入 running 时落库；旧数据缺省） */
+    startedAt?: number;
+    /** Task 结束时间（进入终态时落库） */
+    endedAt?: number;
     steps: StepView[];
 }
 

@@ -688,10 +688,24 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 ) {
                     changed = true;
                 }
-                // 逐模型写入各自价目（flash/pro 单价不同）。
+                // 逐模型写入各自价目（flash/pro 单价不同）+ 页面标注的上下文/输出窗口。
                 for (const model of provider.models ?? []) {
                     const entry = parsed.models.find((m) => m.tier === deepseekTierOf(model.id));
                     if (entry === undefined) continue;
+                    if (
+                        parsed.contextWindowTokens !== undefined &&
+                        model.contextWindow !== parsed.contextWindowTokens
+                    ) {
+                        model.contextWindow = parsed.contextWindowTokens;
+                        changed = true;
+                    }
+                    if (
+                        parsed.maxOutputTokens !== undefined &&
+                        model.maxTokens !== parsed.maxOutputTokens
+                    ) {
+                        model.maxTokens = parsed.maxOutputTokens;
+                        changed = true;
+                    }
                     const next = buildCnySchedule(entry, model.pricing);
                     if (JSON.stringify(next) !== JSON.stringify(model.pricing)) {
                         model.pricing = next;

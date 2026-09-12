@@ -51,11 +51,21 @@ describe('parseDeepseekPricingPage', () => {
     it('returns null when the table is absent', () => {
         expect(parseDeepseekPricingPage('<html>no table</html>', 'x')).toBeNull();
     });
+
+    it('parses context/output length from the page', () => {
+        const withWindow = SAMPLE.replace('BASE URL', '上下文长度 1M 输出长度 最大 384K BASE URL');
+        const parsed = parseDeepseekPricingPage(withWindow, 'x');
+        expect(parsed?.contextWindowTokens).toBe(1_000_000);
+        expect(parsed?.maxOutputTokens).toBe(384_000);
+    });
 });
+
 describe('parseAgentPricingJson', () => {
     it('parses a bare JSON reply into flash/pro tiers', () => {
         const reply = JSON.stringify({
             currency: 'CNY',
+            contextWindowTokens: 1_000_000,
+            maxOutputTokens: 384_000,
             models: [
                 {
                     id: 'deepseek-flash',
@@ -71,6 +81,8 @@ describe('parseAgentPricingJson', () => {
         });
         const parsed = parseAgentPricingJson(reply, 'https://example.test/pricing');
         expect(parsed?.currency).toBe('CNY');
+        expect(parsed?.contextWindowTokens).toBe(1_000_000);
+        expect(parsed?.maxOutputTokens).toBe(384_000);
         expect(parsed?.models).toHaveLength(2);
         const flash = parsed?.models.find((m) => m.id === 'deepseek-flash');
         expect(flash?.tier).toBe('flash');

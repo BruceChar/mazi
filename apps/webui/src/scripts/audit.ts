@@ -159,6 +159,10 @@ export interface AuditStepRow {
     stepId: string;
     /** 会话流中的全局序号（1-based，跨 run/task/step） */
     lineIndex: number;
+    /** 步骤开始时间（epoch ms；模型步为真实调用窗口起点） */
+    startedAt: number;
+    /** 步骤结束时间（epoch ms；未结束为 null） */
+    endedAt: number | null;
     /** 所属 run 序号（1-based） */
     runIndex: number;
     /** 所属 task 序号（1-based，每个 run/Session 内重新从 1 起） */
@@ -175,8 +179,12 @@ export interface AuditStepRow {
     toolLine: string;
     status: string;
     durationMs: number | null;
+    /** 该步模型生成速率（token/s）；工具/无 timing 步为 null */
+    tokensPerSecond: number | null;
     tokens: number;
     contextTotal: number | null;
+    /** 该步实际装配上下文（字节） */
+    contextBytes: number | null;
     contextDelta: number | null;
     /** 相对上一步新增的上下文内容（截断；合并文本） */
     diffContent: string;
@@ -225,6 +233,13 @@ export interface AuditView {
     usage: AggregatedUsage;
     segments: AuditSegment[];
     utilization: number | null;
+    /** 实际装配上下文（字节；入库原始事实） */
+    contextBytes: number | null;
+    /** 生效的模型上下文窗口（token） */
+    contextWindowTokens: number | null;
+    /** 视图覆盖范围的起止时间（epoch ms；Step/Task/会话） */
+    startedAt: number | null;
+    endedAt: number | null;
     diff: AuditDiff | null;
     strategies: string[];
     budgetPressureAction: string;
@@ -283,6 +298,9 @@ interface ResolvedStep {
     endedAt: number | null;
     durationMs: number | null;
     usage: StepUsage | null;
+    /** 所属 Task 的起止（入库；旧数据 null，读取时按步骤回退） */
+    taskStartedAt: number | null;
+    taskEndedAt: number | null;
     text: string;
     /** tool_call：命令参数（展示/审计用） */
     toolArguments: Record<string, unknown> | null;
@@ -741,6 +759,21 @@ function _countTasks(snapshot: GoalTreeSnapshot | null): number {
     return count;
 }
 
+/**
+ * 步骤耗时：优先模型轮真实 timing.totalMs（旧数据的 step 起止可能是同一时刻），
+ * 否则回退 wall-clock（工具步）。
+ */
+function durationOf(
+    startedAt: number | null | undefined,
+    endedAt: number | null | undefined,
+    usage: StepUsage | null | undefined,
+): number | null {
+    const timing = usage?.timing?.totalMs;
+    if (timing !== undefined && timing > 0) return timing;
+    if (startedAt && endedAt) return Math.max(0, endedAt - startedAt);
+    return null;
+}
+
 function collectSnapshotSteps(
     snapshot: GoalTreeSnapshot | null,
     runIndex: number,
@@ -773,9 +806,10 @@ function collectSnapshotSteps(
                     status: step.status,
                     startedAt: step.startedAt ?? 0,
                     endedAt: step.endedAt ?? null,
-                    durationMs:
-                        step.endedAt && step.startedAt ? step.endedAt - step.startedAt : null,
+                    durationMs: durationOf(step.startedAt, step.endedAt, step.usage),
                     usage: step.usage ?? null,
+                    taskStartedAt: task.startedAt ?? null,
+                    taskEndedAt: task.endedAt ?? null,
                     text: step.content ?? step.payloadText ?? '',
                     diffContent: step.usage?.runtime?.diffContent ?? '',
                     diffContents: step.usage?.runtime?.diffContents ?? null,
@@ -870,8 +904,10 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             status: step.status,
             startedAt: step.startedAt,
             endedAt: step.endedAt,
-            durationMs: step.endedAt ? step.endedAt - step.startedAt : null,
+            durationMs: durationOf(step.startedAt, step.endedAt, step.usage),
             usage: step.usage ?? null,
+            taskStartedAt: null,
+            taskEndedAt: null,
             text: step.content,
             diffContent: step.usage?.runtime?.diffContent ?? '',
             diffContents: step.usage?.runtime?.diffContents ?? null,
@@ -908,6 +944,8 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         runIndex: step.runIndex,
         taskIndex: step.taskIndex,
         index: step.index,
+        startedAt: step.startedAt,
+        endedAt: step.endedAt,
         kind: step.kind,
         toolName: step.toolName,
         toolCommand: formatToolCommand(step.toolName, step.toolArguments),
@@ -915,8 +953,10 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         toolLine: toolLineOf(step.toolName, step.toolCwd, step.toolArguments),
         status: step.status,
         durationMs: step.durationMs,
+        tokensPerSecond: step.usage?.timing?.tokensPerSecond ?? null,
         tokens,
         contextTotal: runtime?.totalContextTokens ?? null,
+        contextBytes: runtime?.contextBytes ?? null,
         contextDelta: step.contextDelta,
         diffContent: step.diffContent,
         diffParts: contextDiffParts(step.diffContents),
@@ -1055,6 +1095,10 @@ function noneView(stale: boolean): AuditView {
         usage: EMPTY_USAGE,
         segments: [],
         utilization: null,
+        contextBytes: null,
+        contextWindowTokens: null,
+        startedAt: null,
+        endedAt: null,
         diff: null,
         strategies: [],
         budgetPressureAction: '',
@@ -1069,6 +1113,21 @@ function noneView(stale: boolean): AuditView {
         pricing: null,
         tool: null,
     };
+}
+
+/** 行集合的最早开始 / 最晚结束（任务/会话视图用；无时间返回 null）。 */
+function spanOf(rows: ResolvedStep[]): { startedAt: number | null; endedAt: number | null } {
+    let startedAt: number | null = null;
+    let endedAt: number | null = null;
+    for (const row of rows) {
+        if (row.startedAt && (startedAt === null || row.startedAt < startedAt)) {
+            startedAt = row.startedAt;
+        }
+        if (row.endedAt && (endedAt === null || row.endedAt > endedAt)) {
+            endedAt = row.endedAt;
+        }
+    }
+    return { startedAt, endedAt };
 }
 
 /** 目标解析：step 优先于 task；两者都无 → 会话汇总。 */
@@ -1116,6 +1175,10 @@ export function buildAuditView(input: AuditInput): AuditView {
             usage,
             segments: contextSegments(runtime),
             utilization: runtime?.contextWindowUtilization ?? null,
+            contextBytes: runtime?.contextBytes ?? null,
+            contextWindowTokens: runtime?.contextWindowTokens ?? null,
+            startedAt: selected.startedAt || null,
+            endedAt: selected.endedAt,
             diff:
                 total !== null && delta !== null && from !== null
                     ? { delta, from, to: total }
@@ -1136,6 +1199,7 @@ export function buildAuditView(input: AuditInput): AuditView {
         const title = taskRows[0]?.taskTitle || 'Task';
         const index = taskRows[0]?.taskIndex ?? 0;
         const runIndex = taskRows[0]?.runIndex ?? 1;
+        const span = spanOf(taskRows);
         return {
             kind: 'task',
             stale: false,
@@ -1144,6 +1208,10 @@ export function buildAuditView(input: AuditInput): AuditView {
             usage,
             segments: contextSegments(runtime),
             utilization: runtime?.contextWindowUtilization ?? null,
+            contextBytes: runtime?.contextBytes ?? null,
+            contextWindowTokens: runtime?.contextWindowTokens ?? null,
+            startedAt: taskRows[0]?.taskStartedAt ?? span.startedAt,
+            endedAt: taskRows[0]?.taskEndedAt ?? span.endedAt,
             diff: null,
             strategies: runtime?.strategyApplied ?? [],
             budgetPressureAction: runtime?.budgetPressureAction ?? '',
@@ -1158,6 +1226,7 @@ export function buildAuditView(input: AuditInput): AuditView {
     const usage = aggregateUsage(rows);
     const runtime = usage.runtime;
     const runCount = input.runs && input.runs.length > 0 ? input.runs.length : 1;
+    const span = spanOf(rows);
     return {
         kind: 'conversation',
         stale: false,
@@ -1166,6 +1235,10 @@ export function buildAuditView(input: AuditInput): AuditView {
         usage,
         segments: contextSegments(runtime),
         utilization: runtime?.contextWindowUtilization ?? null,
+        contextBytes: runtime?.contextBytes ?? null,
+        contextWindowTokens: runtime?.contextWindowTokens ?? null,
+        startedAt: span.startedAt,
+        endedAt: span.endedAt,
         diff: null,
         strategies: runtime?.strategyApplied ?? [],
         budgetPressureAction: runtime?.budgetPressureAction ?? '',
@@ -1212,6 +1285,15 @@ export function formatCost(value: number | null | undefined): string {
 
 export function formatPercent(ratio: number | null | undefined): string {
     return `${((ratio ?? 0) * 100).toFixed(1)}%`;
+}
+
+/** 字节数：B / KB / MB（1024 进制，保留 1-2 位小数）。 */
+export function formatBytes(value: number | null | undefined): string {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n) || n <= 0) return '0 B';
+    if (n < 1024) return `${Math.round(n)} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 export function formatDuration(ms: number | null | undefined): string {

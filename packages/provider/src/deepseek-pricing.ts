@@ -22,6 +22,10 @@ export interface ParsedDeepseekPricing {
     sourceUrl: string;
     currency: 'CNY';
     models: ParsedModelPricing[];
+    /** 页面标注的上下文长度（token）；缺省 = 未解析到 */
+    contextWindowTokens?: number;
+    /** 页面标注的最大输出长度（token） */
+    maxOutputTokens?: number;
 }
 
 /** HTML → 纯文本（去脚本/样式/标签、反转义、压缩空白）。 */
@@ -37,6 +41,13 @@ export function htmlToText(html: string): string {
 }
 
 const NUM = '([0-9]+(?:\\.[0-9]+)?)';
+
+/** '1M' / '384K' → token 数。 */
+function tokenCount(value: string, unit: string): number {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.round(n * (unit.toLowerCase() === 'm' ? 1_000_000 : 1_000));
+}
 
 export function parseDeepseekPricingPage(
     html: string,
@@ -65,9 +76,16 @@ export function parseDeepseekPricingPage(
         outputPerMTok: output,
         currency: 'CNY',
     });
+    // 上下文/输出长度（页面标「上下文长度 1M 输出长度 最大 384K」）
+    const ctx = text.match(/上下文长度\s*([0-9.]+)\s*([KMkm])/);
+    const out = text.match(/输出长度\s*最大\s*([0-9.]+)\s*([KMkm])/);
+    const contextWindowTokens = ctx ? tokenCount(ctx[1] as string, ctx[2] as string) : undefined;
+    const maxOutputTokens = out ? tokenCount(out[1] as string, out[2] as string) : undefined;
     return {
         sourceUrl,
         currency: 'CNY',
+        ...(contextWindowTokens ? { contextWindowTokens } : {}),
+        ...(maxOutputTokens ? { maxOutputTokens } : {}),
         models: [
             {
                 id: flashId,
@@ -100,8 +118,8 @@ export function buildPricingAnalysisPrompt(pageText: string, sourceUrl: string):
     return [
         '你是计费配置抽取器。下面是模型厂商官方价目页的纯文本，请抽取每个模型的价格（元 / 百万 tokens）。',
         '只输出一个 JSON 对象，不要任何解释文字，也不要用 Markdown 代码块。JSON 结构：',
-        '{"currency":"CNY","models":[{"id":"<模型id>","tier":"flash|pro","idle":{"inputPerMTok":<数>,"cacheReadPerMTok":<数>,"outputPerMTok":<数>},"peak":{"inputPerMTok":<数>,"cacheReadPerMTok":<数>,"outputPerMTok":<数>}}]}',
-        '说明：空闲时段价填 idle，高峰时段价填 peak；页面只给单一价格时 peak 与 idle 相同。数字不要带单位或千分位。',
+        '{"currency":"CNY","contextWindowTokens":<数>,"maxOutputTokens":<数>,"models":[{"id":"<模型id>","tier":"flash|pro","idle":{"inputPerMTok":<数>,"cacheReadPerMTok":<数>,"outputPerMTok":<数>},"peak":{"inputPerMTok":<数>,"cacheReadPerMTok":<数>,"outputPerMTok":<数>}}]}',
+        '说明：空闲时段价填 idle，高峰时段价填 peak；页面只给单一价格时 peak 与 idle 相同。数字不要带单位或千分位（1M = 1000000）。',
         `来源：${sourceUrl}`,
         '页面文本：',
         body,
@@ -198,7 +216,15 @@ export function parseAgentPricingJson(
         models.push({ id, tier, idle, peak });
     }
     if (models.length === 0) return null;
-    return { sourceUrl, currency: 'CNY', models };
+    const contextWindowTokens = numberOrUndefined(record.contextWindowTokens);
+    const maxOutputTokens = numberOrUndefined(record.maxOutputTokens);
+    return {
+        sourceUrl,
+        currency: 'CNY',
+        ...(contextWindowTokens !== undefined ? { contextWindowTokens } : {}),
+        ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+        models,
+    };
 }
 
 /** 高峰/空闲倍率（用于生成 PricingSchedule.tiers）；各成分一致时返回该倍率，否则 null。 */

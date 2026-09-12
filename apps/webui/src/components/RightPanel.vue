@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import {
     donutArcs,
+    formatBytes,
     formatCost,
     formatPercent,
     formatRate,
@@ -48,6 +49,13 @@ function fmtClock(ts) {
     const d = new Date(ts);
     const pad = (n) => String(n).padStart(2, '0');
     return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+/** 日期+时间（步骤/任务起始用；同日内也带毫秒感知的完整时刻）。 */
+function fmtDateTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 function formatDuration(ms) {
     if (ms == null) return '';
@@ -315,6 +323,7 @@ function pricingRate(perMTok) {
                             <pre class="seg-content">{{ JSON.stringify(audit.tool.arguments, null, 2) }}</pre>
                         </div>
                         <div class="audit-row"><span class="audit-key">耗时</span><span class="audit-val">{{ formatDuration(audit.tool.durationMs) || '-' }}</span></div>
+                        <div v-if="audit.startedAt" class="audit-row"><span class="audit-key">开始</span><span class="audit-val">{{ fmtDateTime(audit.startedAt) }}</span></div>
                         <div class="audit-row"><span class="audit-key">状态</span><span class="audit-val" :class="{ 'audit-warn': audit.tool.isError }">{{ audit.tool.status }}</span></div>
                         <div class="audit-tool-block">
                             <div class="audit-key">输出</div>
@@ -391,6 +400,18 @@ function pricingRate(perMTok) {
                             </template>
                         </template>
                         <div v-else class="audit-muted">Runtime 未采集</div>
+
+                        <div v-if="audit.utilization != null" class="audit-row">
+                            <span class="audit-key">context window</span>
+                            <span class="audit-val">
+                                {{ formatPercent(audit.utilization) }}
+                                <span v-if="audit.contextWindowTokens" class="audit-note-inline">{{ formatTokens(audit.contextWindowTokens) }} tok 窗口</span>
+                            </span>
+                        </div>
+                        <div v-if="audit.contextBytes != null" class="audit-row">
+                            <span class="audit-key">实际 context</span>
+                            <span class="audit-val">{{ formatBytes(audit.contextBytes) }}</span>
+                        </div>
 
                         <div v-if="audit.diff" class="audit-row">
                             <span class="audit-key">context diff</span>
@@ -498,12 +519,14 @@ function pricingRate(perMTok) {
                     <!-- Timing -->
                     <section class="audit-section">
                         <div class="audit-section-title">Timing</div>
+                        <div v-if="audit.startedAt" class="audit-row"><span class="audit-key">开始</span><span class="audit-val">{{ fmtDateTime(audit.startedAt) }}</span></div>
+                        <div v-if="audit.endedAt" class="audit-row"><span class="audit-key">结束</span><span class="audit-val">{{ fmtDateTime(audit.endedAt) }}</span></div>
                         <template v-if="audit.usage.timing">
                             <div class="audit-row"><span class="audit-key">TTFT</span><span class="audit-val">{{ formatDuration(audit.usage.timing.ttftMs) }}</span></div>
                             <div class="audit-row"><span class="audit-key">Total</span><span class="audit-val">{{ formatDuration(audit.usage.timing.totalMs) }}</span></div>
                             <div class="audit-row"><span class="audit-key">速率</span><span class="audit-val">{{ toFixed1(audit.usage.timing.tokensPerSecond) }} tok/s</span></div>
                         </template>
-                        <div v-else class="audit-muted">暂无耗时</div>
+                        <div v-if="!audit.startedAt && !audit.usage.timing" class="audit-muted">暂无耗时</div>
                     </section>
 
                     </template>
@@ -516,9 +539,11 @@ function pricingRate(perMTok) {
                         <div class="audit-step-head">
                             <span class="audit-step-loc">位置</span>
                             <span class="audit-step-kind">类型</span>
+                            <span class="audit-step-start">开始</span>
                             <span class="audit-step-ctx">上下文</span>
                             <span class="audit-step-delta">Δ</span>
                             <span class="audit-step-tokens">tokens</span>
+                            <span class="audit-step-rate">速率</span>
                         </div>
                         <button
                             v-for="row in audit.rows"
@@ -529,9 +554,11 @@ function pricingRate(perMTok) {
                         >
                             <span class="audit-step-loc">R#{{ row.runIndex }}·T#{{ row.taskIndex }}·S#{{ row.index }}</span>
                             <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
+                            <span class="audit-step-start">{{ fmtClock(row.startedAt) }}</span>
                             <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
                             <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
                             <span class="audit-step-tokens">{{ formatTokens(row.tokens) }}</span>
+                            <span class="audit-step-rate">{{ row.tokensPerSecond != null ? toFixed1(row.tokensPerSecond) : '-' }}</span>
                         </button>
                     </section>
                 </template>
@@ -546,6 +573,7 @@ function pricingRate(perMTok) {
                         <span>峰值 {{ formatTokens(contextPeak) }}</span>
                         <span>最新 {{ formatTokens(contextLatest) }}</span>
                         <span v-if="contextUtil != null">context ratio {{ formatPercent(contextUtil) }}</span>
+                        <span v-if="audit?.contextBytes != null">实际 {{ formatBytes(audit.contextBytes) }}</span>
                     </div>
                     <div class="ctx-legend">
                         <span v-for="seg in contextLegend" :key="seg.key" class="ctx-legend-item">
@@ -1284,9 +1312,20 @@ function pricingRate(perMTok) {
 }
 .audit-step-ctx,
 .audit-step-delta,
-.audit-step-tokens {
+.audit-step-tokens,
+.audit-step-start,
+.audit-step-rate {
     font-family: ui-monospace, monospace;
     flex-shrink: 0;
+}
+.audit-step-start {
+    color: var(--fg-tertiary);
+    min-width: 54px;
+}
+.audit-step-rate {
+    color: var(--fg-tertiary);
+    min-width: 38px;
+    text-align: right;
 }
 .audit-step-delta {
     min-width: 44px;

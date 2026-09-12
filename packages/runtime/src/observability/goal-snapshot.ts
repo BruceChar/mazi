@@ -101,6 +101,8 @@ export function snapshotGoalTree(
                 taskId: task.taskId,
                 status: task.status,
                 title: task.title,
+                ...(task.startedAt !== undefined ? { startedAt: task.startedAt } : {}),
+                ...(task.endedAt !== undefined ? { endedAt: task.endedAt } : {}),
                 steps: stepViews,
             };
         });

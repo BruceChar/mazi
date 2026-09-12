@@ -63,6 +63,14 @@ export async function executeTask(
     goal: Goal,
 ): Promise<TaskOutcome> {
     const now = deps.now ?? Date.now;
+    // Task 生命周期时间：进入 running 记 startedAt，进入终态记 endedAt。
+    task.startedAt ??= now();
+    const saveTask = async (): Promise<void> => {
+        if (task.status !== 'pending' && task.status !== 'running' && task.endedAt === undefined) {
+            task.endedAt = now();
+        }
+        await deps.store.saveTask(task);
+    };
     // 真实模型对项目类任务往往需要多轮工具调用后才收敛，默认上限放宽到 50
     const maxSteps = deps.maxSteps ?? 50;
     const invoker = deps.invoker;
@@ -75,7 +83,7 @@ export async function executeTask(
     // GoalStore.listTasks(); without an early row the task (and all its in-progress
     // steps) stays invisible to /timeline until the task finishes.
     task.status = 'running';
-    await deps.store.saveTask(task);
+    await saveTask();
 
     const roundRequest = (): Promise<RoundResult> =>
         deps.requestRound({
@@ -100,6 +108,9 @@ export async function executeTask(
             // 审计聚合按 roundId 去重，保证「首步 thinking 有统计」且总量只计一次；
             // 两者都不存在时退到本轮的 tool_call step。
             const generationMs = round.totalMs - round.ttftMs;
+            // 模型轮的真实起止：step.startedAt/endedAt 反映实际调用窗口（totalMs 来自 provider metrics）
+            const roundEndedAt = now();
+            const roundStartedAt = roundEndedAt - Math.max(0, round.totalMs ?? 0);
             const outputTokens = round.vendorUsage?.outputTokens ?? 0;
             const hasRoundFacts =
                 round.vendorUsage !== undefined ||
@@ -165,8 +176,8 @@ export async function executeTask(
                             : {}),
                     },
                     status: 'ok',
-                    startedAt: now(),
-                    endedAt: now(),
+                    startedAt: roundStartedAt,
+                    endedAt: roundEndedAt,
                 };
                 attachUsage(thinking);
                 steps.push(thinking);
@@ -188,8 +199,8 @@ export async function executeTask(
                             : {}),
                     },
                     status: 'ok',
-                    startedAt: now(),
-                    endedAt: now(),
+                    startedAt: roundStartedAt,
+                    endedAt: roundEndedAt,
                 };
                 attachUsage(intent);
                 steps.push(intent);
@@ -199,7 +210,7 @@ export async function executeTask(
 
             if (round.toolCalls.length === 0) {
                 task.status = 'succeeded';
-                await deps.store.saveTask(task);
+                await saveTask();
                 return {
                     task,
                     steps,
@@ -211,7 +222,7 @@ export async function executeTask(
 
             if (!invoker) {
                 task.status = 'failed';
-                await deps.store.saveTask(task);
+                await saveTask();
                 return {
                     task,
                     steps,
@@ -230,7 +241,7 @@ export async function executeTask(
                 prevCallKey = callKey;
                 if (repeatCount >= 3) {
                     task.status = 'failed';
-                    await deps.store.saveTask(task);
+                    await saveTask();
                     return {
                         task,
                         steps,
@@ -265,7 +276,7 @@ export async function executeTask(
                 await deps.store.saveStep(callStep);
                 deps.onStep?.(callStep);
                 task.status = 'failed';
-                await deps.store.saveTask(task);
+                await saveTask();
                 return {
                     task,
                     steps,
@@ -337,11 +348,11 @@ export async function executeTask(
             messages.push({ role: 'tool', results: outputs });
         }
         task.status = 'failed';
-        await deps.store.saveTask(task);
+        await saveTask();
         return { task, steps, ok: false, reason: 'max-steps', errorMessage: '达到 Task 最大轮次' };
     } catch (error) {
         task.status = 'failed';
-        await deps.store.saveTask(task);
+        await saveTask();
         return {
             task,
             steps,

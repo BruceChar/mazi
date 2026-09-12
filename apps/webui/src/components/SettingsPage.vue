@@ -15,6 +15,33 @@ function permissionHint(level) {
     return PERMISSION_META[level]?.hint || '';
 }
 
+/** 价目展示：货币符号 / 单价 / 分时倍率（空闲=base，高峰=base×multiplier）。 */
+function priceSymbol(currency) {
+    return currency === 'CNY' ? '¥' : '$';
+}
+function fmtPrice(value, currency) {
+    if (value == null || !Number.isFinite(Number(value))) return '-';
+    const fixed = Number(value).toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+    return priceSymbol(currency) + fixed;
+}
+function hasRate(pricing, key) {
+    return pricing?.base?.[key] != null;
+}
+function priceOf(pricing, key, multiplier) {
+    const base = pricing?.base?.[key];
+    if (base == null) return '-';
+    return fmtPrice(base * (multiplier ?? 1), pricing.currency);
+}
+/** 去重后的分时倍率（多个时段同倍率只展示一次）。 */
+function pricingTiers(pricing) {
+    const seen = new Map();
+    for (const tier of pricing?.tiers || []) {
+        const key = tier.name + ':' + tier.multiplier;
+        if (!seen.has(key)) seen.set(key, tier);
+    }
+    return [...seen.values()];
+}
+
 const props = defineProps({
     activeTab: { type: String, default: 'general' },
     theme: { type: String, default: 'system' },
@@ -23,6 +50,8 @@ const props = defineProps({
     reasoningLevel: { type: String, default: 'high' },
     reasoningLevels: { type: Array, default: () => ['low', 'medium', 'high'] },
     syncing: { type: Boolean, default: false },
+    /** 官网价目抓取中（Providers → Pricing 更新按钮）。 */
+    pricingSyncing: { type: Boolean, default: false },
     /** 随心聊默认工作区（后端配置）。 */
     freeChatWorkspace: { type: String, default: '' },
     /** 系统级权限 grant（后端 settings.json 持久化）。 */
@@ -89,20 +118,6 @@ watch(
                         <input class="setting-input" v-model="freeChatDraft" placeholder="~/.mazi/workspace" />
                         <button class="setting-sync" @click="emit('save-free-workspace', freeChatDraft)">保存</button>
                         <button class="setting-sync" @click="emit('pick-free-workspace')">选择…</button>
-                    </div>
-                </div>
-            </div>
-            <div class="settings-group">
-                <div class="settings-group-title">Pricing</div>
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <div class="setting-name">Official pricing source</div>
-                        <div class="setting-desc">启动与每 5 分钟抓取该页面，解析模型价目并覆盖目录价（空 = 关闭）</div>
-                    </div>
-                    <div class="setting-actions">
-                        <input class="setting-input" v-model="pricingDraft" placeholder="https://api-docs.deepseek.com/zh-cn/quick_start/pricing/" />
-                        <button class="setting-sync" @click="emit('save-pricing-source', pricingDraft)">保存</button>
-                        <button class="setting-sync" @click="emit('refresh-pricing')">立即刷新</button>
                     </div>
                 </div>
             </div>
@@ -236,17 +251,46 @@ watch(
         <template v-else-if="activeTab === 'providers'">
             <h1 class="settings-title">Providers</h1>
             <div class="settings-group">
+                <div class="settings-group-title">Pricing</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Official pricing source</div>
+                        <div class="setting-desc">启动与每 5 分钟抓取该页面，解析模型分时价目并覆盖目录价（空 = 关闭）</div>
+                    </div>
+                    <div class="setting-actions">
+                        <input class="setting-input" v-model="pricingDraft" placeholder="https://api-docs.deepseek.com/zh-cn/quick_start/pricing/" />
+                        <button class="setting-sync" @click="emit('save-pricing-source', pricingDraft)">保存</button>
+                        <button class="setting-sync" :disabled="pricingSyncing" @click="emit('refresh-pricing')">
+                            {{ pricingSyncing ? '更新中…' : '更新价格' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-group">
                 <div class="settings-group-title">Configured providers</div>
                 <div v-for="p in cfg?.providers || []" :key="p.id" class="setting-item provider-item">
                     <div class="setting-info">
                         <div class="setting-name">{{ p.vendor || p.id }}</div>
-                        <div v-for="m in p.models || []" :key="m.id" class="model-meta">
-                            <span class="model-id">{{ m.name || m.id }}</span>
-                            <span v-if="m.contextWindow" class="model-tag">{{ Math.round(m.contextWindow / 1000) }}K ctx</span>
-                            <span v-if="m.capabilities?.supportsReasoning" class="model-tag">reasoning</span>
-                            <span v-if="m.capabilities?.supportsVision" class="model-tag">vision</span>
-                            <span v-if="m.pricing?.inputPerMTok != null" class="model-tag">${{ m.pricing.inputPerMTok }}/M in</span>
-                            <span v-if="m.pricing?.outputPerMTok != null" class="model-tag">${{ m.pricing.outputPerMTok }}/M out</span>
+                        <div v-for="m in p.models || []" :key="m.id" class="model-block">
+                            <div class="model-meta">
+                                <span class="model-id">{{ m.name || m.id }}</span>
+                                <span v-if="m.contextWindow" class="model-tag">{{ Math.round(m.contextWindow / 1000) }}K ctx</span>
+                                <span v-if="m.capabilities?.supportsReasoning" class="model-tag">reasoning</span>
+                                <span v-if="m.capabilities?.supportsVision" class="model-tag">vision</span>
+                                <span v-if="m.pricing?.version" class="model-tag">{{ m.pricing.version }}</span>
+                            </div>
+                            <div v-if="m.pricing" class="model-price">
+                                <span class="price-badge idle">
+                                    空闲 · in {{ priceOf(m.pricing, 'inputPerMTok') }}
+                                    <template v-if="hasRate(m.pricing, 'cacheReadPerMTok')"> · cached {{ priceOf(m.pricing, 'cacheReadPerMTok') }}</template>
+                                    · out {{ priceOf(m.pricing, 'outputPerMTok') }}
+                                </span>
+                                <span v-for="t in pricingTiers(m.pricing)" :key="t.name + t.multiplier" class="price-badge peak">
+                                    {{ t.name }} ×{{ t.multiplier }} · in {{ priceOf(m.pricing, 'inputPerMTok', t.multiplier) }}
+                                    · out {{ priceOf(m.pricing, 'outputPerMTok', t.multiplier) }}
+                                </span>
+                            </div>
+                            <div v-else class="setting-desc">未配置价目</div>
                         </div>
                         <div v-if="!(p.models || []).length" class="setting-desc">No models</div>
                     </div>
@@ -409,5 +453,30 @@ watch(
     padding: 1px 6px;
     font-size: 11px;
     font-family: ui-monospace, monospace;
+}
+.model-block {
+    margin-top: 6px;
+}
+.model-price {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+.price-badge {
+    font-size: 11px;
+    font-family: ui-monospace, monospace;
+    border-radius: 4px;
+    padding: 2px 7px;
+    border: 1px solid var(--border-soft);
+}
+.price-badge.idle {
+    color: var(--fg-secondary);
+    background: var(--bg-hover);
+}
+.price-badge.peak {
+    color: #d97706;
+    background: rgba(217, 119, 6, 0.1);
+    border-color: rgba(217, 119, 6, 0.3);
 }
 </style>

@@ -7,6 +7,7 @@ import {
     contextSegments,
     donutArcs,
     donutShares,
+    formatBytes,
     formatCost,
     formatDuration,
     formatPercent,
@@ -571,5 +572,57 @@ describe('audit formatting', () => {
         expect(formatRate(0.2)).toBe('+20.0%');
         expect(formatRate(-0.25)).toBe('-25.0%');
         expect(formatRate(null)).toBe('-');
+    });
+});
+
+describe('audit timing & context window', () => {
+    it('模型步耗时优先取入库 timing.totalMs（旧数据 step 起止同一时刻）', () => {
+        const usage = stepUsage({
+            timing: { ttftMs: 10, totalMs: 2635, tokensPerSecond: 205.6 },
+        });
+        const step = { ...stepView('s1', 'thinking', 1, usage), endedAt: 1 };
+        const task = buildAuditView({ snapshot: snapshotOf([step]), taskId: 't1' });
+        expect(task.rows[0]?.durationMs).toBe(2635);
+        expect(task.rows[0]?.tokensPerSecond).toBeCloseTo(205.6, 1);
+        expect(task.rows[0]?.startedAt).toBe(1);
+        expect(task.startedAt).toBe(1);
+        expect(task.endedAt).toBe(1);
+    });
+
+    it('Task 视图使用落库的 task 起止（缺省回退步骤跨度）', () => {
+        const snapshot = snapshotOf([stepView('s1', 'thinking', 100, stepUsage())]);
+        snapshot.goals[0].tasks[0].startedAt = 50;
+        snapshot.goals[0].tasks[0].endedAt = 500;
+        const view = buildAuditView({ snapshot, taskId: 't1' });
+        expect(view.startedAt).toBe(50);
+        expect(view.endedAt).toBe(500);
+    });
+
+    it('Step/Task/会话视图暴露实际上下文（字节）与窗口占比', () => {
+        const base = stepUsage();
+        const usage = stepUsage({
+            runtime: {
+                ...(base.runtime as object),
+                contextBytes: 20480,
+                contextWindowTokens: 1000000,
+                contextWindowUtilization: 0.0013,
+            },
+        } as StepUsage);
+        const snapshot = snapshotOf([stepView('s1', 'thinking', 1, usage)]);
+        const step = buildAuditView({ snapshot, stepId: 's1' });
+        expect(step.contextBytes).toBe(20480);
+        expect(step.contextWindowTokens).toBe(1000000);
+        expect(step.utilization).toBeCloseTo(0.0013, 6);
+        expect(step.rows).toHaveLength(0);
+        const task = buildAuditView({ snapshot, taskId: 't1' });
+        expect(task.contextBytes).toBe(20480);
+        expect(task.rows[0]?.contextBytes).toBe(20480);
+    });
+
+    it('formatBytes：B / KB / MB', () => {
+        expect(formatBytes(0)).toBe('0 B');
+        expect(formatBytes(512)).toBe('512 B');
+        expect(formatBytes(2048)).toBe('2.0 KB');
+        expect(formatBytes(3 * 1024 * 1024)).toBe('3.00 MB');
     });
 });

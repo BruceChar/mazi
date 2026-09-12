@@ -45,7 +45,14 @@ export interface RuntimeContextBreakdown {
     retrievedTokens: number;
     exampleTokens: number;
     totalContextTokens: number;
-    /** 0-1 */
+    /**
+     * 实际装配进请求的上下文字节数（system prompt + tool schema + 全部消息文本，
+     * UTF-8 编码；入库为原始事实，占比/展示可在读取时重算）。
+     */
+    contextBytes: number;
+    /** 本次采用的模型上下文窗口（token）；缺省 = 未解析到模型窗口 */
+    contextWindowTokens?: number;
+    /** 0-1；= totalContextTokens / contextWindowTokens */
     contextWindowUtilization: number;
     /** 负值 = 压缩生效 */
     contextDeltaFromPrev: number;

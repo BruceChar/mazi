@@ -112,6 +112,10 @@ export interface Task {
     acceptance: AcceptanceSpec;
     status: 'pending' | 'running' | 'succeeded' | 'failed' | 'rolled_back';
     parentPlanNodeId?: string;
+    /** 进入 running 的时间（executor 落库；旧数据缺省） */
+    startedAt?: number;
+    /** 进入终态的时间 */
+    endedAt?: number;
 }
 
 /** 归因原子（thinking|tool_call|observation 是决策链三环节，不可砍） */

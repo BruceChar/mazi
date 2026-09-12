@@ -20,7 +20,7 @@ import type {
 } from '@mazi/core';
 import { type authz, modelIdOf, offeringIdOf, ProviderError, providerIdOf, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot } from '@mazi/libs';
-import { DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
+import { builtinModelsFor, DEEPSEEK_ADAPTER_ID, deepseekAdapter } from '@mazi/provider';
 import type { CatalogService } from './catalog/service.js';
 import type { CliCommandSpec, RuntimeConfig, ToolCallResult, ToolConfig } from './config.js';
 import type { GoalToolInvoker } from './gts/goal-executor.js';
@@ -484,6 +484,15 @@ function measureContext(
         systemPromptTokens + historyTokens + toolSchemaTokens + newInputTokens + observationTokens;
     const contextWindowUtilization =
         contextWindow > 0 ? Math.min(1, totalContextTokens / contextWindow) : 0;
+    // 实际装配字节数（UTF-8）：与 token 估算口径独立，落库为原始事实。
+    const contextBytes =
+        Buffer.byteLength(parts.systemPrompt, 'utf8') +
+        Buffer.byteLength(parts.toolSchema, 'utf8') +
+        Buffer.byteLength(parts.historyUser, 'utf8') +
+        Buffer.byteLength(parts.historyAssistant, 'utf8') +
+        Buffer.byteLength(parts.toolCalls, 'utf8') +
+        Buffer.byteLength(parts.newInput, 'utf8') +
+        Buffer.byteLength(parts.observation, 'utf8');
     return {
         systemPromptTokens,
         systemPromptRatio: totalContextTokens > 0 ? systemPromptTokens / totalContextTokens : 0,
@@ -497,6 +506,8 @@ function measureContext(
         retrievedTokens: 0,
         exampleTokens: 0,
         totalContextTokens,
+        contextBytes,
+        contextWindowTokens: contextWindow,
         contextWindowUtilization,
         contextDeltaFromPrev: prevTotal === undefined ? 0 : totalContextTokens - prevTotal,
         strategyApplied: [],
@@ -1110,6 +1121,35 @@ export class HarnessRuntime {
         return entry.pricing;
     }
 
+    /**
+     * 解析生效的上下文窗口（token）：模型级 contextWindow → provider 首个模型 → 运行时兜底。
+     * 上下文占比按真实模型窗口计算（如 1M），而非固定 64K。
+     */
+    private contextWindowOf(providerId: string, modelId?: string): number {
+        const entry = this.config.providers.find((p) => p.id === providerId);
+        const byModel =
+            modelId !== undefined ? entry?.models?.find((item) => item.id === modelId) : undefined;
+        const fallbackModel = entry?.models?.find(
+            (item) => item.id === (entry?.driver.model || entry?.models?.[0]?.id),
+        );
+        // 目录（pi-ai）里已知模型的窗口兜底（providers.json 未标注 contextWindow 时）。
+        const vendor = entry?.driver?.provider ?? '';
+        const catalog = builtinModelsFor(vendor);
+        const catalogWindow = (id?: string): number | undefined =>
+            id !== undefined
+                ? catalog.find((info) => info.id === id)?.capabilities.maxInputTokens
+                : undefined;
+        return (
+            byModel?.contextWindow ??
+            fallbackModel?.contextWindow ??
+            entry?.models?.[0]?.contextWindow ??
+            catalogWindow(modelId) ??
+            catalogWindow(fallbackModel?.id) ??
+            this.config.contextWindow ??
+            64000
+        );
+    }
+
     /** 解析候选 provider 的模型 id：命中 ctx 目标且非占位值时用 ctx 模型，否则取配置/默认模型 */
     private roundModelId(
         id: string,
@@ -1183,7 +1223,7 @@ export class HarnessRuntime {
             ctx,
             sameTask ? this.lastContextTotal : undefined,
             sameTask ? this.lastMessageCount : ctx.baseMessageCount,
-            this.config.contextWindow ?? 64000,
+            this.contextWindowOf(ctx.model.providerId, ctx.model.modelId),
         );
         const streamId = ulid();
         const streamable = ctx.goalId !== undefined && ctx.taskId !== undefined;

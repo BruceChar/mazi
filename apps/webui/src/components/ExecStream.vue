@@ -111,6 +111,7 @@ function stepToRow(step, idx) {
 /* ---- Exec tree builders ---- */
 /** Earliest step timestamp of a task; used to date the task header. */
 function taskStartedAt(task) {
+    if (task.startedAt) return task.startedAt;
     let earliest = null;
     for (const step of task.steps || []) {
         if (step.startedAt && (earliest === null || step.startedAt < earliest)) {
@@ -223,36 +224,45 @@ function buildExecStats(detailObj) {
     const rows = allStepsOf(detailObj);
     let inputTokens = 0;
     let outputTokens = 0;
-    let totalMs = 0;
-    // 模型生成耗时（thinking / intent）用于输出速率；工具耗时不参与。
-    let generationMs = 0;
+    // 模型生成耗时（thinking / intent）用于输出速率；工具耗时另计。
+    let modelMs = 0;
+    let toolMs = 0;
+    let rateOutputTokens = 0;
     // 同轮 usage 会挂 thinking + intent 两处，按 roundId 去重后求和
     const seenRounds = new Set();
     for (const r of rows) {
-        const u = usageStats(r.usage);
-        if (u) {
-            const roundId = r.usage?.roundId;
-            if (!roundId || !seenRounds.has(roundId)) {
-                if (roundId) seenRounds.add(roundId);
-                inputTokens += u.input || 0;
-                outputTokens += u.output || 0;
-            }
+        const chunk = r.usage;
+        const roundId = chunk?.roundId;
+        const isModel = r.kind === 'thinking' || r.kind === 'intent';
+        const firstOfRound = roundId === undefined || !seenRounds.has(roundId);
+        if (firstOfRound) {
+            if (roundId) seenRounds.add(roundId);
+            inputTokens += chunk?.vendor?.inputTokens ?? 0;
+            outputTokens += chunk?.vendor?.outputTokens ?? 0;
         }
-        if (r.durationMs) {
-            totalMs += r.durationMs;
-            if (r.kind === 'thinking' || r.kind === 'intent') generationMs += r.durationMs;
+        // 模型轮优先用入库的真实调用耗时；旧数据的 step 起止同一时刻，回退 wall-clock。
+        const timingMs = chunk?.timing?.totalMs;
+        const durationMs = timingMs != null && timingMs > 0 ? timingMs : r.durationMs;
+        if (isModel) {
+            if (firstOfRound && durationMs) {
+                modelMs += durationMs;
+                rateOutputTokens += chunk?.vendor?.outputTokens ?? 0;
+            }
+        } else if (r.durationMs) {
+            toolMs += r.durationMs;
         }
     }
     const tree = buildExecTree(detailObj);
     const taskCount = tree.reduce((s, g) => s + g.tasks.length, 0);
     const stepCount = rows.filter((r) => r.kind !== 'intent' && r.kind !== 'observation').length;
+    const totalMs = modelMs + toolMs;
     return {
         inputTokens,
         outputTokens,
         totalTime: formatDuration(totalMs),
         taskCount,
         stepCount,
-        tokensPerSecond: generationMs > 0 ? (outputTokens / generationMs) * 1000 : 0,
+        tokensPerSecond: modelMs > 0 ? (rateOutputTokens / modelMs) * 1000 : 0,
     };
 }
 

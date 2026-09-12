@@ -345,6 +345,17 @@ async function syncModels() {
     }
 }
 
+const syncingPricing = ref(false);
+/** 手动触发官网价目抓取（Settings → Providers）；完成后 cfg 已刷新。 */
+async function refreshPricingNow() {
+    syncingPricing.value = true;
+    try {
+        await refreshPricing();
+    } finally {
+        syncingPricing.value = false;
+    }
+}
+
 function onSelectStep(target) {
     if (!target?.stepId) return;
     selectStep(target.stepId, target.taskId);
@@ -877,6 +888,7 @@ onBeforeUnmount(() => {
                     :reasoning-level="reasoningLevel"
                     :reasoning-levels="REASONING_LEVELS"
                     :syncing="syncingModels"
+                    :pricing-syncing="syncingPricing"
                     :free-chat-workspace="freeChatWorkspace"
                     :permission-ceiling="cfg?.permissionCeiling || 'read-only'"
                     :pricing-source-url="cfg?.pricingSourceUrl || ''"
@@ -888,7 +900,7 @@ onBeforeUnmount(() => {
                     @pick-free-workspace="onPickFreeChatWorkspace"
                     @save-permission="setPermissionCeiling"
                     @save-pricing-source="setPricingSource"
-                    @refresh-pricing="refreshPricing"
+                    @refresh-pricing="refreshPricingNow"
                 />
             </template>
 

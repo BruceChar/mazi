@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiRuntimeService } from '../src/common/runtime.service.js';
 
 const PAGE = `<html><body>
-模型 deepseek-flash (1) deepseek-v4-pro (2) BASE URL
+模型 deepseek-flash (1) deepseek-v4-pro (2) 上下文长度 1M 输出长度 最大 384K BASE URL
 价格 (3) 百万tokens输入 （缓存命中） 空闲时段 0.02元 0.15元 高峰时段 0.04元 0.30元
 百万tokens输入 （缓存未命中） 空闲时段 1元 4.5元 高峰时段 2元 9.0元
 百万tokens输出 空闲时段 4元 13.5元 高峰时段 8元 27.0元
@@ -17,6 +17,7 @@ interface ProvidersFile {
         id: string;
         models: Array<{
             id: string;
+            contextWindow?: number;
             pricing?: { currency?: string; base?: { inputPerMTok?: number } };
         }>;
         driver: { model?: string };
@@ -107,6 +108,8 @@ describe('ApiRuntimeService 官网价目抓取', () => {
         // 逐模型价目：pro 用 pro 的官方单价，而非回落到 flash
         const pro = ds.models.find((model) => model.id === 'deepseek-v4-pro');
         expect(pro?.pricing?.base?.inputPerMTok).toBe(4.5);
+        // 页面标注的上下文窗口写入每个模型（否则占比按 64K 误算）
+        expect(ds.models.every((model) => model.contextWindow === 1_000_000)).toBe(true);
     });
 
     it('确定性解析失败 → Agent 兜底解析并落盘', async () => {

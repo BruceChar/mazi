@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { PermissionLevel } from '@mazi/core';
-import type { ProviderOverview } from '@mazi/libs';
+import type { ProviderOverview, ProviderPricingView } from '@mazi/libs';
 import { builtinModelsFor } from '@mazi/provider';
 import type { ProviderConfig, RuntimeConfig, ToolConfig } from './config.js';
 import { ensureMaziDirs, maziPaths } from './paths.js';
@@ -109,6 +109,78 @@ export function toRuntimeConfig(
     };
 }
 
+/** PricingSchedule（入库）→ 线协议价目视图。 */
+function schedulePricingView(schedule: {
+    currency?: string;
+    base?: Record<string, number | undefined>;
+    tiers?: Array<{
+        name: string;
+        windowHoursUtc: [number, number];
+        multiplier: number;
+        weekdays?: number[];
+    }>;
+    version?: string;
+    effectiveAt?: number;
+}): ProviderPricingView {
+    return {
+        currency: schedule.currency === 'CNY' ? 'CNY' : 'USD',
+        base: {
+            ...(schedule.base?.inputPerMTok !== undefined
+                ? { inputPerMTok: schedule.base.inputPerMTok }
+                : {}),
+            ...(schedule.base?.outputPerMTok !== undefined
+                ? { outputPerMTok: schedule.base.outputPerMTok }
+                : {}),
+            ...(schedule.base?.cacheReadPerMTok !== undefined
+                ? { cacheReadPerMTok: schedule.base.cacheReadPerMTok }
+                : {}),
+            ...(schedule.base?.cacheWritePerMTok !== undefined
+                ? { cacheWritePerMTok: schedule.base.cacheWritePerMTok }
+                : {}),
+            ...(schedule.base?.reasoningPerMTok !== undefined
+                ? { reasoningPerMTok: schedule.base.reasoningPerMTok }
+                : {}),
+        },
+        ...(Array.isArray(schedule.tiers) && schedule.tiers.length > 0
+            ? {
+                  tiers: schedule.tiers.map((tier) => ({
+                      name: tier.name,
+                      windowHoursUtc: tier.windowHoursUtc,
+                      multiplier: tier.multiplier,
+                      ...(tier.weekdays !== undefined ? { weekdays: tier.weekdays } : {}),
+                  })),
+              }
+            : {}),
+        ...(schedule.version !== undefined ? { version: schedule.version } : {}),
+        ...(schedule.effectiveAt !== undefined ? { effectiveAt: schedule.effectiveAt } : {}),
+    };
+}
+
+/** pi-ai 目录价（扁平 USD）→ 价目视图。 */
+function flatPricingView(pricing: {
+    inputPerMTok?: number;
+    outputPerMTok?: number;
+    cacheReadPerMTok?: number;
+    cacheWritePerMTok?: number;
+    currency?: 'USD' | 'CNY';
+}): ProviderPricingView {
+    return {
+        currency: pricing.currency === 'CNY' ? 'CNY' : 'USD',
+        base: {
+            ...(pricing.inputPerMTok !== undefined ? { inputPerMTok: pricing.inputPerMTok } : {}),
+            ...(pricing.outputPerMTok !== undefined
+                ? { outputPerMTok: pricing.outputPerMTok }
+                : {}),
+            ...(pricing.cacheReadPerMTok !== undefined
+                ? { cacheReadPerMTok: pricing.cacheReadPerMTok }
+                : {}),
+            ...(pricing.cacheWritePerMTok !== undefined
+                ? { cacheWritePerMTok: pricing.cacheWritePerMTok }
+                : {}),
+        },
+    };
+}
+
 export function configOverview(): {
     home: string;
     providers: ProviderOverview[];
@@ -121,14 +193,21 @@ export function configOverview(): {
     return {
         home: paths.home,
         providers: (providersJson?.providers ?? []).map((p) => {
-            // 目录（能力 + 平台价格）按 vendor 读取并按 id 合并到配置模型上。
+            // 目录（能力）按 vendor 读取并按 id 合并到配置模型上；价格优先用入库官方价。
             const infos = builtinModelsFor(p.driver?.provider ?? '');
             const byId = new Map(infos.map((info) => [info.id, info]));
             return {
                 id: p.id,
                 vendor: p.vendor,
+                ...(p.pricing ? { pricing: schedulePricingView(p.pricing) } : {}),
                 models: (p.models ?? []).map((m) => {
                     const info = byId.get(m.id);
+                    const pricing =
+                        m.pricing !== undefined
+                            ? schedulePricingView(m.pricing)
+                            : info?.pricing !== undefined
+                              ? flatPricingView(info.pricing)
+                              : undefined;
                     return {
                         id: m.id,
                         name: m.name,
@@ -136,7 +215,7 @@ export function configOverview(): {
                             ? { contextWindow: m.contextWindow }
                             : {}),
                         ...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
-                        ...(info?.pricing ? { pricing: info.pricing } : {}),
+                        ...(pricing !== undefined ? { pricing } : {}),
                         ...(info !== undefined
                             ? {
                                   capabilities: {

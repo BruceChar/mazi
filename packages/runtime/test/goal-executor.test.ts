@@ -73,6 +73,70 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect((await store.loadTask(t.taskId))?.status).toBe('succeeded');
     });
 
+    it('模型步真实起止窗口 = now − totalMs；task 起止落库；context bytes 入库', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        const clock = 1000;
+        await executeTask(
+            {
+                store,
+                now: () => clock,
+                requestRound: async () => ({
+                    ...okRound,
+                    totalMs: 300,
+                    raw: {
+                        providerId: 'deepseek',
+                        modelId: 'deepseek-flash',
+                        inputTokens: 100,
+                        outputTokens: 20,
+                        totalTokens: 120,
+                        ttftMs: 50,
+                        totalMs: 300,
+                    },
+                    vendorUsage: {
+                        inputTokens: 100,
+                        outputTokens: 20,
+                        reportedByVendor: true,
+                    },
+                    contextUsage: {
+                        systemPromptTokens: 10,
+                        systemPromptRatio: 0.1,
+                        historyTokens: 20,
+                        toolSchemaTokens: 5,
+                        newInputTokens: 10,
+                        observationTokens: 0,
+                        retrievedTokens: 0,
+                        exampleTokens: 0,
+                        totalContextTokens: 45,
+                        contextBytes: 180,
+                        contextWindowTokens: 1000000,
+                        contextWindowUtilization: 0.000045,
+                        contextDeltaFromPrev: 0,
+                        strategyApplied: [],
+                    },
+                }),
+            },
+            t,
+            g,
+        );
+        const steps = await store.listSteps(t.taskId);
+        const thinking = steps.find((s) => s.kind === 'thinking');
+        const intent = steps.find((s) => s.kind === 'intent');
+        // 模型轮窗口 = 结束时刻 − totalMs，不再是「同一时刻」
+        expect(thinking?.endedAt).toBe(1000);
+        expect(thinking?.startedAt).toBe(700);
+        expect(intent?.startedAt).toBe(700);
+        const usage = thinking?.usage as
+            | { runtime?: { contextBytes?: number; contextWindowTokens?: number } }
+            | undefined;
+        expect(usage?.runtime?.contextBytes).toBe(180);
+        expect(usage?.runtime?.contextWindowTokens).toBe(1000000);
+        const storedTask = await store.loadTask(t.taskId);
+        expect(storedTask?.startedAt).toBe(1000);
+        expect(storedTask?.endedAt).toBe(1000);
+    });
+
     it('执行前先落库 running Task：进行中的 task/step 可被 timeline 观测', async () => {
         const store = new MemoryGoalStore();
         const t = task();
