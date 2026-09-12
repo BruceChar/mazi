@@ -24,6 +24,8 @@ export interface AdapterProviderConfigLike {
     id: string;
     adapter: string;
     apiKeyEnv?: string;
+    /** 字面 API Key（来自 secrets.json；优先于 apiKeyEnv）。 */
+    apiKey?: string;
     baseUrl?: string;
     models: AdapterModelLike[];
 }
@@ -77,7 +79,13 @@ export function deepseekAdapter(
     if (defaultModel === undefined) {
         throw new Error('deepseekAdapter: at least one model required');
     }
-    const apiKey = config.apiKeyEnv ? env[config.apiKeyEnv] : env.DEEPSEEK_API_KEY;
+    // 字面 Key（secrets）优先；否则读 apiKeyEnv / DEEPSEEK_API_KEY。
+    const apiKey =
+        config.apiKey && config.apiKey.length > 0
+            ? config.apiKey
+            : config.apiKeyEnv
+              ? env[config.apiKeyEnv]
+              : env.DEEPSEEK_API_KEY;
 
     const models = createModels();
     models.setProvider(

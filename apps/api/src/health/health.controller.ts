@@ -95,6 +95,20 @@ export class HealthController {
         return { ...this.config(), pricingSync: result };
     }
 
+    /** POST /api/config/apikey：设置/清除某 provider 的 API Key（secrets.json；不回显明文）。 */
+    @Post('config/apikey')
+    async setApiKey(
+        @Body() body: { providerId?: unknown; apiKey?: unknown },
+    ): Promise<Record<string, unknown>> {
+        const providerId = typeof body?.providerId === 'string' ? body.providerId : '';
+        if (providerId.length === 0) throw new ApiError(400, 'providerId 非法');
+        await this.runtime.setApiKey(
+            providerId,
+            typeof body?.apiKey === 'string' ? body.apiKey : '',
+        );
+        return this.config();
+    }
+
     /** POST /api/permissions：写入某工作区/会话的独立权限覆盖（互不影响）。 */
     @Post('permissions')
     setScopedPermission(

@@ -15,6 +15,7 @@ import type {
 import {
     ApprovalBroker,
     type ApprovalSettlement,
+    apiKeyStatus,
     builtinModelsFor,
     CatalogService,
     configOverview,
@@ -30,6 +31,7 @@ import {
     htmlToText,
     loadRuntimeConfig,
     loadRuntimeSettings,
+    loadSecrets,
     observedCatalogFromProviderConfigs,
     type ParsedModelPricing,
     type PendingApproval,
@@ -38,8 +40,11 @@ import {
     peakMultiplierOf,
     resolveScopedPermission,
     resolveVendorPricingSource,
+    type SecretsFile,
+    saveProviderApiKey,
     saveRuntimeSettings,
     toRuntimeConfig,
+    withProviderSecrets,
 } from '@mazi/runtime';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ApiError } from './api-error.js';
@@ -141,6 +146,15 @@ function buildCnySchedule(entry: ParsedModelPricing, previous?: PricingSchedule)
         effectiveAt: unchanged ? (previous.effectiveAt ?? Date.now()) : Date.now(),
         version: DEEPSEEK_PRICING_VERSION,
     };
+}
+
+/**
+ * provider 是否已落官方人民币价目（version = DEEPSEEK_PRICING_VERSION）。
+ * 官网是模型清单与价格的权威：已落官方价后，pi-ai 目录（可能含已下线 id）不得再覆盖。
+ */
+function hasOfficialPricing(provider: Record<string, unknown>): boolean {
+    const pricing = provider.pricing as { currency?: unknown; version?: unknown } | undefined;
+    return pricing?.currency === 'CNY' && pricing?.version === DEEPSEEK_PRICING_VERSION;
 }
 
 /** provider 条目的厂商（vendor）：显式 vendor → driver.provider。 */
@@ -263,6 +277,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private officialModelListVendors = new Set<string>();
     /** 价目页抓取实现（测试/宿主可覆盖；缺省用全局 fetch）。 */
     private pricingFetch?: typeof fetch;
+    /** 供应商 API Key（secrets.json；注入 RuntimeConfig.driver.apiKey，不回显明文）。 */
+    private secrets: SecretsFile = {};
     private readonly paths: MaziPaths = ensureMaziDirs();
     private config: RuntimeConfig;
 
@@ -273,9 +289,11 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         } catch (error) {
             this.logger.warn(`syncProviderModels on boot failed: ${String(error)}`);
         }
-        this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
-            consoleEnabled: false,
-        });
+        this.secrets = loadSecrets(this.paths.home);
+        this.config = withProviderSecrets(
+            toRuntimeConfig(loadRuntimeConfig(this.paths.home), { consoleEnabled: false }),
+            this.secrets,
+        );
         const settings = loadRuntimeSettings(this.paths.home);
         this.permissions = settings.permissions ?? {};
         // 价目源按 vendor 生效（deepseek 默认内置地址；其余 vendor 由设置提供）。
@@ -315,9 +333,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         );
         const models = await this.syncProviderModelsOnline();
         if (models.changed && !this.running) {
-            this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
-                consoleEnabled: false,
-            });
+            this.reloadConfig();
         }
         for (const warning of models.warnings) this.logger.warn(`model sync: ${warning}`);
         if (trigger === 'periodic' && models.changed && !this.running) {
@@ -355,6 +371,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         for (const provider of parsed.providers ?? []) {
             const vendor = driverProviderOf(provider);
             if (vendor === undefined) continue;
+            // 官网价目已落地 → 模型清单以官网为准，不再用 pi-ai 目录覆盖（目录含已下线 id）。
+            if (hasOfficialPricing(provider)) continue;
             const infos = builtinModelsFor(vendor);
             if (infos.length === 0) continue;
             if (
@@ -387,8 +405,11 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         for (const provider of parsed.providers ?? []) {
             const vendor = driverProviderOf(provider);
             if (vendor === undefined) continue;
-            // 该 vendor 的官网价目页已给出权威模型清单 → 跳过单独的端点发现（减少冗余请求/覆盖）。
-            if (this.officialModelListVendors.has(vendorKeyOf(provider))) {
+            // 该 vendor 的官网价目页已给出权威模型清单（本进程或已落盘）→ 跳过端点发现。
+            if (
+                this.officialModelListVendors.has(vendorKeyOf(provider)) ||
+                hasOfficialPricing(provider)
+            ) {
                 this.logger.log(
                     `skip endpoint model discovery for ${String(provider.id)}: official pricing page provided the model list`,
                 );
@@ -421,9 +442,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
      */
     async syncConfig(): Promise<ReturnType<typeof configOverview>> {
         await this.syncProviderModelsOnline();
-        this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
-            consoleEnabled: false,
-        });
+        this.reloadConfig();
         if (!this.running) {
             await this.restartRuntimes();
         }
@@ -445,9 +464,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     /** 进程内重启语义：在线重同步模型 + 重建运行时；执行中不打断（restarted=0）。 */
     async restart(): Promise<ReturnType<typeof configOverview> & { restarted: number }> {
         await this.syncProviderModelsOnline();
-        this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
-            consoleEnabled: false,
-        });
+        this.reloadConfig();
         const { restarted } = this.running ? { restarted: 0 } : await this.restartRuntimes();
         return { ...this.overview(), restarted };
     }
@@ -459,9 +476,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         providerId?: string,
     ): Promise<{ providerId: string; modelId: string } | undefined> {
         await this.syncProviderModelsOnline();
-        this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
-            consoleEnabled: false,
-        });
+        this.reloadConfig();
         const providers = this.readProvidersFile()?.providers ?? [];
         const provider =
             (providerId !== undefined
@@ -658,6 +673,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         pricingSyncState: Record<string, VendorPricingSource>;
         /** @deprecated 兼容旧前端：默认厂商（deepseek）的价目源。 */
         pricingSourceUrl: string;
+        /** provider id → 是否已配置 API Key（不回显明文）。 */
+        apiKeySet: Record<string, boolean>;
     } {
         const settings = loadRuntimeSettings(this.paths.home);
         return {
@@ -668,7 +685,29 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             pricingSources: this.pricingSources,
             pricingSyncState: settings.pricing?.vendors ?? {},
             pricingSourceUrl: this.pricingSources.deepseek ?? '',
+            apiKeySet: apiKeyStatus(this.secrets),
         };
+    }
+
+    /** 重新从磁盘加载 RuntimeConfig 并注入 secrets（API Key）。 */
+    private reloadConfig(): void {
+        this.config = withProviderSecrets(
+            toRuntimeConfig(loadRuntimeConfig(this.paths.home), { consoleEnabled: false }),
+            this.secrets,
+        );
+    }
+
+    /**
+     * 设置/清除某 provider 的 API Key（secrets.json，0600；空 = 清除）。
+     * 立即重建 config 与运行时，使后续会话生效。
+     */
+    async setApiKey(providerId: string, apiKey: string): Promise<void> {
+        const id = providerId.trim();
+        if (id.length === 0) return;
+        this.secrets = saveProviderApiKey(id, apiKey, this.paths.home);
+        this.reloadConfig();
+        if (!this.running) await this.restartRuntimes();
+        this.logger.log(`setApiKey[${id}] → ${apiKey.trim().length > 0 ? '(set)' : '(cleared)'}`);
     }
 
     /** 设置某厂商（vendor）的官方价目源（settings.json 持久化）；返回最新价目源表。 */
@@ -790,7 +829,11 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 this.recordPricingState(vendor, { lastError: 'parse-failed' });
                 return { updated: false, models: 0, error: 'parse-failed' };
             }
-            const vendorModelIds = parsed.models.map((model) => model.id);
+            // 过滤页面标注为「已下线」的旧模型名（防目录/解析把陈旧 id 写进来）。
+            const deprecated = new Set(parsed.deprecatedModels ?? []);
+            const vendorModelIds = parsed.models
+                .map((model) => model.id)
+                .filter((id) => !deprecated.has(id));
             const file = loadRuntimeConfig(this.paths.home);
             let changed = false;
             for (const provider of file.providers) {
@@ -852,9 +895,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 this.paths.providersFile,
                 JSON.stringify({ providers: file.providers }, null, 2),
             );
-            this.config = toRuntimeConfig(loadRuntimeConfig(this.paths.home), {
-                consoleEnabled: false,
-            });
+            this.reloadConfig();
             if (!this.running) await this.restartRuntimes();
             this.logger.log(
                 `syncOfficialPricing[${vendor}]: updated ${parsed.models.length} model tiers from ${url}`,

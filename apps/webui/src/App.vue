@@ -55,6 +55,7 @@ import {
     refreshPricing,
     sendFeedback,
     sessionPermission,
+    setApiKey,
     setPermissionCeiling,
     setPricingSource,
     setSessionPermission,
@@ -349,6 +350,10 @@ const syncingPricing = ref(false);
 /** 保存某厂商（vendor）的官方价目源（Settings → Providers → vendor 下）。 */
 function onSavePricingSource(vendor, url) {
     void setPricingSource(vendor, url);
+}
+/** 保存某 provider 的 API Key（Settings → Providers → provider 下；后端 secrets.json）。 */
+function onSaveApiKey(providerId, apiKey) {
+    void setApiKey(providerId, apiKey);
 }
 /** 手动触发某厂商（缺省全部）官网价目抓取；完成后 cfg 已刷新。 */
 async function refreshPricingNow(vendor) {
@@ -898,6 +903,8 @@ onBeforeUnmount(() => {
                     :pricing-source-url="cfg?.pricingSourceUrl || ''"
                     :pricing-sources="cfg?.pricingSources || {}"
                     :pricing-sync-state="cfg?.pricingSyncState || {}"
+                    :api-key-set="cfg?.apiKeySet || {}"
+                    @save-api-key="onSaveApiKey"
                     @update:theme="setTheme"
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"

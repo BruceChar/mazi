@@ -350,7 +350,10 @@ function pricingRate(perMTok) {
 
                     <!-- Input 估算（breakdown）：环形饼图 + 占比 + diff + 漂移 -->
                     <section class="audit-section">
-                        <div class="audit-section-title">Input breakdown</div>
+                        <div class="audit-section-title">
+                            <span>Input breakdown</span>
+                            <span v-if="audit.utilization != null" class="audit-title-meta">窗口使用率 {{ formatPercent(audit.utilization) }}<template v-if="audit.contextWindowTokens"> · {{ formatTokens(audit.contextWindowTokens) }} tok</template></span>
+                        </div>
                         <template v-if="audit.segments.length">
                             <div ref="donutWrap" class="donut-wrap" @mouseleave="onArcLeave">
                                 <svg class="donut-svg" viewBox="0 0 100 100" role="img" aria-label="context 占比">
@@ -401,13 +404,6 @@ function pricingRate(perMTok) {
                         </template>
                         <div v-else class="audit-muted">Runtime 未采集</div>
 
-                        <div v-if="audit.utilization != null" class="audit-row">
-                            <span class="audit-key">context window</span>
-                            <span class="audit-val">
-                                {{ formatPercent(audit.utilization) }}
-                                <span v-if="audit.contextWindowTokens" class="audit-note-inline">{{ formatTokens(audit.contextWindowTokens) }} tok 窗口</span>
-                            </span>
-                        </div>
                         <div v-if="audit.contextBytes != null" class="audit-row">
                             <span class="audit-key">实际 context</span>
                             <span class="audit-val">{{ formatBytes(audit.contextBytes) }}</span>
@@ -563,7 +559,7 @@ function pricingRate(perMTok) {
                     </section>
                 </template>
             </div>
-            <div v-else-if="activeTab === 'context'" class="drawer-body audit-body">
+            <div v-else-if="activeTab === 'context'" class="drawer-body audit-body context-body">
                 <section class="audit-section">
                     <div class="audit-section-title">
                         Context 追踪
@@ -1116,6 +1112,13 @@ function pricingRate(perMTok) {
     color: var(--fg-tertiary);
     margin-bottom: 6px;
 }
+.audit-title-meta {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
 .audit-pct {
     text-transform: none;
     font-weight: 500;
@@ -1473,6 +1476,17 @@ function pricingRate(perMTok) {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+}
+/* Context 面板：步骤列表贴近边框（缩小外层与区块左内边距）。 */
+.context-body {
+    padding: 8px 4px 8px 6px;
+    gap: 8px;
+}
+.context-body .audit-section {
+    padding: 6px 4px;
+}
+.context-body .ctx-tools-inline {
+    margin-left: 10px;
 }
 .ctx-item {
     margin-bottom: 2px;

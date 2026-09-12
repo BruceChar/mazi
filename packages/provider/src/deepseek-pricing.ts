@@ -26,6 +26,11 @@ export interface ParsedDeepseekPricing {
     contextWindowTokens?: number;
     /** 页面标注的最大输出长度（token） */
     maxOutputTokens?: number;
+    /**
+     * 页面标注为「已下线」的旧模型名（如 deepseek-v4-flash / deepseek-v4-flash-vision-exp）。
+     * 用于过滤目录里的陈旧 id，避免把已下线模型写进 providers.json。
+     */
+    deprecatedModels?: string[];
 }
 
 /** HTML → 纯文本（去脚本/样式/标签、反转义、压缩空白）。 */
@@ -81,11 +86,21 @@ export function parseDeepseekPricingPage(
     const out = text.match(/输出长度\s*最大\s*([0-9.]+)\s*([KMkm])/);
     const contextWindowTokens = ctx ? tokenCount(ctx[1] as string, ctx[2] as string) : undefined;
     const maxOutputTokens = out ? tokenCount(out[1] as string, out[2] as string) : undefined;
+    // 旧模型名（页脚：旧模型名 X 、 Y 仍可调用，但对应模型已下线）
+    const deprecatedMatch = text.match(/旧模型名([^。]{0,240}?)仍可调用/);
+    const deprecatedModels = [
+        ...new Set(
+            [...(deprecatedMatch?.[1] ?? '').matchAll(/deepseek-[a-z0-9.-]+/gi)].map(
+                (match) => match[0],
+            ),
+        ),
+    ].filter((id) => id !== flashId && id !== proId);
     return {
         sourceUrl,
         currency: 'CNY',
         ...(contextWindowTokens ? { contextWindowTokens } : {}),
         ...(maxOutputTokens ? { maxOutputTokens } : {}),
+        ...(deprecatedModels.length > 0 ? { deprecatedModels } : {}),
         models: [
             {
                 id: flashId,

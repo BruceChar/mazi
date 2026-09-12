@@ -53,6 +53,7 @@ export function createPricingAnalyst(
             id: entry.id,
             adapter: entry.driver.provider,
             ...(entry.driver.apiKeyEnv !== undefined ? { apiKeyEnv: entry.driver.apiKeyEnv } : {}),
+            ...(entry.driver.apiKey !== undefined ? { apiKey: entry.driver.apiKey } : {}),
             models:
                 entry.models !== undefined && entry.models.length > 0
                     ? entry.models.map((model) => ({ id: model.id }))

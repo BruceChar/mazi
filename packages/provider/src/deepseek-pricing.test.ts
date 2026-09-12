@@ -58,6 +58,18 @@ describe('parseDeepseekPricingPage', () => {
         expect(parsed?.contextWindowTokens).toBe(1_000_000);
         expect(parsed?.maxOutputTokens).toBe(384_000);
     });
+
+    it('parses deprecated model names from the footnote', () => {
+        const withFootnote = SAMPLE.replace(
+            '</div>',
+            '(1) 模型名请使用 deepseek-flash 。旧模型名 deepseek-v4-flash 、 deepseek-v4-flash-vision-exp 仍可调用，但对应模型已下线。</div>',
+        );
+        const parsed = parseDeepseekPricingPage(withFootnote, 'x');
+        expect(parsed?.deprecatedModels).toEqual([
+            'deepseek-v4-flash',
+            'deepseek-v4-flash-vision-exp',
+        ]);
+    });
 });
 
 describe('parseAgentPricingJson', () => {

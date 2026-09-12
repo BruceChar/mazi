@@ -145,6 +145,9 @@ function buildLlmProviders(config: RuntimeConfig, options: RunOptions): Map<stri
                             id: provider.id,
                             adapter: DEEPSEEK_ADAPTER_ID,
                             apiKeyEnv: provider.driver.apiKeyEnv,
+                            ...(provider.driver.apiKey !== undefined
+                                ? { apiKey: provider.driver.apiKey }
+                                : {}),
                             models: modelIds,
                         },
                         { env: process.env },

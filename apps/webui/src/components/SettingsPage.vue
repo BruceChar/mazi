@@ -96,6 +96,8 @@ const props = defineProps({
     pricingSources: { type: Object, default: () => ({}) },
     /** 各 vendor 最近同步状态：vendor → { lastSyncedAt, lastError, models }。 */
     pricingSyncState: { type: Object, default: () => ({}) },
+    /** provider id → 是否已配置 API Key（不回显明文）。 */
+    apiKeySet: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
     'update:theme',
@@ -107,6 +109,7 @@ const emit = defineEmits([
     'save-permission',
     'save-pricing-source',
     'refresh-pricing',
+    'save-api-key',
 ]);
 
 /** 各 vendor 的价目源草稿（编辑中；保存后由 cfg 刷新覆盖）。 */
@@ -120,6 +123,15 @@ watch(
     },
     { immediate: true, deep: true },
 );
+
+/** 各 provider 的 API Key 草稿（编辑中；保存后清空，明文不回填）。 */
+const apiKeyDrafts = reactive({});
+/** 保存/清除某 provider 的 API Key（clear=true 传空串清除）。 */
+function saveApiKey(providerId, clear) {
+    const value = clear ? '' : apiKeyDrafts[providerId] || '';
+    emit('save-api-key', providerId, value);
+    apiKeyDrafts[providerId] = '';
+}
 
 /** 按 vendor 分组（同一 vendor 的多个 provider 归一组，价目源在 vendor 层配置）。 */
 const vendorGroups = computed(() => {
@@ -357,6 +369,22 @@ watch(
                             <div v-else class="setting-desc">未配置价目</div>
                         </div>
                         <div v-if="!(p.models || []).length" class="setting-desc">No models</div>
+                        <!-- API Key：写入 secrets.json（0600）；明文不回显 -->
+                        <div class="provider-apikey">
+                            <span class="provider-apikey-label">API Key</span>
+                            <input
+                                class="setting-input"
+                                type="password"
+                                autocomplete="off"
+                                v-model="apiKeyDrafts[p.id]"
+                                :placeholder="apiKeySet[p.id] ? '已配置（输入可覆盖）' : 'sk-…'"
+                            />
+                            <button class="setting-sync" @click="saveApiKey(p.id, false)">保存</button>
+                            <button v-if="apiKeySet[p.id]" class="setting-sync" @click="saveApiKey(p.id, true)">清除</button>
+                        </div>
+                        <div class="setting-desc">
+                            {{ apiKeySet[p.id] ? 'Key 已写入 secrets.json（0600）' : '未配置；回退环境变量 ' + (p.apiKeyEnv || 'DEEPSEEK_API_KEY') }}
+                        </div>
                     </div>
                     <span class="setting-badge ok">configured</span>
                 </div>
@@ -537,6 +565,17 @@ watch(
 }
 .model-block {
     margin-top: 6px;
+}
+.provider-apikey {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+.provider-apikey-label {
+    font-size: 12px;
+    color: var(--fg-secondary);
+    flex-shrink: 0;
 }
 .model-price {
     display: flex;

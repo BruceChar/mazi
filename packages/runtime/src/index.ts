@@ -71,6 +71,13 @@ export type { PricingPage, PricingPageAnalyst } from './provider/pricing-analyst
 export { createPricingAnalyst } from './provider/pricing-analyst.js';
 export type { RunOptions } from './runtime.js';
 export { HarnessRuntime } from './runtime.js';
+export type { SecretsFile } from './secrets.js';
+export {
+    apiKeyStatus,
+    loadSecrets,
+    saveProviderApiKey,
+    withProviderSecrets,
+} from './secrets.js';
 export type { GoalRunResult } from './strategy/goal-strategy.js';
 export type { ApprovalSettlement, PendingApproval } from './tool-gateway/approval.js';
 export { ApprovalBroker, DEFAULT_APPROVAL_TTL_MS } from './tool-gateway/approval.js';

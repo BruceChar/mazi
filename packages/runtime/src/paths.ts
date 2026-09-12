@@ -19,6 +19,8 @@ export const HOME_FILE_PROVIDERS = 'providers.json';
 export const HOME_FILE_TOOLS = 'tools.json';
 export const HOME_FILE_FLAGS = 'flags.json';
 export const HOME_FILE_SETTINGS = 'settings.json';
+/** 密钥文件（不进 configOverview；写入时权限 0600）。 */
+export const HOME_FILE_SECRETS = 'secrets.json';
 export const HOME_DB_FILE = 'mazi.db';
 export const HOME_EVENTS_DIR = 'events';
 
@@ -28,6 +30,7 @@ export interface MaziPaths {
     toolsFile: string;
     flagsFile: string;
     settingsFile: string;
+    secretsFile: string;
     dbPath: string;
     eventDir: string;
 }
@@ -39,6 +42,7 @@ export function maziPaths(home = maziHome()): MaziPaths {
         toolsFile: join(home, HOME_FILE_TOOLS),
         flagsFile: join(home, HOME_FILE_FLAGS),
         settingsFile: join(home, HOME_FILE_SETTINGS),
+        secretsFile: join(home, HOME_FILE_SECRETS),
         dbPath: join(home, HOME_DB_FILE),
         eventDir: join(home, HOME_EVENTS_DIR),
     };

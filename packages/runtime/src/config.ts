@@ -63,6 +63,11 @@ export interface ProviderConfig {
         provider: string;
         model: string;
         apiKeyEnv?: string;
+        /**
+         * 字面 API Key（由 secrets.json 注入；不落 providers.json）。
+         * 存在时优先于 apiKeyEnv。
+         */
+        apiKey?: string;
         baseUrl?: string;
     };
     pricing: PricingSchedule;

@@ -372,6 +372,20 @@ export async function setPricingSource(vendor: string, url: string): Promise<voi
     }
 }
 
+/** 设置/清除某 provider 的 API Key（POST /api/config/apikey；后端存 secrets.json，不回显明文）。 */
+export async function setApiKey(providerId: string, apiKey: string): Promise<void> {
+    try {
+        cfg.value = await api('/api/config/apikey', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ providerId, apiKey }),
+        });
+        ui.err = null;
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
 /** 立即抓取并应用官网价目（POST /api/config/pricing/refresh；缺省全部厂商）。 */
 export async function refreshPricing(vendor?: string): Promise<void> {
     try {
