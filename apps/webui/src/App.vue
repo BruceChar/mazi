@@ -904,6 +904,7 @@ onBeforeUnmount(() => {
                     :pricing-sources="cfg?.pricingSources || {}"
                     :pricing-sync-state="cfg?.pricingSyncState || {}"
                     :api-key-masked="cfg?.apiKeyMasked || {}"
+                    :api-key-source="cfg?.apiKeySource || {}"
                     @save-api-key="onSaveApiKey"
                     @update:theme="setTheme"
                     @update:selected-model="setSelectedModel"

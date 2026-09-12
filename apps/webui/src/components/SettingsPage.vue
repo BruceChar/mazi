@@ -32,9 +32,23 @@ function priceOf(pricing, key, multiplier) {
     if (base == null) return '-';
     return fmtPrice(base * (multiplier ?? 1), pricing.currency);
 }
-/** 分时倍率档位（每档带各自时段；不再按倍率去重，以便显示多个时间段）。 */
+/**
+ * 分时倍率档位：同名同倍率的多个时段合并为一档（避免价格重复展示），
+ * 但保留所有时段（如「周一至周五 09:00–12:00、14:00–18:00」）。
+ */
 function pricingTiers(pricing) {
-    return pricing?.tiers || [];
+    const groups = [];
+    for (const tier of pricing?.tiers || []) {
+        const key = tier.name + ':' + tier.multiplier;
+        let group = groups.find((item) => item.key === key);
+        if (!group) {
+            group = { key, name: tier.name, multiplier: tier.multiplier, windows: [] };
+            groups.push(group);
+        }
+        const window = tierWindow(tier);
+        if (window && !group.windows.includes(window)) group.windows.push(window);
+    }
+    return groups;
 }
 const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const TIER_LABELS = { peak: '高峰', 'off-peak': '低谷', idle: '空闲' };
@@ -98,6 +112,8 @@ const props = defineProps({
     pricingSyncState: { type: Object, default: () => ({}) },
     /** provider id → 已配置 API Key 的遮蔽形态（中间隐私；明文不回显）。 */
     apiKeyMasked: { type: Object, default: () => ({}) },
+    /** provider id → 实际生效的 Key 来源（configured / env / none）。 */
+    apiKeySource: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
     'update:theme',
@@ -362,11 +378,11 @@ watch(
                                 </span>
                                 <span
                                     v-for="t in pricingTiers(m.pricing)"
-                                    :key="t.name + ':' + (t.windowHoursUtc || []).join('-')"
+                                    :key="t.key"
                                     class="price-badge peak"
                                 >
                                     {{ tierLabel(t) }} ×{{ t.multiplier }}
-                                    <template v-if="tierWindow(t)"> · {{ tierWindow(t) }}</template>
+                                    <template v-if="t.windows.length"> · {{ t.windows.join('、') }}</template>
                                     · in {{ priceOf(m.pricing, 'inputPerMTok', t.multiplier) }}
                                     · out {{ priceOf(m.pricing, 'outputPerMTok', t.multiplier) }}
                                 </span>
@@ -390,8 +406,12 @@ watch(
                         <div class="setting-desc">
                             <template v-if="apiKeyMasked[p.id]">
                                 已配置：<span class="apikey-masked" title="出于安全，完整 Key 不回显">{{ apiKeyMasked[p.id] }}</span>
+                                <span class="apikey-source" :class="apiKeySource[p.id]">
+                                    · 模型使用：{{ apiKeySource[p.id] === 'configured' ? '此 Key' : apiKeySource[p.id] === 'env' ? '环境变量' : '无' }}
+                                </span>
                             </template>
-                            <template v-else>未配置；回退环境变量 {{ p.apiKeyEnv || 'DEEPSEEK_API_KEY' }}</template>
+                            <template v-else-if="apiKeySource[p.id] === 'env'">未配置；当前使用环境变量 {{ p.apiKeyEnv || 'DEEPSEEK_API_KEY' }}</template>
+                            <template v-else>未配置（无可用 Key）</template>
                         </div>
                     </div>
                     <span class="setting-badge ok">configured</span>
@@ -527,6 +547,12 @@ watch(
     font-family: ui-monospace, monospace;
     color: var(--fg-secondary);
     letter-spacing: 0.02em;
+}
+.apikey-source {
+    color: var(--fg-secondary);
+}
+.apikey-source.configured {
+    color: #22c55e;
 }
 .setting-badge {
     font-size: 11px;

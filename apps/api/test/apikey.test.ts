@@ -47,6 +47,8 @@ describe('ApiRuntimeService API Key（secrets.json）', () => {
         expect(masked).toContain('sk-t');
         expect(masked).toContain('········');
         expect(masked).not.toContain('sk-test-key');
+        // 生效来源：配置的 Key 优先于环境变量
+        expect(service.overview().apiKeySource.deepseek).toBe('configured');
         // 明文写入独立密钥文件
         const secrets = JSON.parse(readFileSync(join(home, 'secrets.json'), 'utf8')) as {
             providers?: Record<string, { apiKey?: string }>;

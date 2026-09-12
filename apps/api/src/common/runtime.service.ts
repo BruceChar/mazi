@@ -675,6 +675,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         pricingSourceUrl: string;
         /** provider id → 已配置 API Key 的遮蔽形态（中间隐私；不回显明文）。 */
         apiKeyMasked: Record<string, string>;
+        /** provider id → 实际生效的 Key 来源（configured=配置的 Key / env=环境变量 / none）。 */
+        apiKeySource: Record<string, 'configured' | 'env' | 'none'>;
     } {
         const settings = loadRuntimeSettings(this.paths.home);
         return {
@@ -686,7 +688,27 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             pricingSyncState: settings.pricing?.vendors ?? {},
             pricingSourceUrl: this.pricingSources.deepseek ?? '',
             apiKeyMasked: apiKeyStatus(this.secrets),
+            apiKeySource: this.apiKeySources(),
         };
+    }
+
+    /** 各 provider 实际生效的 Key 来源（配置的 Key 优先于环境变量）。 */
+    private apiKeySources(): Record<string, 'configured' | 'env' | 'none'> {
+        const out: Record<string, 'configured' | 'env' | 'none'> = {};
+        for (const provider of this.config.providers) {
+            const configured = this.secrets.providers?.[provider.id]?.apiKey;
+            if (configured !== undefined && configured.trim().length > 0) {
+                out[provider.id] = 'configured';
+                continue;
+            }
+            const envName =
+                provider.driver.apiKeyEnv ??
+                (provider.driver.provider === 'deepseek' ? 'DEEPSEEK_API_KEY' : undefined);
+            const envValue = envName !== undefined ? process.env[envName] : undefined;
+            out[provider.id] =
+                envValue !== undefined && envValue.trim().length > 0 ? 'env' : 'none';
+        }
+        return out;
     }
 
     /** 重新从磁盘加载 RuntimeConfig 并注入 secrets（API Key）。 */

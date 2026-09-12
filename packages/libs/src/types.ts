@@ -111,6 +111,8 @@ export interface ConfigOverview {
     pricingSources?: Record<string, string>;
     /** provider id → 已配置 API Key 的遮蔽形态（中间隐私；明文不回显）。 */
     apiKeyMasked?: Record<string, string>;
+    /** provider id → 实际生效的 Key 来源（configured=配置的 Key / env=环境变量 / none）。 */
+    apiKeySource?: Record<string, 'configured' | 'env' | 'none'>;
 }
 
 // ============================================================

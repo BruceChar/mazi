@@ -57,6 +57,30 @@ describe('pi-ai adapter（新契约：ask/askStream 双入口）', () => {
         expect(bridge.models[0]?.id).toBe('faux-model');
     });
 
+    it('显式 apiKey 透传到 pi-ai 请求选项（优先于环境凭据）', async () => {
+        const faux = fauxProvider({
+            provider: 'faux',
+            models: [{ id: 'faux-model', input: ['text'] }],
+        });
+        const models = createModels();
+        models.setProvider(faux.provider);
+        let seen: { apiKey?: string } | undefined;
+        faux.setResponses([
+            ((_context: unknown, options: unknown) => {
+                seen = options as { apiKey?: string };
+                return fauxAssistantMessage('ok');
+            }) as never,
+        ]);
+        const bridge = createPiProvider({
+            models,
+            providerId: 'faux',
+            defaultModel: 'faux-model',
+            apiKey: 'secret-key',
+        });
+        await bridge.ask(req([userMsg('hi')]));
+        expect(seen?.apiKey).toBe('secret-key');
+    });
+
     it('ask：工具调用映射（toolUse → tool_calls）', async () => {
         const { bridge } = setupBridge([
             fauxAssistantMessage(fauxToolCall('get_time', { tz: 'UTC' }), {
