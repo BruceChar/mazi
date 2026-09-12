@@ -457,6 +457,12 @@ describe('audit buildAuditView', () => {
         expect(view.tool?.durationMs).toBe(200);
         expect(view.tool?.isError).toBe(false);
 
+        // Context 面板逐工具行：行内含完整工具行与输出（单击展开用）
+        const task = buildAuditView({ snapshot: snapshotOf([toolStep]), taskId: 't1' });
+        const toolRow = task.rows.find((row) => row.stepId === 'tc1');
+        expect(toolRow?.toolLine).toBe('~/.mazi ls -la');
+        expect(toolRow?.toolOutput).toBe('total 0');
+
         // 单字符串参数 → 直接作为命令展示；非 shell.run 前缀工具名
         const fdStep = {
             ...stepView('tc2', 'tool_call', 2, null),

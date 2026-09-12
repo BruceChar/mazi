@@ -178,6 +178,13 @@ function toggleToolGroup(key) {
     next.has(key) ? next.delete(key) : next.add(key);
     openToolGroups.value = next;
 }
+/** 单个工具调用 step 的展开态（单击展开/折叠，双击定位会话流）。 */
+const openToolLines = ref(new Set());
+function toggleToolLine(stepId) {
+    const next = new Set(openToolLines.value);
+    next.has(stepId) ? next.delete(stepId) : next.add(stepId);
+    openToolLines.value = next;
+}
 const contextPeak = computed(() =>
     contextModelRows.value.reduce((max, row) => Math.max(max, row.contextTotal || 0), 0),
 );
@@ -592,11 +599,7 @@ function pricingRate(perMTok) {
                             <span class="ctx-caret" :class="{ open: openContext.has(group.row.stepId) }">
                                 {{ openContext.has(group.row.stepId) ? '−' : '+' }}
                             </span>
-                            <span
-                                class="ctx-loc"
-                                title="定位到会话流"
-                                @click.stop="emit('locate-step', { stepId: group.row.stepId, keepTab: true })"
-                            >R#{{ group.row.runIndex }}·T#{{ group.row.taskIndex }}·S#{{ group.row.index }}</span>
+                            <span class="ctx-loc">R#{{ group.row.runIndex }}·T#{{ group.row.taskIndex }}·S#{{ group.row.index }}</span>
                             <span class="ctx-kind">{{ group.row.toolName || group.row.kind }}</span>
                             <div class="ctx-bar">
                                 <div class="ctx-bar-fill" :style="{ width: group.row.barWidth + '%' }">
@@ -626,16 +629,26 @@ function pricingRate(perMTok) {
                                 工具调用（{{ group.tools.length }}）
                             </button>
                             <div v-if="openToolGroups.has(group.key)">
-                                <button
-                                    v-for="tool in group.tools"
-                                    :key="tool.stepId"
-                                    class="ctx-tool-line"
-                                    :class="{ selected: tool.selected }"
-                                    @dblclick="emit('locate-step', { stepId: tool.stepId, keepTab: true })"
-                                >
-                                    <span class="ctx-loc">R#{{ tool.runIndex }}·T#{{ tool.taskIndex }}·S#{{ tool.index }}</span>
-                                    <span class="ctx-tool-text">{{ tool.toolLine }}</span>
-                                </button>
+                                <div v-for="tool in group.tools" :key="tool.stepId" class="ctx-tool-item">
+                                    <button
+                                        class="ctx-tool-line"
+                                        :class="{ selected: tool.selected }"
+                                        :title="openToolLines.has(tool.stepId) ? '单击折叠 · 双击定位会话流' : '单击展开 · 双击定位会话流'"
+                                        @click="toggleToolLine(tool.stepId)"
+                                        @dblclick="emit('locate-step', { stepId: tool.stepId, keepTab: true })"
+                                    >
+                                        <span class="ctx-tool-caret" :class="{ open: openToolLines.has(tool.stepId) }">{{ openToolLines.has(tool.stepId) ? '−' : '+' }}</span>
+                                        <span class="ctx-loc">R#{{ tool.runIndex }}·T#{{ tool.taskIndex }}·S#{{ tool.index }}</span>
+                                        <span class="ctx-tool-text">{{ tool.toolLine }}</span>
+                                        <span class="ctx-tool-status" :class="{ error: tool.status === 'error' || tool.status === 'failed' }">{{ tool.status }}</span>
+                                    </button>
+                                    <div v-if="openToolLines.has(tool.stepId)" class="ctx-tool-detail">
+                                        <div class="ctx-diff-label">命令 / 参数</div>
+                                        <pre class="seg-content">{{ tool.toolLine || '(无)' }}</pre>
+                                        <div class="ctx-diff-label">输出</div>
+                                        <pre class="seg-content">{{ tool.toolOutput || '(空)' }}</pre>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1636,6 +1649,38 @@ function pricingRate(perMTok) {
     white-space: nowrap;
     font-family: ui-monospace, monospace;
     color: var(--fg-secondary);
+}
+/* 单个工具调用：折叠标识 / 状态 / 展开详情（与工具行同缩进）。 */
+.ctx-tool-item {
+    margin-top: 1px;
+}
+.ctx-tool-caret {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--fg-tertiary);
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+.ctx-tool-line:hover .ctx-tool-caret,
+.ctx-tool-caret.open {
+    opacity: 1;
+}
+.ctx-tool-status {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.ctx-tool-status.error {
+    color: var(--warn);
+}
+.ctx-tool-detail {
+    padding: 2px 0 6px 20px;
 }
 .audit-section-sub {
     margin: 8px 0 4px;

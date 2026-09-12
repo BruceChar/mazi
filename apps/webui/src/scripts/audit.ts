@@ -177,6 +177,8 @@ export interface AuditStepRow {
     toolCwd: string;
     /** 完整工具行：`<cwd> <工具/命令+参数>`（如 `~/.mazi ls .`） */
     toolLine: string;
+    /** 工具完整输出（Context 面板单击展开；非工具步为 ''） */
+    toolOutput: string;
     status: string;
     durationMs: number | null;
     /** 该步模型生成速率（token/s）；工具/无 timing 步为 null */
@@ -951,6 +953,7 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         toolCommand: formatToolCommand(step.toolName, step.toolArguments),
         toolCwd: shortenHome(step.toolCwd),
         toolLine: toolLineOf(step.toolName, step.toolCwd, step.toolArguments),
+        toolOutput: step.toolOutput ?? '',
         status: step.status,
         durationMs: step.durationMs,
         tokensPerSecond: step.usage?.timing?.tokensPerSecond ?? null,
