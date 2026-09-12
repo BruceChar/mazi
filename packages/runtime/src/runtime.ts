@@ -1361,7 +1361,7 @@ export class HarnessRuntime {
             ...(pricing.base.reasoningPerMTok !== undefined
                 ? { reasoningPerMTok: effective('reasoning') }
                 : {}),
-            currency: 'USD',
+            currency: pricing.currency,
             version: pricing.version,
             tier: appliedTierName(pricing, hourUtc),
         };

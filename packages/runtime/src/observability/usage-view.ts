@@ -205,7 +205,7 @@ function costView(source: Record<string, unknown>): StepUsage['cost'] | undefine
         cacheReadCostUsd: numberOf(source.cacheReadCostUsd) ?? 0,
         reasoningCostUsd: numberOf(source.reasoningCostUsd) ?? 0,
         totalCostUsd: total,
-        currency: 'USD',
+        currency: stringOf(source.currency) === 'CNY' ? 'CNY' : 'USD',
     };
     const tier = stringOf(source.priceTierApplied);
     if (tier !== undefined) view.priceTierApplied = tier;

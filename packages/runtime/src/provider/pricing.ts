@@ -19,7 +19,7 @@ import type { CostBreakdown, TokenUsage } from '@mazi/core';
 export type CostComponent = 'input' | 'output' | 'cache-write' | 'cache-read' | 'reasoning';
 
 export interface PricingSchedule {
-    currency: 'USD';
+    currency: 'USD' | 'CNY';
     base: {
         inputPerMTok: number;
         outputPerMTok: number;
@@ -162,7 +162,7 @@ export function computeCostBreakdown(
         totalCostUsd,
         priceTierApplied: appliedTierName(pricing, hourUtc),
         pricingVersion: pricing.version,
-        currency: 'USD',
+        currency: pricing.currency,
         calculatedAt: now.getTime(),
     };
 }

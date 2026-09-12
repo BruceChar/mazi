@@ -392,7 +392,7 @@ export interface ProviderModelPricing {
     cacheReadPerMTok?: number;
     cacheWritePerMTok?: number;
     reasoningPerMTok?: number;
-    currency?: 'USD';
+    currency?: 'USD' | 'CNY';
 }
 
 /** Provider 目录的运行时模型视图:能力 + 平台价格。 */

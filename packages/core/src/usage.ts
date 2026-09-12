@@ -95,7 +95,7 @@ export interface PricingSnapshot {
     cachedInputPerMTok: number;
     outputPerMTok: number;
     reasoningPerMTok?: number;
-    currency: 'USD';
+    currency: 'USD' | 'CNY';
     version: string;
     tier: string;
 }
@@ -130,7 +130,7 @@ export interface CostBreakdown {
     /** 命中的 PricingTier.name */
     priceTierApplied: string;
     pricingVersion: string;
-    currency: 'USD';
+    currency: 'USD' | 'CNY';
     calculatedAt: number;
 }
 

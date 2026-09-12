@@ -57,7 +57,7 @@ export interface ProviderModel {
         outputPerMTok?: number;
         cacheReadPerMTok?: number;
         cacheWritePerMTok?: number;
-        currency?: 'USD';
+        currency?: 'USD' | 'CNY';
     };
     capabilities?: {
         supportsTools?: boolean;
@@ -185,7 +185,7 @@ export interface StepPricingUsage {
     cachedInputPerMTok: number;
     outputPerMTok: number;
     reasoningPerMTok?: number;
-    currency?: 'USD';
+    currency?: 'USD' | 'CNY';
     version?: string;
     tier?: string;
 }
@@ -209,7 +209,7 @@ export interface StepCostUsage {
     totalCostUsd: number;
     priceTierApplied?: string;
     pricingVersion?: string;
-    currency?: 'USD';
+    currency?: 'USD' | 'CNY';
 }
 
 /** 调用耗时（core UsageTiming 的线协议投影）。 */

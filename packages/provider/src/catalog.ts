@@ -6,8 +6,25 @@
  */
 
 import { getBuiltinProviders } from '@earendil-works/pi-ai/providers/all';
-import type { ProviderModelInfo } from '@mazi/core';
+import type { ProviderModelInfo, ProviderModelPricing } from '@mazi/core';
 import { deepseekAdapter, knownDeepseekModels } from './from-config.js';
+
+/**
+ * DeepSeek 官方人民币价表（元 / 百万 tokens）——高峰价；
+ * 空闲时段为半价，由 PricingSchedule.tiers 表达（见 runtime 的 off-peak tiers）。
+ * 来源：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
+ */
+export const DEEPSEEK_PRICING_SOURCE = 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/';
+export const DEEPSEEK_PRICING_VERSION = 'deepseek-2026-09';
+export const DEEPSEEK_CNY_PRICING: Readonly<Record<'flash' | 'pro', ProviderModelPricing>> = {
+    flash: { inputPerMTok: 2, cacheReadPerMTok: 0.04, outputPerMTok: 8, currency: 'CNY' },
+    pro: { inputPerMTok: 9, cacheReadPerMTok: 0.3, outputPerMTok: 27, currency: 'CNY' },
+};
+
+/** pro (reasoner) vs flash 归类；未知按 flash。 */
+export function deepseekTierOf(modelId: string): 'flash' | 'pro' {
+    return /pro|reasoner/i.test(modelId) ? 'pro' : 'flash';
+}
 
 /** 兼容旧名：目录模型视图。 */
 export type CatalogModel = ProviderModelInfo;
@@ -34,7 +51,11 @@ export function builtinModelsFor(vendor: string): ProviderModelInfo[] {
                     adapter: 'deepseek',
                     models: [{ id: known[0] as string }],
                 });
-                models = provider.listModels();
+                // 覆盖 pi-ai 的 USD 目录价：统一使用 DeepSeek 官方人民币价。
+                models = provider.listModels().map((model) => ({
+                    ...model,
+                    pricing: DEEPSEEK_CNY_PRICING[deepseekTierOf(model.id)],
+                }));
             }
         }
     } catch {

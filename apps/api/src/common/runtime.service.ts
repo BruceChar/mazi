@@ -44,6 +44,13 @@ function modelEntryOf(info: ProviderModelInfo): Record<string, unknown> {
     };
 }
 
+/** DeepSeek 空闲时段（UTC 小时）：北京时间周中 9-12/14-18 为高峰，其余半价。 */
+const OFF_PEAK_TIERS = [
+    { name: 'off-peak', windowHoursUtc: [0, 1] as [number, number], multiplier: 0.5 },
+    { name: 'off-peak', windowHoursUtc: [4, 6] as [number, number], multiplier: 0.5 },
+    { name: 'off-peak', windowHoursUtc: [10, 24] as [number, number], multiplier: 0.5 },
+];
+
 /** 用目录默认模型价格刷新 provider 级 pricing.base（保留 tiers/version，缺失补默认）。 */
 function applyCatalogPricing(
     provider: Record<string, unknown>,
@@ -56,9 +63,10 @@ function applyCatalogPricing(
         effectiveAt?: number;
         version?: string;
     };
+    const currency = (pricing.currency ?? 'USD') as 'USD' | 'CNY';
     const next = {
         ...current,
-        currency: 'USD' as const,
+        currency,
         base: {
             ...(current.base ?? {}),
             ...(pricing.inputPerMTok !== undefined ? { inputPerMTok: pricing.inputPerMTok } : {}),
@@ -72,7 +80,13 @@ function applyCatalogPricing(
                 ? { cacheWritePerMTok: pricing.cacheWritePerMTok }
                 : {}),
         },
-        tiers: current.tiers ?? [],
+        // 人民币（DeepSeek 官方价）挂空闲时段半价 tiers（北京时间周中 9-12/14-18 为高峰）。
+        tiers:
+            current.tiers && current.tiers.length > 0
+                ? current.tiers
+                : currency === 'CNY'
+                  ? OFF_PEAK_TIERS
+                  : [],
         effectiveAt: current.effectiveAt ?? 0,
         version: current.version ?? 'catalog',
     };
