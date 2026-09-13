@@ -7,11 +7,13 @@
  * and (projects only) a "..." menu for rename / add-conversation / delete.
  * Conversation rows expose a "..." menu with rename / archive / delete.
  *
- * The "..." menus render once as a viewport-fixed floating layer so they are
- * never clipped by the scrolling list.
+ * The "..." menus are teleported to <body> as a viewport-fixed floating layer,
+ * so they are never clipped by the scrolling list nor re-anchored by the
+ * responsive sidebar's transform.
  */
-import { ref } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import { computeMenuPlacement } from '../scripts/menu.ts';
 
 const props = defineProps({
     projects: { type: Array, default: () => [] },
@@ -47,14 +49,14 @@ const freeChatOpen = ref(true);
 
 /* Helpers */
 function openMenu(event, kind, item) {
+    // Second click on the same trigger closes the menu.
+    if (isMenuOpen(kind, item)) {
+        closeMenu();
+        return;
+    }
     const rect = event.currentTarget.getBoundingClientRect();
-    // Flip the menu above the trigger when there is not enough room below.
-    const up = rect.bottom + 140 > window.innerHeight;
-    menuPos.value = {
-        top: up ? rect.top - 6 : rect.bottom + 6,
-        left: rect.right,
-        up,
-    };
+    // The menu is teleported to <body>, so this is a viewport coordinate.
+    menuPos.value = computeMenuPlacement(rect, window.innerHeight);
     menuTarget.value = { kind, item };
 }
 function closeMenu() {
@@ -63,6 +65,30 @@ function closeMenu() {
 function isMenuOpen(kind, item) {
     return menuTarget.value !== null && menuTarget.value.kind === kind && menuTarget.value.item === item;
 }
+
+/**
+ * Floating menu element. The menu is teleported to <body> so that
+ * 'position: fixed' is relative to the viewport even when the responsive
+ * sidebar has a transform (which would otherwise become its containing block
+ * and push the menu off-screen). An outside pointer press closes the menu
+ * without a blocking backdrop, so the next click still reaches its target.
+ */
+const menuEl = ref(null);
+
+function onDocumentPointerDown(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (menuEl.value?.contains(target)) return; // press inside the menu
+    if (target.closest('[data-menu-trigger]')) return; // a trigger toggles on click
+    closeMenu();
+}
+
+watch(menuTarget, (target) => {
+    if (target) document.addEventListener('pointerdown', onDocumentPointerDown, true);
+    else document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+});
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPointerDown, true));
+
 function toggleProject(path) {
     emit('toggle-project', path);
 }
@@ -159,6 +185,7 @@ function latencyText() {
                     </button>
                     <button
                         class="action-btn"
+                        data-menu-trigger
                         title="更多"
                         @click.stop="openMenu($event, 'project', project)"
                     >
@@ -176,7 +203,7 @@ function latencyText() {
                     <div class="session-title">{{ conversationTitle(c) }}</div>
                     <div class="session-time">{{ relTime(c.updatedAt || c.createdAt) }}</div>
                     <div class="row-actions session-menu-wrap">
-                        <button class="action-btn" title="更多" @click.stop="openMenu($event, 'conversation', c)">
+                        <button class="action-btn" data-menu-trigger title="更多" @click.stop="openMenu($event, 'conversation', c)">
                             <LineIcon name="more" size="15" />
                         </button>
                     </div>
@@ -215,7 +242,7 @@ function latencyText() {
                     <div class="session-title">{{ conversationTitle(c) }}</div>
                     <div class="session-time">{{ relTime(c.updatedAt || c.createdAt) }}</div>
                     <div class="row-actions session-menu-wrap">
-                        <button class="action-btn" title="更多" @click.stop="openMenu($event, 'conversation', c)">
+                        <button class="action-btn" data-menu-trigger title="更多" @click.stop="openMenu($event, 'conversation', c)">
                             <LineIcon name="more" size="15" />
                         </button>
                     </div>
@@ -235,37 +262,40 @@ function latencyText() {
         </span>
     </div>
 
-    <!-- Viewport-fixed "..." menu: never clipped by the scrolling list. -->
-    <div v-if="menuTarget" class="menu-backdrop" @click="closeMenu"></div>
-    <div
-        v-if="menuTarget"
-        class="floating-menu"
-        :class="{ 'floating-menu-up': menuPos.up }"
-        :style="{ top: menuPos.top + 'px', left: menuPos.left + 'px' }"
-    >
-        <template v-if="menuTarget.kind === 'project'">
-            <button @click="emit('rename-project', menuTarget.item); closeMenu()">
-                <LineIcon name="rename" size="13" />重命名
-            </button>
-            <button @click="emit('start-project-conversation', menuTarget.item); closeMenu()">
-                <LineIcon name="plus" size="13" />添加新会话
-            </button>
-            <button class="danger" @click="emit('remove-project', menuTarget.item); closeMenu()">
-                <LineIcon name="trash" size="13" />删除项目
-            </button>
-        </template>
-        <template v-else>
-            <button @click="emit('rename-conversation', menuTarget.item); closeMenu()">
-                <LineIcon name="rename" size="13" />重命名
-            </button>
-            <button @click="emit('archive-conversation', menuTarget.item); closeMenu()">
-                <LineIcon name="archive" size="13" />归档
-            </button>
-            <button class="danger" @click="emit('remove-conversation', menuTarget.item); closeMenu()">
-                <LineIcon name="trash" size="13" />删除
-            </button>
-        </template>
-    </div>
+    <!-- Viewport-fixed "..." menu: teleported out of the transformed responsive
+         sidebar so it is positioned against the viewport and never clipped. -->
+    <Teleport to="body">
+        <div
+            v-if="menuTarget"
+            ref="menuEl"
+            class="floating-menu"
+            :class="{ 'floating-menu-up': menuPos.up }"
+            :style="{ top: menuPos.top + 'px', left: menuPos.left + 'px' }"
+        >
+            <template v-if="menuTarget.kind === 'project'">
+                <button @click="emit('rename-project', menuTarget.item); closeMenu()">
+                    <LineIcon name="rename" size="13" />重命名
+                </button>
+                <button @click="emit('start-project-conversation', menuTarget.item); closeMenu()">
+                    <LineIcon name="plus" size="13" />添加新会话
+                </button>
+                <button class="danger" @click="emit('remove-project', menuTarget.item); closeMenu()">
+                    <LineIcon name="trash" size="13" />删除项目
+                </button>
+            </template>
+            <template v-else>
+                <button @click="emit('rename-conversation', menuTarget.item); closeMenu()">
+                    <LineIcon name="rename" size="13" />重命名
+                </button>
+                <button @click="emit('archive-conversation', menuTarget.item); closeMenu()">
+                    <LineIcon name="archive" size="13" />归档
+                </button>
+                <button class="danger" @click="emit('remove-conversation', menuTarget.item); closeMenu()">
+                    <LineIcon name="trash" size="13" />删除
+                </button>
+            </template>
+        </div>
+    </Teleport>
 </template>
 
 <style scoped>
@@ -426,15 +456,12 @@ function latencyText() {
     background: var(--bg-hover);
     color: var(--fg);
 }
-.menu-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-}
 .floating-menu {
     position: fixed;
     transform: translateX(-100%);
     min-width: 150px;
+    max-height: calc(100vh - 12px);
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     padding: 4px;
