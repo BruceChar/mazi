@@ -63,7 +63,15 @@ describe('Storage 看板接口（docs/web/存储面板设计.md）', () => {
             'payload_json',
         ]);
         expect(alpha.indexes).toBeGreaterThanOrEqual(1);
-        expect(alpha.bytes).toBeGreaterThan(0);
+        // dbstat 是 SQLite 的编译期可选 VTAB（部分 Node 构建未开启）：
+        // 可用时按对象聚合 pgsize；不可用时按设计文档 §2 降级为 null，UI 只显示行数。
+        expect(['dbstat', 'unavailable']).toContain(body.sizeSource);
+        if (body.sizeSource === 'dbstat') {
+            expect(alpha.bytes).toBeGreaterThan(0);
+            expect(alpha.indexBytes).toBeGreaterThanOrEqual(0);
+        } else {
+            expect(alpha.bytes).toBeNull();
+        }
         expect(Array.isArray(body.tables)).toBe(true);
     });
 
