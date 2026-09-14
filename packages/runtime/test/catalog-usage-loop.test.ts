@@ -5,7 +5,7 @@ import type { LLMProvider, StreamCompletionEvent } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import { CatalogService, MemoryCatalogStore, type ObservedCatalog } from '../src/catalog/index.js';
 import type { RuntimeConfig } from '../src/config.js';
-import { HarnessRuntime } from '../src/runtime.js';
+import { HarnessRuntime } from '../src/harness/index.js';
 
 function usageProvider(): LLMProvider {
     return {

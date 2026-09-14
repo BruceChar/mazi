@@ -5,7 +5,7 @@ import type { LLMMessage, LLMProvider, LLMRequest, StreamCompletionEvent } from 
 import { ProviderError } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
-import { HarnessRuntime } from '../src/runtime.js';
+import { HarnessRuntime } from '../src/harness/index.js';
 
 function messageText(message: LLMMessage): string {
     if (message.role === 'user' || message.role === 'assistant') {

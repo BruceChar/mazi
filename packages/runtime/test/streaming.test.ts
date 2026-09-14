@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
 import type { DefaultEventBus } from '../src/observability/event-bus.js';
 import type { PricingSchedule } from '../src/provider/pricing.js';
-import { HarnessRuntime } from '../src/runtime.js';
+import { HarnessRuntime } from '../src/harness/index.js';
 
 /** faux provider：文本分两段流式产出，验证 llm.stream_event 逐增量透传。 */
 function makeProvider(): LLMProvider {

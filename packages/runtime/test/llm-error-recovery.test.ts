@@ -5,7 +5,7 @@ import type { LLMProvider, StreamCompletionEvent } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
-import { HarnessRuntime } from '../src/runtime.js';
+import { HarnessRuntime } from '../src/harness/index.js';
 
 function configIn(dir: string): RuntimeConfig {
     return {

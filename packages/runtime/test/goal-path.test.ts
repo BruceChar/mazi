@@ -10,7 +10,7 @@ import type {
 } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
-import { HarnessRuntime } from '../src/runtime.js';
+import { HarnessRuntime } from '../src/harness/index.js';
 
 class OfflineProvider implements LLMProvider {
     id = 'p';

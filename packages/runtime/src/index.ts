@@ -69,8 +69,7 @@ export {
 export type { PricingSchedule } from './provider/pricing.js';
 export type { PricingPage, PricingPageAnalyst } from './provider/pricing-analyst.js';
 export { createPricingAnalyst } from './provider/pricing-analyst.js';
-export type { RunOptions } from './runtime.js';
-export { HarnessRuntime } from './runtime.js';
+export { HarnessRuntime, type RunOptions } from './harness/index.js';
 export type { SecretsFile } from './secrets.js';
 export {
     apiKeyStatus,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runShellTool } from '../src/runtime.js';
+import { runShellTool } from '../src/harness/index.js';
 
 describe('shell.run（通用脚本/命令执行）', () => {
     it('执行命令并返回 stdout', async () => {
