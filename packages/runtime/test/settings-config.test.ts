@@ -9,7 +9,7 @@ import {
     resolveScopedPermission,
     resolveVendorPricingSource,
     saveRuntimeSettings,
-} from '../src/config-io.js';
+} from '../src/configs/index.js';
 
 const dirs: string[] = [];
 afterEach(() => {

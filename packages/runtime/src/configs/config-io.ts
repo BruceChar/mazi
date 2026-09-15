@@ -2,8 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { PermissionLevel } from '@mazi/core';
 import type { ProviderOverview, ProviderPricingView } from '@mazi/libs';
 import { builtinModelsFor } from '@mazi/provider';
-import type { ProviderConfig, RuntimeConfig, ToolConfig } from './config.js';
-import { ensureMaziDirs, maziPaths } from './paths.js';
+import type { ProviderConfig, RuntimeConfig, ToolConfig } from '../config.js';
+import { ensureMaziDirs, maziPaths } from '../paths.js';
 
 /**
  * settings.json 结构：系统级 Goal 配置，与 providers/tools 分离。

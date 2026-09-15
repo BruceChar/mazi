@@ -21,7 +21,7 @@ const ENV_DIR = resolve(__dirname, '../..');
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ENV_DIR, '');
 
-  const apiPort = env.MAZI_SERVER_PORT ?? '4317';
+  const apiPort = env.MAZI_SERVER_PORT ?? '6294';
   const API_TARGET =
     process.env.MAZI_API_TARGET ?? `http://localhost:${apiPort}`;
 
@@ -34,7 +34,7 @@ export default defineConfig(({ mode }) => {
     process.env.MAZI_WEBUI_PORT ??
       process.env.MAZI_UI_PORT ??
       env.MAZI_WEBUI_PORT ??
-      '5174',
+      '6295',
     10,
   );
 

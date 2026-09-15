@@ -3,12 +3,6 @@
  *
  * Goal(意图归因) / Task(目标归因) / Step(动作归因)
  *
- * 与旧模型映射（C1）：
- *   Session(rawIntent+goal) → root Goal(intake) + work Goal(statement)
- *   Turn  → Task（验收唯一锚定 Goal 契约，裁决 D3）
- *   Step  → Step（归属从 turnId/sessionId 改为 taskId/goalId + rootGoalId 派生）
- *   GoalContract(allowedTools/permissionCeiling/budget/termination…) 由旧字段语义
- *   收敛为 success/failure 机械条件 + 资源/预算/终止/风险（许可与工具模块另卷）。
  */
 
 import type { ULID } from './id.js';
@@ -17,7 +11,7 @@ import type { PermissionLevel } from './permissions.js';
 export type OriginKind = 'human' | 'agent' | 'system';
 export type GoalStatus = 'active' | 'succeeded' | 'failed' | 'aborted' | 'timeout';
 
-/** 原始载荷：原料完整保存（多意图切分输入；根 Goal 持有） */
+/** 原始载荷 */
 export interface RawPayload {
     contentType: 'text' | 'structured' | 'event';
     content: string | Record<string, unknown>;

@@ -1,0 +1,1 @@
+export { GENERAL_PROMPT } from './general.prompt.js';

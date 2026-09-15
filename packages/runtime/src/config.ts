@@ -98,12 +98,3 @@ export interface RuntimeConfig {
     tokenizerEncoding?: string;
     consoleEnabled?: boolean;
 }
-
-export interface ToolSpecLike {
-    name: string;
-    description: string;
-    parameters: unknown;
-    minPermission: PermissionLevel;
-    irreversible?: boolean;
-    sideEffects: SideEffectScope[];
-}

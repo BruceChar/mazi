@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // apps/web 生产静态服务：托管 Vite 构建产物 dist/（npm run build 后）。
-const PORT = Number.parseInt(process.env.MAZI_WEB_PORT ?? '5174', 10);
+const PORT = Number.parseInt(process.env.MAZI_WEB_PORT ?? '6295', 10);
 const ROOT = resolve(fileURLToPath(import.meta.url), '..');
 const DIST = process.env.MAZI_WEB_DIST ? resolve(process.env.MAZI_WEB_DIST) : join(ROOT, 'dist');
 

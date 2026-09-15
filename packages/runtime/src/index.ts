@@ -37,13 +37,12 @@ export type {
     RuntimeConfig,
     ToolCallResult,
     ToolConfig,
-    ToolSpecLike,
 } from './config.js';
 export type {
     FileRuntimeConfig,
     RuntimeSettingsFile,
     VendorPricingSource,
-} from './config-io.js';
+} from './configs/config-io.js';
 export {
     configOverview,
     loadRuntimeConfig,
@@ -52,7 +51,7 @@ export {
     resolveVendorPricingSource,
     saveRuntimeSettings,
     toRuntimeConfig,
-} from './config-io.js';
+} from './configs/config-io.js';
 export type { GoalStore } from './memory/goal-store.js';
 // 观测层（事件总线；apps 直接消费）
 export type { EventBusOptions, NewEventInput } from './observability/event-bus.js';
