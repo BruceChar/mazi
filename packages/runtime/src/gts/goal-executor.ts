@@ -17,7 +17,6 @@ export interface GoalToolInvoker {
     ): Promise<{
         ok: boolean;
         content: string;
-        data?: unknown;
         error?: string;
     }>;
 }
@@ -34,7 +33,7 @@ export interface GoalExecutorDeps {
     allowedTools?: string[];
     /** Conversation 共享上下文：本轮任务前置的历史消息 */
     history?: LLMMessage[];
-    /** 工作目录（工具实际执行目录；入库到 tool_call payload.cwd 供展示/追溯） */
+    /** 工作目录（工具实际执行目录；入库到 invocation payload.cwd 供展示/追溯） */
     workspaceRoot?: string;
     maxSteps?: number;
     now?: () => number;
@@ -104,9 +103,8 @@ export async function executeTask(
         for (let roundIndex = 0; roundIndex < maxSteps; roundIndex += 1) {
             const round = await roundRequest();
 
-            // 一轮 usage 归属：thinking 与 intent（模型输出）都挂同一份（带 roundId）；
-            // 审计聚合按 roundId 去重，保证「首步 thinking 有统计」且总量只计一次；
-            // 两者都不存在时退到本轮的 tool_call step。
+            // 一轮 usage 归属：模型生成本轮的 deliberation step，携带 roundId；
+            // 审计聚合按 roundId 去重，保证一轮总量只计一次。
             const generationMs = round.totalMs - round.ttftMs;
             // 模型轮的真实起止：step.startedAt/endedAt 反映实际调用窗口（totalMs 来自 provider metrics）
             const roundEndedAt = now();
@@ -147,65 +145,44 @@ export async function executeTask(
                 : undefined;
             const roundId = ulid();
             const roundUsageWithId = roundUsage ? { ...roundUsage, roundId } : undefined;
-            const hasTextOrThinking = round.text.length > 0 || round.reasoning.length > 0;
+            // deliberation step: 本轮一次模型输出（推理 + 回答 + 提议的工具调用）。
+            // usage 归模型生成，挂在这一步；Invocation 步骤不承载 usage。
+            const hasDeliberation =
+                round.reasoning.length > 0 || round.text.length > 0 || round.toolCalls.length > 0;
             const attachUsage = (step: Step) => {
                 if (step.usage !== undefined || roundUsageWithId === undefined) return;
-                // 模型输出/推理所属 step 全部携带同一份 usage；纯工具轮次只挂 tool_call。
-                if (hasTextOrThinking) {
-                    if (step.kind === 'thinking' || step.kind === 'intent') {
-                        step.usage = roundUsageWithId;
-                    }
-                    return;
-                }
-                if (step.kind === 'tool_call') {
+                if (step.kind === 'deliberation') {
                     step.usage = roundUsageWithId;
                 }
             };
 
-            // thinking step: reasoning process only (not model output)
-            if (round.reasoning.length > 0) {
-                const thinking: Step = {
+            if (hasDeliberation) {
+                const deliberation: Step = {
                     stepId: ulid(),
                     taskId: task.taskId,
                     goalId: task.goalId,
-                    kind: 'thinking',
+                    kind: 'deliberation',
                     payload: {
-                        content: round.reasoning,
-                        ...(round.reasoning.length > 200
-                            ? { contextContent: round.reasoning.slice(0, 200) }
+                        ...(round.reasoning.length > 0 ? { thinking: round.reasoning } : {}),
+                        ...(round.text.length > 0 ? { answer: round.text } : {}),
+                        ...(round.toolCalls.length > 0
+                            ? {
+                                  toolCalls: round.toolCalls.map((c) => ({
+                                      callId: c.callId,
+                                      name: c.toolName,
+                                      arguments: c.arguments,
+                                  })),
+                              }
                             : {}),
                     },
-                    status: 'ok',
+                    status: 'completed',
                     startedAt: roundStartedAt,
                     endedAt: roundEndedAt,
                 };
-                attachUsage(thinking);
-                steps.push(thinking);
-                await deps.store.saveStep(thinking);
-                deps.onStep?.(thinking);
-            }
-
-            // intent step: model output / final answer (distinct from reasoning)
-            if (round.text.length > 0) {
-                const intent: Step = {
-                    stepId: ulid(),
-                    taskId: task.taskId,
-                    goalId: task.goalId,
-                    kind: 'intent',
-                    payload: {
-                        content: round.text,
-                        ...(round.text.length > 200
-                            ? { contextContent: round.text.slice(0, 200) }
-                            : {}),
-                    },
-                    status: 'ok',
-                    startedAt: roundStartedAt,
-                    endedAt: roundEndedAt,
-                };
-                attachUsage(intent);
-                steps.push(intent);
-                await deps.store.saveStep(intent);
-                deps.onStep?.(intent);
+                attachUsage(deliberation);
+                steps.push(deliberation);
+                await deps.store.saveStep(deliberation);
+                deps.onStep?.(deliberation);
             }
 
             if (round.toolCalls.length === 0) {
@@ -261,13 +238,20 @@ export async function executeTask(
                     stepId: ulid(),
                     taskId: task.taskId,
                     goalId: task.goalId,
-                    kind: 'tool_call',
+                    kind: 'invocation',
                     payload: {
                         toolName: blocked.toolName,
                         arguments: blocked.arguments,
+                        callId: blocked.callId,
                         ...(deps.workspaceRoot !== undefined ? { cwd: deps.workspaceRoot } : {}),
                     },
                     status: 'blocked',
+                    error: {
+                        code: 'tool_blocked',
+                        message: `工具被策略拦截：${blocked.toolName}`,
+                        source: 'policy',
+                        retryable: false,
+                    },
                     startedAt: now(),
                     endedAt: now(),
                 };
@@ -286,14 +270,14 @@ export async function executeTask(
                 };
             }
 
-            // 执行工具（输出合并到 tool_call step，不再单独生成 observation step）
+            // 执行工具（结果合并回 invocation step；模型提议见 deliberation.toolCalls）
             const outputs: Array<{ callId: string; output: string; isError: boolean }> = [];
             for (const call of round.toolCalls) {
-                const toolStep: Step = {
+                const toolStep: Extract<Step, { kind: 'invocation' }> = {
                     stepId: ulid(),
                     taskId: task.taskId,
                     goalId: task.goalId,
-                    kind: 'tool_call',
+                    kind: 'invocation',
                     payload: {
                         toolName: call.toolName,
                         arguments: call.arguments,
@@ -304,7 +288,7 @@ export async function executeTask(
                     startedAt: now(),
                     endedAt: now(),
                 };
-                attachUsage(toolStep);
+                // usage 归模型生成，已在 deliberation 步骤；invocation 不承载 usage。
                 steps.push(toolStep);
                 await deps.store.saveStep(toolStep);
                 deps.onStep?.(toolStep);
@@ -319,14 +303,18 @@ export async function executeTask(
                     output,
                     isError: !res.ok,
                 });
-                // Merge output into the tool_call step
-                toolStep.payload = {
-                    ...toolStep.payload,
-                    output,
-                    ...(res.ok ? {} : { isError: true }),
-                    ...(res.data !== undefined ? { structured: { data: res.data } } : {}),
-                } as Step['payload'];
-                toolStep.status = res.ok ? 'ok' : 'error';
+                // 执行结果合并回 invocation step；失败以 StepError（四源标签 tool）表达，
+                // 不在 payload 上再设 isError/structured。
+                toolStep.payload.output = output;
+                toolStep.status = res.ok ? 'completed' : 'error';
+                if (!res.ok) {
+                    toolStep.error = {
+                        code: 'tool_error',
+                        message: output,
+                        source: 'tool',
+                        retryable: false,
+                    };
+                }
                 toolStep.endedAt = now();
                 await deps.store.saveStep(toolStep);
                 deps.onStep?.(toolStep);

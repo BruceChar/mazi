@@ -225,6 +225,12 @@ export interface LiveStep {
     taskId: string;
     kind: string;
     toolName: string;
+    /** deliberation：推理文本（可展开正文）。 */
+    thinking?: string;
+    /** deliberation：模型回答（内联正文 / 最终输出）。 */
+    answer?: string;
+    /** invocation：工具输出。 */
+    output?: string;
     /** Short one-line summary (the rendered title). */
     title: string;
     /** Full step content; reserved for expansion. */
@@ -554,6 +560,9 @@ function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
         taskId: String(event.taskId ?? ''),
         kind: String(payload.kind ?? 'step'),
         toolName: typeof payload.toolName === 'string' ? payload.toolName : '',
+        thinking: typeof payload.thinking === 'string' ? payload.thinking : undefined,
+        answer: typeof payload.answer === 'string' ? payload.answer : undefined,
+        output: typeof payload.output === 'string' ? payload.output : undefined,
         title: content.replace(/\s+/g, ' ').trim().slice(0, 80),
         content,
         status,
@@ -573,7 +582,7 @@ function applyStepStarted(rootGoalId: string, event: EventItem): void {
     const at = typeof event.timestamp === 'number' ? event.timestamp : Date.now();
     for (const step of list) {
         if (step.status === 'running') {
-            step.status = 'ok';
+            step.status = 'completed';
             step.endedAt = at;
         }
     }
@@ -587,7 +596,7 @@ function applyStepEnded(rootGoalId: string, event: EventItem): void {
         list = [];
         liveSteps[rootGoalId] = list;
     }
-    const updated = liveStepOf(event, 'ok');
+    const updated = liveStepOf(event, 'completed');
     const existing = list.find((step) => step.stepId === updated.stepId);
     if (!existing) {
         list.push(updated);

@@ -65,6 +65,8 @@ export interface AuditLiveStep {
     kind: string;
     toolName: string;
     content: string;
+    /** invocation：工具输出（step-events payload.output）。 */
+    output?: string;
     status: string;
     startedAt: number;
     endedAt: number | null;
@@ -827,32 +829,6 @@ function collectSnapshotSteps(
 }
 
 /**
- * thinking 与 intent 属同一轮模型调用（同一 step 的推理 + 输出）：折叠为一行，
- * 以 thinking 代表该轮（S# 因此不跳号）。若某轮只有 intent（无推理），把它改标为
- * thinking 保留可见。
- */
-function collapseModelRows(rows: ResolvedStep[]): ResolvedStep[] {
-    const out: ResolvedStep[] = [];
-    for (const row of rows) {
-        if (row.kind === 'intent') {
-            const prev = out[out.length - 1];
-            if (prev && prev.kind === 'thinking' && prev.taskId === row.taskId) {
-                if (prev.text.length === 0) prev.text = row.text;
-                if (row.endedAt !== null) prev.endedAt = row.endedAt;
-                // Keep the absorbed intent selectable (bottom Summary links to it).
-                if (!prev.aliasStepIds) prev.aliasStepIds = [];
-                prev.aliasStepIds.push(row.stepId);
-                continue;
-            }
-            out.push({ ...row, kind: 'thinking' });
-            continue;
-        }
-        out.push(row);
-    }
-    return out;
-}
-
-/**
  * 会话流步骤表：按 Conversation 内 run 顺序拼接所有 run/task/step，
  * 并在整条线上计算 context delta（当前步总量 − 上一步总量）。
  *
@@ -902,7 +878,7 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             toolName: step.toolName,
             toolArguments: null,
             toolCwd: null,
-            toolOutput: step.kind === 'tool_call' ? step.content || null : null,
+            toolOutput: step.kind === 'invocation' ? step.output || step.content || null : null,
             status: step.status,
             startedAt: step.startedAt,
             endedAt: step.endedAt,
@@ -919,7 +895,7 @@ function collectRows(input: AuditInput): ResolvedStep[] {
         });
     }
     // 折叠 thinking/intent，并重排每 task 的 S#（会话线全局序号 + context delta）
-    const collapsed = collapseModelRows(out);
+    const collapsed = out;
     const stepCount = new Map<string, number>();
     let lineIndex = 0;
     let prevTotal: number | null = null;
@@ -1192,7 +1168,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             diffContent: runtime?.diffContent ?? '',
             diffParts: contextDiffParts(selected.diffContents),
             ...extrasOf(usage),
-            tool: selected.kind === 'tool_call' ? toolViewOf(selected) : null,
+            tool: selected.kind === 'invocation' ? toolViewOf(selected) : null,
         };
     }
 
@@ -1263,7 +1239,8 @@ export function emptyAuditView(): AuditView {
 // ============================================================
 
 export function kindLabel(kind: string): string {
-    if (kind === 'tool_call') return 'tool';
+    if (kind === 'invocation') return 'tool';
+    if (kind === 'deliberation') return 'model';
     return kind || '-';
 }
 

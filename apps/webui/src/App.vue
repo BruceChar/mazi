@@ -318,9 +318,7 @@ const conversationStats = computed(() => {
             goals += 1;
             tasks += goalTasks.length;
             for (const task of goalTasks) {
-                steps += (task.steps || []).filter(
-                    (step) => step.kind !== 'intent' && step.kind !== 'observation',
-                ).length;
+                steps += (task.steps || []).length;
             }
         }
     }
@@ -461,9 +459,8 @@ function toggleProject(path) {
 }
 
 function kindLabel(kind) {
-    if (kind === 'thinking') return 'thinking';
-    if (kind === 'intent') return 'intent';
-    if (kind === 'tool_call') return 'tool';
+    if (kind === 'deliberation') return 'model';
+    if (kind === 'invocation') return 'tool';
     return kind || '-';
 }
 
@@ -479,7 +476,6 @@ const stepEventRows = computed(() => {
     for (const ev of events.list) {
         if (ev.type !== 'step.ended' || !ev.stepId) continue;
         const p = ev.payload || {};
-        if (p.kind === 'observation') continue; // observation is the tool output, redundant
         const start = startedAt.get(ev.stepId);
         const end = ev.timestamp ?? 0;
         const durationMs = start ? end - start : null;
@@ -492,8 +488,8 @@ const stepEventRows = computed(() => {
             time: fmtClockMs(end),
             kind: p.kind || 'step',
             kindLabel: kindLabel(p.kind),
-            status: p.status || 'ok',
-            statusLabel: statusLabel(p.status || 'ok'),
+            status: p.status || 'completed',
+            statusLabel: statusLabel(p.status || 'completed'),
             id: short(ev.stepId, 34),
             toolName: p.toolName || '',
             text: p.output ? String(p.output) : p.content ? String(p.content) : '',

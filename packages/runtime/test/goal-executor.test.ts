@@ -49,7 +49,7 @@ const okRound: RoundResult = {
 };
 
 describe('goal-executor（C3c：Task 单轮执行）', () => {
-    it('执行产 thinking + intent Step（推理与模型输出分离）并持久化；Task 置 succeeded', async () => {
+    it('执行产 deliberation Step（推理与模型输出合一）并持久化；Task 置 succeeded', async () => {
         const store = new MemoryGoalStore();
         const t = task();
         const g = goal();
@@ -66,10 +66,12 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(outcome.reason).toBe('final-answer');
         expect(outcome.finalMessage).toContain('README');
         const steps = await store.listSteps(t.taskId);
-        expect(steps).toHaveLength(2);
+        expect(steps).toHaveLength(1);
         expect(steps[0]?.goalId).toBe(t.goalId);
-        expect(steps[0]?.kind).toBe('thinking');
-        expect(steps[1]?.kind).toBe('intent');
+        expect(steps[0]?.kind).toBe('deliberation');
+        const payload = steps[0]?.payload as { thinking?: string; answer?: string };
+        expect(payload.thinking).toContain('先读取 README');
+        expect(payload.answer).toContain('README');
         expect((await store.loadTask(t.taskId))?.status).toBe('succeeded');
     });
 
@@ -121,13 +123,11 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
             g,
         );
         const steps = await store.listSteps(t.taskId);
-        const thinking = steps.find((s) => s.kind === 'thinking');
-        const intent = steps.find((s) => s.kind === 'intent');
+        const deliberation = steps.find((s) => s.kind === 'deliberation');
         // 模型轮窗口 = 结束时刻 − totalMs，不再是「同一时刻」
-        expect(thinking?.endedAt).toBe(1000);
-        expect(thinking?.startedAt).toBe(700);
-        expect(intent?.startedAt).toBe(700);
-        const usage = thinking?.usage as
+        expect(deliberation?.endedAt).toBe(1000);
+        expect(deliberation?.startedAt).toBe(700);
+        const usage = deliberation?.usage as
             | { runtime?: { contextBytes?: number; contextWindowTokens?: number } }
             | undefined;
         expect(usage?.runtime?.contextBytes).toBe(180);
@@ -176,7 +176,7 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(await store.listSteps(t.taskId)).toEqual([]);
     });
 
-    it('工具闭环：tool_call → 工具 → 观察 → 回注 → 最终回答（C5-1）', async () => {
+    it('工具闭环：deliberation → invocation → 回注 → 最终回答（C5-1）', async () => {
         const store = new MemoryGoalStore();
         const seenToolRound = { value: false };
         const roundCalls: string[] = [];
@@ -218,12 +218,12 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(roundCalls).toEqual(['fs.read']);
         const steps = await store.listSteps(t.taskId);
         const kinds = steps.map((s) => s.kind);
-        expect(kinds).toContain('tool_call');
-        expect(kinds).not.toContain('observation');
-        const toolStep = steps.find((s) => s.kind === 'tool_call');
+        expect(kinds).toContain('invocation');
+        const toolStep = steps.find((s) => s.kind === 'invocation');
         expect(toolStep?.payload).toHaveProperty('output');
-        expect(kinds.filter((k) => k === 'thinking').length).toBe(1);
-        expect(kinds.filter((k) => k === 'intent').length).toBe(1);
+        // 工具轮与最终轮各一个模型输出步；工具执行一步
+        expect(kinds.filter((k) => k === 'deliberation').length).toBe(2);
+        expect(kinds.filter((k) => k === 'invocation').length).toBe(1);
     });
 
     it('白名单外工具 → blocked-tool，工具不执行（C5-1）', async () => {
@@ -256,7 +256,7 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(invoked).toBe(false);
     });
 
-    it('usage 归属：thinking 与 intent 同挂一份（同一 roundId），审计总量只计一次', async () => {
+    it('usage 归属：挂在 deliberation step（带 roundId），审计总量只计一次', async () => {
         const store = new MemoryGoalStore();
         const t = task();
         const g = goal();
@@ -296,9 +296,8 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         };
         await executeTask({ store, requestRound: async () => round }, t, g);
         const steps = await store.listSteps(t.taskId);
-        const thinking = steps.find((s) => s.kind === 'thinking');
-        const intent = steps.find((s) => s.kind === 'intent');
-        const usage = intent?.usage as {
+        const deliberation = steps.find((s) => s.kind === 'deliberation');
+        const usage = deliberation?.usage as {
             roundId?: string;
             timing?: { tokensPerSecond?: number };
             cost?: { totalCostUsd?: number };
@@ -306,18 +305,13 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
             estimate?: { outputTokens?: number };
             vendor?: { inputTokens?: number };
         };
-        const thinkingUsage = thinking?.usage as
-            | { roundId?: string; vendor?: { inputTokens?: number } }
-            | undefined;
         expect(usage?.vendor?.inputTokens).toBe(10);
         expect(usage?.timing?.tokensPerSecond).toBeCloseTo((20 / 200) * 1000, 6);
         expect(usage?.cost?.totalCostUsd).toBeCloseTo(0.003, 12);
         expect(usage?.estimate?.outputTokens).toBe(18);
         expect(usage?.estimatedCost?.totalCostUsd).toBeCloseTo(0.0024, 12);
-        // 首步 thinking 也带统计，共享同一 roundId（聚合去重）
-        expect(thinkingUsage?.vendor?.inputTokens).toBe(10);
-        expect(thinkingUsage?.roundId).toBeDefined();
-        expect(thinkingUsage?.roundId).toBe(usage?.roundId);
+        // 一轮只有一个模型输出步；roundId 供聚合去重
+        expect(usage?.roundId).toBeDefined();
     });
 
     it('原始事实入库：raw（provider/model/token/耗时）与 pin 随 usage 落库', async () => {
@@ -349,8 +343,8 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         };
         await executeTask({ store, requestRound: async () => round }, t, g);
         const steps = await store.listSteps(t.taskId);
-        const intent = steps.find((s) => s.kind === 'intent');
-        const usage = intent?.usage as
+        const deliberation = steps.find((s) => s.kind === 'deliberation');
+        const usage = deliberation?.usage as
             | { raw?: Record<string, unknown>; pin?: Record<string, unknown> }
             | undefined;
         expect(usage?.raw).toMatchObject({

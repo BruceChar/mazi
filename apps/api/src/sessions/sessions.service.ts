@@ -140,15 +140,15 @@ export class SessionsService {
         return history;
     }
 
-    /** 取一次 Goal run 的最终回答（最后一个 intent step 的正文）。 */
+    /** 取一次 Goal run 的最终回答（最后一个 deliberation step 的正文）。 */
     private async finalAnswerOf(rootGoalId: string): Promise<string> {
         try {
             const snapshot = await this.runtime.harness().goalSnapshot(rootGoalId);
-            const intents = snapshot.goals
+            const deliberations = snapshot.goals
                 .flatMap((goal) => goal.tasks)
                 .flatMap((task) => task.steps)
-                .filter((step) => step.kind === 'intent');
-            const last = intents[intents.length - 1];
+                .filter((step) => step.kind === 'deliberation');
+            const last = deliberations[deliberations.length - 1];
             const text = last?.content ?? last?.payloadText ?? '';
             return text.length > HISTORY_ANSWER_MAX_CHARS
                 ? text.slice(0, HISTORY_ANSWER_MAX_CHARS)

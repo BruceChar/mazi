@@ -7,9 +7,10 @@
 
 import type { ULID } from './id.js';
 import type { PermissionLevel } from './permissions.js';
+import type { ToolCall } from './provider.js';
 
 export type OriginKind = 'human' | 'agent' | 'system';
-export type GoalStatus = 'active' | 'succeeded' | 'failed' | 'aborted' | 'timeout';
+export type GoalStatus = 'pending' | 'active' | 'succeeded' | 'failed' | 'aborted' | 'timeout';
 
 /** 原始载荷 */
 export interface RawPayload {
@@ -111,42 +112,36 @@ export interface Task {
     /** 进入终态的时间 */
     endedAt?: number;
 }
+/************************** STEP ********************************************/
 
-/** 归因原子（thinking|tool_call|observation 是决策链三环节，不可砍） */
-export type StepKind = 'thinking' | 'intent' | 'tool_call' | 'observation';
+export type StepKind =
+    // LLM intrinsic：一次模型输出（推理 / 回答 / 提议的工具调用）
+    | 'deliberation'
+    // Extrinsic：一次对外部世界的实际调用（tool / http / shell 等）
+    | 'invocation';
 
-export interface ThinkingPayload {
-    content: string;
-    contextContent?: string;
+/** 模型一次输出的决策事实：推理、回答、提议的工具调用（三者可并存） */
+export interface DeliberationPayload {
+    thinking?: string;
+    answer?: string;
+    /** 模型本轮提议的工具调用；callId 与 InvocationPayload.callId 配对 */
+    toolCalls?: ToolCall[];
 }
 
-/** Model output / final intent — the answer produced after reasoning */
-export interface IntentPayload {
-    content: string;
-    contextContent?: string;
-}
-
-export interface ToolCallPayload {
+/** harness 对外部世界的一次实际调用及其结果 */
+export interface InvocationPayload {
     toolName: string;
     arguments: Record<string, unknown>;
+    /** 与 DeliberationPayload.toolCalls[].callId 配对 */
     callId?: string;
-    /** Tool execution output (merged from former observation step) */
+    /** 工具实际执行的工作目录（展示/追溯） */
+    cwd?: string;
     output?: string;
-    isError?: boolean;
-    structured?: unknown;
 }
 
-export interface ObservationPayload {
-    toolName?: string;
-    content: string;
-    contextContent?: string;
-    isError?: boolean;
-    structured?: Record<string, unknown>;
-}
+export type StepPayload = DeliberationPayload | InvocationPayload;
 
-export type StepPayload = ThinkingPayload | IntentPayload | ToolCallPayload | ObservationPayload;
-
-export interface HarnessError {
+export interface StepError {
     code: string;
     message: string;
     /** 四源标签：model|tool|context|policy */
@@ -155,21 +150,34 @@ export interface HarnessError {
     cause?: unknown;
 }
 
-export interface Step {
+export type StepStatus =
+    | 'pending'
+    | 'running'
+    | 'completed'
+    | 'error'
+    | 'skipped'
+    | 'blocked'
+    | 'aborted';
+
+interface StepBase {
     stepId: ULID;
     /** 归因：taskId 锚定 Task，goalId 锚定 Goal（rootGoalId 沿 parent 链派生） */
     taskId: ULID;
     goalId: ULID;
-    kind: StepKind;
-    payload: StepPayload;
     model?: { providerId: string; modelId: string };
     usage?: unknown;
-    status: 'pending' | 'running' | 'ok' | 'error' | 'skipped' | 'blocked';
-    error?: HarnessError;
-    decisionContext?: { contextSummary: string; promptVersion?: string; capturedAt: number };
+    status: StepStatus;
+    error?: StepError;
     startedAt: number;
     endedAt?: number;
 }
+
+/** 归因原子：kind 是唯一判别式，payload 随 kind 自动收窄 */
+export type Step = StepBase &
+    (
+        | { kind: 'deliberation'; payload: DeliberationPayload }
+        | { kind: 'invocation'; payload: InvocationPayload }
+    );
 
 // ============================================================
 // 法律校验（纯函数，零 mock；docs/core/AHF_CORE_GOAL.md §6/§10）

@@ -6,7 +6,7 @@
 | **范围**     | 事件信封、因果模型、分区与完整性、事件闭集注册表、观察与装配契约、读写端口                      |                |                  |
 | **关联**     | GOAL（归因坐标系）· AUTH（权限）· AUDIT（审计）· TOOL · APPROVAL · PROVIDER（wire 事实层） |                |                  |
 
-> 本文是前两轮裁决的落地稿：第二轮增补的传输不变量（O-新，哈希链）在此正式化为 **O4**；A1 裁决（StepKind 补全 `'action'`）在 step 域事件中体现；A2/A3 不直接涉及本卷。
+> 本文是前两轮裁决的落地稿：第二轮增补的传输不变量（O-新，哈希链）在此正式化为 **O4**；A1 裁决（StepKind 补全 `'action'`）在 step 域事件中体现（后续 GTS 契约将 StepKind 收敛为 `deliberation | invocation`，见 `AHF_CORE_GTS.md` §3.3）；A2/A3 不直接涉及本卷。
 
 ---
 
@@ -148,7 +148,7 @@ export function readPartition(rootGoalId: ULID, from?: { seq: number }): AsyncIt
 | kind                              | 载荷要点                                                                                                        | 说明                                                                                       |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `task.started` / `task.ended` | title、acceptanceDigest、requires[] / status、verdictId?                                                        | Task 生命周期                                                                              |
-| `step.started` / `step.ended` | kind:**thinking\|action\|observation**（A1）/ status、usage?、model?、decisionContextDigest、toolCallRef? | LLM 调用的 usage/finishReason 作为厂商披露事实进 step.ended payload（PROVIDER §1.3 同构） |
+| `step.started` / `step.ended` | kind:**deliberation\|invocation** / status、usage?、model?、error?；deliberation 附 thinking?/answer?/toolCalls?，invocation 附 toolName/arguments/callId?/cwd?/output? | LLM 调用的 usage/finishReason 作为厂商披露事实进 step.ended payload（PROVIDER §1.3 同构） |
 
 ### 5.4 观察与装配域（本文核心，详见 §6–§7）
 

@@ -13,24 +13,12 @@ import { usageViewOf } from './usage-view.js';
 
 /** Step payload → 可读文本摘要（按 kind 投影；长内容截断） */
 function payloadTextOf(step: Step): string | undefined {
-    const payload = step.payload;
     const text =
-        step.kind === 'thinking'
-            ? ((payload as { content?: string }).content ?? '')
-            : step.kind === 'tool_call'
-              ? `${(payload as { toolName?: string }).toolName ?? ''} ${JSON.stringify(
-                    (payload as { arguments?: unknown }).arguments ?? {},
-                )}`
-              : (() => {
-                    const obs = payload as {
-                        toolName?: string;
-                        content?: string;
-                        isError?: boolean;
-                    };
-                    return `${obs.toolName ? `[${obs.toolName}] ` : ''}${obs.content ?? ''}${
-                        obs.isError ? ' ⚠' : ''
-                    }`;
-                })();
+        step.kind === 'deliberation'
+            ? [step.payload.thinking ?? '', step.payload.answer ?? '']
+                  .filter((part) => part.length > 0)
+                  .join(' ')
+            : `${step.payload.toolName} ${JSON.stringify(step.payload.arguments ?? {})}`;
     return text.length > 240 ? `${text.slice(0, 240)}…` : text;
 }
 
@@ -64,7 +52,33 @@ export function snapshotGoalTree(
                 .slice()
                 .sort((a, b) => a.startedAt - b.startedAt)
                 .map((step) => {
-                    const p = step.payload as unknown as Record<string, unknown> | undefined;
+                    const payloadText = payloadTextOf(step);
+                    const kindFields =
+                        step.kind === 'deliberation'
+                            ? {
+                                  ...((step.payload.answer ?? step.payload.thinking) !== undefined
+                                      ? { content: step.payload.answer ?? step.payload.thinking }
+                                      : {}),
+                                  ...(step.payload.thinking !== undefined
+                                      ? { thinking: step.payload.thinking }
+                                      : {}),
+                                  ...(step.payload.answer !== undefined
+                                      ? { answer: step.payload.answer }
+                                      : {}),
+                              }
+                            : {
+                                  ...(step.payload.output !== undefined
+                                      ? { content: step.payload.output }
+                                      : {}),
+                                  toolName: step.payload.toolName,
+                                  toolArguments: step.payload.arguments,
+                                  ...(step.payload.cwd !== undefined
+                                      ? { toolCwd: step.payload.cwd }
+                                      : {}),
+                                  ...(step.payload.output !== undefined
+                                      ? { toolOutput: step.payload.output }
+                                      : {}),
+                              };
                     return {
                         stepId: step.stepId,
                         goalId: step.goalId,
@@ -73,24 +87,8 @@ export function snapshotGoalTree(
                         status: step.status,
                         startedAt: step.startedAt,
                         ...(step.endedAt ? { endedAt: step.endedAt } : {}),
-                        ...(p?.content
-                            ? { content: String(p.content) }
-                            : p?.output
-                              ? { content: String(p.output) }
-                              : {}),
-                        ...(p?.toolName ? { toolName: String(p.toolName) } : {}),
-                        ...(step.kind === 'tool_call' && p?.arguments !== undefined
-                            ? { toolArguments: p.arguments as Record<string, unknown> }
-                            : {}),
-                        ...(step.kind === 'tool_call' && p?.cwd !== undefined
-                            ? { toolCwd: String(p.cwd) }
-                            : {}),
-                        ...(step.kind === 'tool_call' && p?.output !== undefined
-                            ? { toolOutput: String(p.output) }
-                            : {}),
-                        ...(payloadTextOf(step) !== undefined
-                            ? { payloadText: payloadTextOf(step) }
-                            : {}),
+                        ...kindFields,
+                        ...(payloadText !== undefined ? { payloadText } : {}),
                         ...(usageViewOf(step.usage) !== undefined
                             ? { usage: usageViewOf(step.usage) }
                             : {}),

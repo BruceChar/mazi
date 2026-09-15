@@ -19,8 +19,10 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
                             tasks: [
                                 {
                                     steps: [
-                                        { kind: 'thinking', content: 'ignored' },
-                                        { kind: 'intent', content: answers[rootGoalId] ?? '' },
+                                        {
+                                            kind: 'deliberation',
+                                            content: answers[rootGoalId] ?? '',
+                                        },
                                     ],
                                 },
                             ],

@@ -40,9 +40,8 @@ function formatDuration(ms) {
     return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 function kindLabel(kind) {
-    if (kind === 'thinking') return 'thinking';
-    if (kind === 'intent') return 'intent';
-    if (kind === 'tool_call') return 'tool';
+    if (kind === 'deliberation') return 'model';
+    if (kind === 'invocation') return 'tool';
     return kind || '-';
 }
 function statusLabel(status) {
@@ -79,6 +78,7 @@ function formatToolArgs(toolName, args) {
 /* ---- Step row conversion ---- */
 function stepToRow(step, idx) {
     const durationMs = step.endedAt && step.startedAt ? step.endedAt - step.startedAt : null;
+    const isDeliberation = step.kind === 'deliberation';
     return {
         key: 'step-' + step.stepId,
         stepId: step.stepId,
@@ -93,14 +93,10 @@ function stepToRow(step, idx) {
         toolName: step.toolName || '',
         toolArgs: step.toolArguments || null,
         commandText: step.toolArguments ? formatToolArgs(step.toolName, step.toolArguments) : '',
-        // 工具输出单独成体；intent 作为正文（intentText，不用代码框）；其余 kind 正文即 text
-        text:
-            step.kind === 'tool_call'
-                ? step.toolOutput || ''
-                : step.kind === 'intent'
-                  ? ''
-                  : step.content || step.payloadText || '',
-        intentText: step.kind === 'intent' ? step.content || step.payloadText || '' : '',
+        // deliberation：thinking 为可展开正文，answer 为内联正文（intentText，不用代码框）。
+        // invocation：工具输出单独成体（text），与旧 tool_call 一致。
+        text: isDeliberation ? step.thinking || '' : step.toolOutput || '',
+        intentText: isDeliberation ? step.answer || '' : '',
         outputText: step.toolOutput || '',
         durationMs,
         duration: durationMs != null ? formatDuration(durationMs) : '',
@@ -126,55 +122,31 @@ function taskStartedAt(task) {
  * （intentText）内联展示，不单独成步。**整条 run 的最后一个 intent（最终模型输出）**
  * 不作为行，改由底部 Summary 区块独立展示（见 finalSummaryRowOf）。
  */
-function taskStepRows(task, lastIntentId) {
+function taskStepRows(task, lastAnswerId) {
     const steps = (task.steps || []).slice().sort((a, b) => a.startedAt - b.startedAt);
-    const intentByRound = new Map();
-    for (const s of steps) {
-        const rid = s.usage?.roundId;
-        // 最终输出不参与内联配对
-        if (s.kind === 'intent' && rid && s.stepId !== lastIntentId) intentByRound.set(rid, s);
-    }
     const rows = [];
-    // 旧数据（无 roundId）回退：intent 紧邻前一个 thinking 时视为同轮。
-    let lastThinking = null;
     for (const s of steps) {
-        if (s.kind === 'observation') continue;
-        if (s.kind === 'intent') {
-            if (s.stepId === lastIntentId) continue; // 最终输出由底部 Summary 展示
-            const rid = s.usage?.roundId;
-            const paired =
-                rid && steps.some((o) => o.kind === 'thinking' && o.usage?.roundId === rid);
-            if (paired) continue; // 已在对应 thinking 行内联展示
-            if (!rid && lastThinking && !lastThinking.intentText) {
-                lastThinking.intentText = s.content || s.payloadText || '';
-                continue;
-            }
-            rows.push(stepToRow(s, rows.length));
-            continue;
+        if (s.kind === 'deliberation') {
+            const hasBody = Boolean(s.thinking || s.answer || s.content);
+            // 纯工具轮（无推理/无回答）：正文为空，执行细节由 invocation 行承载。
+            if (!hasBody) continue;
+            // 整条 run 的最终回答由底部 Summary 独立展示。
+            if (s.stepId === lastAnswerId) continue;
         }
-        const row = stepToRow(s, rows.length);
-        if (s.kind === 'thinking') {
-            if (s.usage?.roundId) {
-                const intent = intentByRound.get(s.usage.roundId);
-                if (intent) row.intentText = intent.content || intent.payloadText || '';
-            }
-            lastThinking = row;
-        } else {
-            lastThinking = null;
-        }
-        rows.push(row);
+        rows.push(stepToRow(s, rows.length));
     }
     return rows;
 }
 
-/** 整条 run 的最后一个 intent（最终模型输出）stepId；由底部 Summary 展示。 */
-function lastIntentStepId(detailObj) {
+/** 整条 run 的最后一个带 answer 的 deliberation（最终模型输出）stepId；由底部 Summary 展示。 */
+function lastAnswerStepId(detailObj) {
     let last = null;
     for (const goal of detailObj?.goals || []) {
         for (const task of goal.tasks || []) {
             for (const step of task.steps || []) {
                 if (
-                    step.kind === 'intent' &&
+                    step.kind === 'deliberation' &&
+                    (step.answer || '') !== '' &&
                     (last === null || step.startedAt >= last.startedAt)
                 ) {
                     last = step;
@@ -187,8 +159,10 @@ function lastIntentStepId(detailObj) {
 
 /** 最终模型输出行（底部 Summary 区块：文本 + 该轮 usage）。 */
 function finalSummaryRowOf(detailObj) {
-    const intents = allStepsOf(detailObj).filter((r) => r.kind === 'intent');
-    return intents.length > 0 ? intents[intents.length - 1] : null;
+    const answers = allStepsOf(detailObj).filter(
+        (r) => r.kind === 'deliberation' && (r.intentText || '') !== '',
+    );
+    return answers.length > 0 ? answers[answers.length - 1] : null;
 }
 
 /**
@@ -196,7 +170,7 @@ function finalSummaryRowOf(detailObj) {
  * each task carries one full date/time so its steps only show time-of-day.
  */
 function buildExecTree(detailObj) {
-    const lastIntentId = lastIntentStepId(detailObj);
+    const lastAnswerId = lastAnswerStepId(detailObj);
     const goals = detailObj?.goals || [];
     return goals
         .filter((goal) => (goal.tasks || []).length > 0)
@@ -211,7 +185,7 @@ function buildExecTree(detailObj) {
                     title: task.title,
                     status: task.status,
                     time: startedAt ? fmtDateTime(startedAt) : '',
-                    steps: taskStepRows(task, lastIntentId),
+                    steps: taskStepRows(task, lastAnswerId),
                 };
             }),
         }));
@@ -233,7 +207,7 @@ function buildExecStats(detailObj) {
     for (const r of rows) {
         const chunk = r.usage;
         const roundId = chunk?.roundId;
-        const isModel = r.kind === 'thinking' || r.kind === 'intent';
+        const isModel = r.kind === 'deliberation';
         const firstOfRound = roundId === undefined || !seenRounds.has(roundId);
         if (firstOfRound) {
             if (roundId) seenRounds.add(roundId);
@@ -254,7 +228,7 @@ function buildExecStats(detailObj) {
     }
     const tree = buildExecTree(detailObj);
     const taskCount = tree.reduce((s, g) => s + g.tasks.length, 0);
-    const stepCount = rows.filter((r) => r.kind !== 'intent' && r.kind !== 'observation').length;
+    const stepCount = rows.length;
     const totalMs = modelMs + toolMs;
     return {
         inputTokens,
@@ -290,9 +264,8 @@ function toggleStepCollapse(key) {
 /* ---- Step helpers ---- */
 function isStepLong(row) {
     if (!row.text) return false;
-    if (row.kind === 'intent') return false;
     // 工具调用始终可展开查看完整输出（命令/参数在标题行展示）
-    if (row.kind === 'tool_call') return true;
+    if (row.kind === 'invocation') return true;
     return row.text.length > 80 || row.text.includes('\n');
 }
 function stepTitleSummary(row) {
@@ -322,7 +295,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
         >
             <div class="exec-step-head">
                 <span v-if="step.status === 'running'" class="exec-spinner"></span>
-                <LineIcon v-else :name="step.kind === 'thinking' ? 'lightbulb' : 'hammer'" size="16" />
+                <LineIcon v-else :name="step.kind === 'deliberation' ? 'lightbulb' : 'hammer'" size="16" />
                 <span class="exec-step-tag">S#{{ i + 1 }}</span>
                 <span class="exec-step-name">{{ step.toolName || step.kind }}</span>
                 <span class="exec-step-summary">{{ step.title || '执行中…' }}</span>
@@ -388,14 +361,14 @@ const stats = computed(() => buildExecStats(props.runDetail));
                                 >
                                     <LineIcon
                                         class="kind-icon"
-                                        :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'"
+                                        :name="row.kind === 'deliberation' ? 'lightbulb' : 'hammer'"
                                         size="16"
                                     />
                                     <span class="toggle-mark">{{ collapsedSteps.has(row.key) ? '+' : '−' }}</span>
                                 </button>
                                 <LineIcon
                                     v-else
-                                    :name="row.kind === 'thinking' ? 'lightbulb' : 'hammer'"
+                                    :name="row.kind === 'deliberation' ? 'lightbulb' : 'hammer'"
                                     size="16"
                                 />
                                 <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
@@ -403,7 +376,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
                                 <span
                                     class="exec-step-summary"
                                     :title="row.toolArgs ? JSON.stringify(row.toolArgs) : undefined"
-                                >{{ row.kind === 'tool_call' ? row.commandText : stepTitleSummary(row) }}</span>
+                                >{{ row.kind === 'invocation' ? row.commandText : stepTitleSummary(row) }}</span>
                                 <span
                                     v-if="row.status === 'error' || row.status === 'failed'"
                                     class="exec-step-status"
@@ -731,21 +704,17 @@ const stats = computed(() => buildExecStats(props.runDetail));
     background: var(--accent-soft);
 }
 /* hover 时按 step 类型着色（与 task dot 的圆角方块一致） */
-.exec-thinking .exec-step-head:hover .exec-step-toggle {
+.exec-deliberation .exec-step-head:hover .exec-step-toggle {
     background: var(--thinking);
 }
-.exec-tool_call .exec-step-head:hover .exec-step-toggle {
+.exec-invocation .exec-step-head:hover .exec-step-toggle {
     background: var(--tool);
-}
-.exec-observation .exec-step-head:hover .exec-step-toggle {
-    background: var(--observation);
 }
 .exec-step.error .exec-step-head:hover .exec-step-toggle {
     background: var(--error);
 }
-.exec-thinking .exec-step-head .line-icon { color: var(--thinking); }
-.exec-tool_call .exec-step-head .line-icon { color: var(--tool); }
-.exec-observation .exec-step-head .line-icon { color: var(--observation); }
+.exec-deliberation .exec-step-head .line-icon { color: var(--thinking); }
+.exec-invocation .exec-step-head .line-icon { color: var(--tool); }
 .exec-step.error .exec-step-head .line-icon { color: var(--error); }
 
 .exec-step-name {
@@ -767,12 +736,9 @@ const stats = computed(() => buildExecStats(props.runDetail));
     width: 36px;
     text-align: center;
 }
-.exec-thinking .exec-step-name { color: var(--thinking); }
-.exec-intent .exec-step-name { color: var(--fg); }
-.exec-tool_call .exec-step-name { color: var(--tool); }
-.exec-observation .exec-step-name { color: var(--observation); }
+.exec-deliberation .exec-step-name { color: var(--thinking); }
+.exec-invocation .exec-step-name { color: var(--tool); }
 .exec-step.error .exec-step-name { color: var(--error); }
-.exec-intent .exec-step-head .line-icon { color: var(--fg); }
 .exec-step-intent-text {
     margin: 2px 8px 4px 14px;
     padding: 0;
@@ -844,7 +810,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
     color: var(--fg);
     word-break: break-word;
 }
-.exec-thinking .exec-step-code-inner {
+.exec-deliberation .exec-step-code-inner {
     color: var(--fg-secondary);
     font-style: italic;
 }
@@ -901,9 +867,8 @@ const stats = computed(() => buildExecStats(props.runDetail));
     line-height: 1;
 }
 .step-dot.collapsed::after { content: '+'; }
-.exec-step.exec-thinking .step-dot { border-color: var(--thinking); }
-.exec-step.exec-tool_call .step-dot { border-color: var(--tool); }
-.exec-step.exec-observation .step-dot { border-color: var(--observation); }
+.exec-step.exec-deliberation .step-dot { border-color: var(--thinking); }
+.exec-step.exec-invocation .step-dot { border-color: var(--tool); }
 .exec-step.error .step-dot { border-color: var(--error); }
 .exec-step-head.clickable:hover .step-dot {
     width: 16px;
@@ -914,9 +879,8 @@ const stats = computed(() => buildExecStats(props.runDetail));
     border-color: var(--fg-tertiary);
 }
 .exec-step-head.clickable:hover .step-dot::after { color: #fff; }
-.exec-step.exec-thinking .exec-step-head.clickable:hover .step-dot { background: var(--thinking); border-color: var(--thinking); }
-.exec-step.exec-tool_call .exec-step-head.clickable:hover .step-dot { background: var(--tool); border-color: var(--tool); }
-.exec-step.exec-observation .exec-step-head.clickable:hover .step-dot { background: var(--observation); border-color: var(--observation); }
+.exec-step.exec-deliberation .exec-step-head.clickable:hover .step-dot { background: var(--thinking); border-color: var(--thinking); }
+.exec-step.exec-invocation .exec-step-head.clickable:hover .step-dot { background: var(--tool); border-color: var(--tool); }
 .exec-step.error .exec-step-head.clickable:hover .step-dot { background: var(--error); border-color: var(--error); }
 .exec-stats {
     display: flex;

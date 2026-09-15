@@ -37,9 +37,9 @@ const step = (id: ULID, taskId: ULID, goalId: ULID): Step => ({
     stepId: id,
     taskId,
     goalId,
-    kind: 'thinking',
-    payload: { content: 'x' },
-    status: 'ok',
+    kind: 'deliberation',
+    payload: { answer: 'x' },
+    status: 'completed',
     startedAt: 1,
 });
 
@@ -162,13 +162,13 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
         expect(usage?.runtime).not.toHaveProperty('retrievedTokens');
     });
 
-    it('tool_call 投影：toolArguments 与 toolOutput 单独暴露（命令/参数/输出）', () => {
+    it('invocation 投影：toolArguments 与 toolOutput 单独暴露（命令/参数/输出）', () => {
         const root = ulid();
         const work = goal(ulid(), 'work', root);
         const t = task(ulid(), work.goalId);
         const s: Step = {
             ...step(ulid(), t.taskId, work.goalId),
-            kind: 'tool_call',
+            kind: 'invocation',
             payload: {
                 toolName: 'shell.run',
                 arguments: { command: 'ls -la' },
@@ -186,7 +186,7 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
         expect(view?.content).toBe('total 0');
     });
 
-    it('usage 投影：roundId 透传（同轮 thinking/intent 聚合去重用）', () => {
+    it('usage 投影：roundId 透传（deliberation 轮聚合去重用）', () => {
         const root = ulid();
         const work = goal(ulid(), 'work', root);
         const t = task(ulid(), work.goalId);

@@ -102,7 +102,7 @@ function stepView(
         goalId: 'g1',
         taskId,
         kind: kind as never,
-        status: 'ok',
+        status: 'completed',
         startedAt,
         endedAt: startedAt + 200,
         content: 'content of ' + stepId,
@@ -386,7 +386,7 @@ describe('audit conicGradient', () => {
 
 describe('audit buildAuditView', () => {
     it('step 目标：单步无前序 → diff 为 null；无步骤明细；cost 漂移与总量对照', () => {
-        const snapshot = snapshotOf([stepView('s1', 'thinking', 1, stepUsage())]);
+        const snapshot = snapshotOf([stepView('s1', 'deliberation', 1, stepUsage())]);
         const view = buildAuditView({ snapshot, stepId: 's1' });
         expect(view.kind).toBe('step');
         expect(view.title).toContain('S#1');
@@ -402,13 +402,13 @@ describe('audit buildAuditView', () => {
     it('会话线：跨 run/task/step 全局编号与 context delta', () => {
         const run1 = snapshotOf(
             [
-                stepView('a1', 'thinking', 1, withTotal(1000)),
-                stepView('a2', 'tool_call', 2, withTotal(1200)),
+                stepView('a1', 'deliberation', 1, withTotal(1000)),
+                stepView('a2', 'invocation', 2, withTotal(1200)),
             ],
             't1',
         );
         const run2 = snapshotOf(
-            [stepView('b1', 'thinking', 3, withTotal(1500), 't2')],
+            [stepView('b1', 'deliberation', 3, withTotal(1500), 't2')],
             't2',
             'Second task',
         );
@@ -439,7 +439,7 @@ describe('audit buildAuditView', () => {
 
     it('tool_call 目标：专用 tool 视图（命令/参数/输出/耗时），非 vendor token', () => {
         const toolStep = {
-            ...stepView('tc1', 'tool_call', 1, null),
+            ...stepView('tc1', 'invocation', 1, null),
             toolName: 'shell.run',
             toolArguments: { command: 'ls -la' },
             toolCwd: '/Users/bruce/.mazi',
@@ -465,7 +465,7 @@ describe('audit buildAuditView', () => {
 
         // 单字符串参数 → 直接作为命令展示；非 shell.run 前缀工具名
         const fdStep = {
-            ...stepView('tc2', 'tool_call', 2, null),
+            ...stepView('tc2', 'invocation', 2, null),
             toolName: 'fd',
             toolArguments: { pattern: '*' },
             toolCwd: '/Users/bruce/.mazi',
@@ -477,7 +477,7 @@ describe('audit buildAuditView', () => {
 
         // 非工具步 tool = null
         const thinking = buildAuditView({
-            snapshot: snapshotOf([stepView('s1', 'thinking', 1, stepUsage())]),
+            snapshot: snapshotOf([stepView('s1', 'deliberation', 1, stepUsage())]),
             stepId: 's1',
         });
         expect(thinking.tool).toBeNull();
@@ -485,8 +485,8 @@ describe('audit buildAuditView', () => {
 
     it('task 目标：只列本任务步骤，diff 为 null', () => {
         const snapshot = snapshotOf([
-            stepView('s1', 'thinking', 1, stepUsage()),
-            stepView('s2', 'tool_call', 2, null),
+            stepView('s1', 'deliberation', 1, stepUsage()),
+            stepView('s2', 'invocation', 2, null),
         ]);
         const view = buildAuditView({ snapshot, taskId: 't1' });
         expect(view.kind).toBe('task');
@@ -497,33 +497,36 @@ describe('audit buildAuditView', () => {
         expect(view.rows.map((r) => r.contextTotal)).toEqual([1000, null]);
     });
 
-    it('被折叠的 intent stepId 仍可定位（底部 Summary 点击不失效）', () => {
+    it('deliberation / invocation 步骤均可定位（底部 Summary 点击不失效）', () => {
         const roundUsage = { ...stepUsage(), roundId: 'r1' };
         const snapshot = snapshotOf([
-            stepView('s1', 'thinking', 1, roundUsage),
-            stepView('s2', 'intent', 2, roundUsage),
-            stepView('s3', 'tool_call', 3, roundUsage),
+            stepView('s1', 'deliberation', 1, roundUsage),
+            stepView('s2', 'deliberation', 2, roundUsage),
+            stepView('s3', 'invocation', 3, roundUsage),
         ]);
-        // Rows collapse to [thinking(s1, alias s2), tool_call(s3)].
         const view = buildAuditView({ snapshot, stepId: 's2' });
         expect(view.kind).toBe('step');
         expect(view.stale).toBe(false);
     });
 
-    it('thinking + intent 折叠为同一轮一步，S# 不跳号', () => {
+    it('deliberation / invocation 各成一行，S# 连续', () => {
         const snapshot = snapshotOf([
-            stepView('s1', 'thinking', 1, stepUsage()),
-            stepView('s2', 'intent', 2, stepUsage()),
-            stepView('s3', 'tool_call', 3, null),
+            stepView('s1', 'deliberation', 1, stepUsage()),
+            stepView('s2', 'deliberation', 2, stepUsage()),
+            stepView('s3', 'invocation', 3, null),
         ]);
         const view = buildAuditView({ snapshot, taskId: 't1' });
-        expect(view.rows.map((r) => r.kind)).toEqual(['thinking', 'tool_call']);
-        expect(view.rows.map((r) => r.index)).toEqual([1, 2]);
-        expect(view.rows.map((r) => r.lineIndex)).toEqual([1, 2]);
+        expect(view.rows.map((r) => r.kind)).toEqual([
+            'deliberation',
+            'deliberation',
+            'invocation',
+        ]);
+        expect(view.rows.map((r) => r.index)).toEqual([1, 2, 3]);
+        expect(view.rows.map((r) => r.lineIndex)).toEqual([1, 2, 3]);
     });
 
     it('会话汇总 / stale / live 回退', () => {
-        const snapshot = snapshotOf([stepView('s1', 'thinking', 1, stepUsage())]);
+        const snapshot = snapshotOf([stepView('s1', 'deliberation', 1, stepUsage())]);
         const conversation = buildAuditView({
             runs: [{ rootGoalId: 'r1', input: 'q1', snapshot }],
             conversationTitle: 'hello',
@@ -540,7 +543,7 @@ describe('audit buildAuditView', () => {
                 {
                     stepId: 'live1',
                     taskId: 't1',
-                    kind: 'thinking',
+                    kind: 'deliberation',
                     toolName: '',
                     content: 'live',
                     status: 'running',
@@ -586,7 +589,7 @@ describe('audit timing & context window', () => {
         const usage = stepUsage({
             timing: { ttftMs: 10, totalMs: 2635, tokensPerSecond: 205.6 },
         });
-        const step = { ...stepView('s1', 'thinking', 1, usage), endedAt: 1 };
+        const step = { ...stepView('s1', 'deliberation', 1, usage), endedAt: 1 };
         const task = buildAuditView({ snapshot: snapshotOf([step]), taskId: 't1' });
         expect(task.rows[0]?.durationMs).toBe(2635);
         expect(task.rows[0]?.tokensPerSecond).toBeCloseTo(205.6, 1);
@@ -596,7 +599,7 @@ describe('audit timing & context window', () => {
     });
 
     it('Task 视图使用落库的 task 起止（缺省回退步骤跨度）', () => {
-        const snapshot = snapshotOf([stepView('s1', 'thinking', 100, stepUsage())]);
+        const snapshot = snapshotOf([stepView('s1', 'deliberation', 100, stepUsage())]);
         snapshot.goals[0].tasks[0].startedAt = 50;
         snapshot.goals[0].tasks[0].endedAt = 500;
         const view = buildAuditView({ snapshot, taskId: 't1' });
@@ -614,7 +617,7 @@ describe('audit timing & context window', () => {
                 contextWindowUtilization: 0.0013,
             },
         } as StepUsage);
-        const snapshot = snapshotOf([stepView('s1', 'thinking', 1, usage)]);
+        const snapshot = snapshotOf([stepView('s1', 'deliberation', 1, usage)]);
         const step = buildAuditView({ snapshot, stepId: 's1' });
         expect(step.contextBytes).toBe(20480);
         expect(step.contextWindowTokens).toBe(1000000);

@@ -120,7 +120,7 @@ export interface ConfigOverview {
 // ============================================================
 
 /** Step kind (aligned with core StepKind). */
-export type SnapshotStepKind = 'thinking' | 'intent' | 'tool_call' | 'observation';
+export type SnapshotStepKind = 'deliberation' | 'invocation';
 
 /** 厂商层 token 用量（core VendorUsage 的线协议投影）。 */
 export interface StepVendorUsage {
@@ -279,8 +279,8 @@ export interface StepPin {
 /** Token usage attached to a step (vendor + input estimate + output estimate + cost + timing). */
 export interface StepUsage {
     /**
-     * 轮次标识：一轮模型调用可能产生 thinking 与 intent 两个 step，挂载同一份 usage。
-     * 聚合统计按 roundId 去重（一轮只计一次），单步展示仍可读到完整 usage。
+     * 轮次标识：挂在该轮 deliberation step 上（一轮只产生一个模型输出步）。
+     * 聚合统计按 roundId 去重（一轮只计一次）。
      */
     roundId?: string;
     /** 原始轮次事实（provider/model + 原始 token + 耗时）；展示/计价可从它重算 */
@@ -312,15 +312,19 @@ export interface StepView {
     status: string;
     startedAt: number;
     endedAt?: number;
-    /** Full payload content (thinking/intent text, tool output). */
+    /** 主文本：deliberation 为 answer（无 answer 时回落 thinking）；invocation 为 output。 */
     content?: string;
-    /** Tool name (for tool_call steps). */
+    /** deliberation 的推理文本（thinking）。 */
+    thinking?: string;
+    /** deliberation 的模型回答（answer）。 */
+    answer?: string;
+    /** Tool name (for invocation steps). */
     toolName?: string;
-    /** Tool call arguments (for tool_call steps; 展示命令/参数). */
+    /** Tool call arguments (for invocation steps; 展示命令/参数). */
     toolArguments?: Record<string, unknown>;
-    /** 工具实际执行的工作目录（tool_call steps）. */
+    /** 工具实际执行的工作目录（invocation steps）. */
     toolCwd?: string;
-    /** Tool call output text (for tool_call steps). */
+    /** Tool call output text (for invocation steps). */
     toolOutput?: string;
     /** Payload summary (≤240 chars) for audit/log display. */
     payloadText?: string;

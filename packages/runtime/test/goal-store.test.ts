@@ -39,9 +39,9 @@ function step(id: ULID, taskId: ULID, goalId: ULID): Step {
         stepId: id,
         taskId,
         goalId,
-        kind: 'thinking',
-        payload: { content: 'x' },
-        status: 'ok',
+        kind: 'deliberation',
+        payload: { answer: 'x' },
+        status: 'completed',
         startedAt: 1,
     };
 }

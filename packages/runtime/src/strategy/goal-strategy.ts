@@ -22,7 +22,7 @@ export interface GoalRunDeps {
     allowedTools?: string[];
     /** Conversation 共享上下文：前置历史消息（透传 executeTask） */
     history?: GoalExecutorDeps['history'];
-    /** 工作目录（透传 executeTask；入库到 tool_call payload.cwd） */
+    /** 工作目录（透传 executeTask；入库到 invocation payload.cwd） */
     workspaceRoot?: string;
     /** Step 流式回调（透传 executeTask.onStep） */
     onStep?: GoalExecutorDeps['onStep'];
