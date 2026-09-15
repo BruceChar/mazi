@@ -25,15 +25,15 @@ import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { RoundRunner, type ModelRecoveryFn } from './round-runner.js';
 import { StepEventEmitter } from './step-events.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
+import { GENERAL_PROMPT } from '../templates/prompts/general.prompt.js';
 
-const DEFAULT_AGENT_SYSTEM_PROMPT =
-    'You are a helpful agent. Answer conversational questions directly. Only call tools when the user explicitly asks you to read, inspect, modify files, or work with the current workspace.';
+const DEFAULT_AGENT_SYSTEM_PROMPT = GENERAL_PROMPT;
 
 /** GoalRunResult → goal.ended summary（截断 2000 字符） */
 function goalRunSummary(result: GoalRunResult): string {
     const last = result.tasks[result.tasks.length - 1];
     if (result.rejected && result.rejected.length > 0) {
-        return result.rejected.join('；').slice(0, 2000);
+        return result.rejected.join(';').slice(0, 2000);
     }
     const summary = last?.finalMessage ?? last?.errorMessage;
     return summary && summary.length > 0 ? summary.slice(0, 2000) : '';
@@ -259,7 +259,7 @@ export class HarnessRuntime {
                         status: result.ok ? 'success' : 'failed',
                         summary: goalRunSummary(result),
                     },
-                    error: result.rejected?.join('；'),
+                    error: result.rejected?.join(';'),
                 },
             }),
         );
