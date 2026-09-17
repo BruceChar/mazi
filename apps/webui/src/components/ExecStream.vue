@@ -53,6 +53,19 @@ function fmtDateTime(ts) {
     const d = new Date(ts);
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
+/**
+ * 执行时刻：精确到毫秒。距今不超过一天 → HH:MM:SS.mmm；超过一天 → 带完整日期。
+ */
+function fmtPrecise(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (Date.now() - ts > dayMs) {
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`;
+    }
+    return time;
+}
 function formatDuration(ms) {
     if (ms == null) return '';
     if (ms < 1000) return `${ms}ms`;
@@ -118,6 +131,7 @@ function stepToRow(step, idx) {
         text: isDeliberation ? step.thinking || '' : step.toolOutput || '',
         intentText: isDeliberation ? step.answer || '' : '',
         outputText: step.toolOutput || '',
+        endedAt: step.endedAt || null,
         durationMs,
         duration: durationMs != null ? formatDuration(durationMs) : '',
         usage: step.usage || null,
@@ -296,6 +310,17 @@ function stepTitleSummary(row) {
 const tree = computed(() => buildExecTree(props.runDetail));
 const summary = computed(() => finalSummaryRowOf(props.runDetail));
 const stats = computed(() => buildExecStats(props.runDetail));
+/** 本轮 LLM 最终输出的时刻（优先 summary 结束时间；无 summary 则取最后一步）。 */
+const outputAt = computed(() => {
+    const row = summary.value;
+    if (row) return row.endedAt || row.at || null;
+    let last = null;
+    for (const r of allStepsOf(props.runDetail)) {
+        const ts = r.endedAt || r.at;
+        if (ts && (last === null || ts > last)) last = ts;
+    }
+    return last;
+});
 </script>
 
 <template>
@@ -443,6 +468,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
             <span>{{ stats.inputTokens }} in / {{ stats.outputTokens }} out tokens</span>
             <span>·</span>
             <span>{{ stats.tokensPerSecond.toFixed(1) }} tok/s</span>
+            <span v-if="outputAt" class="exec-stats-time">{{ fmtPrecise(outputAt) }}</span>
         </div>
     </div>
     <div v-else-if="!busy" class="empty-hint">暂无执行步骤</div>
@@ -929,6 +955,11 @@ const stats = computed(() => buildExecStats(props.runDetail));
     font-size: 11px;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
+}
+/* LLM 最终输出的时刻：贴右显示。 */
+.exec-stats-time {
+    margin-left: auto;
+    white-space: nowrap;
 }
 
 /* Final summary (goal-level, sits after all goals/tasks/steps); click → audit */

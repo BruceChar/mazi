@@ -56,11 +56,19 @@ const emit = defineEmits([
 function conversationTitle(conversation) {
     return conversation?.title || conversation?.input || '';
 }
-function fmtClock(ts) {
+/**
+ * 执行时刻：精确到毫秒。距今不超过一天 → HH:MM:SS.mmm；超过一天 → 带完整日期。
+ */
+function fmtPrecise(ts) {
     if (!ts) return '';
     const d = new Date(ts);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    const pad = (n, w = 2) => String(n).padStart(w, '0');
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (Date.now() - ts > dayMs) {
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`;
+    }
+    return time;
 }
 function runTitle(run) {
     const text = String(run?.input || '').trim();
@@ -198,7 +206,7 @@ onMounted(() => {
                             <!-- User message -->
                             <div class="msg msg-user">
                                 <div class="msg-bubble">{{ run.input }}</div>
-                                <span class="msg-time">{{ fmtClock(run.createdAt) }}</span>
+                                <span class="msg-time">{{ fmtPrecise(run.createdAt) }}</span>
                             </div>
                             <!-- Placeholder shown only until the first live step arrives. -->
                             <div
