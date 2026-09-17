@@ -7,7 +7,7 @@
  * resolves handles from args (N4) and never widens the snapshot.
  */
 
-import { ulid } from '../id.js';
+import { ulid } from '../ulid.js';
 import { egressCheck } from './dataflow.js';
 import { isStrictlyWider } from './escalation.js';
 import {

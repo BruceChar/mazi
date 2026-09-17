@@ -5,7 +5,7 @@
  *
  */
 
-import type { ULID } from './id.js';
+import type { ULID } from './ulid.js';
 import type { PermissionLevel } from './permissions.js';
 import type { ToolCall } from './provider.js';
 
