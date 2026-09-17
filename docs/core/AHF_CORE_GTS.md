@@ -142,6 +142,7 @@ export type Step = StepBase &
 ```
 
 **为什么是二分而非三/四分**（最小抽象）：
+
 - 三/四分法把同一来源的不同**字段**提升成 kind：thinking 与 intent 都是模型的一次输出，observation 只是 invocation 的结果。字段能表达的不再增设 kind。
 - kind 是**唯一判别式**：`Step` 是可判别联合，`step.kind` 唯一决定 `step.payload` 的类型，不存在 kind 与 payload.type 的双真相源。
 - 决策链重建仍完整：deliberation 回答"模型看到什么后决定了什么（推理 / 回答 / 提议了哪些调用）"，invocation 回答"实际执行了什么、环境返回什么"；两者通过 `callId` 配对，模型看到 → 决定 → 执行 → 结果全程可追。
@@ -189,21 +190,21 @@ export interface GoalContract {
 
 ## 8. 删除测试表（本层）
 
-| 删除候选                                    | 后果                                                                | 裁决                 |
-| ------------------------------------------- | ------------------------------------------------------------------- | -------------------- |
-| Goal / Task / Step 三层结构                 | 归因链断裂，验收#1/#8/#12 失去类型层强制                            | 留                   |
-| `rootGoalId`（Goal 实体字段）               | 树语义取消后 Goal 无需携带；运行会话 id 由事件/存储/API 层持有（恒等于 goalId） | **已删（2026-09-17）** |
-| `Goal.parent`（含 split/delegation 两型）   | 树语义取消；多意图/多 agent 结构整体移除                            | **已删（2026-09-17）** |
-| `Goal.permissionCeiling / budget`         | 治理上限仍按意图直接配置（无层级递减）                              | 留                   |
-| `Goal.rawPayload`                         | 转写忠实度审计失去原料                                              | 留                   |
-| `Goal.statement / sourceSpan`             | 切分决策不可回溯，转写忠实度不可比对                                | 留                   |
-| `Goal.kind: 'intake' \| 'work'`          | **无断裂**：可执行性由 status=active 判定；Goal 直接承载 rawPayload 与解析 Step | **取消（最小抽象）** |
-| `Task.goalId` 唯一归属                    | 验收锚定多义，反思反馈无法锚定条款                                  | 留（编译期强制）     |
-| `StepKind` 二分（deliberation / invocation） | **无断裂**：决策链三环节坍缩为字段（推理/回答/提议、执行/结果），按来源而非环节分类；字段可表达的不增设 kind | **二分（最小抽象）** |
-| Delegation 独立实体                         | **无断裂**：职能由委托事件 + Goal 字段（origin/budget/permissionCeiling）承担 | **解散（D6）** |
-| IntentSlice 独立类型                        | **无断裂**：statement/sourceSpan 并入 Goal，解析归因由树表达  | **坍缩（D7）** |
-| `children` / `siblingGroup` 反向字段    | **无断裂**：树语义已取消，无需反向字段（扁平模型天然无双重真相源） | **不设**       |
-| `parsedByStepId` 字段                     | **无断裂**：由根 Goal 树结构 + 事件流隐含                     | **不设**       |
+| 删除候选                                       | 后果                                                                                                               | 裁决                         |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------- |
+| Goal / Task / Step 三层结构                    | 归因链断裂，验收#1/#8/#12 失去类型层强制                                                                           | 留                           |
+| `rootGoalId`（Goal 实体字段）                | 树语义取消后 Goal 无需携带；运行会话 id 由事件/存储/API 层持有（恒等于 goalId）                                    | **已删（2026-09-17）** |
+| `Goal.parent`（含 split/delegation 两型）    | 树语义取消；多意图/多 agent 结构整体移除                                                                           | **已删（2026-09-17）** |
+| `Goal.permissionCeiling / budget`            | 治理上限仍按意图直接配置（无层级递减）                                                                             | 留                           |
+| `Goal.rawPayload`                            | 转写忠实度审计失去原料                                                                                             | 留                           |
+| `Goal.statement / sourceSpan`                | 切分决策不可回溯，转写忠实度不可比对                                                                               | 留                           |
+| `Goal.kind: 'intake' \| 'work'`               | **无断裂**：可执行性由 status=active 判定；Goal 直接承载 rawPayload 与解析 Step                              | **取消（最小抽象）**   |
+| `Task.goalId` 唯一归属                       | 验收锚定多义，反思反馈无法锚定条款                                                                                 | 留（编译期强制）             |
+| `StepKind` 二分（deliberation / invocation） | **无断裂**：决策链三环节坍缩为字段（推理/回答/提议、执行/结果），按来源而非环节分类；字段可表达的不增设 kind | **二分（最小抽象）**   |
+| Delegation 独立实体                            | **无断裂**：职能由委托事件 + Goal 字段（origin/budget/permissionCeiling）承担                                | **解散（D6）**         |
+| IntentSlice 独立类型                           | **无断裂**：statement/sourceSpan 并入 Goal，解析归因由树表达                                                 | **坍缩（D7）**         |
+| `children` / `siblingGroup` 反向字段       | **无断裂**：树语义已取消，无需反向字段（扁平模型天然无双重真相源）                                           | **不设**               |
+| `parsedByStepId` 字段                        | **无断裂**：由根 Goal 树结构 + 事件流隐含                                                                    | **不设**               |
 
 ---
 
@@ -216,7 +217,7 @@ export interface GoalContract {
 | 契约**内容**生产                        | 模型自撰，成本趋零               | 能力内化                                         |
 | 契约**形式**（冻结、机械可判、ceiling） | 不变，且承压增大                 | 消费者是评估器/审批人/审计员，读不到模型内部状态 |
 | 解析归因挂载（根 Goal）                       | 不变                             | 解析 Step 需要 Goal 可挂，是归因闭合的必要条件   |
-| 三层结构（Goal 独立 + Task + Step）         | 不变                             | 归因完备性下限；不可逆性/责任归属是环境属性      |
+| 三层结构（Goal 独立 + Task + Step）           | 不变                             | 归因完备性下限；不可逆性/责任归属是环境属性      |
 
 **判断某段 Goal 层代码会不会被 AGI 淘汰的操作性判据**：问“它服务理解还是承诺”——服务理解的（解析编排、切分管线）设计上就该被删；服务承诺的（冻结、机械可判、审批锚点、治理上限）删它们等于删架构哲学。
 
