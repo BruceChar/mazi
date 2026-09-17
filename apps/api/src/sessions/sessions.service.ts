@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { renderThinkingChain } from '@mazi/libs';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import Logger from '../common/log.js';
@@ -25,7 +26,7 @@ export class SessionsService {
     ) {}
 
     /**
-     * POST /api/sessions：创建 Goal 会话（intake + work，不执行）。
+     * POST /api/sessions：创建 Goal 会话（单根 Goal，不执行）。
      * 返回 { sessionId(=rootGoalId), state, conversationId }，兼容既有 REST 形状。
      */
     async createSession(
@@ -195,6 +196,26 @@ export class SessionsService {
             `sessionDetail ${sessionId} goals=${snapshot.goals.length} tasks=${snapshot.taskCount} steps=${snapshot.stepCount}`,
         );
         return { sessionId, ...snapshot };
+    }
+
+    /**
+     * GET /api/sessions/:id/tasks/:taskId/thinking：导出该 Task 的 thinking 链文本，
+     * 供独立审计 / 评估模型执行缺陷（renderThinkingChain 纯函数，见 @mazi/libs）。
+     */
+    async taskThinkingChain(
+        sessionId: string,
+        taskId: string,
+    ): Promise<{ sessionId: string; taskId: string; steps: number; text: string }> {
+        const snapshot = await this.runtime.harness().goalSnapshot(sessionId);
+        const task = snapshot.goals
+            .flatMap((goal) => goal.tasks)
+            .find((candidate) => candidate.taskId === taskId);
+        if (task === undefined) {
+            throw new ApiError(404, 'task not found');
+        }
+        const text = renderThinkingChain(task.steps);
+        this.logger.debug(`taskThinkingChain ${sessionId}/${taskId} steps=${task.steps.length}`);
+        return { sessionId, taskId, steps: task.steps.length, text };
     }
 
     /**

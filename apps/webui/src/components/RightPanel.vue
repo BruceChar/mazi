@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import StoragePanel from './StoragePanel.vue';
 import {
@@ -11,6 +11,16 @@ import {
     formatSigned,
     formatTokens,
 } from '../scripts/audit.ts';
+import {
+    analyzeToc,
+    copyThinkingChain,
+    iterations,
+    iterationsLoading,
+    loadIterations,
+    short,
+    submitIterationFeedback,
+    ui,
+} from '../scripts/store.ts';
 
 const props = defineProps({
     open: { type: Boolean, default: false },
@@ -51,12 +61,19 @@ function fmtClock(ts) {
     const pad = (n) => String(n).padStart(2, '0');
     return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
-/** 日期+时间（步骤/任务起始用；同日内也带毫秒感知的完整时刻）。 */
-function fmtDateTime(ts) {
+/**
+ * 执行时刻：精确到毫秒。距今不超过一天 → HH:MM:SS.mmm；超过一天 → 带完整日期。
+ */
+function fmtPrecise(ts) {
     if (!ts) return '';
     const d = new Date(ts);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    const pad = (n, w = 2) => String(n).padStart(w, '0');
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (Date.now() - ts > dayMs) {
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`;
+    }
+    return time;
 }
 function formatDuration(ms) {
     if (ms == null) return '';
@@ -276,6 +293,111 @@ function toggleOutput() {
 function pricingRate(perMTok) {
     return `$${perMTok}/M`;
 }
+
+/* ---- TOC / Iterations：冻结 thinking 链 → 独立分析 → 反馈 ---- */
+const analyzeOpen = ref(false);
+const analyzeInput = ref('');
+const analyzeModel = ref('');
+const analyzeTarget = ref(null);
+const analyzeBusy = ref(false);
+const copiedToc = ref(false);
+const tocMenuOpen = ref(false);
+const feedbackDrafts = ref({});
+let copiedTimer = null;
+
+/** 步骤明细只含单一 Task 时，该 Task 才是可 Copy/Analyze 的 TOC 目标。 */
+const tocTarget = computed(() => {
+    const rows = props.audit?.rows || [];
+    if (rows.length === 0) return null;
+    const taskId = rows[0].taskId;
+    if (!taskId || rows.some((row) => row.taskId !== taskId)) return null;
+    return {
+        taskId,
+        goalId: rows[0].goalId || '',
+        // 历史 run 的 task 必须用它自己所属的 rootGoalId，而不是当前打开的 run。
+        rootGoalId: rows[0].rootGoalId || props.current || '',
+    };
+});
+
+function toggleTocMenu() {
+    tocMenuOpen.value = !tocMenuOpen.value;
+}
+function copyFromMenu(target) {
+    tocMenuOpen.value = false;
+    void copyToc(target);
+}
+function analyzeFromMenu(target) {
+    tocMenuOpen.value = false;
+    openAnalyze(target);
+}
+function openAnalyze(target) {
+    if (!target) return;
+    analyzeTarget.value = target;
+    analyzeInput.value = '';
+    analyzeModel.value = '';
+    analyzeOpen.value = true;
+}
+function closeAnalyze() {
+    analyzeOpen.value = false;
+    analyzeBusy.value = false;
+}
+async function runAnalyze() {
+    const target = analyzeTarget.value;
+    const rootGoalId = target?.rootGoalId || props.current;
+    if (!target || !rootGoalId) return;
+    analyzeBusy.value = true;
+    try {
+        await analyzeToc({
+            taskId: target.taskId,
+            goalId: target.goalId,
+            rootGoalId,
+            userInput: analyzeInput.value.trim(),
+            ...(analyzeModel.value.trim() ? { modelId: analyzeModel.value.trim() } : {}),
+            ...(target.tocId ? { tocId: target.tocId } : {}),
+        });
+        closeAnalyze();
+        emit('update:activeTab', 'iterations');
+    } catch (error) {
+        ui.err = String(error);
+        analyzeBusy.value = false;
+    }
+}
+async function copyToc(target) {
+    const rootGoalId = target?.rootGoalId || props.current;
+    if (!target || !rootGoalId) return;
+    try {
+        await copyThinkingChain(rootGoalId, target.taskId);
+        copiedToc.value = true;
+        if (copiedTimer) clearTimeout(copiedTimer);
+        copiedTimer = setTimeout(() => {
+            copiedToc.value = false;
+        }, 1500);
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+function feedbackDraft(analyzeId) {
+    return feedbackDrafts.value[analyzeId] || '';
+}
+function setFeedbackDraft(analyzeId, text) {
+    feedbackDrafts.value = { ...feedbackDrafts.value, [analyzeId]: text };
+}
+async function submitFeedback(analyzeId) {
+    const content = feedbackDraft(analyzeId).trim();
+    if (!content) return;
+    try {
+        await submitIterationFeedback(analyzeId, { content });
+        setFeedbackDraft(analyzeId, '');
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+watch(
+    () => props.activeTab,
+    (tab) => {
+        if (tab === 'iterations') void loadIterations();
+    },
+);
 </script>
 
 <template>
@@ -292,6 +414,7 @@ function pricingRate(perMTok) {
                 <div class="drawer-tabs">
                     <button :class="{ on: activeTab === 'audit' }" @click="emit('update:activeTab', 'audit')">审计</button>
                     <button :class="{ on: activeTab === 'context' }" @click="emit('update:activeTab', 'context')">Context</button>
+                    <button :class="{ on: activeTab === 'iterations' }" @click="emit('update:activeTab', 'iterations')">Iterations</button>
                     <button :class="{ on: activeTab === 'log' }" @click="emit('update:activeTab', 'log')">日志</button>
                     <button :class="{ on: activeTab === 'storage' }" @click="emit('update:activeTab', 'storage')">存储</button>
                 </div>
@@ -308,6 +431,11 @@ function pricingRate(perMTok) {
                         <div class="audit-title">{{ audit.title }}</div>
                         <div v-if="audit.subtitle" class="audit-subtitle">{{ audit.subtitle }}</div>
                     </div>
+                    <div
+                        v-if="audit.startedAt"
+                        class="audit-head-start"
+                        :title="'执行开始时间：' + fmtPrecise(audit.startedAt)"
+                    >{{ fmtPrecise(audit.startedAt) }}</div>
                     <button
                         class="audit-info-btn"
                         :class="{ on: audit.kind === 'conversation' }"
@@ -332,7 +460,7 @@ function pricingRate(perMTok) {
                             <pre class="seg-content">{{ JSON.stringify(audit.tool.arguments, null, 2) }}</pre>
                         </div>
                         <div class="audit-row"><span class="audit-key">耗时</span><span class="audit-val">{{ formatDuration(audit.tool.durationMs) || '-' }}</span></div>
-                        <div v-if="audit.startedAt" class="audit-row"><span class="audit-key">开始</span><span class="audit-val">{{ fmtDateTime(audit.startedAt) }}</span></div>
+                        <div v-if="audit.startedAt" class="audit-row"><span class="audit-key">开始</span><span class="audit-val">{{ fmtPrecise(audit.startedAt) }}</span></div>
                         <div class="audit-row"><span class="audit-key">状态</span><span class="audit-val" :class="{ 'audit-warn': audit.tool.isError }">{{ audit.tool.status }}</span></div>
                         <div class="audit-tool-block">
                             <div class="audit-key">输出</div>
@@ -524,8 +652,8 @@ function pricingRate(perMTok) {
                     <!-- Timing -->
                     <section class="audit-section">
                         <div class="audit-section-title">Timing</div>
-                        <div v-if="audit.startedAt" class="audit-row"><span class="audit-key">开始</span><span class="audit-val">{{ fmtDateTime(audit.startedAt) }}</span></div>
-                        <div v-if="audit.endedAt" class="audit-row"><span class="audit-key">结束</span><span class="audit-val">{{ fmtDateTime(audit.endedAt) }}</span></div>
+                        <div v-if="audit.startedAt" class="audit-row"><span class="audit-key">开始</span><span class="audit-val">{{ fmtPrecise(audit.startedAt) }}</span></div>
+                        <div v-if="audit.endedAt" class="audit-row"><span class="audit-key">结束</span><span class="audit-val">{{ fmtPrecise(audit.endedAt) }}</span></div>
                         <template v-if="audit.usage.timing">
                             <div class="audit-row"><span class="audit-key">TTFT</span><span class="audit-val">{{ formatDuration(audit.usage.timing.ttftMs) }}</span></div>
                             <div class="audit-row"><span class="audit-key">Total</span><span class="audit-val">{{ formatDuration(audit.usage.timing.totalMs) }}</span></div>
@@ -540,6 +668,20 @@ function pricingRate(perMTok) {
                     <section v-if="audit.rows.length" class="audit-section audit-span">
                         <div class="audit-section-title">
                             {{ audit.kind === 'task' ? '步骤' : '会话步骤' }}（{{ audit.rows.length }}）
+                            <span v-if="tocTarget" class="toc-menu">
+                                <button
+                                    class="toc-menu-trigger"
+                                    :class="{ copied: copiedToc }"
+                                    title="TOC"
+                                    @click.stop="toggleTocMenu()"
+                                >
+                                    <LineIcon name="more" size="14" />
+                                </button>
+                                <span v-if="tocMenuOpen" class="toc-menu-pop">
+                                    <button @click.stop="copyFromMenu(tocTarget)">{{ copiedToc ? 'Copied' : 'Copy' }}</button>
+                                    <button @click.stop="analyzeFromMenu(tocTarget)">Analyze</button>
+                                </span>
+                            </span>
                         </div>
                         <div class="audit-step-head">
                             <span class="audit-step-loc">位置</span>
@@ -559,7 +701,7 @@ function pricingRate(perMTok) {
                         >
                             <span class="audit-step-loc">R#{{ row.runIndex }}·T#{{ row.taskIndex }}·S#{{ row.index }}</span>
                             <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
-                            <span class="audit-step-start">{{ fmtClock(row.startedAt) }}</span>
+                            <span class="audit-step-start">{{ fmtPrecise(row.startedAt) }}</span>
                             <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
                             <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
                             <span class="audit-step-tokens">{{ formatTokens(row.tokens) }}</span>
@@ -567,6 +709,55 @@ function pricingRate(perMTok) {
                         </button>
                     </section>
                 </template>
+            </div>
+            <div v-else-if="activeTab === 'iterations'" class="drawer-body audit-body iterations-body">
+                <section class="audit-section">
+                    <div class="audit-section-title">
+                        Iterations
+                        <span class="audit-pct">{{ iterations.length }} TOC</span>
+                    </div>
+                    <div v-if="!iterations.length" class="audit-muted">
+                        {{ iterationsLoading ? 'Loading…' : 'No iterations yet — use Analyze on a task.' }}
+                    </div>
+                    <div v-for="it in iterations" :key="it.toc.tocId" class="iter-card">
+                        <div class="iter-toc-head">
+                            <span class="iter-toc-title">TOC {{ short(it.toc.tocId, 8) }}</span>
+                            <span class="iter-toc-meta">
+                                {{ it.toc.model ? it.toc.model.modelId : 'default' }} · {{ fmtPrecise(it.toc.createdAt) }}
+                            </span>
+                            <button
+                                class="iter-reanalyze"
+                                @click="openAnalyze({ taskId: it.toc.taskId, goalId: it.toc.goalId, rootGoalId: it.toc.rootGoalId, tocId: it.toc.tocId })"
+                            >Analyze again</button>
+                        </div>
+                        <div v-if="it.toc.userInput" class="iter-input">Input: {{ it.toc.userInput }}</div>
+                        <pre v-if="it.toc.text" class="iter-toc-text">{{ short(it.toc.text, 600) }}</pre>
+                        <div v-for="a in it.analyses" :key="a.analyzeId" class="iter-analysis">
+                            <div class="iter-analysis-head">
+                                <span class="iter-status" :class="a.status">{{ a.status }}</span>
+                                <span class="iter-analysis-meta">
+                                    {{ a.model ? a.model.modelId : 'default' }} · {{ fmtPrecise(a.createdAt) }}
+                                </span>
+                            </div>
+                            <div v-if="a.userInput" class="iter-input">Request: {{ a.userInput }}</div>
+                            <pre v-if="a.output" class="iter-output">{{ a.output }}</pre>
+                            <div v-if="a.error" class="iter-error">{{ a.error }}</div>
+                            <div v-for="f in a.feedback" :key="f.feedbackId" class="iter-feedback">
+                                <span class="iter-feedback-meta">{{ fmtPrecise(f.createdAt) }}</span>
+                                <span>{{ f.content }}</span>
+                            </div>
+                            <div class="iter-feedback-form">
+                                <input
+                                    :value="feedbackDraft(a.analyzeId)"
+                                    placeholder="Feedback on this analysis…"
+                                    @input="setFeedbackDraft(a.analyzeId, $event.target.value)"
+                                    @keydown.enter="submitFeedback(a.analyzeId)"
+                                />
+                                <button @click="submitFeedback(a.analyzeId)">Send</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
             </div>
             <div v-else-if="activeTab === 'context'" class="drawer-body audit-body context-body">
                 <section class="audit-section">
@@ -690,6 +881,27 @@ function pricingRate(perMTok) {
                 class="log-tooltip"
                 :style="{ left: logTip.x + 12 + 'px', top: logTip.y + 12 + 'px' }"
             >{{ logTip.text }}</div>
+
+            <!-- Analyze 弹窗：记录 user input + 可选模型，冻结/复用 TOC 后跑独立分析 -->
+            <div v-if="analyzeOpen" class="toc-modal-backdrop" @click.self="closeAnalyze">
+                <div class="toc-modal">
+                    <div class="toc-modal-title">Analyze thinking chain</div>
+                    <label class="toc-modal-label">Instructions</label>
+                    <textarea
+                        v-model="analyzeInput"
+                        rows="4"
+                        placeholder="Audit this thinking chain for defects and propose fixes…"
+                    ></textarea>
+                    <label class="toc-modal-label">Model (optional)</label>
+                    <input v-model="analyzeModel" placeholder="default" />
+                    <div class="toc-modal-actions">
+                        <button @click="closeAnalyze">Cancel</button>
+                        <button class="primary" :disabled="analyzeBusy" @click="runAnalyze">
+                            {{ analyzeBusy ? 'Analyzing…' : 'Analyze' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </aside>
 </template>
@@ -1081,6 +1293,15 @@ function pricingRate(perMTok) {
 .audit-head-main {
     flex: 1;
     min-width: 0;
+}
+/* 步骤/任务的执行开始时间：面板右上角常驻，不只放在 Timing 区块。 */
+.audit-head-start {
+    flex-shrink: 0;
+    padding-top: 1px;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+    white-space: nowrap;
 }
 .audit-info-btn {
     display: inline-grid;
@@ -1734,5 +1955,230 @@ function pricingRate(perMTok) {
 .diff-toggle:hover {
     color: var(--accent);
     border-color: var(--accent);
+}
+
+/* ---------- TOC dot menu（步骤明细块右上角） ---------- */
+.toc-menu {
+    position: relative;
+    display: inline-flex;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+.toc-menu-trigger {
+    display: inline-flex;
+    align-items: center;
+    border: 0;
+    background: transparent;
+    color: var(--fg-tertiary);
+    padding: 2px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+.toc-menu-trigger:hover {
+    color: var(--accent);
+    background: var(--accent-soft);
+}
+.toc-menu-trigger.copied {
+    color: var(--accent);
+}
+/* 点击展开、点击项才关闭：不依赖 hover，避免移动鼠标时菜单消失 */
+.toc-menu-pop {
+    position: absolute;
+    right: 0;
+    bottom: 100%;
+    margin-bottom: 4px;
+    z-index: 30;
+    display: inline-flex;
+    gap: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.toc-menu-pop button {
+    border: 0;
+    background: transparent;
+    color: var(--fg);
+    font-size: 11px;
+    padding: 3px 8px;
+    cursor: pointer;
+    border-radius: 3px;
+}
+.toc-menu-pop button:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+/* ---------- Analyze 弹窗 ---------- */
+.toc-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+}
+.toc-modal {
+    width: 440px;
+    max-width: 90vw;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.toc-modal-title {
+    font-weight: 600;
+    color: var(--fg);
+}
+.toc-modal-label {
+    font-size: 11px;
+    color: var(--fg-tertiary);
+}
+.toc-modal textarea,
+.toc-modal input {
+    width: 100%;
+    background: var(--bg-code);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    font-size: 12px;
+    box-sizing: border-box;
+}
+.toc-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 6px;
+}
+.toc-modal-actions button {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--fg);
+    border-radius: var(--radius-sm);
+    padding: 4px 12px;
+    cursor: pointer;
+}
+.toc-modal-actions button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+/* ---------- Iterations 面板 ---------- */
+.iter-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+    margin-bottom: 10px;
+}
+.iter-toc-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.iter-toc-title {
+    font-weight: 600;
+    color: var(--fg);
+}
+.iter-toc-meta {
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    flex: 1;
+}
+.iter-reanalyze {
+    font-size: 11px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--fg-secondary);
+    border-radius: var(--radius-sm);
+    padding: 2px 6px;
+    cursor: pointer;
+}
+.iter-input {
+    font-size: 11px;
+    color: var(--fg-secondary);
+    margin: 4px 0;
+}
+.iter-toc-text,
+.iter-output {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11px;
+    background: var(--bg-code);
+    border-radius: var(--radius-sm);
+    padding: 6px;
+    max-height: 200px;
+    overflow: auto;
+    margin: 4px 0;
+}
+.iter-analysis {
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
+    margin-top: 6px;
+}
+.iter-analysis-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.iter-status {
+    font-size: 10px;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--bg-code);
+    color: var(--fg-tertiary);
+}
+.iter-status.succeeded {
+    color: #2e9e5b;
+}
+.iter-status.failed {
+    color: var(--error);
+}
+.iter-analysis-meta {
+    font-size: 11px;
+    color: var(--fg-tertiary);
+}
+.iter-error {
+    font-size: 11px;
+    color: var(--error);
+}
+.iter-feedback {
+    font-size: 11px;
+    color: var(--fg-secondary);
+    display: flex;
+    gap: 6px;
+}
+.iter-feedback-meta {
+    color: var(--fg-tertiary);
+}
+.iter-feedback-form {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+}
+.iter-feedback-form input {
+    flex: 1;
+    background: var(--bg-code);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px 6px;
+    font-size: 11px;
+}
+.iter-feedback-form button {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--fg);
+    border-radius: var(--radius-sm);
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
 }
 </style>

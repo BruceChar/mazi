@@ -172,6 +172,10 @@ export interface AuditStepRow {
     /** task 内步骤序号（1-based） */
     index: number;
     kind: string;
+    /** 归属：供 TOC 冻结与独立分析定位（同一 Task 的行 taskId/goalId/rootGoalId 相同）。 */
+    taskId: string;
+    goalId: string;
+    rootGoalId: string;
     toolName: string;
     /** 工具行命令/参数摘要（Context 面板折叠展示用） */
     toolCommand: string;
@@ -290,6 +294,8 @@ interface ResolvedStep {
     stepId: string;
     taskId: string;
     goalId: string;
+    /** 所属 run 的 rootGoalId（历史 run 的 task 也能正确定位 TOC/分析）。 */
+    rootGoalId: string;
     runIndex: number;
     runInput: string;
     taskIndex: number;
@@ -797,6 +803,7 @@ function collectSnapshotSteps(
                     stepId: step.stepId,
                     taskId: task.taskId,
                     goalId: goal.goalId,
+                    rootGoalId: snapshot.rootGoalId,
                     runIndex,
                     runInput,
                     taskIndex,
@@ -869,6 +876,7 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             stepId: step.stepId,
             taskId: step.taskId,
             goalId: '',
+            rootGoalId: '',
             runIndex: runs.length + 1,
             runInput: '',
             taskIndex: meta?.index ?? nextLiveTaskIndex,
@@ -925,6 +933,9 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         startedAt: step.startedAt,
         endedAt: step.endedAt,
         kind: step.kind,
+        taskId: step.taskId,
+        goalId: step.goalId,
+        rootGoalId: step.rootGoalId,
         toolName: step.toolName,
         toolCommand: formatToolCommand(step.toolName, step.toolArguments),
         toolCwd: shortenHome(step.toolCwd),

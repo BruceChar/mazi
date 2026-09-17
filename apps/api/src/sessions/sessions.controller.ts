@@ -27,6 +27,11 @@ export class SessionsController {
         return this.sessions.sessionDetail(sessionId);
     }
 
+    @Get(':id/tasks/:taskId/thinking')
+    thinking(@Param('id') sessionId: string, @Param('taskId') taskId: string) {
+        return this.sessions.taskThinkingChain(sessionId, taskId);
+    }
+
     @Post(':id/feedback')
     feedback(
         @Param('id') sessionId: string,

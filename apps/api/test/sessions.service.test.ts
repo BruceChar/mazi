@@ -93,4 +93,58 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         ).conversationHistory('c1');
         expect(history).toEqual([{ role: 'user', text: 'q1' }]);
     });
+
+    it('taskThinkingChain：导出该 Task 的 thinking 链（renderThinkingChain）', async () => {
+        const runtime = {
+            harness: () => ({
+                goalSnapshot: async () => ({
+                    goals: [
+                        {
+                            tasks: [
+                                {
+                                    taskId: 't1',
+                                    steps: [
+                                        step({ kind: 'deliberation', startedAt: 1, thinking: 'first' }),
+                                        step({
+                                            kind: 'invocation',
+                                            startedAt: 2,
+                                            toolName: 'shell.run',
+                                            toolArguments: { command: 'ls' },
+                                            toolOutput: '',
+                                        }),
+                                        step({
+                                            kind: 'deliberation',
+                                            startedAt: 3,
+                                            thinking: 'second',
+                                            answer: 'done',
+                                        }),
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            }),
+        };
+        const service = new SessionsService(runtime as never, {} as never);
+        const result = await service.taskThinkingChain('r1', 't1');
+        expect(result).toEqual({
+            sessionId: 'r1',
+            taskId: 't1',
+            steps: 3,
+            text: '1. first\n   ↳ shell.run {"command":"ls"} → (空)\n2. second\n\ndone',
+        });
+    });
+
+    it('taskThinkingChain：未知 task → 404', async () => {
+        const runtime = {
+            harness: () => ({ goalSnapshot: async () => ({ goals: [] }) }),
+        };
+        const service = new SessionsService(runtime as never, {} as never);
+        await expect(service.taskThinkingChain('r1', 'missing')).rejects.toThrow('task not found');
+    });
 });
+
+function step(over: Record<string, unknown>): Record<string, unknown> {
+    return { stepId: 's', goalId: 'g', taskId: 't1', status: 'succeeded', ...over };
+}

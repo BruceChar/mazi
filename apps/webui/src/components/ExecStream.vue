@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import { renderMarkdown } from '../scripts/markdown.ts';
+import { copyThinkingChain, ui } from '../scripts/store.ts';
 
 const props = defineProps({
     runDetail: { type: Object, default: null },
@@ -16,6 +17,25 @@ const props = defineProps({
 });
 /** Open the right-side audit panel for the clicked Step/Task. */
 const emit = defineEmits(['select-step', 'select-task']);
+
+/* ---- 快捷入口：复制该 Task 的 thinking 链（TOC）到剪贴板 ---- */
+const copiedTaskId = ref('');
+let copiedTimer = null;
+async function copyThinking(taskId) {
+    const rootGoalId = props.runDetail?.rootGoalId;
+    if (!rootGoalId || !taskId) return;
+    try {
+        await copyThinkingChain(rootGoalId, taskId);
+        copiedTaskId.value = taskId;
+        if (copiedTimer) clearTimeout(copiedTimer);
+        copiedTimer = setTimeout(() => {
+            copiedTaskId.value = '';
+            copiedTimer = null;
+        }, 2000);
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
 
 /* ---- Time formatting ---- */
 const pad = (n, w = 2) => String(n).padStart(w, '0');
@@ -336,6 +356,14 @@ const stats = computed(() => buildExecStats(props.runDetail));
                         <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
                         <span class="exec-task-title">{{ task.title }}</span>
                         <span class="exec-task-count">{{ task.steps.length }} steps</span>
+                        <button
+                            class="exec-task-copy"
+                            :class="{ copied: copiedTaskId === task.taskId }"
+                            title="Copy TOC"
+                            @click.stop="copyThinking(task.taskId)"
+                        >
+                            <LineIcon name="copy" size="12" />
+                        </button>
                     </div>
                     <div v-if="!collapsedTasks.has(task.taskId)" class="exec-task-body">
                         <div
@@ -548,6 +576,34 @@ const stats = computed(() => buildExecStats(props.runDetail));
     font-size: 11px;
     color: var(--fg-tertiary);
     flex-shrink: 0;
+}
+.exec-task-copy {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    border: 0;
+    background: transparent;
+    color: var(--fg-tertiary);
+    padding: 2px;
+    border-radius: 3px;
+    cursor: pointer;
+    /* 默认隐藏，Task 头 hover 时才显式，避免常驻占位。 */
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.12s ease;
+}
+.exec-task-head:hover .exec-task-copy,
+.exec-task-copy:focus-visible,
+.exec-task-copy.copied {
+    opacity: 1;
+    visibility: visible;
+}
+.exec-task-copy:hover {
+    color: var(--fg);
+    background: var(--accent-soft);
+}
+.exec-task-copy.copied {
+    color: var(--accent);
 }
 /* Full date/time, shown once per task so steps can stay time-of-day only. */
 .exec-task-time {

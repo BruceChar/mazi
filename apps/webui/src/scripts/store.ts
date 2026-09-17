@@ -8,6 +8,7 @@ import type {
     Project,
     RunOutcome,
     StepUsage,
+    TocIterationView,
     UserPreferences,
 } from '../types.js';
 import { activeStream, applyStreamEvent, type LiveStream, type LiveStreamMap } from './stream.js';
@@ -727,6 +728,89 @@ export async function loadRunDetail(rootGoalId: string): Promise<void> {
     } catch {
         runDetails[rootGoalId] = null;
     }
+}
+
+/** 复制某 Task 的 thinking 链到剪贴板（GET /api/sessions/:id/tasks/:taskId/thinking）。 */
+export async function copyThinkingChain(rootGoalId: string, taskId: string): Promise<string> {
+    const data = await api(`/api/sessions/${rootGoalId}/tasks/${taskId}/thinking`);
+    const text = typeof data?.text === 'string' ? data.text : '';
+    await writeClipboard(text);
+    return text;
+}
+
+/** 写剪贴板：优先 async clipboard API，回退 execCommand（老浏览器 / 非安全上下文）。 */
+async function writeClipboard(text: string): Promise<void> {
+    const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+    if (clipboard?.writeText) {
+        await clipboard.writeText(text);
+        return;
+    }
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.style.position = 'fixed';
+    el.style.opacity = '0';
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+}
+
+/* ---- Iterations：TOC 冻结 / 独立分析 / 反馈 ---- */
+
+/** TOC + 分析 + 反馈的聚合视图（GET /api/iterations）。 */
+export const iterations = ref<TocIterationView[]>([]);
+export const iterationsLoading = ref(false);
+
+export async function loadIterations(): Promise<void> {
+    iterationsLoading.value = true;
+    try {
+        const data = await api('/api/iterations');
+        iterations.value = Array.isArray(data?.iterations) ? data.iterations : [];
+    } catch (error) {
+        ui.err = String(error);
+    } finally {
+        iterationsLoading.value = false;
+    }
+}
+
+export interface AnalyzeTocInput {
+    taskId: string;
+    goalId?: string;
+    rootGoalId: string;
+    userInput: string;
+    modelId?: string;
+    /** 复用已有 TOC（再次分析）；缺省则冻结当前 thinking 链。 */
+    tocId?: string;
+}
+
+/** 冻结/复用 TOC 并跑一次独立分析，随后刷新 Iterations。 */
+export async function analyzeToc(
+    input: AnalyzeTocInput,
+): Promise<{ tocId: string; analyzeId: string; status: string }> {
+    const data = await api('/api/iterations/analyses', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+    });
+    await loadIterations();
+    return {
+        tocId: data?.toc?.tocId ?? '',
+        analyzeId: data?.analysis?.analyzeId ?? '',
+        status: data?.analysis?.status ?? '',
+    };
+}
+
+/** 对某次分析追加用户反馈（写入后刷新 Iterations）。 */
+export async function submitIterationFeedback(
+    analyzeId: string,
+    input: { content: string; rating?: number },
+): Promise<void> {
+    await api(`/api/iterations/${analyzeId}/feedback`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+    });
+    await loadIterations();
 }
 
 /** Open a Goal run: load its timeline snapshot and subscribe to live events. */

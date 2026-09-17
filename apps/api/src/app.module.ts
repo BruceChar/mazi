@@ -12,6 +12,8 @@ import { EventsController } from './events/events.controller.js';
 import { GoalsController } from './goals/goals.controller.js';
 import { GoalsService } from './goals/goals.service.js';
 import { HealthController } from './health/health.controller.js';
+import { IterationsController } from './iterations/iterations.controller.js';
+import { IterationsService } from './iterations/iterations.service.js';
 import { RunsController } from './runs/runs.controller.js';
 import { SessionsController } from './sessions/sessions.controller.js';
 import { SessionsService } from './sessions/sessions.service.js';
@@ -33,6 +35,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         WorkspacesController,
         ApprovalsController,
         StorageController,
+        IterationsController,
     ],
     providers: [
         { provide: APP_FILTER, useClass: ApiExceptionsFilter },
@@ -41,6 +44,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         GoalsService,
         ConversationsService,
         StorageService,
+        IterationsService,
     ],
 })
 export class AppModule {}

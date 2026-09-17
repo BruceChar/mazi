@@ -10,6 +10,11 @@ export type {
     StepUsage,
     StepView,
     TaskNodeView,
+    TocAnalysisStatus,
+    TocAnalysisView,
+    TocFeedbackView,
+    TocIterationView,
+    TocRecordView,
 } from '@mazi/libs';
 export {
     buildPricingAnalysisPrompt,
@@ -30,6 +35,17 @@ export {
     parseDeepseekPricingPage,
     peakMultiplierOf,
 } from '@mazi/provider';
+export { type AnalyzeTocInput, TocAnalyst, type TocAnalystDeps } from './analysis/toc-analyst.js';
+// TOC / 独立分析 / 反馈（Iterations 面板的数据面；不进 Goal 坐标系）
+export {
+    buildIterations,
+    MemoryTocStore,
+    SqliteTocStore,
+    type TocAnalysisRecord,
+    type TocFeedbackRecord,
+    type TocRecord,
+    type TocStore,
+} from './analysis/toc-store.js';
 // 模型目录与计费数据架构（catalog）：目录事实 / 同步 / 快照 / 路由 / 账本
 export * from './catalog/index.js';
 export type {
@@ -52,6 +68,7 @@ export {
     saveRuntimeSettings,
     toRuntimeConfig,
 } from './configs/config-io.js';
+export { HarnessRuntime, type RunOptions } from './harness/index.js';
 export type { GoalStore } from './memory/goal-store.js';
 // 观测层（事件总线；apps 直接消费）
 export type { EventBusOptions, NewEventInput } from './events/event-bus.js';
@@ -68,7 +85,6 @@ export {
 export type { PricingSchedule } from './provider/pricing.js';
 export type { PricingPage, PricingPageAnalyst } from './provider/pricing-analyst.js';
 export { createPricingAnalyst } from './provider/pricing-analyst.js';
-export { HarnessRuntime, type RunOptions } from './harness/index.js';
 export type { SecretsFile } from './secrets.js';
 export {
     apiKeyStatus,
