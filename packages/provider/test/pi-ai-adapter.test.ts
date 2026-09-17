@@ -9,8 +9,8 @@ import {
 import type { LLMMessage, LLMRequest, StreamCompletionEvent, ToolSchema } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { createProviderClient } from './client.js';
-import { createPiProvider, normalizePiUsage } from './pi-ai-adapter.js';
+import { createProviderClient } from '../src/client.js';
+import { createPiProvider, normalizePiUsage } from '../src/pi-ai-adapter.js';
 
 function userMsg(text: string): LLMMessage {
     return { role: 'user', content: [{ type: 'text', text }], createdAt: 0 };

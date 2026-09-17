@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { builtinModelsFor, builtinVendors } from './catalog.js';
+import { builtinModelsFor, builtinVendors } from '../src/catalog.js';
 
 describe('builtinModelsFor（pi-ai 目录读取）', () => {
     it('deepseek 目录返回模型元数据', () => {

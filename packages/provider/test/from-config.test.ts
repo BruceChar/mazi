@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deepseekAdapter, knownDeepseekModels } from './from-config.js';
+import { deepseekAdapter, knownDeepseekModels } from '../src/from-config.js';
 
 describe('deepseekAdapter（真实厂商 adapter 目录，离线）', () => {
     it('knownDeepseekModels：pi-ai 目录含 v4 系列', () => {

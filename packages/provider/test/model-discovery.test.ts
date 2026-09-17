@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { discoverModels } from './from-config.js';
-import { fetchRemoteModelIds, parseModelIds } from './model-discovery.js';
+import { discoverModels } from '../src/from-config.js';
+import { fetchRemoteModelIds, parseModelIds } from '../src/model-discovery.js';
 
 describe('model-discovery：厂商 /models 在线发现', () => {
     it('parseModelIds 解析 OpenAI/DeepSeek 兼容响应并去重排序', () => {

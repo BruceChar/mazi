@@ -1,8 +1,8 @@
 import type { LLMMessage, LLMRequest } from '@mazi/core';
 import { ProviderError } from '@mazi/core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createProviderClient } from './client.js';
-import { createDeepSeekClient } from './deepseek.js';
+import { createProviderClient } from '../src/client.js';
+import { createDeepSeekClient } from '../src/deepseek.js';
 
 const messages: LLMMessage[] = [
     {
