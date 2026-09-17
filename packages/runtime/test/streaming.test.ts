@@ -5,7 +5,7 @@ import type { HarnessEvent, LLMProvider, LLMRequest, StreamCompletionEvent } fro
 import { ProviderError } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
-import type { DefaultEventBus } from '../src/observability/event-bus.js';
+import type { DefaultEventBus } from '../src/events/event-bus.js';
 import type { PricingSchedule } from '../src/provider/pricing.js';
 import { HarnessRuntime } from '../src/harness/index.js';
 

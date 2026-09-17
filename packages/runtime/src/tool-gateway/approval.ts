@@ -11,7 +11,7 @@
 import type { AuditIdentifiers, HarnessEvent } from '@mazi/core';
 import { authz } from '@mazi/core';
 
-import { newHarnessEvent } from '../observability/index.js';
+import { newHarnessEvent } from '../events/index.js';
 
 export interface PendingApproval {
     invocationId: string;

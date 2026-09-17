@@ -13,7 +13,7 @@ import type { CatalogService } from '../catalog/service.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
-import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../observability/index.js';
+import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { RoundExecutor } from '../provider/index.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
 import { configureTokenizer } from '../token-estimator.js';
@@ -23,7 +23,7 @@ import { RuntimePolicyAuditSink } from '../tool-gateway/policy-audit.js';
 import { conversationMessages, type FeedbackInput, type RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { RoundRunner, type ModelRecoveryFn } from './round-runner.js';
-import { StepEventEmitter } from './step-events.js';
+import { StepEventEmitter } from '../events/step-events.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
 import { GENERAL_PROMPT } from '../templates/prompts/general.prompt.js';
 

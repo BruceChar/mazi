@@ -1,13 +1,13 @@
 import type { LLMRequest } from '@mazi/core';
 import { modelIdOf, offeringIdOf, providerIdOf, ulid } from '@mazi/core';
 import type { CatalogService } from '../catalog/service.js';
+import { type DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import type {
     ExecutorRoundContext,
     RoundEstimate,
     RoundPin,
     RoundResult,
 } from '../gts/round-types.js';
-import { type DefaultEventBus, newHarnessEvent } from '../observability/index.js';
 import { RoundExecutor, type RoundOutcome, type RoundStreamListener } from '../provider/index.js';
 import { measureContext } from './context-measure.js';
 import { describeLlmError, isModelRelatedError } from './llm-error.js';
@@ -16,8 +16,8 @@ import {
     outputBreakdown,
     pricingSnapshot,
     roundCost,
-    roundEstimatedCost,
     roundEstimate,
+    roundEstimatedCost,
     toRoundResult,
 } from './round-accounting.js';
 
@@ -300,6 +300,7 @@ export class RoundRunner {
 }
 
 /** finishRound 对 contextUsage 有原地回填（漂移字段），此处显式声明可变视图。 */
-type RuntimeContextBreakdownLike = Parameters<typeof measureContext> extends never
-    ? never
-    : import('@mazi/core').RuntimeContextBreakdown;
+type RuntimeContextBreakdownLike =
+    Parameters<typeof measureContext> extends never
+        ? never
+        : import('@mazi/core').RuntimeContextBreakdown;

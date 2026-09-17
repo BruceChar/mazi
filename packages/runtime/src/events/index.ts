@@ -5,4 +5,4 @@ export {
     type RuntimeEventAttributes,
     type RuntimeEventType,
 } from './events.js';
-export { usageViewOf } from './usage-view.js';
+export { StepEventEmitter } from './step-events.js';

@@ -1,5 +1,6 @@
 import type { Step } from '@mazi/core';
-import { type DefaultEventBus, newHarnessEvent, usageViewOf } from '../observability/index.js';
+import { usageViewOf } from '../observability/usage-view.js';
+import { type DefaultEventBus, newHarnessEvent } from './event-bus.js';
 
 /** Step payload → 完整文本（大上限 60k；长内容由 UI 滚动窗口承载） */
 function stepText(step: Step): string {

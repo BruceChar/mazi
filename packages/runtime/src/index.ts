@@ -54,8 +54,8 @@ export {
 } from './configs/config-io.js';
 export type { GoalStore } from './memory/goal-store.js';
 // 观测层（事件总线；apps 直接消费）
-export type { EventBusOptions, NewEventInput } from './observability/event-bus.js';
-export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './observability/event-bus.js';
+export type { EventBusOptions, NewEventInput } from './events/event-bus.js';
+export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './events/event-bus.js';
 export type { MaziPaths } from './paths.js';
 export {
     defaultConfigDir,

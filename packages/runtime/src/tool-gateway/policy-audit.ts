@@ -11,7 +11,7 @@
 
 import type { authz, HarnessEvent } from '@mazi/core';
 
-import { newHarnessEvent } from '../observability/index.js';
+import { newHarnessEvent } from '../events/index.js';
 
 export interface PolicyAuditOptions {
     emit: (event: HarnessEvent) => void;
