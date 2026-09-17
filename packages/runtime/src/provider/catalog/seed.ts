@@ -12,7 +12,7 @@
 
 import type { DriverConfig, ModelCapabilities, PricingRates, PricingTier } from './contract.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from './contract.js';
-import type { ProviderConfig } from '../config.js';
+import type { ProviderConfig } from '../../config.js';
 import type { ObservedCatalog, ObservedModel, ObservedProvider } from './sync.js';
 
 export interface SeedResult {

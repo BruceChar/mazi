@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ModelCapabilities } from '../src/catalog/contract.js';
-import { modelIdOf, offeringIdOf, providerIdOf } from '../src/catalog/contract.js';
+import type { ModelCapabilities } from '../src/provider/catalog/contract.js';
+import { modelIdOf, offeringIdOf, providerIdOf } from '../src/provider/catalog/contract.js';
 import { describe, expect, it } from 'vitest';
 import {
     CatalogService,
@@ -12,7 +12,7 @@ import {
     type ObservedModel,
     type ObservedProvider,
     routeOffering,
-} from '../src/catalog/index.js';
+} from '../src/provider/catalog/index.js';
 
 const CAPS: ModelCapabilities = {
     contextWindow: 128000,

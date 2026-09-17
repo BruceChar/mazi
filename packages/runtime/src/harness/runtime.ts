@@ -11,7 +11,7 @@ import { type authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
-import type { CatalogService } from '../catalog/service.js';
+import type { CatalogService } from '../provider/catalog/service.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';

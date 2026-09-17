@@ -7,7 +7,7 @@ import type {
     PricingPlan,
     Provider,
     Vendor,
-} from '../src/catalog/contract.js';
+} from '../src/provider/catalog/contract.js';
 import {
     buildCatalogSnapshot,
     capabilitySatisfies,
@@ -22,7 +22,7 @@ import {
     rateCardFor,
     selectActivePlan,
     vendorIdOf,
-} from '../src/catalog/contract.js';
+} from '../src/provider/catalog/contract.js';
 
 const VENDOR = vendorIdOf('deepseek');
 const PROVIDER = providerIdOf('deepseek');

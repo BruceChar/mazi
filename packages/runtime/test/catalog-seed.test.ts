@@ -1,8 +1,8 @@
-import { modelIdOf, offeringIdOf, providerIdOf } from '../src/catalog/contract.js';
+import { modelIdOf, offeringIdOf, providerIdOf } from '../src/provider/catalog/contract.js';
 import { describe, expect, it } from 'vitest';
 import type { ProviderConfig } from '../src/config.js';
-import { CatalogService, MemoryCatalogStore } from '../src/catalog/index.js';
-import { observedCatalogFromProviderConfigs } from '../src/catalog/index.js';
+import { CatalogService, MemoryCatalogStore } from '../src/provider/catalog/index.js';
+import { observedCatalogFromProviderConfigs } from '../src/provider/catalog/index.js';
 
 function providerConfig(over: Partial<ProviderConfig> = {}): ProviderConfig {
     return {

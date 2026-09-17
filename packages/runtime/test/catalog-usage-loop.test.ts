@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LLMProvider, StreamCompletionEvent } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { CatalogService, MemoryCatalogStore, type ObservedCatalog } from '../src/catalog/index.js';
+import { CatalogService, MemoryCatalogStore, type ObservedCatalog } from '../src/provider/catalog/index.js';
 import type { RuntimeConfig } from '../src/config.js';
 import { HarnessRuntime } from '../src/harness/index.js';
 
