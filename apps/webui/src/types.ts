@@ -20,6 +20,11 @@ import type {
     StepUsage,
     StepView,
     TaskNodeView,
+    TocAnalysisStatus,
+    TocAnalysisView,
+    TocFeedbackView,
+    TocIterationView,
+    TocRecordView,
 } from '@mazi/libs';
 
 /** GET /api/config response (re-exported from libs as ConfigOverview). */
@@ -42,6 +47,11 @@ export type {
     StepUsage,
     StepView,
     TaskNodeView,
+    TocAnalysisStatus,
+    TocAnalysisView,
+    TocFeedbackView,
+    TocIterationView,
+    TocRecordView,
 };
 
 // ============================================================
