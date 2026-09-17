@@ -1,7 +1,6 @@
 /**
- * goal-strategy —— Goal 树顺序驱动（C3d）。
- * planGoalTree → 逐 work Goal 的 Task 顺序执行（executeTask）；react-only 由调用方
- * 直接给单 work Goal（跳过切分语义由 HarnessRuntime 上层裁决）。执行事实全部经 GoalStore 留痕。
+ * goal-strategy —— Goal 顺序驱动（C3d）。
+ * planGoalTree → 逐 Goal 的 Task 顺序执行（executeTask）。执行事实全部经 GoalStore 留痕。
  */
 
 import type { Goal, LLMMessage } from '@mazi/core';
@@ -36,16 +35,8 @@ export interface GoalRunResult {
 }
 
 export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<GoalRunResult> {
-    const root = goals.find((g) => g.goalId === g.rootGoalId);
+    const runId = goals[0]?.goalId ?? '';
     const plan = planGoalTree({ goals });
-    if (plan.rejected && plan.rejected.length > 0) {
-        return {
-            rootGoalId: root?.rootGoalId ?? goals[0]?.rootGoalId ?? '',
-            tasks: [],
-            ok: false,
-            rejected: plan.rejected,
-        };
-    }
     const outcomes: TaskOutcome[] = [];
     let history: LLMMessage[] = deps.history ?? [];
     for (const goal of plan.goals) {
@@ -77,7 +68,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         ];
     }
     return {
-        rootGoalId: root?.rootGoalId ?? goals[0]?.rootGoalId ?? '',
+        rootGoalId: runId,
         tasks: outcomes,
         ok: outcomes.every((o) => o.ok),
     };

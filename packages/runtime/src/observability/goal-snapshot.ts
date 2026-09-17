@@ -1,7 +1,8 @@
 /**
- * goal-snapshot —— Goal 树观测投影（C3f，OBS v1 的最小落地）。
- * 纯函数：goals/tasks/steps → 四元组（rootGoalId/goalId/taskId/stepId）层级快照，
+ * goal-snapshot —— Goal 会话观测投影（C3f，OBS v1 的最小落地）。
+ * 纯函数：goals/tasks/steps → 四元组（rootGoalId/goalId/taskId/stepId）快照，
  * 供审计/API/WebUI 消费；事实来自 GoalStore，本模块只投影不存储。
+ * 扁平模型：goals 为同一运行会话（rootGoalId）下的独立 Goal 集。
  *
  * 视图类型（GoalNodeView / TaskNodeView / StepView / GoalTreeSnapshot / StepUsage）
  * 已上移到 @mazi/libs，供 apps/api 与 apps/webui 共享；本文件仅保留投影函数。
@@ -40,13 +41,9 @@ export function snapshotGoalTree(
         list.push(step);
         stepsByTask.set(step.taskId, list);
     }
-    const root = goals.find((g) => g.goalId === rootGoalId);
-    const treeGoals = root
-        ? [root, ...goals.filter((g) => g.rootGoalId === rootGoalId && g.goalId !== rootGoalId)]
-        : goals.filter((g) => g.rootGoalId === rootGoalId);
     let taskCount = 0;
     let stepCount = 0;
-    const views: GoalNodeView[] = treeGoals.map((goal) => {
+    const views: GoalNodeView[] = goals.map((goal) => {
         const taskViews: TaskNodeView[] = (tasksByGoal.get(goal.goalId) ?? []).map((task) => {
             const stepViews: StepView[] = (stepsByTask.get(task.taskId) ?? [])
                 .slice()

@@ -6,14 +6,11 @@ import { MemoryGoalStore } from '../src/memory/goal-store.js';
 import { runGoalTree } from '../src/strategy/goal-strategy.js';
 
 
-function goal(id: ULID, root: ULID = id, parentId?: ULID): Goal {
+function goal(id: ULID): Goal {
     return {
         goalId: id,
-        rootGoalId: root,
-        ...(parentId === undefined
-            ? { origin: { kind: 'human' as const } }
-            : { parent: { type: 'split' as const, goalId: parentId } }),
-        statement: parentId === undefined ? '切分入口' : `任务-${id}`,
+        origin: { kind: 'human' },
+        statement: `任务-${id}`,
         contract: {
             successConditions: [{ id: ulid(), checkType: 'deterministic' }],
             failureConditions: [],
@@ -42,21 +39,16 @@ const okRound: RoundResult = {
     totalMs: 1,
 };
 
-describe('goal-strategy（C3d：Goal 树顺序驱动）', () => {
-    it('intake + 两个 work 兄弟：依次执行两 Task，全部 ok', async () => {
+describe('goal-strategy（C3d：Goal 顺序驱动，扁平模型）', () => {
+    it('多个独立 Goal：依次执行两 Task，全部 ok', async () => {
         const store = new MemoryGoalStore();
-        const root = goal(ulid());
-        const a = goal(ulid(), root.goalId, root.goalId);
-        const b = goal(ulid(), root.goalId, root.goalId);
-        await store.saveGoal(root);
+        const a = goal(ulid());
+        const b = goal(ulid());
         await store.saveGoal(a);
         await store.saveGoal(b);
-        const result = await runGoalTree({ store, requestRound: async () => okRound }, [
-            root,
-            a,
-            b,
-        ]);
+        const result = await runGoalTree({ store, requestRound: async () => okRound }, [a, b]);
         expect(result.ok).toBe(true);
+        expect(result.rootGoalId).toBe(a.goalId);
         expect(result.tasks.map((x) => x.task.goalId)).toEqual([a.goalId, b.goalId]);
         const taskIds = result.tasks.map((x) => x.task.taskId);
         expect((await store.listSteps(taskIds[0]!))[0]?.goalId).toBe(a.goalId);
@@ -66,10 +58,8 @@ describe('goal-strategy（C3d：Goal 树顺序驱动）', () => {
 
     it('多 Task 共享上下文：第二个 Task 前置第一个 Task 的输入与回答', async () => {
         const store = new MemoryGoalStore();
-        const root = goal(ulid());
-        const a = goal(ulid(), root.goalId, root.goalId);
-        const b = goal(ulid(), root.goalId, root.goalId);
-        await store.saveGoal(root);
+        const a = goal(ulid());
+        const b = goal(ulid());
         await store.saveGoal(a);
         await store.saveGoal(b);
         const seen: string[][] = [];
@@ -91,7 +81,7 @@ describe('goal-strategy（C3d：Goal 树顺序驱动）', () => {
                     return okRound;
                 },
             },
-            [root, a, b],
+            [a, b],
         );
         expect(seen[0]).toEqual([a.statement]);
         expect(bases[0]).toBe(0);
@@ -99,15 +89,15 @@ describe('goal-strategy（C3d：Goal 树顺序驱动）', () => {
         expect(bases[1]).toBe(2);
     });
 
-    it('孤儿 Goal 树：拒绝出计划，返回 rejected', async () => {
-        const orphan: Goal = goal(ulid());
-        orphan.parent = { type: 'split', goalId: ulid() };
+    it('无 active Goal：不产生任务（空运行），rootGoalId 取 goals[0]', async () => {
+        const pending = goal(ulid());
+        pending.status = 'pending';
         const result = await runGoalTree(
             { store: new MemoryGoalStore(), requestRound: async () => okRound },
-            [orphan],
+            [pending],
         );
-        expect(result.ok).toBe(false);
-        expect(result.rejected?.[0]).toContain('parent');
+        expect(result.rootGoalId).toBe(pending.goalId);
         expect(result.tasks).toEqual([]);
+        expect(result.ok).toBe(true);
     });
 });

@@ -1,15 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Goal } from '../../core/src/gts.js';
 import { planGoalTree } from '../src/gts/goal-planner.js';
-import { ULID, ulid } from '../../core/src/id.js';
+import { ULID, ulid } from '../../core/src/ulid.js';
 
-function g(
-    id: ULID,
-    over: Partial<Goal> & { rootGoalId?: string } = {},
-): Goal {
+function g(id: ULID, over: Partial<Goal> = {}): Goal {
     return {
         goalId: id,
-        rootGoalId: over.rootGoalId ?? id,
         origin: { kind: 'human' },
         statement: '读取文件并汇报',
         contract: {
@@ -32,8 +28,8 @@ function g(
     };
 }
 
-describe('goal-planner（C3b：Goal → Task 最小规划）', () => {
-    it('单 Goal（叶子）→ 产出单个 Task，验收派生自 successConditions', () => {
+describe('goal-planner（C3b：Goal → Task 最小规划，扁平模型）', () => {
+    it('单 Goal → 产出单个 Task，验收派生自 successConditions', () => {
         const goal = g(ulid());
         const plan = planGoalTree({ goals: [goal] });
         expect(plan.rejected).toBeUndefined();
@@ -45,25 +41,17 @@ describe('goal-planner（C3b：Goal → Task 最小规划）', () => {
         );
     });
 
-    it('parent 引用的 Goal 缺失 → 拒绝出计划', () => {
-        const orphan = g(ulid());
-        orphan.parent = { type: 'split', goalId: ulid() };
-        const plan = planGoalTree({ goals: [orphan] });
+    it('非 active Goal → 不产出计划（可执行 = status active）', () => {
+        const pending = g(ulid(), { status: 'pending' });
+        const plan = planGoalTree({ goals: [pending] });
         expect(plan.goals).toEqual([]);
-        expect(plan.rejected?.[0]).toContain('not found');
+        expect(plan.tasks).toEqual([]);
     });
 
-    it('多叶子兄弟（同 parent 切分）→ 每叶子一 Task，带 plan 序号', () => {
-        const root = g(ulid());
-        const a = g(ulid(), {
-            rootGoalId: root.goalId,
-            parent: { type: 'split', goalId: root.goalId },
-        });
-        const b = g(ulid(), {
-            rootGoalId: root.goalId,
-            parent: { type: 'split', goalId: root.goalId },
-        });
-        const plan = planGoalTree({ goals: [root, a, b] });
+    it('多个独立 Goal → 各产一 Task，带 plan 序号', () => {
+        const a = g(ulid());
+        const b = g(ulid());
+        const plan = planGoalTree({ goals: [a, b] });
         expect(plan.goals.map((x) => x.goalId).sort()).toEqual([a.goalId, b.goalId]);
         expect(plan.tasks).toHaveLength(2);
         expect(plan.tasks.map((x) => x.goalId).sort()).toEqual([a.goalId, b.goalId]);

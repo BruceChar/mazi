@@ -43,8 +43,8 @@ function goalRunSummary(result: GoalRunResult): string {
 
 /**
  * HarnessRuntime —— Goal/Task/Step 坐标系运行器（C5 收口后为唯一执行面）。
- * createGoalSession（intake+work 树落库）→ executeGoalTree（plan→逐 Task，事实经 GoalStore 留痕）；
- * 事件全部经 DefaultEventBus 落盘 JSONL（按 rootGoalId 分文件）。
+ * createGoalSession（单 Goal 落库：user intent 直接产 Goal）→ executeGoalTree（plan→逐 Task，事实经 GoalStore 留痕）；
+ * 事件全部经 DefaultEventBus 落盘 JSONL（按 rootGoalId=运行会话 id 分文件）。
  * 本类只负责生命周期编排与 collaborator 组装；轮次执行归 RoundRunner，
  * 模型/计价解析归 ModelResolver，Step 事件归 StepEventEmitter，工具执行归 tool-executors。
  */
@@ -132,7 +132,7 @@ export class HarnessRuntime {
         this.tocStore.close();
     }
 
-    /** 创建 Goal 会话（单根 Goal；单意图快速路径，裁决 D4 快速路径）并持久化；发 goal.started */
+    /** 创建 Goal 会话（单 Goal：user intent 直接产 Goal）并持久化；发 goal.started */
     async createGoalSession(
         input: string,
         opts: RunOptions = {},
@@ -152,7 +152,6 @@ export class HarnessRuntime {
             opts.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only';
         const goal: Goal = {
             goalId: rootGoalId,
-            rootGoalId,
             origin: { kind: 'human' },
             statement: input,
             contract: {
@@ -190,7 +189,7 @@ export class HarnessRuntime {
         return { rootGoalId, goalId: rootGoalId };
     }
 
-    /** 执行 Goal 树（plan → 逐 Task；事实全部经 goalStore 留痕）；发 goal.ended */
+    /** 执行 Goal（plan → 逐 Task；事实全部经 goalStore 留痕）；发 goal.ended */
     async executeGoalTree(rootGoalId: string): Promise<GoalRunResult> {
         const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
         if (goals.length === 0) {

@@ -3,12 +3,11 @@ import type { Goal, Task } from '../../core/src/gts.js';
 import { MemoryGoalStore } from '../src/memory/goal-store.js';
 import { executeTask } from '../src/gts/goal-executor.js';
 import type { RoundResult } from '../src/gts/round-types.js';
-import { ulid } from '../../core/src/id.js';
+import { ulid } from '../../core/src/ulid.js';
 
 function goal(): Goal {
     return {
         goalId: ulid(),
-        rootGoalId: ulid(),
         origin: { kind: 'human' },
         statement: '读取 README 并汇报',
         contract: {

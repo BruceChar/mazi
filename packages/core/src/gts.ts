@@ -20,11 +20,6 @@ export interface RawPayload {
     receivedAt: number;
 }
 
-/** parent 引用（Delegation 实体解散后的坍缩形态，裁决 D6/D7） */
-export type GoalParent =
-    | { type: 'split'; goalId: ULID }
-    | { type: 'delegation'; goalId: ULID; taskId?: ULID; stepId: ULID };
-
 /** 机器可判验收条款（checkType='semantic' 占比是健康度指标，裁决 D8） */
 export interface CheckableCondition {
     id: ULID;
@@ -74,10 +69,7 @@ export interface GoalContract {
 
 export interface Goal {
     goalId: ULID;
-    /** 沿 parent 链最顶层（根自身 = goalId）；A/B 锚点与法律 1 终点 */
-    rootGoalId: ULID;
-    parent?: GoalParent;
-    /** 根 Goal 必填（origin.kind ∈ human|agent|system 均可作根来源；法律 1 终点允许 agent 委托根由上游 parent 铐链） */
+    /** 接收侧来源标记：user intent 直接产 Goal（本坐标系无树结构，Goal 相互独立） */
     origin?: { kind: OriginKind };
     rawPayload?: RawPayload;
     /** 模型对 rawPayload 中本 Goal 所指意图片段的转写（裁决 D7） */
@@ -155,7 +147,7 @@ export type StepStatus = Status | 'error' | 'skipped';
 
 interface StepBase {
     stepId: ULID;
-    /** 归因：taskId 锚定 Task，goalId 锚定 Goal（rootGoalId 沿 parent 链派生） */
+    /** 归因：taskId 锚定 Task，goalId 锚定 Goal */
     taskId: ULID;
     goalId: ULID;
     model?: { providerId: string; modelId: string };
@@ -174,83 +166,10 @@ export type Step = StepBase &
     );
 
 // ============================================================
-// 法律校验（纯函数，零 mock；docs/core/AHF_CORE_GOAL.md §6/§10）
+// 法律校验（纯函数，零 mock；docs/core/AHF_CORE_GTS.md）
+//
+// 本坐标系为扁平模型（意图直接产 Goal，Goal 相互独立、无树结构）：
+// 原「法律 1 归因链闭合」「法律 2 治理上限单调递减」随 rootGoalId/parent 移除
+// （2026-09-17 变更，见 AHF_CORE_GTS.md §8）。
+// 保留的锚点：Goal.contract（验收条款，审批可指认 { goalId, conditionId }）。
 // ============================================================
-
-export type AttributionResult = { ok: true } | { ok: false; reason: string };
-
-/** 法律 1：任何 Goal 沿 parent 边逐级回溯必须终止于有 origin.kind 的根；无孤儿动作 */
-export function validateAttributionChain(goal: Goal, index: Map<string, Goal>): AttributionResult {
-    const seen = new Set<string>();
-    let current: Goal | undefined = goal;
-    while (current !== undefined) {
-        if (seen.has(current.goalId)) {
-            return { ok: false, reason: `cycle at goal '${current.goalId}'` };
-        }
-        seen.add(current.goalId);
-        const parent = current.parent;
-        if (parent === undefined) {
-            // 根：必须声明 origin（rawPayload 由根持有为软约束）
-            if (current.origin === undefined) {
-                return { ok: false, reason: `root goal '${current.goalId}' missing origin` };
-            }
-            return { ok: true };
-        }
-        const parentGoal = index.get(parent.goalId);
-        if (parentGoal === undefined) {
-            return {
-                ok: false,
-                reason: `goal '${current.goalId}' parent '${parent.goalId}' not found`,
-            };
-        }
-        current = parentGoal;
-    }
-    return { ok: false, reason: 'unreachable' };
-}
-
-/** 法律 2：委托边 child.permissionCeiling ≤ 上游、child.budget ⊆ 上游预算；切分边兄弟预算和 ≤ parent 预算 */
-export type CeilingCheck = { ok: true } | { ok: false; reason: string };
-
-const PERMISSION_RANK: Record<PermissionLevel, number> = {
-    text: 0,
-    'read-only': 1,
-    draft: 2,
-    approved: 3,
-    autonomous: 4,
-};
-
-function ceilingOk(child: PermissionLevel, parent: PermissionLevel): boolean {
-    return (PERMISSION_RANK[child] ?? -1) <= (PERMISSION_RANK[parent] ?? -1);
-}
-
-function budgetWithin(child: BudgetAllocation, parent: BudgetAllocation): boolean {
-    const costs = ['maxTokens', 'maxCostUsd', 'maxSteps', 'maxTurns', 'timeoutMs'] as const;
-    return costs.every(
-        (key) =>
-            child[key] === undefined || parent[key] === undefined || child[key]! <= parent[key]!,
-    );
-}
-
-export function validateCeilingMonotonicity(goals: Goal[], index: Map<string, Goal>): CeilingCheck {
-    for (const goal of goals) {
-        const parent = goal.parent;
-        if (parent === undefined) continue;
-        const parentGoal = index.get(parent.goalId);
-        if (parentGoal === undefined) {
-            return { ok: false, reason: `goal '${goal.goalId}' parent not found` };
-        }
-        if (!ceilingOk(goal.permissionCeiling, parentGoal.permissionCeiling)) {
-            return {
-                ok: false,
-                reason: `goal '${goal.goalId}' ceiling '${goal.permissionCeiling}' exceeds parent '${parentGoal.permissionCeiling}'`,
-            };
-        }
-        if (parent.type === 'split' && !budgetWithin(goal.budget, parentGoal.budget)) {
-            return {
-                ok: false,
-                reason: `split goal '${goal.goalId}' budget exceeds parent budget`,
-            };
-        }
-    }
-    return { ok: true };
-}

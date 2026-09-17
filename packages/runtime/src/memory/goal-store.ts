@@ -1,7 +1,7 @@
 /**
  * goal-store —— Goal/Task/Step 归因坐标系存储（迁移并存，C1 默认裁决 ②）。
- * 独立于旧 sessions/turns/steps 表；新表 goals/tasks/steps（root_goal_id 列便于按根投影），
- * 全部消费方迁移后删除旧表。坐标契约：core/src/goal-coordinate.ts（core 未公共导出前相对引用）。
+ * 独立于旧 sessions/turns/steps 表；新表 goals/tasks/steps（root_goal_id 列 = 运行会话 id，
+ * 扁平模型下与 goal_id 相同，便于按会话投影与级联删除）。
  */
 
 import { DatabaseSync } from 'node:sqlite';
@@ -44,7 +44,7 @@ export class MemoryGoalStore implements GoalStore {
     }
     async listGoalsByRoot(rootGoalId: string): Promise<Goal[]> {
         return [...this.goals.values()]
-            .filter((g) => g.rootGoalId === rootGoalId)
+            .filter((g) => g.goalId === rootGoalId)
             .map((g) => structuredClone(g));
     }
     async saveTask(task: Task): Promise<void> {
@@ -71,7 +71,7 @@ export class MemoryGoalStore implements GoalStore {
             .map((s) => structuredClone(s));
     }
     async deleteGoalTree(rootGoalId: string): Promise<void> {
-        const roots = [...this.goals.values()].filter((g) => g.rootGoalId === rootGoalId);
+        const roots = [...this.goals.values()].filter((g) => g.goalId === rootGoalId);
         const goalIds = new Set(roots.map((g) => g.goalId));
         for (const g of roots) {
             this.goals.delete(g.goalId);
@@ -132,7 +132,7 @@ export class SqliteGoalStore implements GoalStore {
             .prepare(
                 'INSERT OR REPLACE INTO goal_nodes (goal_id, root_goal_id, json) VALUES (?, ?, ?)',
             )
-            .run(goal.goalId, goal.rootGoalId, toJson(goal));
+            .run(goal.goalId, goal.goalId, toJson(goal));
     }
     async loadGoal(goalId: string): Promise<Goal | undefined> {
         const row = this.db.prepare('SELECT json FROM goal_nodes WHERE goal_id = ?').get(goalId) as
