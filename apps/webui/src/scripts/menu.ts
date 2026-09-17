@@ -30,10 +30,7 @@ export const MENU_GAP_PX = 6;
  * `viewportHeight` are viewport coordinates and the result can be applied
  * directly as `position: fixed; top/left`.
  */
-export function computeMenuPlacement(
-    rect: MenuTriggerRect,
-    viewportHeight: number,
-): MenuPlacement {
+export function computeMenuPlacement(rect: MenuTriggerRect, viewportHeight: number): MenuPlacement {
     const up = rect.bottom + MENU_FLIP_SPACE_PX > viewportHeight;
     return {
         top: up ? rect.top - MENU_GAP_PX : rect.bottom + MENU_GAP_PX,

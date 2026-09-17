@@ -128,8 +128,7 @@ export function roundEstimate(result: RoundTextFacts): RoundEstimate | undefined
     }
     const vendorNonReasoning = Math.max(
         0,
-        (result.vendorUsage?.outputTokens ?? 0) -
-            (result.vendorUsage?.reasoningOutputTokens ?? 0),
+        (result.vendorUsage?.outputTokens ?? 0) - (result.vendorUsage?.reasoningOutputTokens ?? 0),
     );
     const drift = outputTokens - vendorNonReasoning;
     return {
@@ -137,8 +136,7 @@ export function roundEstimate(result: RoundTextFacts): RoundEstimate | undefined
         ...(result.vendorUsage !== undefined
             ? {
                   outputDriftTokens: drift,
-                  outputDriftRate:
-                      vendorNonReasoning > 0 ? drift / vendorNonReasoning : undefined,
+                  outputDriftRate: vendorNonReasoning > 0 ? drift / vendorNonReasoning : undefined,
               }
             : {}),
     };
@@ -169,8 +167,7 @@ export function roundEstimatedCost(
 export function pricingSnapshot(pricing: PricingSchedule): PricingSnapshot {
     const hourUtc = new Date().getUTCHours();
     const effective = (component: 'input' | 'cache-read' | 'output' | 'reasoning'): number =>
-        tierMultiplier(pricing, hourUtc, component) *
-        (unitPricePerMTok(pricing, component) ?? 0);
+        tierMultiplier(pricing, hourUtc, component) * (unitPricePerMTok(pricing, component) ?? 0);
     return {
         inputPerMTok: effective('input'),
         cachedInputPerMTok: effective('cache-read'),

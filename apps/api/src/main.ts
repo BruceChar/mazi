@@ -47,8 +47,4 @@ async function bootstrap(): Promise<void> {
 
 void bootstrap();
 
-
-async function startup(): Promise<void> {
-
-
-}
+async function startup(): Promise<void> {}

@@ -19,10 +19,10 @@ const probeUtil = process.platform === 'win32' ? 'where' : 'which';
 
 type ProbeResult =
     | { status: 'found'; path: string }
-    | { status: 'not-installed' }                     // 预期：该包管理器未安装
-    | { status: 'timeout'; message: string }          // 探测超时
+    | { status: 'not-installed' } // 预期：该包管理器未安装
+    | { status: 'timeout'; message: string } // 探测超时
     | { status: 'probe-unavailable'; message: string } // which/where 本身缺失
-    | { status: 'error'; message: string };            // 未知错误，保守跳过
+    | { status: 'error'; message: string }; // 未知错误，保守跳过
 
 interface ExecError extends NodeJS.ErrnoException {
     code?: string;
@@ -45,7 +45,10 @@ async function probe(cmd: string): Promise<ProbeResult> {
         const e = err as ExecError;
         // 1) 探测工具自身缺失（spawn ENOENT）：继续探测无意义，中止整个流程
         if (e.code === 'ENOENT') {
-            return { status: 'probe-unavailable', message: `探测工具 "${probeUtil}" 不可用：${e.message}` };
+            return {
+                status: 'probe-unavailable',
+                message: `探测工具 "${probeUtil}" 不可用：${e.message}`,
+            };
         }
         // 2) 超时被 kill：该候选不可用，尝试下一个
         if (e.killed || e.signal === 'SIGTERM') {
