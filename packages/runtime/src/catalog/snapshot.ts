@@ -3,8 +3,8 @@
  * 运行时层易失：重启后由 store 事实重建；在途请求各自持有派发时钉死的三元组，不受换代影响。
  */
 
-import type { CatalogSnapshot } from '@mazi/core';
-import { buildCatalogSnapshot } from '@mazi/core';
+import type { CatalogSnapshot } from './contract.js';
+import { buildCatalogSnapshot } from './contract.js';
 import type { CatalogFacts } from './state.js';
 import { cloneCatalogFacts } from './state.js';
 

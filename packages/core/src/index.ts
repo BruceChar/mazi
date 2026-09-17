@@ -7,7 +7,6 @@
  */
 
 export * as authz from './authz/index.js';
-export * from './catalog.js';
 export type * from './gts.js';
 export { validateAttributionChain, validateCeilingMonotonicity } from './gts.js';
 export { ULID, ulid } from './id.js';

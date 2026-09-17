@@ -1,3 +1,4 @@
+export * from './contract.js';
 export * from './ledger.js';
 export * from './router.js';
 export * from './seed.js';

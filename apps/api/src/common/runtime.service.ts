@@ -1,7 +1,8 @@
 import 'reflect-metadata';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { CatalogChange, PermissionLevel } from '@mazi/core';
+import type { CatalogChange } from '@mazi/runtime';
+import type { PermissionLevel } from '@mazi/core';
 import type {
     MaziPaths,
     PricingSchedule,

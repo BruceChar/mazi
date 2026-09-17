@@ -1,5 +1,6 @@
 import type { LLMRequest } from '@mazi/core';
-import { modelIdOf, offeringIdOf, providerIdOf, ulid } from '@mazi/core';
+import { modelIdOf, offeringIdOf, providerIdOf } from '../catalog/contract.js';
+import { ulid } from '@mazi/core';
 import type { CatalogService } from '../catalog/service.js';
 import { type DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import type {

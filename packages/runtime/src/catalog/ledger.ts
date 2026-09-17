@@ -3,8 +3,8 @@
  * 账本 append-only：凭证一旦落库，价格修正只影响未来请求。
  */
 
-import type { DispatchPin, Offering, PricingPlan, UsageRecord, UsageTokens } from '@mazi/core';
-import { priceUsage } from '@mazi/core';
+import type { DispatchPin, Offering, PricingPlan, UsageRecord, UsageTokens } from './contract.js';
+import { priceUsage } from './contract.js';
 
 export interface BuildUsageRecordInput {
     id: string;

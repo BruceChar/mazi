@@ -10,8 +10,8 @@ import type {
     DriverConfig,
     ModelCapabilities,
     OfferingId,
-} from '@mazi/core';
-import { capabilitySatisfies, findOfferingView } from '@mazi/core';
+} from './contract.js';
+import { capabilitySatisfies, findOfferingView } from './contract.js';
 
 export interface CatalogRouteRequest {
     driverConfig: DriverConfig;

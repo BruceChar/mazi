@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import type { DriverConfig, ModelAliasReason, ModelId, OfferingId } from '@mazi/core';
+import type { DriverConfig, ModelAliasReason, ModelId, OfferingId } from '@mazi/runtime';
 import type { UsageFilter, UsageSummary } from '@mazi/runtime';
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';

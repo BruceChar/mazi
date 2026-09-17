@@ -22,16 +22,16 @@ import type {
     PricingTier,
     ProviderId,
     VendorId,
-} from '@mazi/core';
+} from './contract.js';
 import {
     modelIdOf,
     offeringIdOf,
     pricingPlanIdOf,
     providerIdOf,
     selectActivePlan,
-    ulid,
     vendorIdOf,
-} from '@mazi/core';
+} from './contract.js';
+import { ulid } from '@mazi/core';
 import type { CatalogFacts } from './state.js';
 import { cloneCatalogFacts } from './state.js';
 

@@ -1,4 +1,4 @@
-import { modelIdOf, offeringIdOf, providerIdOf } from '@mazi/core';
+import { modelIdOf, offeringIdOf, providerIdOf } from '../src/catalog/contract.js';
 import { describe, expect, it } from 'vitest';
 import type { ProviderConfig } from '../src/config.js';
 import { CatalogService, MemoryCatalogStore } from '../src/catalog/index.js';

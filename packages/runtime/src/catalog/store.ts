@@ -17,7 +17,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import type { HealthSample, UsageRecord } from '@mazi/core';
+import type { HealthSample, UsageRecord } from './contract.js';
 import { type CatalogFacts, cloneCatalogFacts, emptyCatalogFacts } from './state.js';
 
 export interface CatalogStore {

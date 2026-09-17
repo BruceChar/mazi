@@ -13,7 +13,7 @@ import type {
     PricingPlan,
     Provider,
     Vendor,
-} from '@mazi/core';
+} from './contract.js';
 
 export interface CatalogFacts {
     /** 单调递增快照版本；目录事务提交时 +1 */

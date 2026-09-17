@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ModelCapabilities } from '@mazi/core';
-import { modelIdOf, offeringIdOf, providerIdOf } from '@mazi/core';
+import type { ModelCapabilities } from '../src/catalog/contract.js';
+import { modelIdOf, offeringIdOf, providerIdOf } from '../src/catalog/contract.js';
 import { describe, expect, it } from 'vitest';
 import {
     CatalogService,

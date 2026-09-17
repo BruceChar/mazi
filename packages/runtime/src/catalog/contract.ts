@@ -1,5 +1,6 @@
 /**
- * catalog —— 模型目录与计费数据架构契约（docs/模型目录与计费数据架构设计文档.md §4）。
+ * catalog/contract —— 模型目录与计费数据架构契约（docs/runtime/模型目录与计费数据架构设计文档.md §4）。
+ * 本文件由 @mazi/core 的 src/catalog.ts 迁入（catalog 契约与实现整体归属 runtime，core 不承载 catalog）。
  *
  * 五层概念模型：vendor（谁开发） → model（什么型号） → provider（从哪个渠道接）
  * → offering（该渠道×该型号的具体供给） → driver 协议（渠道用什么协议说话）。

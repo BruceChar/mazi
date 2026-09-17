@@ -19,8 +19,9 @@ import type {
     OfferingId,
     UsageRecord,
     UsageTokens,
-} from '@mazi/core';
-import { findOfferingView, ulid } from '@mazi/core';
+} from './contract.js';
+import { findOfferingView } from './contract.js';
+import { ulid } from '@mazi/core';
 import {
     buildUsageRecord,
     filterUsage,
