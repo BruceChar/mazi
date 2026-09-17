@@ -186,8 +186,8 @@ function finalSummaryRowOf(detailObj) {
 }
 
 /**
- * Display tree. Goals without tasks (the internal intake goal) are dropped, and
- * each task carries one full date/time so its steps only show time-of-day.
+ * Display tree. Goals without tasks are dropped, and each task carries one full
+ * date/time so its steps only show time-of-day.
  */
 function buildExecTree(detailObj) {
     const lastAnswerId = lastAnswerStepId(detailObj);
@@ -289,10 +289,6 @@ function isStepLong(row) {
     return row.text.length > 80 || row.text.includes('\n');
 }
 function stepTitleSummary(row) {
-    const isError = row.status === 'error' || row.status === 'failed';
-    if (isError) {
-        return row.text ? `Error: ${row.text.slice(0, 80)}` : '执行失败';
-    }
     return row.text ? row.text.slice(0, 80) : '';
 }
 
@@ -314,7 +310,7 @@ const stats = computed(() => buildExecStats(props.runDetail));
             @click="emit('select-step', { stepId: step.stepId, taskId: step.taskId })"
         >
             <div class="exec-step-head">
-                <span v-if="step.status === 'running'" class="exec-spinner"></span>
+                <span v-if="step.status === 'active'" class="exec-spinner"></span>
                 <LineIcon v-else :name="step.kind === 'deliberation' ? 'lightbulb' : 'hammer'" size="16" />
                 <span class="exec-step-tag">S#{{ i + 1 }}</span>
                 <span class="exec-step-name">{{ step.toolName || step.kind }}</span>
@@ -405,11 +401,6 @@ const stats = computed(() => buildExecStats(props.runDetail));
                                     class="exec-step-summary"
                                     :title="row.toolArgs ? JSON.stringify(row.toolArgs) : undefined"
                                 >{{ row.kind === 'invocation' ? row.commandText : stepTitleSummary(row) }}</span>
-                                <span
-                                    v-if="row.status === 'error' || row.status === 'failed'"
-                                    class="exec-step-status"
-                                >失败</span>
-
                             </div>
                             <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
                                 <pre class="exec-step-code-inner">{{ row.text }}</pre>
@@ -817,14 +808,6 @@ const stats = computed(() => buildExecStats(props.runDetail));
 }
 .exec-step.error .exec-step-summary {
     color: var(--error);
-}
-.exec-step-status {
-    flex: none;
-    font-size: 11px;
-    color: var(--danger, #ef4444);
-    border: 1px solid currentColor;
-    border-radius: 4px;
-    padding: 0 4px;
 }
 .exec-step-duration {
     font-size: 11px;

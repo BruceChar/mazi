@@ -3,11 +3,10 @@ import type { Goal, Step, Task, ULID } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { snapshotGoalTree } from '../src/observability/goal-snapshot.js';
 
-const goal = (id: ULID, kind: 'intake' | 'work' = 'work', rootId: ULID = id): Goal => ({
+const goal = (id: ULID, rootId: ULID = id): Goal => ({
     goalId: id,
     rootGoalId: rootId,
     origin: { kind: 'human' },
-    kind,
     statement: `s-${id}`,
     contract: {
         successConditions: [],
@@ -39,16 +38,16 @@ const step = (id: ULID, taskId: ULID, goalId: ULID): Step => ({
     goalId,
     kind: 'deliberation',
     payload: { answer: 'x' },
-    status: 'completed',
+    status: 'succeeded',
     startedAt: 1,
 });
 
 describe('goal-snapshot（C3f：四元组层级投影）', () => {
     it('intake+work → 树视图含 tasks/steps 计数', () => {
         const root = ulid();
-        const intake = goal(root, 'intake', root);
-        const workA = goal(ulid(), 'work', root);
-        const workB = goal(ulid(), 'work', root);
+        const intake = goal(root);
+        const workA = goal(ulid(), root);
+        const workB = goal(ulid(), root);
         const t1 = task(ulid(), workA.goalId);
         const t2 = task(ulid(), workB.goalId);
         const s1 = step(ulid(), t1.taskId, workA.goalId);
@@ -56,7 +55,7 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
         expect(snap.goals).toHaveLength(3);
         expect(snap.taskCount).toBe(2);
         expect(snap.stepCount).toBe(1);
-        expect(snap.goals[0]?.kind).toBe('intake');
+        expect(snap.goals[0]?.goalId).toBe(root);
         const nodeA = snap.goals.find((g) => g.goalId === workA.goalId);
         expect(nodeA?.tasks[0]?.taskId).toBe(t1.taskId);
         expect(nodeA?.tasks[0]?.steps[0]?.stepId).toBe(s1.stepId);
@@ -64,8 +63,8 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
 
     it('usage 投影：保留 vendor + runtime + cost + timing，缺省字段不输出', () => {
         const root = ulid();
-        const intake = goal(root, 'intake', root);
-        const work = goal(ulid(), 'work', root);
+        const intake = goal(root);
+        const work = goal(ulid(), root);
         const t = task(ulid(), work.goalId);
         const s: Step = {
             ...step(ulid(), t.taskId, work.goalId),
@@ -164,7 +163,7 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
 
     it('invocation 投影：toolArguments 与 toolOutput 单独暴露（命令/参数/输出）', () => {
         const root = ulid();
-        const work = goal(ulid(), 'work', root);
+        const work = goal(ulid(), root);
         const t = task(ulid(), work.goalId);
         const s: Step = {
             ...step(ulid(), t.taskId, work.goalId),
@@ -188,7 +187,7 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
 
     it('usage 投影：roundId 透传（deliberation 轮聚合去重用）', () => {
         const root = ulid();
-        const work = goal(ulid(), 'work', root);
+        const work = goal(ulid(), root);
         const t = task(ulid(), work.goalId);
         const s: Step = {
             ...step(ulid(), t.taskId, work.goalId),
@@ -200,7 +199,7 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
 
     it('usage 缺失 → 不输出 usage 字段', () => {
         const root = ulid();
-        const work = goal(ulid(), 'work', root);
+        const work = goal(ulid(), root);
         const t = task(ulid(), work.goalId);
         const s = step(ulid(), t.taskId, work.goalId);
         const snap = snapshotGoalTree(root, [work], [t], [s]);

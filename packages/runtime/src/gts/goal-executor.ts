@@ -62,10 +62,10 @@ export async function executeTask(
     goal: Goal,
 ): Promise<TaskOutcome> {
     const now = deps.now ?? Date.now;
-    // Task 生命周期时间：进入 running 记 startedAt，进入终态记 endedAt。
+    // Task 生命周期时间：进入 active 记 startedAt，进入终态记 endedAt。
     task.startedAt ??= now();
     const saveTask = async (): Promise<void> => {
-        if (task.status !== 'pending' && task.status !== 'running' && task.endedAt === undefined) {
+        if (task.status !== 'pending' && task.status !== 'active' && task.endedAt === undefined) {
             task.endedAt = now();
         }
         await deps.store.saveTask(task);
@@ -81,7 +81,7 @@ export async function executeTask(
     // Persist the task before the first round. Live observers rebuild the tree via
     // GoalStore.listTasks(); without an early row the task (and all its in-progress
     // steps) stays invisible to /timeline until the task finishes.
-    task.status = 'running';
+    task.status = 'active';
     await saveTask();
 
     const roundRequest = (): Promise<RoundResult> =>
@@ -175,7 +175,7 @@ export async function executeTask(
                               }
                             : {}),
                     },
-                    status: 'completed',
+                    status: 'succeeded',
                     startedAt: roundStartedAt,
                     endedAt: roundEndedAt,
                 };
@@ -284,7 +284,7 @@ export async function executeTask(
                         callId: call.callId,
                         ...(deps.workspaceRoot !== undefined ? { cwd: deps.workspaceRoot } : {}),
                     },
-                    status: 'running',
+                    status: 'active',
                     startedAt: now(),
                     endedAt: now(),
                 };
@@ -306,7 +306,7 @@ export async function executeTask(
                 // 执行结果合并回 invocation step；失败以 StepError（四源标签 tool）表达，
                 // 不在 payload 上再设 isError/structured。
                 toolStep.payload.output = output;
-                toolStep.status = res.ok ? 'completed' : 'error';
+                toolStep.status = res.ok ? 'succeeded' : 'error';
                 if (!res.ok) {
                     toolStep.error = {
                         code: 'tool_error',

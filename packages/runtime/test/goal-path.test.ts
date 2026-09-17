@@ -38,7 +38,7 @@ function cfg(): RuntimeConfig {
 }
 
 describe('HarnessRuntime Goal 路径（C3e，与旧 Session 路径共存）', () => {
-    it('createGoalSession + executeGoalTree：intake→work→Task 执行成功', async () => {
+    it('createGoalSession + executeGoalTree：单根 Goal → Task 执行成功', async () => {
         const rt = new HarnessRuntime(cfg(), { llmProviders: { p: new OfflineProvider() } });
         try {
             const created = await rt.createGoalSession('读取 README 并汇报');

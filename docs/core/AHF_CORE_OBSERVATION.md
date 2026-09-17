@@ -129,19 +129,18 @@ export function readPartition(rootGoalId: ULID, from?: { seq: number }): AsyncIt
 
 | kind                      | 载荷要点                                                                           | 事实内容                         | 锚定            |
 | ------------------------- | ---------------------------------------------------------------------------------- | -------------------------------- | --------------- |
-| `goal.created`          | kind: intake\|work、statement?、contractDigest、permissionCeiling、budget、parent? | 契约冻结时刻                     | GOAL §3        |
+| `goal.created`          | statement?、contractDigest、permissionCeiling、budget、parent?                     | 契约冻结时刻                     | GOAL §3        |
 | `goal.contract-revised` | fromDigest、toDigest、via: approvalId?                                             | 契约版本迁移（唯一合法迁移记录） | AUTH §5.2      |
 | `goal.ended`            | status、by: verdictId?                                                             | 终态                             | GOAL GoalStatus |
 | `intent.parsed`         | rawPayloadRef、statement、sourceSpan                                               | 模型对原料的转写事实             | GOAL D7         |
 | `intent.split`          | siblingGoalIds[]、coverageCheck: pass\|warning                                     | 切分决策 + 覆盖软校验结果        | GOAL §5        |
-| `intake.completed`      | workGoalIds[]                                                                      | intake 契约达成                  | GOAL §5.2      |
 
 ### 5.2 委托域（D6 的承载）
 
 | kind                      | 载荷要点                                                 | 分区               | 因果                                 |
 | ------------------------- | -------------------------------------------------------- | ------------------ | ------------------------------------ |
 | `delegation.dispatched` | toAgent?、payloadDigest、ceilingOffered、budgetAllocated | 发起方 A           | ← 某 step.ended                     |
-| `delegation.received`   | rawPayloadRef                                            | 接收方 B（intake） | **delegated-by** → dispatched |
+| `delegation.received`   | rawPayloadRef                                            | 接收方 B（根 Goal） | **delegated-by** → dispatched |
 
 ### 5.3 执行域
 
@@ -346,8 +345,8 @@ export interface ContextAssembled {
 
 | 场景              | 事件链                                                                                                                                                                                                       | 检验点                                               |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| 多意图输入        | goal.created(intake) → step.ended(thinking) → intent.parsed → intent.split{2 兄弟} → goal.created(work×2, 同 rootGoalId) → intake.completed                                                            | 兄弟共享 rootGoalId；coverage 软校验留痕             |
-| A 委托 B          | A 分区：step.ended(action) → delegation.dispatched；B 分区：goal.created(intake, parent=delegation) → delegation.received(**delegated-by** dispatched)                                               | 跨分区因果闭合；O13 时序先行                         |
+| 多意图输入        | goal.created → step.ended(deliberation) → intent.parsed → intent.split{2 兄弟} → goal.created(子×2, 同 rootGoalId)                                                                                  | 兄弟共享 rootGoalId；coverage 软校验留痕             |
+| A 委托 B          | A 分区：step.ended(invocation) → delegation.dispatched；B 分区：goal.created(parent=delegation) → delegation.received(**delegated-by** dispatched)                                                   | 跨分区因果闭合；O13 时序先行                         |
 | `rm -rf src/`   | step.ended(action) → capacity.called →**danger.match**{rm→delete} → capacity.pending → approval.requested → approval.decided(rejected) → capacity.rejected(GATED_REJECTED) → step 状态 blocked | V8/V16 链路全程可回放                                |
 | net.fetch 大 HTML | observation.captured(rawRef, digest,**untrusted**) → observation.prepared(trim 200KB→2KB, untrusted) → context.assembled(included, watermark)                                                       | O9/O14；untrusted 内容进的是数据位（策略在 runtime） |
 | 读`.env`        | observation.captured → observation.prepared(redactions[secret-rule]) → danger.match（恒 gated）→ approval 链                                                                                              | 脱敏留痕 = 审计信号                                  |

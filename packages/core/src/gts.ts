@@ -1,5 +1,5 @@
 /**
- * goal-task-step —— 会话观测分层指标（docs/core/AHF_CORE_GTS.md 实现载体）。
+ * goal-task-step —— 观测分层指标（docs/core/AHF_CORE_GTS.md 实现载体）。
  *
  * Goal(意图归因) / Task(目标归因) / Step(动作归因)
  *
@@ -10,7 +10,8 @@ import type { PermissionLevel } from './permissions.js';
 import type { ToolCall } from './provider.js';
 
 export type OriginKind = 'human' | 'agent' | 'system';
-export type GoalStatus = 'pending' | 'active' | 'succeeded' | 'failed' | 'aborted' | 'timeout';
+type Status = 'pending' | 'active' | 'succeeded' | 'blocked' | 'failed' | 'aborted' | 'timeout';
+export type GoalStatus = Status;
 
 /** 原始载荷 */
 export interface RawPayload {
@@ -82,8 +83,6 @@ export interface Goal {
     /** 模型对 rawPayload 中本 Goal 所指意图片段的转写（裁决 D7） */
     statement: string;
     sourceSpan?: { start: number; end: number } | { jsonPointer: string };
-    /** intake = 承载切分的系统 Goal；work = 实际工作 Goal */
-    kind: 'intake' | 'work';
     contract: GoalContract;
     permissionCeiling: PermissionLevel;
     budget: BudgetAllocation;
@@ -99,15 +98,17 @@ export interface AcceptanceSpec {
     description?: string;
 }
 
+type TaskStatus = Status;
+
 export interface Task {
     taskId: ULID;
     /** 唯一归属：验收锚定编译期强制（裁决 D3） */
     goalId: ULID;
     title: string;
     acceptance: AcceptanceSpec;
-    status: 'pending' | 'running' | 'succeeded' | 'failed' | 'rolled_back';
+    status: TaskStatus;
     parentPlanNodeId?: string;
-    /** 进入 running 的时间（executor 落库；旧数据缺省） */
+    /** 进入 active 的时间（executor 落库；旧数据缺省） */
     startedAt?: number;
     /** 进入终态的时间 */
     endedAt?: number;
@@ -150,14 +151,7 @@ export interface StepError {
     cause?: unknown;
 }
 
-export type StepStatus =
-    | 'pending'
-    | 'running'
-    | 'completed'
-    | 'error'
-    | 'skipped'
-    | 'blocked'
-    | 'aborted';
+export type StepStatus = Status | 'error' | 'skipped';
 
 interface StepBase {
     stepId: ULID;
@@ -254,7 +248,7 @@ export function validateCeilingMonotonicity(goals: Goal[], index: Map<string, Go
         if (parent.type === 'split' && !budgetWithin(goal.budget, parentGoal.budget)) {
             return {
                 ok: false,
-                reason: `split goal '${goal.goalId}' budget exceeds parent intake budget`,
+                reason: `split goal '${goal.goalId}' budget exceeds parent budget`,
             };
         }
     }

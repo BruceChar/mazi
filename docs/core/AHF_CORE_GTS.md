@@ -25,8 +25,10 @@ Goal（意图单元）── 意图片段的契约化：冻结验收 + 归因 + 
 ```ts
 // ═══ goal.ts ═══
 export type OriginKind = 'human' | 'agent' | 'system';
-export type GoalStatus =
-  | 'active' | 'succeeded' | 'failed' | 'aborted' | 'timeout';
+/** 统一状态词表：Goal / Task / Step 共用（Step 另有 'error' | 'skipped'） */
+export type Status =
+  | 'pending' | 'active' | 'succeeded' | 'blocked' | 'failed' | 'aborted' | 'timeout';
+export type GoalStatus = Status;
 /** 原始载荷：原料必须完整保存（多意图切分的输入） */
 export interface RawPayload {
   contentType: 'text' | 'structured' | 'event';
@@ -36,7 +38,7 @@ export interface RawPayload {
 /** parent 引用：Delegation 实体解散后的坍缩形态（裁决 D6）
     两种类型覆盖归因链的全部边 */
 export type GoalParent =
-  /** 切分边：我是从哪个 Goal（intake）切出来的兄弟之一 */
+  /** 切分边：我是从哪个 Goal 切出来的兄弟之一 */
   | { type: 'split'; goalId: string }
   /** 委托边：我是被上游哪个 step 委托出来的
       （agent 委托 / human 输入 / system 触发统一走这条边） */
@@ -58,8 +60,6 @@ export interface Goal {
   /** 在 rawPayload 中的定位（原 IntentSlice.sourceSpan）：
       覆盖性软校验的输入，供审计比对转写忠实度 */
   sourceSpan?: { start: number; end: number } | { jsonPointer: string };
-  /** 变体标记：intake = 承载切分的系统 Goal（见 §5） */
-  kind: 'intake' | 'work';
   contract: GoalContract;               // 冻结的契约（字段集见 §4）
   /** 治理上限（原 Delegation 的 ceiling 宿主，裁决 D6） */
   permissionCeiling: PermissionLevel;
@@ -74,7 +74,8 @@ export interface Goal {
 
 - `parent` 是唯一的结构引用，不存在 `children` / `siblingGroup` 之类的反向字段——它们可从 parent 边派生（单一真相源）；
 - `rawPayload` 只在树根持有。多意图兄弟通过 parent 链访问，审计时“这次输入的原料”有唯一存放处；
-- 解析决策（`parsedByStepId`）不再作为字段存在——解析是 intake Goal 树下的一个 deliberation Step，归因由结构 + 事件流天然表达（裁决 D7）。
+- 解析决策（`parsedByStepId`）不再作为字段存在——解析是根 Goal 树下的一个 deliberation Step，归因由结构 + 事件流天然表达（裁决 D7）；
+- 不再有 `kind: 'intake' | 'work'` 变体：根 Goal 本身就是可挂载解析 Step 的普通 Goal，可执行性由结构判定（叶子 Goal，见 §5.2）。
 
 ### 3.2 Task
 
@@ -88,7 +89,7 @@ export interface Task {
   /** 验收锚定 goal.contract 的具体条款 */
   acceptance: AcceptanceSpec;
   capacity: Capacity;                   // 类型细节属后续模块，此处仅引用
-  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'rolled_back';
+  status: TaskStatus;                   // = Status（统一词表）
   parentPlanNodeId?: string;            // 关联 Plan 图（Plan 契约属后续模块）
 }
 ```
@@ -131,8 +132,7 @@ export interface StepError {
   cause?: unknown;
 }
 
-export type StepStatus =
-  | 'pending' | 'running' | 'completed' | 'error' | 'skipped' | 'blocked' | 'aborted';
+export type StepStatus = Status | 'error' | 'skipped';
 
 interface StepBase {
   stepId: string;
@@ -175,7 +175,7 @@ export interface GoalContract {
 
 **契约的消费者不是 actor**（裁决 D8 的核心论证）：评估器需要独立于行动者的参照物来判 done；审批人需要指认“批的是服务于哪个条款的动作”；审计员需要重建决策链；漂移对抗需要每次注入可重载的外部锚点。这些角色都读不到模型的内部状态——模型把意图理解内化得再好，也只消除“actor 需要提醒”这一项消费者。契约是**角色间协议**，不是记忆辅助。`successConditions` 中 `checkType: 'semantic'` 的占比是健康度指标——能用确定性代码判的绝不交给 judge。
 
-## 5. 多意图切分与 intake 变体
+## 5. 多意图切分
 
 ### 5.1 切分发生在 Goal 层（裁决 D3）
 
@@ -186,24 +186,19 @@ export interface GoalContract {
 > - 不可定义（部分成功语义）→ 切分为兄弟 Goal；
 > - 意图间是产出依赖（B 的验收引用 A 的产出物）→ 同一 Goal 内的多个 Task。| 输入                                                                                                                                                                                                                         | 判定                            | 结构                                   |
 >   | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | -------------------------------------- |
->   | “调研 X 并基于调研写报告”                                                                                                                                                                                                  | 报告验收引用调研产出 → 单 done | 一个 work Goal，Task₁→Task₂         |
->   | “修 bug Y，顺便调研 Z”                                                                                                                                                                                                     | 两个独立 done                   | 两个兄弟 work Goal，parent 同一 intake |
->   | agent 结构化委托含 3 个 task 条目                                                                                                                                                                                            | 显式多意图                      | 3 个兄弟 work Goal                     |
+>   | “调研 X 并基于调研写报告”                                                                                                                                                                                                  | 报告验收引用调研产出 → 单 done | 一个 Goal，Task₁→Task₂         |
+>   | “修 bug Y，顺便调研 Z”                                                                                                                                                                                                     | 两个独立 done                   | 两个兄弟 Goal（同一 parent） |
+>   | agent 结构化委托含 3 个 task 条目                                                                                                                                                                                            | 显式多意图                      | 3 个兄弟 Goal                     |
 >   | 三条论证（为何不沉到 Task 层）：验收锚定唯一性（多目标共契约 → done 判定崩坏，反思反馈无法锚定条款）；治理粒度（预算/权限/漂移检测以契约为锚，共契约互相污染）；失败隔离（Goal 是回滚与失败报告的天然边界，兄弟独立成败）。 |                                 |                                        |
 
-### 5.2 intake 变体（裁决 D4）
+### 5.2 解析归因挂在根 Goal 上（取消 intake 变体）
 
-切分本身是模型的概率决策，切错代价极高（错切 = 全部后续归因错误）。归因闭合不能在系统自身的解析决策处豁口——解析决策必须是树上的一个 deliberation Step，而 Step 需要 Goal 可挂：
+切分本身是模型的概率决策，切错代价极高（错切 = 全部后续归因错误）。归因闭合不能在系统自身的解析决策处豁口——解析决策必须是树上的一个 deliberation Step，而 Step 需要 Goal 可挂。取消 `kind: 'intake' | 'work'` 后，不再有专门的「切分容器 Goal」：
 
-```ts
-// 判别：goal.kind === 'intake'
-// 契约固定且机械可判：该次输入的全部意图已识别并完成契约化
-//     （判定 = 子 Goal 创建事件齐全）
-```
-
-- **human 输入**：根 Goal 是 intake；解析 Step 在其树下；切分完成即终结（寿命极短）；
-- **agent 委托**：B 侧同样建 intake——B 的接收处理与 A 侧发起 step 通过 `parent(delegation).stepId` 闭合链路；
-- **单意图快速路径**：intake 契约化一个 work Goal 后终结，无兄弟产生；
+- **human 输入**：根 Goal 本身承载 `rawPayload` 与 `origin`；解析 Step 挂在其下；切分出兄弟 Goal 时，根仍是同一棵树（rootGoalId）的根；
+- **agent 委托**：B 侧根 Goal 通过 `parent(delegation).stepId` 与 A 侧发起 step 闭合链路；
+- **单意图快速路径**：根 Goal 直接作为可执行叶子（无子 Goal），无需再物化一个 work 子 Goal；
+- **可执行性由结构判定**：不引入标签，`planGoalTree` 取「status active 且未被任何 Goal 作为 parent 引用」的叶子 Goal 执行；根在无子节点时本身就是叶子；
 - **自举性**：Goal 层自己的工作（意图解析、切分）被同一套坐标系审计——可回溯、可复盘、可人工修正。
 
 ### 5.3 多 agent 编排不引入新原语（裁决 D5 + D6）
@@ -215,8 +210,8 @@ A 的 Goal₁ ── Task ── Step_s（deliberation 提出委托 / invocation
                           │  委托事件（delegation.dispatched，记录于 A 的 trace）
                           ▼
 B 侧根 Goal₂ ── parent: { type: 'delegation', goalId: Goal₁, stepId: s }
-   （intake 变体，持有 rawPayload、permissionCeiling ≤ A 发起上下文）
-        └── 切分 → work Goal 树
+   （持有 rawPayload、permissionCeiling ≤ A 发起上下文）
+        └── 切分 → 子 Goal 树
 ```
 
 human 输入、agent 委托、system 触发统一走 `parent: delegation` 边——**多意图切分与多 agent 编排是同一个结构问题**：都是树上的子树生成，共享同一套归因校验、同一套预算/权限递减、同一个 A/B 锚点（rootGoalId）。
@@ -237,7 +232,7 @@ origin.kind ∈ { human, system } 的根 Goal。没有孤儿动作。
 ```
 委托边上：child.permissionCeiling ≤ 委托发起上下文的权限；
           child.budget ≤ 上游预算分配。
-切分边上：兄弟 Goal 的 budget 之和 ≤ parent(intake).budget。
+切分边上：兄弟 Goal 的 budget 之和 ≤ parent.budget。
 唯一升权路径 = 人类审批（属后续审批契约）。
 ```
 
@@ -251,7 +246,7 @@ origin.kind ∈ { human, system } 的根 Goal。没有孤儿动作。
 
 ## 7. 与观测事件的衔接（仅声明锚点）
 
-事件全集中与坐标系相关的类型：`goal.created / goal.ended / delegation.received / delegation.dispatched / intent.parsed / intent.split / intake.completed / task.started / task.ended / step.started / step.ended`。所有事件携带 `{ goalId, taskId?, stepId?, rootGoalId }`。**委托是事件而非实体**（D6）——它的全部事实（发起者、载荷、时刻）记录在事件流中，实体侧的坍缩形态就是 `Goal.parent`。事件契约的完整定义属后续观测模块。
+事件全集中与坐标系相关的类型：`goal.created / goal.ended / delegation.received / delegation.dispatched / intent.parsed / intent.split / task.started / task.ended / step.started / step.ended`。所有事件携带 `{ goalId, taskId?, stepId?, rootGoalId }`。**委托是事件而非实体**（D6）——它的全部事实（发起者、载荷、时刻）记录在事件流中，实体侧的坍缩形态就是 `Goal.parent`。事件契约的完整定义属后续观测模块。
 
 ## 8. 删除测试表（本层）
 
@@ -263,13 +258,13 @@ origin.kind ∈ { human, system } 的根 Goal。没有孤儿动作。
 | `Goal.permissionCeiling / budget`         | 法律 2 失去节点，越权路径打开                                       | 留                   |
 | `Goal.rawPayload`（仅根持有）             | 意图覆盖校验、转写忠实度审计失去原料                                | 留（仅根必填）       |
 | `Goal.statement / sourceSpan`             | 切分决策不可回溯，转写忠实度不可比对                                | 留                   |
-| `kind: 'intake'` 变体                     | 解析 Step 无家可挂，归因闭合在系统自身决策处豁口                    | 留                   |
+| `Goal.kind: 'intake' \| 'work'`          | **无断裂**：可执行性改由结构判定（叶子 Goal）；根直接承载 rawPayload 与解析 Step | **取消（最小抽象）** |
 | `Task.goalId` 唯一归属                    | 验收锚定多义，反思反馈无法锚定条款                                  | 留（编译期强制）     |
 | `StepKind` 二分（deliberation / invocation） | **无断裂**：决策链三环节坍缩为字段（推理/回答/提议、执行/结果），按来源而非环节分类；字段可表达的不增设 kind | **二分（最小抽象）** |
 | Delegation 独立实体                         | **无断裂**：全部职能可由 parent 边 + 委托事件 + Goal 字段推导 | **解散（D6）** |
 | IntentSlice 独立类型                        | **无断裂**：statement/sourceSpan 并入 Goal，解析归因由树表达  | **坍缩（D7）** |
 | `children` / `siblingGroup` 反向字段    | **无断裂**：可从 parent 边派生，双真相源风险                  | **不设**       |
-| `parsedByStepId` 字段                     | **无断裂**：由 intake 树结构 + 事件流隐含                     | **不设**       |
+| `parsedByStepId` 字段                     | **无断裂**：由根 Goal 树结构 + 事件流隐含                     | **不设**       |
 
 ---
 
@@ -277,11 +272,11 @@ origin.kind ∈ { human, system } 的根 Goal。没有孤儿动作。
 
 | 组成                                          | 演化                             | 依据                                             |
 | --------------------------------------------- | -------------------------------- | ------------------------------------------------ |
-| 解析/切分编排（intake 的 runtime 管线）       | 削薄 → 删除                     | 理解劳动被模型吸收（脚手架纪律）                 |
+| 解析/切分编排（runtime 管线）                 | 削薄 → 删除                     | 理解劳动被模型吸收（脚手架纪律）                 |
 | 协商回路                                      | 频率趋零；不可逆目标保留签字仪式 | commit 是后果转移仪式，非纠错                    |
 | 契约**内容**生产                        | 模型自撰，成本趋零               | 能力内化                                         |
 | 契约**形式**（冻结、机械可判、ceiling） | 不变，且承压增大                 | 消费者是评估器/审批人/审计员，读不到模型内部状态 |
-| `kind: 'intake'` 变体                       | 可能坍缩为标记字段               | 单步高可靠解析后留痕必要性下降                   |
+| 解析归因挂载（根 Goal）                       | 不变                             | 解析 Step 需要 Goal 可挂，是归因闭合的必要条件   |
 | 三层结构 + parent 链 + 法律 1/2               | 不变                             | 归因完备性下限；不可逆性/责任归属是环境属性      |
 
 **判断某段 Goal 层代码会不会被 AGI 淘汰的操作性判据**：问“它服务理解还是承诺”——服务理解的（解析编排、切分管线）设计上就该被删；服务承诺的（冻结、机械可判、审批锚点、递减校验）删它们等于删架构哲学。

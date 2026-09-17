@@ -9,6 +9,8 @@ import type {
 } from '@mazi/core';
 import { type authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot } from '@mazi/libs';
+import { TocAnalyst } from '../analysis/toc-analyst.js';
+import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
 import type { CatalogService } from '../catalog/service.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
@@ -52,6 +54,9 @@ export class HarnessRuntime {
     private readonly resolver: ModelResolver;
     private readonly stepEvents: StepEventEmitter;
     private readonly roundRunner: RoundRunner;
+    /** TOC/Iterations 独立存储与编排（不进 Goal 坐标系） */
+    private readonly tocStore: TocStore;
+    private readonly tocAnalysis: TocAnalyst;
     private readonly config: RuntimeConfig;
     private readonly workspaceRoot?: string;
     /** Human-in-the-loop approval seam; absent → runtime gateway uses the standing ceiling approval. */
@@ -75,6 +80,14 @@ export class HarnessRuntime {
             bus: this.bus,
             executor: new RoundExecutor(),
             resolver: this.resolver,
+        });
+        this.tocStore = new SqliteTocStore(config.dbPath ?? ':memory:');
+        this.tocAnalysis = new TocAnalyst({
+            store: this.tocStore,
+            snapshotOf: (rootGoalId) => this.goalSnapshot(rootGoalId),
+            requestRound: (rootGoalId, ctx, reasoningLevel) =>
+                this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel),
+            resolveModelChoice: (modelId) => this.resolver.resolveModelChoice(modelId),
         });
         if (config.consoleEnabled ?? false) {
             this.bus.subscribe({}, new ConsoleSink());
@@ -105,15 +118,21 @@ export class HarnessRuntime {
         return this.goalStoreDb;
     }
 
+    /** TOC 冻结、独立分析、反馈与 Iterations 聚合（独立于 Goal 坐标系） */
+    get tocAnalyst(): TocAnalyst {
+        return this.tocAnalysis;
+    }
+
     get currentWorkspaceRoot(): string | undefined {
         return this.workspaceRoot;
     }
 
     async close(): Promise<void> {
         this.goalStoreDb.close();
+        this.tocStore.close();
     }
 
-    /** 创建 Goal 会话（intake 根 + 单 work；单意图快速路径，裁决 D4 快速路径）并持久化；发 goal.started */
+    /** 创建 Goal 会话（单根 Goal；单意图快速路径，裁决 D4 快速路径）并持久化；发 goal.started */
     async createGoalSession(
         input: string,
         opts: RunOptions = {},
@@ -129,14 +148,12 @@ export class HarnessRuntime {
         if (opts.modelId) {
             this.pendingModel.set(rootGoalId, opts.modelId);
         }
-        const goalId = ulid();
         const ceiling =
             opts.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only';
-        const intake: Goal = {
+        const goal: Goal = {
             goalId: rootGoalId,
             rootGoalId,
             origin: { kind: 'human' },
-            kind: 'intake',
             statement: input,
             contract: {
                 successConditions: [{ id: ulid(), checkType: 'deterministic' }],
@@ -155,36 +172,12 @@ export class HarnessRuntime {
             status: 'active',
             createdAt: Date.now(),
         };
-        const work: Goal = {
-            goalId,
-            rootGoalId,
-            parent: { type: 'split', goalId: rootGoalId },
-            kind: 'work',
-            statement: input,
-            contract: {
-                successConditions: [{ id: ulid(), checkType: 'deterministic' }],
-                failureConditions: [],
-                forbiddenResources: [],
-                budget: {},
-                terminationPolicy: {},
-                riskProfile: {
-                    hasIrreversibleActions: false,
-                    touchesNetwork: false,
-                    touchesExternalApi: false,
-                },
-            },
-            permissionCeiling: ceiling,
-            budget: {},
-            status: 'active',
-            createdAt: Date.now(),
-        };
-        await this.goalStoreDb.saveGoal(intake);
-        await this.goalStoreDb.saveGoal(work);
+        await this.goalStoreDb.saveGoal(goal);
         this.bus.emit(
             newHarnessEvent({
                 type: 'goal.started',
                 rootGoalId,
-                goalId,
+                goalId: rootGoalId,
                 attributes: {},
                 payload: {
                     rawInput: input,
@@ -194,7 +187,7 @@ export class HarnessRuntime {
             }),
         );
         await this.bus.flush();
-        return { rootGoalId, goalId };
+        return { rootGoalId, goalId: rootGoalId };
     }
 
     /** 执行 Goal 树（plan → 逐 Task；事实全部经 goalStore 留痕）；发 goal.ended */
@@ -212,11 +205,11 @@ export class HarnessRuntime {
         const modelId = this.pendingModel.get(rootGoalId);
         this.pendingModel.delete(rootGoalId);
         const model = this.resolver.resolveModelChoice(modelId);
-        const workGoal = goals.find((goal) => goal.kind === 'work');
+        const rootGoal = goals.find((goal) => goal.goalId === rootGoalId) ?? goals[0];
         const exec = this.goalExecutionConfig(
             rootGoalId,
-            workGoal?.goalId ?? rootGoalId,
-            workGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
+            rootGoal?.goalId ?? rootGoalId,
+            rootGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
         );
         const result = await runGoalTree(
             {
@@ -240,14 +233,14 @@ export class HarnessRuntime {
             result.tasks.map((outcome) => [outcome.task.goalId, outcome]),
         );
         for (const goal of goals) {
-            const settled = result.ok ? 'succeeded' : 'failed';
-            if (goal.kind === 'work') {
-                goal.status = outcomeByGoal.get(goal.goalId)?.ok ? 'succeeded' : 'failed';
-            } else if (goal.kind === 'intake') {
-                goal.status = settled;
-            } else {
-                continue;
-            }
+            const outcome = outcomeByGoal.get(goal.goalId);
+            goal.status = outcome
+                ? outcome.ok
+                    ? 'succeeded'
+                    : 'failed'
+                : result.ok
+                  ? 'succeeded'
+                  : 'failed';
             await this.goalStoreDb.saveGoal(goal);
         }
         this.bus.emit(
@@ -387,6 +380,7 @@ export class HarnessRuntime {
         }
         if (tool?.command) {
             const res = await runCliTool(tool.command, args, this.workspaceRoot);
+            console.log('runcli tool result:', res);
             return res.ok
                 ? { ok: true, content: res.content ?? '' }
                 : { ok: false, error: res.error ?? 'tool failed' };

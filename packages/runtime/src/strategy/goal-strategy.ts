@@ -48,7 +48,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
     }
     const outcomes: TaskOutcome[] = [];
     let history: LLMMessage[] = deps.history ?? [];
-    for (const goal of plan.workGoals) {
+    for (const goal of plan.goals) {
         const task = plan.tasks.find((t) => t.goalId === goal.goalId);
         if (task === undefined) continue;
         const outcome = await executeTask(

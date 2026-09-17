@@ -10,7 +10,6 @@ function goal(): Goal {
         goalId: ulid(),
         rootGoalId: ulid(),
         origin: { kind: 'human' },
-        kind: 'work',
         statement: '读取 README 并汇报',
         contract: {
             successConditions: [{ id: ulid(), checkType: 'deterministic' }],
@@ -154,7 +153,7 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
             g,
         );
         expect(duringRun.map((x) => x.taskId)).toContain(t.taskId);
-        expect(duringRun[0]?.status).toBe('running');
+        expect(duringRun[0]?.status).toBe('active');
     });
 
     it('requestRound 抛错 → driver-error，不落 Step', async () => {

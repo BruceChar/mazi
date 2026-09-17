@@ -167,8 +167,8 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
             await runtime.executeGoalTree(rootGoalId);
             // While the tool was still executing, the snapshot must already expose the
             // running task and the steps produced so far.
-            expect(observed).toContain('deliberation:completed');
-            expect(observed).toContain('invocation:running');
+            expect(observed).toContain('deliberation:succeeded');
+            expect(observed).toContain('invocation:active');
         } finally {
             await runtime.close();
         }

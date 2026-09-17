@@ -11,7 +11,6 @@ function goal(id: ULID, root = id): Goal {
         goalId: id,
         rootGoalId: root,
         origin: { kind: 'human' },
-        kind: id === root ? 'intake' : 'work',
         statement: 's',
         contract: {
             successConditions: [],
@@ -41,7 +40,7 @@ function step(id: ULID, taskId: ULID, goalId: ULID): Step {
         goalId,
         kind: 'deliberation',
         payload: { answer: 'x' },
-        status: 'completed',
+        status: 'succeeded',
         startedAt: 1,
     };
 }

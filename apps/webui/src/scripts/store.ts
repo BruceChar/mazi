@@ -291,17 +291,15 @@ export const short = (s: string | null | undefined, n = 120): string =>
 
 export function statusLabel(status: string | null | undefined): string {
     const map: Record<string, string> = {
+        pending: '待执行',
         active: '进行中',
         succeeded: '成功',
         failed: '失败',
         aborted: '中止',
         timeout: '超时',
-        ok: '成功',
-        error: '出错',
         blocked: '拦截',
-        running: '运行中',
-        pending: '待执行',
-        rolled_back: '已回滚',
+        skipped: '跳过',
+        error: '出错',
     };
     return map[status ?? ''] ?? status ?? '—';
 }
@@ -568,7 +566,7 @@ function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
         content,
         status,
         startedAt: at,
-        endedAt: status === 'running' ? null : at,
+        endedAt: status === 'active' ? null : at,
         usage: (payload.usage as StepUsage | undefined) ?? null,
     };
 }
@@ -582,12 +580,12 @@ function applyStepStarted(rootGoalId: string, event: EventItem): void {
     }
     const at = typeof event.timestamp === 'number' ? event.timestamp : Date.now();
     for (const step of list) {
-        if (step.status === 'running') {
-            step.status = 'completed';
+        if (step.status === 'active') {
+            step.status = 'succeeded';
             step.endedAt = at;
         }
     }
-    list.push(liveStepOf(event, 'running'));
+    list.push(liveStepOf(event, 'active'));
 }
 
 /** step.ended: update the matching row in place (tool call running -> ok/error). */
@@ -597,7 +595,7 @@ function applyStepEnded(rootGoalId: string, event: EventItem): void {
         list = [];
         liveSteps[rootGoalId] = list;
     }
-    const updated = liveStepOf(event, 'completed');
+    const updated = liveStepOf(event, 'succeeded');
     const existing = list.find((step) => step.stepId === updated.stepId);
     if (!existing) {
         list.push(updated);

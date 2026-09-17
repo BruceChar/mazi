@@ -347,7 +347,6 @@ export interface TaskNodeView {
 /** A goal node in the goal-tree snapshot. */
 export interface GoalNodeView {
     goalId: string;
-    kind: 'intake' | 'work';
     status: string;
     statement: string;
     tasks: TaskNodeView[];

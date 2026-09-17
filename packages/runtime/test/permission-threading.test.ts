@@ -31,8 +31,8 @@ describe('per-run permission ceiling', () => {
         const runtime = new HarnessRuntime(configIn(dir));
         const created = await runtime.createGoalSession('hi', { permissionCeiling: 'draft' });
         const goals = await runtime.goalStore.listGoalsByRoot(created.rootGoalId);
-        const work = goals.find((goal) => goal.kind === 'work');
-        expect(work?.permissionCeiling).toBe('draft');
+        const root = goals.find((goal) => goal.goalId === created.rootGoalId);
+        expect(root?.permissionCeiling).toBe('draft');
         await runtime.close();
     });
 
@@ -42,8 +42,8 @@ describe('per-run permission ceiling', () => {
         const runtime = new HarnessRuntime(configIn(dir));
         const created = await runtime.createGoalSession('hi');
         const goals = await runtime.goalStore.listGoalsByRoot(created.rootGoalId);
-        const work = goals.find((goal) => goal.kind === 'work');
-        expect(work?.permissionCeiling).toBe('read-only');
+        const root = goals.find((goal) => goal.goalId === created.rootGoalId);
+        expect(root?.permissionCeiling).toBe('read-only');
         await runtime.close();
     });
 });

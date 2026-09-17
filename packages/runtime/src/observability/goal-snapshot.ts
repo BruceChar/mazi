@@ -107,7 +107,6 @@ export function snapshotGoalTree(
         taskCount += taskViews.length;
         return {
             goalId: goal.goalId,
-            kind: goal.kind,
             status: goal.status,
             statement: goal.statement,
             tasks: taskViews,

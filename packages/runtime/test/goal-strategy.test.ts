@@ -6,14 +6,14 @@ import { MemoryGoalStore } from '../src/memory/goal-store.js';
 import { runGoalTree } from '../src/strategy/goal-strategy.js';
 
 
-function goal(id: ULID, kind: 'intake' | 'work', root: ULID = ulid()): Goal {
+function goal(id: ULID, root: ULID = id, parentId?: ULID): Goal {
     return {
         goalId: id,
         rootGoalId: root,
-        origin: kind === 'intake' ? { kind: 'human' } : undefined,
-        parent: kind === 'work' ? { type: 'split', goalId: root } : undefined,
-        kind,
-        statement: kind === 'work' ? `任务-${id}` : '切分入口',
+        ...(parentId === undefined
+            ? { origin: { kind: 'human' as const } }
+            : { parent: { type: 'split' as const, goalId: parentId } }),
+        statement: parentId === undefined ? '切分入口' : `任务-${id}`,
         contract: {
             successConditions: [{ id: ulid(), checkType: 'deterministic' }],
             failureConditions: [],
@@ -45,9 +45,9 @@ const okRound: RoundResult = {
 describe('goal-strategy（C3d：Goal 树顺序驱动）', () => {
     it('intake + 两个 work 兄弟：依次执行两 Task，全部 ok', async () => {
         const store = new MemoryGoalStore();
-        const root = goal(ulid(), 'intake');
-        const a = goal(ulid(), 'work', root.goalId);
-        const b = goal(ulid(), 'work', root.goalId);
+        const root = goal(ulid());
+        const a = goal(ulid(), root.goalId, root.goalId);
+        const b = goal(ulid(), root.goalId, root.goalId);
         await store.saveGoal(root);
         await store.saveGoal(a);
         await store.saveGoal(b);
@@ -66,9 +66,9 @@ describe('goal-strategy（C3d：Goal 树顺序驱动）', () => {
 
     it('多 Task 共享上下文：第二个 Task 前置第一个 Task 的输入与回答', async () => {
         const store = new MemoryGoalStore();
-        const root = goal(ulid(), 'intake');
-        const a = goal(ulid(), 'work', root.goalId);
-        const b = goal(ulid(), 'work', root.goalId);
+        const root = goal(ulid());
+        const a = goal(ulid(), root.goalId, root.goalId);
+        const b = goal(ulid(), root.goalId, root.goalId);
         await store.saveGoal(root);
         await store.saveGoal(a);
         await store.saveGoal(b);
@@ -100,7 +100,7 @@ describe('goal-strategy（C3d：Goal 树顺序驱动）', () => {
     });
 
     it('孤儿 Goal 树：拒绝出计划，返回 rejected', async () => {
-        const orphan: Goal = goal(ulid(), 'work');
+        const orphan: Goal = goal(ulid());
         orphan.parent = { type: 'split', goalId: ulid() };
         const result = await runGoalTree(
             { store: new MemoryGoalStore(), requestRound: async () => okRound },

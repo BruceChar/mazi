@@ -12,7 +12,6 @@ function g(
         goalId: id,
         rootGoalId: over.rootGoalId ?? id,
         parent: over.parent,
-        kind: 'work',
         statement: 's',
         contract: {
             successConditions: [],
@@ -36,7 +35,7 @@ function g(
 
 describe('法律校验（AHF_CORE_GOAL §6/§10，纯函数）', () => {
     it('validateAttributionChain：单根（human 输入）通过', () => {
-        const root = g(ulid(), { kind: 'intake', origin: { kind: 'human' } });
+        const root = g(ulid(), { origin: { kind: 'human' } });
         expect(validateAttributionChain(root, new Map([[root.goalId, root]]))).toEqual({
             ok: true,
         });
@@ -70,10 +69,9 @@ describe('法律校验（AHF_CORE_GOAL §6/§10，纯函数）', () => {
     });
 
     it('委托链（human → agent 委托 → work）三层可回溯', () => {
-        const root = g(ulid(), { kind: 'intake', origin: { kind: 'human' } });
+        const root = g(ulid(), { origin: { kind: 'human' } });
         const intakeB = g(ulid(), {
             rootGoalId: root.goalId,
-            kind: 'intake',
             parent: { type: 'delegation', goalId: root.goalId, stepId: ulid() },
         });
         const work = g(ulid(), {
@@ -90,7 +88,6 @@ describe('法律校验（AHF_CORE_GOAL §6/§10，纯函数）', () => {
 
     it('validateCeilingMonotonicity：兄弟 budget 总和 ≤ parent、ceiling 递减合规', () => {
         const intake: Goal = g(ulid(), {
-            kind: 'intake',
             origin: { kind: 'human' },
             permissionCeiling: 'autonomous',
             budget: { maxCostUsd: 1 },

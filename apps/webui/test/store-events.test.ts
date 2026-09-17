@@ -34,9 +34,9 @@ const snapshot = {
             tasks: [
                 {
                     taskId: 't1',
-                    status: 'running',
+                    status: 'active',
                     title: 'do it',
-                    steps: [{ stepId: 's1', kind: 'invocation', status: 'completed', startedAt: 1, endedAt: 2 }],
+                    steps: [{ stepId: 's1', kind: 'invocation', status: 'succeeded', startedAt: 1, endedAt: 2 }],
                 },
             ],
         },
@@ -99,18 +99,18 @@ describe('webui live step refresh', () => {
             type: 'step.started',
             taskId: 't1',
             stepId: 'a',
-            payload: { kind: 'invocation', status: 'running', content: 'read README' },
+            payload: { kind: 'invocation', status: 'active', content: 'read README' },
         });
         source.emit('step.started', {
             eventId: 's2',
             type: 'step.started',
             taskId: 't1',
             stepId: 'b',
-            payload: { kind: 'deliberation', status: 'completed', content: 'next thought' },
+            payload: { kind: 'deliberation', status: 'succeeded', content: 'next thought' },
         });
         expect(liveSteps['run-2']?.map((step) => step.stepId)).toEqual(['a', 'b']);
         // Starting b closes a (the "next step starts, previous ends" rule).
-        expect(liveSteps['run-2']?.[0]?.status).toBe('completed');
+        expect(liveSteps['run-2']?.[0]?.status).toBe('succeeded');
         expect(liveSteps['run-2']?.[0]?.endedAt).not.toBeNull();
     });
 
@@ -122,16 +122,16 @@ describe('webui live step refresh', () => {
             type: 'step.started',
             taskId: 't1',
             stepId: 'a',
-            payload: { kind: 'invocation', status: 'running', content: 'read README' },
+            payload: { kind: 'invocation', status: 'active', content: 'read README' },
         });
         source.emit('step.ended', {
             eventId: 's2',
             type: 'step.ended',
             taskId: 't1',
             stepId: 'a',
-            payload: { kind: 'invocation', status: 'completed', content: 'read README' },
+            payload: { kind: 'invocation', status: 'succeeded', content: 'read README' },
         });
         expect(liveSteps['run-3']).toHaveLength(1);
-        expect(liveSteps['run-3']?.[0]?.status).toBe('completed');
+        expect(liveSteps['run-3']?.[0]?.status).toBe('succeeded');
     });
 });
