@@ -55,6 +55,27 @@ export interface ContextToolObservation {
     sensitivity?: 'plain' | 'secret';
 }
 
+/** 空成功结果的显式标记：空输出必须带状态，避免模型误判为“没拿到结果”而反复重试。 */
+export const EMPTY_SUCCESS_OUTPUT = '[ok] (no output)';
+/** 无详情的失败标记。 */
+export const EMPTY_ERROR_OUTPUT = '[error] (no detail)';
+
+/**
+ * 把工具执行结果渲染为模型可识别的“结果 + 状态”文本：
+ * - 成功且有输出：原样返回；
+ * - 成功但输出为空：EMPTY_SUCCESS_OUTPUT；
+ * - 失败：以 [error] 前缀标注，无详情时用 EMPTY_ERROR_OUTPUT。
+ * 幂等：对已标注的文本再次调用不会重复加前缀。
+ */
+export function formatToolObservation(output: string, isError: boolean): string {
+    const trimmed = output.trim();
+    if (isError) {
+        if (trimmed.length === 0) return EMPTY_ERROR_OUTPUT;
+        return trimmed.startsWith('[error]') ? output : `[error] ${output}`;
+    }
+    return trimmed.length > 0 ? output : EMPTY_SUCCESS_OUTPUT;
+}
+
 export interface ContextManagerOptions {
     systemPrompt?: string;
     tools?: readonly ToolSchema[];
@@ -167,7 +188,7 @@ export class ContextManager {
             role: 'tool',
             results: results.map((result) => ({
                 callId: result.callId,
-                output: this.projectOutput(result),
+                output: formatToolObservation(this.projectOutput(result), result.isError === true),
                 ...(result.isError ? { isError: true } : {}),
             })),
         });

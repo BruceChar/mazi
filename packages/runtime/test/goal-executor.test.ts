@@ -389,4 +389,45 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(outcome.errorMessage).toContain('未收敛');
         expect(calls).toBeLessThan(10);
     });
+
+    it('空成功输出带 [ok] 状态：模型可见且 Step 记录一致', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        let roundIndex = 0;
+        let observedOutput = '';
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['noop'],
+                invoker: { invoke: async () => ({ ok: true, content: '' }) },
+                requestRound: async (ctx) => {
+                    roundIndex += 1;
+                    if (roundIndex === 1) {
+                        return {
+                            text: '',
+                            reasoning: '',
+                            toolCalls: [{ callId: 'c1', toolName: 'noop', arguments: {} }],
+                            finishReason: 'tool_calls',
+                            ttftMs: 0,
+                            totalMs: 1,
+                        };
+                    }
+                    const toolMessage = ctx.messages.find((message) => message.role === 'tool');
+                    observedOutput =
+                        toolMessage?.role === 'tool'
+                            ? String(toolMessage.results[0]?.output ?? '')
+                            : '';
+                    return okRound;
+                },
+            },
+            t,
+            g,
+        );
+        expect(outcome.ok).toBe(true);
+        expect(observedOutput).toContain('[ok]');
+        const steps = await store.listSteps(t.taskId);
+        const invocation = steps.find((step) => step.kind === 'invocation');
+        expect((invocation?.payload as { output?: string }).output).toContain('[ok]');
+    });
 });

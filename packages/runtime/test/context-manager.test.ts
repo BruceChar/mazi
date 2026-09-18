@@ -5,6 +5,9 @@ import { authz } from '@mazi/core';
 
 import {
     ContextManager,
+    EMPTY_ERROR_OUTPUT,
+    EMPTY_SUCCESS_OUTPUT,
+    formatToolObservation,
     parseSecretRef,
     SecretRedactionUnavailableError,
     secretServiceRedactor,
@@ -181,5 +184,35 @@ describe('ContextManager secret severance', () => {
         const ref = parseSecretRef(tool.results[0]?.output as string);
         expect(ref?.handle).toBe('secretref:ref-1');
         expect(tool.results[0]?.output).not.toContain('AKIAEXAMPLE');
+    });
+});
+
+describe('ContextManager tool observation status', () => {
+    it('marks an empty successful result so the model sees OK', () => {
+        expect(formatToolObservation('', false)).toBe(EMPTY_SUCCESS_OUTPUT);
+        expect(formatToolObservation('   ', false)).toBe(EMPTY_SUCCESS_OUTPUT);
+    });
+
+    it('keeps a non-empty success unchanged', () => {
+        expect(formatToolObservation('hello', false)).toBe('hello');
+    });
+
+    it('marks errors and prefixes their detail', () => {
+        expect(formatToolObservation('', true)).toBe(EMPTY_ERROR_OUTPUT);
+        expect(formatToolObservation('boom', true)).toBe('[error] boom');
+        expect(formatToolObservation('[error] boom', true)).toBe('[error] boom');
+    });
+
+    it('applies the status envelope when appending tool results', () => {
+        const manager = new ContextManager();
+        manager.appendToolResults([{ callId: 'c', output: '' }]);
+        manager.appendToolResults([{ callId: 'd', output: '', isError: true }]);
+        const outputs = manager
+            .messages()
+            .flatMap((message) =>
+                message.role === 'tool' ? message.results.map((result) => result.output) : [],
+            );
+        expect(outputs[0]).toBe(EMPTY_SUCCESS_OUTPUT);
+        expect(outputs[1]).toBe(EMPTY_ERROR_OUTPUT);
     });
 });

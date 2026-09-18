@@ -9,6 +9,7 @@ import { ulid } from '@mazi/core';
 import {
     type ContextContribution,
     ContextManager,
+    formatToolObservation,
     type SecretRedactor,
 } from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
@@ -308,7 +309,8 @@ export async function executeTask(
                     stepId: toolStep.stepId,
                     taskId: task.taskId,
                 });
-                const output = res.ok ? res.content : (res.error ?? 'tool failed');
+                const raw = res.ok ? res.content : (res.error ?? 'tool failed');
+                const output = formatToolObservation(raw, !res.ok);
                 outputs.push({
                     callId: call.callId,
                     output,

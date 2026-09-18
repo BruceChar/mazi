@@ -67,6 +67,8 @@
 
 **敏感断流**：appendToolResults 对 sensitivity=secret 的观察值，先检测其是否已是 voucher；否则调用 redactor.redact 并以 { "$secretRef": handle, attributes } 形式回注。无 redactor 抛 SecretRedactionUnavailableError（原文绝不落 context）。
 
+**工具结果状态上报**：appendToolResults 对每条观察值渲染“结果 + 状态”——成功且有输出原样返回；成功但输出为空 → EMPTY_SUCCESS_OUTPUT（[ok] (no output)）；失败加 [error] 前缀，无详情用 EMPTY_ERROR_OUTPUT。避免模型把空结果误判为“没拿到结果”而反复换指令重试。goal-executor 在写 Step 前调用同一 formatToolObservation，保证模型可见内容与 Observation 记录一致；formatToolObservation 幂等，可安全重复调用。
+
 ## 4. 接线
 
 - gts/round-types.ts：ExecutorRoundContext.context?: ContextMeter（仅接口，避免与具体类耦合）。
@@ -78,6 +80,6 @@
 
 | 文件 | 覆盖 |
 | --- | --- |
-| context-manager.test.ts | 动态 prompt/messages/tools 组合与去重；append 顺序与 baseMessageCount；跨轮 delta；shouldCompact；secret 断流；缺 redactor fail-closed |
+| context-manager.test.ts | 动态 prompt/messages/tools 组合与去重；append 顺序与 baseMessageCount；跨轮 delta；shouldCompact；secret 断流；缺 redactor fail-closed；工具结果状态（空成功/错误/幂等） |
 | goal-executor.test.ts | 既有回注/白名单/usage 行为不变 |
 | goal-strategy.test.ts | 跨 Task 共享历史的 baseMessageCount 语义不变 |
