@@ -16,6 +16,7 @@ import type {
 import {
     ApprovalBroker,
     type ApprovalSettlement,
+    AUTH_COMMAND_POLICY_SCHEMA,
     apiKeyStatus,
     builtinModelsFor,
     CatalogService,
@@ -30,6 +31,7 @@ import {
     FileCatalogStore,
     HarnessRuntime,
     htmlToText,
+    loadCommandPolicy,
     loadRuntimeConfig,
     loadRuntimeSettings,
     loadSecrets,
@@ -39,12 +41,14 @@ import {
     type PricingPageAnalyst,
     parseDeepseekPricingPage,
     peakMultiplierOf,
+    renderDefaultCommandPolicy,
     resolveScopedPermission,
     resolveVendorPricingSource,
     type SecretsFile,
     saveProviderApiKey,
     saveRuntimeSettings,
     toRuntimeConfig,
+    validateCommandPolicy,
     withProviderSecrets,
     writeDefaultCommandPolicy,
 } from '@mazi/runtime';
@@ -243,6 +247,15 @@ function applyModelList(
     }
     provider.models = next;
     return true;
+}
+
+/** Settings → General：auth 命令审批规则的视图（路径 + 原始 JSON + schema）。 */
+export interface AuthCommandPolicyView {
+    path: string;
+    source: 'file' | 'default';
+    raw: string;
+    schema: Record<string, unknown>;
+    error?: string;
 }
 
 /**
@@ -964,6 +977,49 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         await this.restartRuntimes();
         this.logger.log(`setPermissionCeiling → ${value}`);
         return value;
+    }
+
+    /**
+     * Settings → General：读取命令审批规则（路径 + 原始 JSON + 校验状态）。
+     * 文件缺失时会写入默认模板（自说明 JSON）便于查看/编辑。
+     */
+    authCommandPolicy(): AuthCommandPolicyView {
+        const path = this.paths.authCommandPolicyFile;
+        writeDefaultCommandPolicy(path);
+        const result = loadCommandPolicy(path);
+        let raw = '';
+        try {
+            raw = readFileSync(path, 'utf8');
+        } catch {
+            raw = renderDefaultCommandPolicy();
+        }
+        return {
+            path,
+            source: result.source,
+            raw,
+            schema: AUTH_COMMAND_POLICY_SCHEMA,
+            ...(result.error !== undefined ? { error: result.error } : {}),
+        };
+    }
+
+    /** Settings → General：保存命令审批规则（严格校验后写盘并重建运行时）。 */
+    async saveAuthCommandPolicy(raw: string): Promise<AuthCommandPolicyView> {
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (error) {
+            throw new ApiError(400, `JSON 解析失败：${String(error)}`);
+        }
+        const validation = validateCommandPolicy(parsed);
+        if (!validation.ok) {
+            throw new ApiError(400, `配置非法：${validation.error ?? '未知错误'}`);
+        }
+        const path = this.paths.authCommandPolicyFile;
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, raw.endsWith('\n') ? raw : `${raw}\n`, 'utf8');
+        await this.restartRuntimes();
+        this.logger.log(`saveAuthCommandPolicy ${path}`);
+        return this.authCommandPolicy();
     }
 
     /**

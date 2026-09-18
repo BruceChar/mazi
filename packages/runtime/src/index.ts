@@ -46,13 +46,21 @@ export {
     type TocRecord,
     type TocStore,
 } from './analysis/toc-store.js';
-export type { AuthPolicyLoadResult } from './auth/command-policy.js';
+export type {
+    AuthPolicyLoadResult,
+    CommandPolicyValidation,
+} from './auth/command-policy.js';
 export {
     AUTH_COMMAND_POLICY_FILE,
+    AUTH_COMMAND_POLICY_SCHEMA,
+    AUTH_COMMAND_POLICY_SCHEMA_FILE,
+    AUTH_COMMAND_POLICY_VERSION,
     DEFAULT_COMMAND_POLICY,
     loadCommandPolicy,
     mergeCommandPolicy,
     parseCommandPolicy,
+    renderDefaultCommandPolicy,
+    validateCommandPolicy,
     writeDefaultCommandPolicy,
 } from './auth/command-policy.js';
 export type {

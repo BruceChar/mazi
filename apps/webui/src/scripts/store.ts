@@ -348,6 +348,43 @@ export async function loadConfig(): Promise<void> {
     refreshSessionPermission();
 }
 
+/** Auth 命令审批规则（Settings → General；后端 commands.json）。 */
+export interface AuthCommandPolicyState {
+    path: string;
+    source: 'file' | 'default';
+    raw: string;
+    schema?: Record<string, unknown>;
+    error?: string;
+}
+
+export const authCommands = ref<AuthCommandPolicyState | null>(null);
+
+/** 加载命令审批规则（路径 + 原始 JSON + schema）。 */
+export async function loadAuthCommands(): Promise<void> {
+    try {
+        authCommands.value = await api('/api/config/auth-commands');
+        ui.err = null;
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
+/** 保存命令审批规则（严格校验；失败保留草稿并提示）。返回是否成功。 */
+export async function saveAuthCommands(raw: string): Promise<boolean> {
+    try {
+        authCommands.value = await api('/api/config/auth-commands', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ raw }),
+        });
+        ui.err = null;
+        return true;
+    } catch (error) {
+        ui.err = String(error);
+        return false;
+    }
+}
+
 /** 写入系统级权限 grant（POST /api/config/goal；Settings → General）并刷新配置。 */
 export async function setPermissionCeiling(value: string): Promise<void> {
     try {

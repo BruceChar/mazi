@@ -35,6 +35,9 @@ import {
     loadConfig,
     loadConversations,
     loadSystemLogs,
+    authCommands,
+    loadAuthCommands,
+    saveAuthCommands,
     loadWorkspace,
     systemLogs,
     freeChatWorkspace,
@@ -694,6 +697,7 @@ async function onFeedbackSubmit({ rating, content }) {
 
 function openSettings() {
     ui.view = 'system-settings';
+    void loadAuthCommands();
 }
 
 function startResize(e) {
@@ -901,7 +905,10 @@ onBeforeUnmount(() => {
                     :pricing-sync-state="cfg?.pricingSyncState || {}"
                     :api-key-masked="cfg?.apiKeyMasked || {}"
                     :api-key-source="cfg?.apiKeySource || {}"
+                    :auth-commands="authCommands"
                     @save-api-key="onSaveApiKey"
+                    @load-auth-commands="loadAuthCommands"
+                    @save-auth-commands="saveAuthCommands"
                     @update:theme="setTheme"
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"

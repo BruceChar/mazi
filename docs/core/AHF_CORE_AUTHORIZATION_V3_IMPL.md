@@ -121,7 +121,9 @@ type AuthzErrorCode =
 
 多子命令工具只有白名单子命令算只读，未知子命令保守归 dangerous；`curl | sh` 因含 `sh` 仍归 dangerous。
 
-**规则数据化**：命令清单不写死在代码里。默认规则在 `packages/runtime/src/auth/command-policy.ts`，运行时从 `<MAZI_HOME>/config/auth/commands.json` 加载（`MAZI_AUTH_CONFIG_DIR` 可覆盖，缺省 `~/.mazi/config/auth`）；文件缺失/损坏回退内置默认（加载不写盘），首次部署由 API 引导写入模板。配置 schema：`{ dangerousHeads, readonlyHeads, networkHeads, subcommands }`——数组整段替换默认，`subcommands` 按键替换。代码只保留硬条件：shell 元字符、解释器/提权命令（sh/bash/sudo…）、未列出的子命令、以及未命中规则 → `unknown` 走 `shell.run` 默认。`loadCommandPolicy` 是可替换契约，便于日后切到 DB/后台管理。
+**规则数据化**：命令清单不写死在代码里。默认规则在 `packages/runtime/src/auth/command-policy.ts`，运行时从 `<MAZI_HOME>/config/auth/commands.json` 加载（`MAZI_AUTH_CONFIG_DIR` 可覆盖，缺省 `~/.mazi/config/auth`）；文件缺失/损坏回退内置默认（加载不写盘），首次部署由 API 引导写入模板。配置格式自带 `$schema` / `version` / `_doc`（字段说明写在文件里，加载时忽略），并生成 `commands.schema.json` 供编辑器校验；schema：`{ $schema, version, _doc, dangerousHeads, readonlyHeads, networkHeads, subcommands }`——数组整段替换默认，`subcommands` 按键替换。**subcommands 规则**：多子命令工具只有列出的子命令算只读，其余（含未知子命令）一律 dangerous、逐次审批。代码只保留硬条件：shell 元字符、解释器/提权命令（sh/bash/sudo…）、未列出的子命令、以及未命中规则 → `unknown` 走 `shell.run` 默认。
+
+**Settings 入口**：系统设置 → General 提供「Auth · 命令审批规则」（`GET/POST /api/config/auth-commands`）：显示路径、等宽 JSON 编辑器、`_doc` 说明、严格校验（字段类型错误返回 400，避免手误静默失效），保存后重建运行时生效。`loadCommandPolicy` 是可替换契约，便于日后切到 DB/后台管理。
 
 `ApprovalRequest.allowedScopes` 透传到运行时 `PendingApproval` 与 WebUI，高危命令隐藏「本会话/本工作区」按钮，避免用户点了却不会生效。
 

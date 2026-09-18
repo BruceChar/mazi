@@ -114,6 +114,8 @@ const props = defineProps({
     apiKeyMasked: { type: Object, default: () => ({}) },
     /** provider id → 实际生效的 Key 来源（configured / env / none）。 */
     apiKeySource: { type: Object, default: () => ({}) },
+    /** Auth 命令审批规则（后端 commands.json）：{ path, source, raw, schema, error }。 */
+    authCommands: { type: Object, default: null },
 });
 const emit = defineEmits([
     'update:theme',
@@ -126,7 +128,39 @@ const emit = defineEmits([
     'save-pricing-source',
     'refresh-pricing',
     'save-api-key',
+    'load-auth-commands',
+    'save-auth-commands',
 ]);
+
+/** Auth 命令审批规则：草稿 + 自说明（_doc）解析。 */
+const authDraft = ref('');
+const authParsed = computed(() => {
+    try {
+        const parsed = JSON.parse(authDraft.value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+});
+const authDoc = computed(() => {
+    const doc = authParsed.value?._doc;
+    if (!doc || typeof doc !== 'object') return [];
+    return Object.entries(doc).map(([key, text]) => ({ key, text: String(text) }));
+});
+watch(
+    () => props.authCommands,
+    (value) => {
+        authDraft.value = value?.raw ?? '';
+    },
+    { immediate: true },
+);
+watch(
+    () => props.activeTab,
+    (tab) => {
+        if (tab === 'general') emit('load-auth-commands');
+    },
+    { immediate: true },
+);
 
 /** 各 vendor 的价目源草稿（编辑中；保存后由 cfg 刷新覆盖）。 */
 const pricingDrafts = reactive({});
@@ -266,6 +300,43 @@ watch(
                             {{ m.label }}
                         </option>
                     </select>
+                </div>
+            </div>
+            <div class="settings-group">
+                <div class="settings-group-title">Auth · 命令审批规则</div>
+                <div class="setting-item setting-item-column">
+                    <div class="setting-info">
+                        <div class="setting-name">commands.json</div>
+                        <div class="setting-desc">
+                            路径：{{ authCommands?.path || '—' }}
+                            <template v-if="authCommands?.error"> · {{ authCommands.error }}</template>
+                        </div>
+                        <div class="setting-desc">
+                            数组字段整段替换默认；subcommands 只有列出的子命令算只读，其余（含未知子命令）一律逐次审批；未命中规则按 shell.run 默认。
+                        </div>
+                    </div>
+                    <textarea
+                        class="setting-input auth-editor"
+                        :class="{ invalid: !authParsed }"
+                        v-model="authDraft"
+                        spellcheck="false"
+                        rows="14"
+                    ></textarea>
+                    <div v-if="authDoc.length" class="auth-doc">
+                        <div v-for="entry in authDoc" :key="entry.key" class="auth-doc-row">
+                            <code>{{ entry.key }}</code><span>{{ entry.text }}</span>
+                        </div>
+                    </div>
+                    <div class="setting-actions">
+                        <button class="setting-sync" @click="emit('load-auth-commands')">重新加载</button>
+                        <button
+                            class="setting-sync primary"
+                            :disabled="!authParsed"
+                            @click="emit('save-auth-commands', authDraft)"
+                        >
+                            保存并生效
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="settings-group">
@@ -542,6 +613,45 @@ watch(
     max-width: 48vw;
     min-width: 0;
     text-overflow: ellipsis;
+}
+/* Auth 命令审批规则：纵向布局 + 等宽 JSON 编辑器 + 自说明。 */
+.setting-item-column {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+}
+.auth-editor {
+    width: 100%;
+    min-height: 220px;
+    resize: vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre;
+    box-sizing: border-box;
+}
+.auth-editor.invalid {
+    border-color: var(--danger, #ef4444);
+}
+.auth-doc {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+}
+.auth-doc-row {
+    display: flex;
+    gap: 6px;
+}
+.auth-doc-row code {
+    color: var(--accent);
+    flex: none;
+}
+.setting-sync.primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
 }
 .apikey-masked {
     font-family: ui-monospace, monospace;

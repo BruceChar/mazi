@@ -3,7 +3,7 @@ import type { PermissionLevel } from '@mazi/core';
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { recentLogs } from '../common/log.js';
-import { ApiRuntimeService } from '../common/runtime.service.js';
+import { ApiRuntimeService, type AuthCommandPolicyView } from '../common/runtime.service.js';
 
 const PERMISSION_CEILINGS: readonly PermissionLevel[] = [
     'read-only',
@@ -70,6 +70,19 @@ export class HealthController {
         }
         await this.runtime.setPermissionCeiling(value);
         return this.config();
+    }
+
+    /** GET /api/config/auth-commands：命令审批规则（路径 + 原始 JSON + schema）。 */
+    @Get('config/auth-commands')
+    authCommands(): AuthCommandPolicyView {
+        return this.runtime.authCommandPolicy();
+    }
+
+    /** POST /api/config/auth-commands：保存命令审批规则（严格校验，失败 400）。 */
+    @Post('config/auth-commands')
+    async saveAuthCommands(@Body() body: { raw?: unknown }): Promise<AuthCommandPolicyView> {
+        if (typeof body?.raw !== 'string') throw new ApiError(400, 'raw 必须是字符串');
+        return this.runtime.saveAuthCommandPolicy(body.raw);
     }
 
     /** POST /api/config/pricing：按厂商（vendor）设置官方价目页地址（空 = 关闭该厂商抓取）。 */

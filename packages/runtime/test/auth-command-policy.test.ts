@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest';
 import {
     AUTH_COMMAND_POLICY_FILE,
     loadCommandPolicy,
+    renderDefaultCommandPolicy,
+    validateCommandPolicy,
     writeDefaultCommandPolicy,
 } from '../src/auth/command-policy.js';
 import { maziPaths } from '../src/paths.js';
@@ -66,6 +68,24 @@ describe('auth command policy', () => {
         const loaded = loadCommandPolicy(file);
         expect(loaded.source).toBe('default');
         expect(loaded.error).toBeDefined();
+    });
+
+    it('strictly validates known fields (typos must not silently weaken rules)', () => {
+        expect(validateCommandPolicy({ dangerousHeads: ['rm'] }).ok).toBe(true);
+        expect(validateCommandPolicy({ dangerousHeads: 'rm' }).ok).toBe(false);
+        expect(validateCommandPolicy({ subcommands: { git: 'status' } }).ok).toBe(false);
+        expect(validateCommandPolicy({ subcommands: { git: ['status'] } }).ok).toBe(true);
+        expect(validateCommandPolicy([]).ok).toBe(false);
+        expect(validateCommandPolicy({ readonlyHeads: ['ping'] }).ok).toBe(true);
+    });
+
+    it('renders a self-documenting default template with $schema/version/_doc', () => {
+        const parsed = JSON.parse(renderDefaultCommandPolicy()) as Record<string, unknown>;
+        expect(parsed.$schema).toBe('./commands.schema.json');
+        expect(parsed.version).toBe(1);
+        expect(typeof parsed._doc).toBe('object');
+        expect(Array.isArray(parsed.dangerousHeads)).toBe(true);
+        expect((parsed._doc as Record<string, string>).subcommands).toContain('只读');
     });
 
     it('honors MAZI_AUTH_CONFIG_DIR for the default path', () => {
