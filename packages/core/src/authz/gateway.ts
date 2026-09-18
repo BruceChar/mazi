@@ -98,7 +98,7 @@ export class DefaultToolGateway implements ToolGateway {
     }
 
     approvals(): readonly SessionApproval[] {
-        return this.sessionApprovals;
+        return this.bind.approvalStore?.list() ?? this.sessionApprovals;
     }
 
     async invoke(req: InvocationRequest): Promise<InvocationResult> {
@@ -369,6 +369,7 @@ export class DefaultToolGateway implements ToolGateway {
     }
 
     private hasSessionApproval(capability: string): boolean {
+        if (this.bind.approvalStore?.has(capability) === true) return true;
         return this.sessionApprovals.some((a) => a.capability === capability);
     }
 
@@ -419,12 +420,14 @@ export class DefaultToolGateway implements ToolGateway {
             return { code: 'GATED_REJECTED', hint: '审批取消' };
         }
         if (decision.scope !== 'once') {
-            this.sessionApprovals.push({
+            const approval: SessionApproval = {
                 id: ulid(),
                 capability,
                 scope: decision.scope,
                 createdAt: this.now(),
-            });
+            };
+            if (this.bind.approvalStore) this.bind.approvalStore.remember(approval);
+            else this.sessionApprovals.push(approval);
         }
         return undefined;
     }

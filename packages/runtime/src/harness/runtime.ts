@@ -1,5 +1,5 @@
 import type { EventBus, Goal, PermissionLevel, Step, Task, ToolSchema } from '@mazi/core';
-import { type authz, ulid } from '@mazi/core';
+import { authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
@@ -54,6 +54,8 @@ export class HarnessRuntime {
     private readonly workspaceRoot?: string;
     /** Human-in-the-loop approval seam; absent → runtime gateway uses the standing ceiling approval. */
     private approvalSeam?: authz.ApprovalSeam;
+    /** 进程级 session/workspace 审批授权：跨 run 复用，避免同一能力重复审批。 */
+    private readonly approvalStore = new authz.InMemoryApprovalStore();
     /** 长期记忆调度组合根（store 缺省进程内实现，可注入替换）。 */
     private readonly memoryManager = new MemoryManager();
     /** 待执行 Session 的推理强度（create → execute 之间传递） */
@@ -326,6 +328,7 @@ export class HarnessRuntime {
             ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
             audit: new RuntimePolicyAuditSink({ emit: (event) => this.bus.emit(event) }),
             ...(this.approvalSeam ? { approval: this.approvalSeam } : {}),
+            approvalStore: this.approvalStore,
         });
         const visible = new Set(gateway.visibleToolNames());
         const configured = this.config.goal?.allowedTools;

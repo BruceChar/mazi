@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import { derive } from '../src/authz/derive.js';
 import { DefaultToolGateway, isInScope, projectValues } from '../src/authz/gateway.js';
-import type {
-    ApprovalDecision,
-    ApprovalSeam,
-    GatewayAuditEvent,
-    ToolRegistration,
+import {
+    type ApprovalDecision,
+    type ApprovalSeam,
+    type ApprovalStore,
+    type GatewayAuditEvent,
+    InMemoryApprovalStore,
+    type ToolRegistration,
 } from '../src/authz/gateway-types.js';
 import { AssetLabelRegistry } from '../src/authz/labels.js';
 import { DataflowLedger, TaintTable } from '../src/authz/ledger.js';
@@ -79,7 +81,12 @@ function rejecting(): ApprovalSeam {
 }
 
 function build(
-    opts: { approval?: ApprovalSeam; audit?: GatewayAuditEvent[]; secretService?: SecretService } = {},
+    opts: {
+        approval?: ApprovalSeam;
+        approvalStore?: ApprovalStore;
+        audit?: GatewayAuditEvent[];
+        secretService?: SecretService;
+    } = {},
 ) {
     const derived = derive(
         GRANT,
@@ -105,6 +112,7 @@ function build(
         taint,
         toolRegistry: new Map(TOOLS.map((t) => [t.name, t])),
         ...(opts.approval ? { approval: opts.approval } : {}),
+        ...(opts.approvalStore ? { approvalStore: opts.approvalStore } : {}),
         ...(opts.secretService ? { secretService: opts.secretService } : {}),
         audit: { log: (event) => audit.push(event) },
     });
@@ -166,6 +174,22 @@ describe('authz execution gateway', () => {
         expect(
             await gateway.invoke({ tool: 'write', args: { path: '~/.ssh/id_rsa' } }),
         ).toMatchObject({ kind: 'rejected', code: 'FORBIDDEN_BY_HARD_FLOOR' });
+    });
+
+    it('workspace approval persists across gateway instances sharing a store', async () => {
+        const store = new InMemoryApprovalStore();
+        const first = build({
+            approval: approving([{ decision: 'granted', scope: 'workspace' }]),
+            approvalStore: store,
+        });
+        expect(
+            await first.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf src/' } }),
+        ).toMatchObject({ kind: 'executed' });
+
+        const second = build({ approvalStore: store });
+        expect(
+            await second.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf src/' } }),
+        ).toMatchObject({ kind: 'executed' });
     });
 
     it('routes a Q1 danger verb through approval', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { authz, HarnessEvent } from '@mazi/core';
+import { authz, type HarnessEvent } from '@mazi/core';
 
 import type { ToolCallResult, ToolConfig } from '../src/config.js';
 import { ApprovalBroker } from '../src/tool-gateway/approval.js';
@@ -177,6 +177,45 @@ describe('runtime permission bridge', () => {
         broker.settle(requests[0].invocationId, { decision: 'granted', scope: 'once' });
         await expect(pending).resolves.toMatchObject({ ok: true });
         expect(events.some((event) => event.type === 'approval.requested')).toBe(true);
+    });
+
+    it('workspace 授权跨 RuntimeToolGateway 复用，不重复审批', async () => {
+        const store = new authz.InMemoryApprovalStore();
+        const broker = new ApprovalBroker({ emit: () => {}, timeoutMs: 1000 });
+        const first = new RuntimeToolGateway({
+            rootGoalId: 'r',
+            goalId: 'g',
+            taskId: 't',
+            level: 'read-only',
+            tools: TOOLS,
+            execute,
+            approval: broker,
+            approvalStore: store,
+        });
+        const pending = first.invoke('shell.run', { command: 'ping baidu.com' });
+        const requests = broker.pending();
+        expect(requests).toHaveLength(1);
+        broker.settle(requests[0].invocationId, { decision: 'granted', scope: 'workspace' });
+        await expect(pending).resolves.toMatchObject({ ok: true });
+
+        const neverAsk: authz.ApprovalSeam = {
+            decide: async () => {
+                throw new Error('不应再次请求审批');
+            },
+        };
+        const second = new RuntimeToolGateway({
+            rootGoalId: 'r2',
+            goalId: 'g2',
+            taskId: 't2',
+            level: 'read-only',
+            tools: TOOLS,
+            execute,
+            approval: neverAsk,
+            approvalStore: store,
+        });
+        await expect(
+            second.invoke('shell.run', { command: 'ping baidu.com' }),
+        ).resolves.toMatchObject({ ok: true });
     });
 
     it('emits gateway stage audit events', async () => {

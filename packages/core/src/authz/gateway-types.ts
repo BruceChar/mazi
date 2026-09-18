@@ -128,6 +128,39 @@ export interface SessionApproval {
     createdAt: number;
 }
 
+/**
+ * Process-level approval store. The gateway is re-created per execution, so
+ * session/workspace grants must live outside it or they are lost between runs.
+ * Keyed by capability: approving a gated capability for the session/workspace
+ * pre-authorizes further invocations of that capability until revoked.
+ */
+export interface ApprovalStore {
+    remember(approval: SessionApproval): void;
+    has(capability: string): boolean;
+    list(): readonly SessionApproval[];
+    revoke(capability: string): boolean;
+}
+
+export class InMemoryApprovalStore implements ApprovalStore {
+    private readonly approvals = new Map<string, SessionApproval>();
+
+    remember(approval: SessionApproval): void {
+        this.approvals.set(approval.capability, approval);
+    }
+
+    has(capability: string): boolean {
+        return this.approvals.has(capability);
+    }
+
+    list(): readonly SessionApproval[] {
+        return [...this.approvals.values()];
+    }
+
+    revoke(capability: string): boolean {
+        return this.approvals.delete(capability);
+    }
+}
+
 export type InvocationResult =
     | { kind: 'executed'; value: unknown; untrusted?: boolean }
     | { kind: 'pending'; handle: PendingHandle; capability: string; hint: string }
@@ -178,6 +211,8 @@ export interface GatewayBindInput {
     toolRegistry: ReadonlyMap<string, ToolRegistration>;
     budget?: Budget;
     approval?: ApprovalSeam;
+    /** Process-level session/workspace grants; omit for per-gateway lifetime. */
+    approvalStore?: ApprovalStore;
     audit: GatewayAuditSink;
     now?: () => number;
 }

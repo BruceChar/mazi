@@ -110,3 +110,5 @@ type AuthzErrorCode =
 ## 6. runtime 接线
 
 `packages/runtime/src/tool-gateway/permission.ts` 将 UI 权限档位映射为 root `Grant`（`caps`），按 `ToolConfig` 推导能力与三问语义，装配 `DataflowLedger` + `TaintTable` + `DefaultToolGateway`。`approval.ts` 保持 `ApprovalSeam` 契约；`policy-audit.ts` 按新阶段集合压缩审计事件。
+
+**审批授权持久化**：`DefaultToolGateway` 逐 run 重建，因此 `session`/`workspace` 授权不能只存在网关实例内。`ApprovalStore`（核心契约 + `InMemoryApprovalStore`）按 capability 持有授权：`settle` 时写入 store，后续任意网关实例 `has(capability)` 命中即跳过审批。`HarnessRuntime` 持有进程级（= 每工作区）store 并透传，`RuntimeToolGateway` 可直接注入共享 store；`workspace` 授权因此跨会话生效，直到 `revoke` 或运行时重建。

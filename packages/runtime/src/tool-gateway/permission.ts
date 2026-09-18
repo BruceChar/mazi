@@ -160,6 +160,8 @@ export interface RuntimeGatewayOptions {
     execute: (tool: ToolConfig, args: Record<string, unknown>) => Promise<ToolCallResult>;
     audit?: authz.GatewayAuditSink;
     approval?: authz.ApprovalSeam;
+    /** Process-level session/workspace 授权；跨 RuntimeToolGateway 复用，避免重复审批。 */
+    approvalStore?: authz.ApprovalStore;
     workspaceRoot?: string;
     now?: () => number;
 }
@@ -210,6 +212,7 @@ export class RuntimeToolGateway {
             taint,
             toolRegistry: this.registrations,
             approval: opts.approval ?? standingApprovalSeam(),
+            ...(opts.approvalStore ? { approvalStore: opts.approvalStore } : {}),
             audit: opts.audit ?? { log: () => {} },
             ...(opts.now ? { now: opts.now } : {}),
         });
