@@ -35,3 +35,14 @@
 | --- | --- |
 | deterministic-finalize.test.ts | 占位符识别、单/多结果替换、序号与工具名、unresolved 判定、失败不收尾 |
 | goal-executor.test.ts | 模板+工具调用 → 单轮收尾且不再 requestRound；deliberation.answer/answerTemplate；unresolved/失败时不收尾 |
+
+## 6. 重试收尾（防止空结果循环）
+
+针对“收到 [ok] (no output) 后模型再次发起工具调用”的循环，goal-executor 增加两道护栏：
+
+1. **同调用去重**：以 toolName + 参数指纹记录本轮 Task 内已成功执行过的调用；再次出现时不真正执行，直接把已有结果回给模型（invocation Step 仍落库，标记为 replay）。
+2. **重试收尾**：若某一轮的工具调用**全部**是 replay 且模型本轮没有文本，直接用已有结果合成最终答案并结束（全为空成功时给“已完成（命令执行成功，无输出）。”），不再请求下一轮。
+
+另外把原来的“连续 3 轮相同调用 → 任务失败”改为**优雅收尾**：以模型本轮文本（无则“已完成。”）作为最终答案，避免把未收敛直接判失败。
+
+系统提示词（general.prompt.ts）同步强化：工具结果是权威结论，成功（含 [ok] (no output)）即完成，不得为“验证”重复调用或换等价命令；已有足够信息时应直接回答。

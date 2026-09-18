@@ -9,11 +9,12 @@ import { ulid } from '@mazi/core';
 import {
     type ContextContribution,
     ContextManager,
+    EMPTY_SUCCESS_OUTPUT,
     formatToolObservation,
     type SecretRedactor,
 } from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
-import { decideFinalize, type FinalizeResult } from './deterministic-finalize.js';
+import { decideFinalize } from './deterministic-finalize.js';
 import type { ExecutorRoundContext, RoundResult } from './round-types.js';
 
 export interface GoalToolInvoker {
@@ -51,6 +52,15 @@ export interface GoalExecutorDeps {
 }
 
 export type TaskStopReason = 'final-answer' | 'max-steps' | 'driver-error' | 'blocked-tool';
+
+/** 重试收尾时把已成功的结果合成最终答案；全为空成功时给一句完成语。 */
+function finalizeReplayedOutputs(outputs: readonly { output: string }[]): string {
+    const distinct = [...new Set(outputs.map((item) => item.output))];
+    if (distinct.length > 0 && distinct.every((text) => text === EMPTY_SUCCESS_OUTPUT)) {
+        return '已完成（命令执行成功，无输出）。';
+    }
+    return distinct.join('\n\n');
+}
 
 export interface TaskOutcome {
     task: Task;
@@ -113,6 +123,8 @@ export async function executeTask(
     let repeatCount = 0;
     // 本轮的 deliberation step 引用；确定性收尾时回填渲染后的最终答案
     let deliberationStep: Step | undefined;
+    // 已成功执行过的调用（tool+args 指纹 → 结果）：重复调用不再真正执行，避免空结果重试循环
+    const executedCalls = new Map<string, { output: string; isError: boolean }>();
 
     try {
         for (let roundIndex = 0; roundIndex < maxSteps; roundIndex += 1) {
@@ -233,15 +245,19 @@ export async function executeTask(
                 repeatCount = callKey === prevCallKey ? repeatCount + 1 : 0;
                 prevCallKey = callKey;
                 if (repeatCount >= 3) {
-                    task.status = 'failed';
+                    // 不再把未收敛当失败：以模型本轮文本（若有）收尾，避免无限重试
+                    const finalMessage = round.text.trim().length > 0 ? round.text : '已完成。';
+                    if (
+                        deliberationStep !== undefined &&
+                        deliberationStep.kind === 'deliberation'
+                    ) {
+                        deliberationStep.payload.answer = finalMessage;
+                        await deps.store.saveStep(deliberationStep);
+                        deps.onStep?.(deliberationStep);
+                    }
+                    task.status = 'succeeded';
                     await saveTask();
-                    return {
-                        task,
-                        steps,
-                        ok: false,
-                        reason: 'max-steps',
-                        errorMessage: `工具调用未收敛：连续 3 轮相同调用 ${round.toolCalls[0]?.toolName}`,
-                    };
+                    return { task, steps, ok: true, reason: 'final-answer', finalMessage };
                 }
             }
 
@@ -287,7 +303,13 @@ export async function executeTask(
             }
 
             // 执行工具（结果合并回 invocation step；模型提议见 deliberation.toolCalls）
-            const outputs: Array<{ callId: string; output: string; isError: boolean }> = [];
+            const outputs: Array<{
+                callId: string;
+                toolName: string;
+                output: string;
+                isError: boolean;
+                replayed: boolean;
+            }> = [];
             for (const call of round.toolCalls) {
                 const toolStep: Extract<Step, { kind: 'invocation' }> = {
                     stepId: ulid(),
@@ -309,22 +331,38 @@ export async function executeTask(
                 await deps.store.saveStep(toolStep);
                 deps.onStep?.(toolStep);
 
-                const res = await invoker.invoke(call.toolName, call.arguments, {
-                    stepId: toolStep.stepId,
-                    taskId: task.taskId,
-                });
-                const raw = res.ok ? res.content : (res.error ?? 'tool failed');
-                const output = formatToolObservation(raw, !res.ok);
+                const callKey = `${call.toolName}:${JSON.stringify(call.arguments)}`;
+                const cached = executedCalls.get(callKey);
+                let output: string;
+                let isError: boolean;
+                let replayed = false;
+                if (cached !== undefined && !cached.isError) {
+                    // 同一调用此前已成功：不重复执行，直接把已有结果回给模型
+                    output = cached.output;
+                    isError = false;
+                    replayed = true;
+                } else {
+                    const res = await invoker.invoke(call.toolName, call.arguments, {
+                        stepId: toolStep.stepId,
+                        taskId: task.taskId,
+                    });
+                    const raw = res.ok ? res.content : (res.error ?? 'tool failed');
+                    output = formatToolObservation(raw, !res.ok);
+                    isError = !res.ok;
+                    executedCalls.set(callKey, { output, isError });
+                }
                 outputs.push({
                     callId: call.callId,
+                    toolName: call.toolName,
                     output,
-                    isError: !res.ok,
+                    isError,
+                    replayed,
                 });
                 // 执行结果合并回 invocation step；失败以 StepError（四源标签 tool）表达，
                 // 不在 payload 上再设 isError/structured。
                 toolStep.payload.output = output;
-                toolStep.status = res.ok ? 'succeeded' : 'error';
-                if (!res.ok) {
+                toolStep.status = isError ? 'error' : 'succeeded';
+                if (isError) {
                     toolStep.error = {
                         code: 'tool_error',
                         message: output,
@@ -339,16 +377,7 @@ export async function executeTask(
 
             // 确定性收尾：模型同轮给出答案模板 + 工具调用，且全部成功、占位符可填满时，
             // 直接用模板与结果渲染最终答案，不再请求 LLM。
-            const executed: FinalizeResult[] = round.toolCalls.map((call) => {
-                const output = outputs.find((item) => item.callId === call.callId);
-                return {
-                    callId: call.callId,
-                    toolName: call.toolName,
-                    output: output?.output ?? '',
-                    isError: output?.isError ?? true,
-                };
-            });
-            const decision = decideFinalize(round.text, executed);
+            const decision = decideFinalize(round.text, outputs);
             if (
                 decision !== undefined &&
                 deliberationStep !== undefined &&
@@ -367,6 +396,24 @@ export async function executeTask(
                     reason: 'final-answer',
                     finalMessage: decision.finalMessage,
                 };
+            }
+
+            // 重试收尾：本轮全是“此前已成功”的重复调用且模型没有文本时，用已有结果收尾，
+            // 杜绝 [ok] (no output) 之后反复重试的循环。
+            if (
+                outputs.length > 0 &&
+                outputs.every((item) => item.replayed) &&
+                round.text.trim().length === 0
+            ) {
+                const finalMessage = finalizeReplayedOutputs(outputs);
+                if (deliberationStep !== undefined && deliberationStep.kind === 'deliberation') {
+                    deliberationStep.payload.answer = finalMessage;
+                    await deps.store.saveStep(deliberationStep);
+                    deps.onStep?.(deliberationStep);
+                }
+                task.status = 'succeeded';
+                await saveTask();
+                return { task, steps, ok: true, reason: 'final-answer', finalMessage };
             }
 
             // 回注：assistant toolCalls + tool 结果消息；模型本轮文本一并回注（截断防爆上下文），

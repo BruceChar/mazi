@@ -358,7 +358,7 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         });
     });
 
-    it('连续相同工具调用 → 未收敛中止（防死循环，不烧完 maxSteps）', async () => {
+    it('连续相同工具调用 → 去重后重试收尾，不再判失败', async () => {
         const store = new MemoryGoalStore();
         let calls = 0;
         const outcome = await executeTask(
@@ -384,10 +384,10 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
             task(),
             goal(),
         );
-        expect(outcome.ok).toBe(false);
-        expect(outcome.reason).toBe('max-steps');
-        expect(outcome.errorMessage).toContain('未收敛');
-        expect(calls).toBeLessThan(10);
+        expect(outcome.ok).toBe(true);
+        expect(outcome.reason).toBe('final-answer');
+        expect(outcome.finalMessage).toBe('SAME');
+        expect(calls).toBe(1);
     });
 
     it('空成功输出带 [ok] 状态：模型可见且 Step 记录一致', async () => {
@@ -531,6 +531,86 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
             g,
         );
         expect(rounds).toBe(2);
+        expect(outcome.reason).toBe('final-answer');
+        expect(outcome.finalMessage).toContain('README');
+    });
+
+    it('重复相同成功调用不重复执行，直接以已有结果收尾', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        let rounds = 0;
+        let invokes = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['noop'],
+                invoker: {
+                    invoke: async () => {
+                        invokes += 1;
+                        return { ok: true, content: '' };
+                    },
+                },
+                requestRound: async () => {
+                    rounds += 1;
+                    return {
+                        text: '',
+                        reasoning: '',
+                        toolCalls: [{ callId: `c${rounds}`, toolName: 'noop', arguments: { a: 1 } }],
+                        finishReason: 'tool_calls',
+                        ttftMs: 0,
+                        totalMs: 1,
+                    };
+                },
+            },
+            t,
+            g,
+        );
+        expect(invokes).toBe(1);
+        expect(rounds).toBe(2);
+        expect(outcome.ok).toBe(true);
+        expect(outcome.reason).toBe('final-answer');
+        expect(outcome.finalMessage).toContain('已完成');
+    });
+
+    it('重复调用但模型给出文本时按正常循环继续', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        let rounds = 0;
+        let invokes = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['noop'],
+                invoker: {
+                    invoke: async () => {
+                        invokes += 1;
+                        return { ok: true, content: '' };
+                    },
+                },
+                requestRound: async () => {
+                    rounds += 1;
+                    if (rounds <= 2) {
+                        return {
+                            text: rounds === 2 ? '继续处理' : '',
+                            reasoning: '',
+                            toolCalls: [
+                                { callId: `c${rounds}`, toolName: 'noop', arguments: { a: 1 } },
+                            ],
+                            finishReason: 'tool_calls',
+                            ttftMs: 0,
+                            totalMs: 1,
+                        };
+                    }
+                    return okRound;
+                },
+            },
+            t,
+            g,
+        );
+        expect(invokes).toBe(1);
+        expect(rounds).toBe(3);
         expect(outcome.reason).toBe('final-answer');
         expect(outcome.finalMessage).toContain('README');
     });
