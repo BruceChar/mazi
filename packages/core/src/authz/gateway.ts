@@ -8,7 +8,7 @@
  */
 
 import { ulid } from '../ulid.js';
-import { type ApprovalTarget, approvalTargetOf } from './command.js';
+import { type ApprovalTarget, approvalTargetOf, isNetworkCommand } from './command.js';
 import {
     type ApprovalDecision,
     type ApprovalRequest,
@@ -229,7 +229,10 @@ export class DefaultToolGateway implements ToolGateway {
         let egressVersion = -1;
         let egressWasBroken = false;
         const egressing =
-            registration.semantics.egress === true || registration.semantics.dataEgress === true;
+            registration.semantics.egress === true ||
+            registration.semantics.dataEgress === true ||
+            // shell 中的 curl/wget 等出网命令也交出站账本裁决，而不是一律逐次审批
+            (projection.command !== undefined && isNetworkCommand(projection.command));
         if (egressing) {
             const guarded = guardGenericEgress(req.args, {
                 mode: 'reject',

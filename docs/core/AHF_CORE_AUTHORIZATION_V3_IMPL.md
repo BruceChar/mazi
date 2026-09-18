@@ -114,9 +114,12 @@ type AuthzErrorCode =
 **审批授权持久化**：`DefaultToolGateway` 逐 run 重建，因此 `session`/`workspace` 授权不能只存在网关实例内。`ApprovalStore`（核心契约 + `InMemoryApprovalStore`）持有授权，**按具体操作指纹**（`approvalKeyOf`：tool + 命令/路径/host/投影；能力类目不参与）而非能力类目——批准 `ping baidu.com` 不会顺带批准 `netstat`。作用域区分：`workspace` 跨会话生效（按 key 命中即放行）；`session` 需要 `sessionId` 匹配（会话 id 由 `HarnessRuntime` 从 `RunOptions.conversationId` 透传，API 为每次新会话预生成 id）；无会话 id 的 session 授权退化为本次 run 内有效。`HarnessRuntime` 持有进程级（= 每工作区）store 并透传，直到 `revoke` / `clearSession` / 运行时重建。
 
 **审批粒度策略**：`authz.command` 对 shell 命令分类，决定授权 key 与可用作用域：
-- `dangerous`（rm/dd/chmod/sudo/curl/git/…——命令任意位置出现高危词即命中）：永远逐次审批，`allowedScopes=['once']`；即使 UI 传 session/workspace 也不落预授权；
-- `readonly`（ping/ls/dig/netstat/… 且无 shell 元字符）：授权 key 放宽为**命令名**（`shell.run:cmdname:ping`），一次批准覆盖同类命令的不同参数；
+- `dangerous`（rm/dd/chmod/sudo/…；多子命令工具的非只读子命令如 `git reset/push`、`docker run`、`npm install`——命令任意位置命中即命中）：永远逐次审批，`allowedScopes=['once']`；即使 UI 传 session/workspace 也不落预授权；
+- `readonly`（ping/ls/dig/netstat/…；多子命令工具的只读子命令如 `git status/log`、`docker ps`、`kubectl get` 且无 shell 元字符）：授权 key 放宽为**命令名**（`shell.run:cmdname:git`），一次批准覆盖同类命令的不同参数；
+- `network`（curl/wget）：**交由出站账本裁决**——账本干净静默放行，账本含敏感读则转审批（与 `net.send` 同机制），不一律逐次；
 - `unknown`（其余）：完整命令行 key。
+
+多子命令工具只有白名单子命令算只读，未知子命令保守归 dangerous；`curl | sh` 因含 `sh` 仍归 dangerous。
 
 `ApprovalRequest.allowedScopes` 透传到运行时 `PendingApproval` 与 WebUI，高危命令隐藏「本会话/本工作区」按钮，避免用户点了却不会生效。
 
