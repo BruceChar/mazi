@@ -119,3 +119,5 @@ type AuthzErrorCode =
 - `unknown`（其余）：完整命令行 key。
 
 `ApprovalRequest.allowedScopes` 透传到运行时 `PendingApproval` 与 WebUI，高危命令隐藏「本会话/本工作区」按钮，避免用户点了却不会生效。
+
+**“完全”不等于一切免审**：`dangerous` 命令同时是运行时 tier 下限——即使派生 `tier=auto`（选择“完全”档），也强制进入审批且逐次。Q1/Q3 下限与 secret 底线同样不随档位放宽。

@@ -260,6 +260,8 @@ export class DefaultToolGateway implements ToolGateway {
 
         // ⑤ approval (fail-closed when absent)
         const approval = approvalTargetOf(registration, projection);
+        // 高危命令是运行时下限：即使派生 tier=auto（如“完全”档），也必须逐次审批。
+        if (approval.alwaysPrompt) needsApproval = true;
         const approvalHit = !approval.alwaysPrompt && this.hasApproval(approval.key);
         if (needsApproval && !approvalHit) {
             if (!this.bind.approval) {

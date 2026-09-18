@@ -87,11 +87,13 @@ function build(
         sessionId?: string;
         audit?: GatewayAuditEvent[];
         secretService?: SecretService;
+        grant?: Grant;
     } = {},
 ) {
+    const grant = opts.grant ?? GRANT;
     const derived = derive(
-        GRANT,
-        { requires: Object.keys(GRANT.caps) },
+        grant,
+        { requires: Object.keys(grant.caps) },
         {
             labels,
             semantics: SEMANTICS,
@@ -197,6 +199,23 @@ describe('authz execution gateway', () => {
         expect(
             await second.gateway.invoke({ tool: 'shell', args: { command: 'netstat -an' } }),
         ).toMatchObject({ kind: 'rejected', code: 'APPROVAL_UNAVAILABLE' });
+    });
+
+    it('dangerous commands still prompt when the capability tier is auto (autonomous)', async () => {
+        const grant: Grant = {
+            caps: { ...GRANT.caps, 'fs.exec': { tier: 'auto' } },
+        };
+        const auto = build({ grant });
+        // 只读命令在 auto 档下静默放行
+        expect(
+            await auto.gateway.invoke({ tool: 'shell', args: { command: 'ping baidu.com' } }),
+        ).toMatchObject({ kind: 'executed' });
+
+        // 高危命令是运行时下限：auto 档也必须审批
+        const guarded = build({ grant, approval: rejecting() });
+        expect(
+            await guarded.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf ./tmp' } }),
+        ).toMatchObject({ kind: 'rejected', code: 'GATED_REJECTED' });
     });
 
     it('dangerous commands always prompt, even after a workspace grant', async () => {
