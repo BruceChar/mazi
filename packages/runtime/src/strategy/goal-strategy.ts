@@ -7,13 +7,26 @@
  * 一个进程内 MemoryManager，测试可直接注入。
  */
 
-import type { Goal } from '@mazi/core';
+import { type Goal, type Step, ulid } from '@mazi/core';
 import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../gts/goal-executor.js';
 import { executeTask } from '../gts/goal-executor.js';
 import { planGoalTree } from '../gts/goal-planner.js';
 import type { ContextContribution } from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
-import { MemoryManager, turnsToMemory } from '../memory/memory.js';
+import { type MemoryItem, MemoryManager, turnsToMemory } from '../memory/index.js';
+
+/** 把一次 Task 的工具执行记录成 memory fact，供后续 Goal/会话判定“已执行过”。 */
+function toolMemoryFacts(steps: readonly Step[], rootGoalId: string): MemoryItem[] {
+    return steps
+        .filter((step): step is Extract<Step, { kind: 'invocation' }> => step.kind === 'invocation')
+        .map((step) => ({
+            id: ulid(),
+            kind: 'fact' as const,
+            text: `已执行工具 ${step.payload.toolName}(${JSON.stringify(step.payload.arguments ?? {})}) → ${(step.payload.output ?? '(no output)').slice(0, 500)}`,
+            createdAt: Date.now(),
+            rootGoalId,
+        }));
+}
 
 export interface GoalRunDeps {
     store: GoalStore;
@@ -70,16 +83,16 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         );
         outcomes.push(outcome);
         if (!outcome.ok) break; // 顺序依赖：首个失败即停（后续可扩展为任务组并行）
-        // Task 之间共享上下文：本 Goal 的输入与最终回答写入长期记忆，供下一个 Goal 召回
-        await memory.remember(
-            turnsToMemory(
-                [
-                    { role: 'user', text: goal.statement },
-                    { role: 'assistant', text: outcome.finalMessage ?? '' },
-                ],
-                { rootGoalId: runId },
-            ),
+        // Task 之间共享上下文：本 Goal 的输入、最终回答与工具执行事实写入长期记忆，供后续 Goal/会话召回
+        const items: MemoryItem[] = turnsToMemory(
+            [
+                { role: 'user', text: goal.statement },
+                { role: 'assistant', text: outcome.finalMessage ?? '' },
+            ],
+            { rootGoalId: runId },
         );
+        items.push(...toolMemoryFacts(outcome.steps, runId));
+        await memory.remember(items);
     }
     return {
         rootGoalId: runId,

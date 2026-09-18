@@ -134,11 +134,45 @@ export class SessionsService {
         for (const run of runs) {
             history.push({ role: 'user', text: run.input });
             const answer = await this.finalAnswerOf(run.rootGoalId);
-            if (answer.length > 0) {
-                history.push({ role: 'assistant', text: answer });
+            const tools = await this.toolSummaryOf(run.rootGoalId);
+            const text = [answer, tools.length > 0 ? `[已执行工具]\n${tools}` : '']
+                .filter((part) => part.length > 0)
+                .join('\n\n');
+            if (text.length > 0) {
+                history.push({
+                    role: 'assistant',
+                    text:
+                        text.length > HISTORY_ANSWER_MAX_CHARS
+                            ? text.slice(0, HISTORY_ANSWER_MAX_CHARS)
+                            : text,
+                });
             }
         }
         return history;
+    }
+
+    /**
+     * 取一次 Goal run 中已执行工具的精简摘要，回填到后续会话上下文，避免模型重复执行
+     * （尤其是空输出成功、或 Harness 单轮收尾未再有 LLM 轮次的情形）。
+     */
+    private async toolSummaryOf(rootGoalId: string): Promise<string> {
+        try {
+            const snapshot = await this.runtime.harness().goalSnapshot(rootGoalId);
+            return snapshot.goals
+                .flatMap((goal) => goal.tasks)
+                .flatMap((task) => task.steps)
+                .filter((step) => step.kind === 'invocation' && typeof step.toolName === 'string')
+                .map((step) => {
+                    const output = (step.toolOutput ?? step.content ?? '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    const args = JSON.stringify(step.toolArguments ?? {});
+                    return `- ${step.toolName}(${args}) → ${output.slice(0, 200)}`;
+                })
+                .join('\n');
+        } catch {
+            return '';
+        }
     }
 
     /** 取一次 Goal run 的最终回答（最后一个 deliberation step 的正文）。 */

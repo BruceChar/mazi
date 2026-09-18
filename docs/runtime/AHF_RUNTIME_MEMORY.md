@@ -58,3 +58,9 @@
 | memory.test.ts | store append/recall/clear 与隔离；policy 去重/保序/limit/token 预算；turnsToMemory 保序与唯一 id；toContribution 的 message/system 分流；prepareContribution |
 | goal-strategy.test.ts | 跨 Goal 共享记忆的 baseMessageCount 语义不变 |
 | conversation-context.test.ts | 会话历史经 memory 注入后，diff 仍只含本步新增 |
+
+## 6. 工具执行回填（长期记忆 ↔ context）
+
+- **runtime**：goal-strategy 在每个 Goal 结束后，除 user/assistant 轮次外，还把 invocation Step 记为 kind=fact 的 memory：`已执行工具 <tool>(<args>) → <output>`。下一个 Goal/Task 的 ContextManager 通过 memory contribution 的 system 片段看到“已执行过”，避免重复调用——尤其是空输出成功、或 Harness 单轮收尾没有后续 LLM 轮次的情形。
+- **API**：sessions.service.conversationHistory 读取一次 run 的 invocation Step，生成 `[已执行工具]` 摘要并入该轮 assistant 历史，使**跨会话**的 LLM 上下文保留“已执行”事实。
+- **安全**：写入 memory/history 的是模型可见的观察文本（secret 已在网关断流为 voucher），不是原文。

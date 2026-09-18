@@ -55,6 +55,48 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         ]);
     });
 
+    it('把已执行工具摘要并入 assistant 历史，避免下一会话重复执行', async () => {
+        const conversations = {
+            runs: () => [{ rootGoalId: 'r1', input: 'ls', createdAt: 1 }],
+        };
+        const runtime = {
+            harness: () => ({
+                goalSnapshot: async () => ({
+                    goals: [
+                        {
+                            tasks: [
+                                {
+                                    steps: [
+                                        { kind: 'deliberation', content: '已完成' },
+                                        {
+                                            kind: 'invocation',
+                                            toolName: 'shell.run',
+                                            toolArguments: { command: 'ls' },
+                                            toolOutput: '[ok] (no output)',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            }),
+        };
+        const service = new SessionsService(runtime as never, conversations as never);
+        const history = await (
+            service as unknown as {
+                conversationHistory: (id: string) => Promise<unknown>;
+            }
+        ).conversationHistory('c1');
+        expect(history).toEqual([
+            { role: 'user', text: 'ls' },
+            {
+                role: 'assistant',
+                text: '已完成\n\n[已执行工具]\n- shell.run({"command":"ls"}) → [ok] (no output)',
+            },
+        ]);
+    });
+
     it('createSession 透传 goal.reasoningLevel 到 createGoalSession', async () => {
         const captured: Array<Record<string, unknown>> = [];
         const conversations = {

@@ -3,6 +3,7 @@ import type { Goal, ULID } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import type { RoundResult } from '../src/gts/round-types.js';
 import { MemoryGoalStore } from '../src/memory/goal-store.js';
+import { MemoryManager } from '../src/memory/memory.js';
 import { runGoalTree } from '../src/strategy/goal-strategy.js';
 
 
@@ -99,5 +100,43 @@ describe('goal-strategy（C3d：Goal 顺序驱动，扁平模型）', () => {
         expect(result.rootGoalId).toBe(pending.goalId);
         expect(result.tasks).toEqual([]);
         expect(result.ok).toBe(true);
+    });
+
+    it('工具执行记录为 memory fact，并注入后续 Goal 的 system prompt', async () => {
+        const store = new MemoryGoalStore();
+        const a = goal(ulid());
+        const b = goal(ulid());
+        await store.saveGoal(a);
+        await store.saveGoal(b);
+        const memory = new MemoryManager();
+        const prompts: Array<string | undefined> = [];
+        let round = 0;
+        await runGoalTree(
+            {
+                store,
+                memory,
+                allowedTools: ['noop'],
+                invoker: { invoke: async () => ({ ok: true, content: 'TOOL-OUT' }) },
+                requestRound: async (ctx) => {
+                    prompts.push(ctx.systemPrompt);
+                    round += 1;
+                    if (round === 1) {
+                        return {
+                            text: '',
+                            reasoning: '',
+                            toolCalls: [{ callId: 'c1', toolName: 'noop', arguments: { x: 1 } }],
+                            finishReason: 'tool_calls',
+                            ttftMs: 0,
+                            totalMs: 1,
+                        };
+                    }
+                    return okRound;
+                },
+            },
+            [a, b],
+        );
+        const items = await memory.recall({ rootGoalId: a.goalId });
+        expect(items.some((item) => item.kind === 'fact' && item.text.includes('noop'))).toBe(true);
+        expect(prompts[2]).toContain('noop');
     });
 });
