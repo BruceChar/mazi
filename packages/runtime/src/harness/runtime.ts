@@ -1,12 +1,4 @@
-import type {
-    EventBus,
-    Goal,
-    LLMMessage,
-    PermissionLevel,
-    Step,
-    Task,
-    ToolSchema,
-} from '@mazi/core';
+import type { EventBus, Goal, PermissionLevel, Step, Task, ToolSchema } from '@mazi/core';
 import { type authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
@@ -16,6 +8,7 @@ import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.j
 import { StepEventEmitter } from '../events/step-events.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
+import { MemoryManager, turnsToMemory } from '../memory/memory.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
@@ -24,7 +17,7 @@ import { configureTokenizer } from '../token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
 import { RuntimeToolGateway } from '../tool-gateway/permission.js';
 import { RuntimePolicyAuditSink } from '../tool-gateway/policy-audit.js';
-import { conversationMessages, type FeedbackInput, type RunOptions } from './conversation.js';
+import type { FeedbackInput, RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
@@ -61,8 +54,8 @@ export class HarnessRuntime {
     private readonly workspaceRoot?: string;
     /** Human-in-the-loop approval seam; absent → runtime gateway uses the standing ceiling approval. */
     private approvalSeam?: authz.ApprovalSeam;
-    /** 待执行 Session 的 Conversation 前置消息（create → execute 之间传递） */
-    private readonly pendingHistory = new Map<string, LLMMessage[]>();
+    /** 长期记忆调度组合根（store 缺省进程内实现，可注入替换）。 */
+    private readonly memoryManager = new MemoryManager();
     /** 待执行 Session 的推理强度（create → execute 之间传递） */
     private readonly pendingReasoning = new Map<string, string>();
     /** 待执行 Session 的模型 id（create → execute 之间传递） */
@@ -138,9 +131,8 @@ export class HarnessRuntime {
         opts: RunOptions = {},
     ): Promise<{ rootGoalId: string; goalId: string }> {
         const rootGoalId = ulid();
-        const history = conversationMessages(opts.history);
-        if (history.length > 0) {
-            this.pendingHistory.set(rootGoalId, history);
+        if (opts.history !== undefined && opts.history.length > 0) {
+            await this.memoryManager.remember(turnsToMemory(opts.history, { rootGoalId }));
         }
         if (opts.reasoningLevel) {
             this.pendingReasoning.set(rootGoalId, opts.reasoningLevel);
@@ -196,8 +188,6 @@ export class HarnessRuntime {
             throw new Error(`Goal 树不存在：${rootGoalId}`);
         }
         // 上下文 delta 基线由每个 Task 的 ContextManager 自己持有，无需跨 run 重置。
-        const history = this.pendingHistory.get(rootGoalId) ?? [];
-        this.pendingHistory.delete(rootGoalId);
         const reasoningLevel = this.pendingReasoning.get(rootGoalId);
         this.pendingReasoning.delete(rootGoalId);
         const modelId = this.pendingModel.get(rootGoalId);
@@ -218,7 +208,7 @@ export class HarnessRuntime {
                 tools: exec.tools,
                 invoker: exec.invoker,
                 allowedTools: exec.allowedTools,
-                ...(history.length > 0 ? { history } : {}),
+                memory: this.memoryManager,
                 ...(model ? { model } : {}),
                 ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
                 onStep: (step) => this.stepEvents.emitStep(rootGoalId, step),

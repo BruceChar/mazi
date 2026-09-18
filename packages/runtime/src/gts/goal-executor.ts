@@ -4,9 +4,13 @@
  * 无 toolCalls → 最终回答。Step 归因 taskId/goalId，全部经 GoalStore 持久化。
  */
 
-import type { Goal, LLMMessage, Step, Task, ToolSchema } from '@mazi/core';
+import type { Goal, Step, Task, ToolSchema } from '@mazi/core';
 import { ulid } from '@mazi/core';
-import { ContextManager, type SecretRedactor } from '../harness/context-manager.js';
+import {
+    type ContextContribution,
+    ContextManager,
+    type SecretRedactor,
+} from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
 import type { ExecutorRoundContext, RoundResult } from './round-types.js';
 
@@ -32,8 +36,8 @@ export interface GoalExecutorDeps {
     invoker?: GoalToolInvoker;
     /** Task 允许的工具白名单（缺省：全部允许） */
     allowedTools?: string[];
-    /** Conversation 共享上下文：本轮任务前置的历史消息 */
-    history?: LLMMessage[];
+    /** 上下文贡献（记忆等），透传 ContextManager。 */
+    contributions?: readonly ContextContribution[];
     /** 工作目录（工具实际执行目录；入库到 invocation payload.cwd 供展示/追溯） */
     workspaceRoot?: string;
     maxSteps?: number;
@@ -76,7 +80,7 @@ export async function executeTask(
     const context = new ContextManager({
         ...(deps.systemPrompt !== undefined ? { systemPrompt: deps.systemPrompt } : {}),
         tools: deps.tools ?? [],
-        ...(deps.history !== undefined ? { history: deps.history } : {}),
+        contributions: deps.contributions ?? [],
         ...(deps.redactor !== undefined ? { redactor: deps.redactor } : {}),
     });
     context.appendUser(goal.statement);

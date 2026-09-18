@@ -46,8 +46,6 @@ export {
     type TocRecord,
     type TocStore,
 } from './analysis/toc-store.js';
-// 模型目录与计费数据架构（catalog）：目录事实 / 同步 / 快照 / 路由 / 账本
-export * from './provider/catalog/index.js';
 export type {
     ProviderConfig,
     RuntimeConfig,
@@ -68,26 +66,43 @@ export {
     saveRuntimeSettings,
     toRuntimeConfig,
 } from './configs/config-io.js';
+// 观测层（事件总线；apps 直接消费）
+export type { EventBusOptions, NewEventInput } from './events/event-bus.js';
+export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './events/event-bus.js';
 export {
-    ContextManager,
     type ContextAssistantTurn,
     type ContextContribution,
+    ContextManager,
     type ContextManagerOptions,
     type ContextSecretRef,
     type ContextToolObservation,
     HarnessRuntime,
     parseSecretRef,
     type RunOptions,
+    SECRET_REF_FIELD,
     SecretRedactionUnavailableError,
     type SecretRedactor,
     secretServiceRedactor,
-    SECRET_REF_FIELD,
     serializeSecretRef,
 } from './harness/index.js';
 export type { GoalStore } from './memory/goal-store.js';
-// 观测层（事件总线；apps 直接消费）
-export type { EventBusOptions, NewEventInput } from './events/event-bus.js';
-export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './events/event-bus.js';
+export type {
+    MemoryItem,
+    MemoryKind,
+    MemoryPolicy,
+    MemoryQuery,
+    MemoryStore,
+    MemoryTurn,
+    RecallInput,
+    RecentMemoryPolicyOptions,
+    TurnsToMemoryOptions,
+} from './memory/index.js';
+export {
+    InMemoryMemoryStore,
+    MemoryManager,
+    recentMemoryPolicy,
+    turnsToMemory,
+} from './memory/index.js';
 export type { MaziPaths } from './paths.js';
 export {
     defaultConfigDir,
@@ -97,6 +112,8 @@ export {
     maziHome,
     maziPaths,
 } from './paths.js';
+// 模型目录与计费数据架构（catalog）：目录事实 / 同步 / 快照 / 路由 / 账本
+export * from './provider/catalog/index.js';
 export type { PricingSchedule } from './provider/pricing.js';
 export type { PricingPage, PricingPageAnalyst } from './provider/pricing-analyst.js';
 export { createPricingAnalyst } from './provider/pricing-analyst.js';
