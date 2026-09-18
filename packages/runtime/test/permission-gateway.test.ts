@@ -60,7 +60,8 @@ describe('runtime permission bridge', () => {
         const workspaceWrite = grantForPermissionLevel('workspace-write');
         expect(workspaceWrite.caps['fs.read.workspace']).toMatchObject({ tier: 'auto' });
         expect(workspaceWrite.caps['fs.write.workspace']).toMatchObject({ tier: 'auto' });
-        expect(workspaceWrite.caps['fs.exec']).toMatchObject({ tier: 'gated' });
+        // 工作区写信任本地命令执行；联网仍 gated
+        expect(workspaceWrite.caps['fs.exec']).toMatchObject({ tier: 'auto' });
         expect(workspaceWrite.caps['net.fetch']).toMatchObject({ tier: 'gated' });
 
         const draft = grantForPermissionLevel('draft');
@@ -134,6 +135,31 @@ describe('runtime permission bridge', () => {
         broker.settle(requests[0].invocationId, { decision: 'rejected', reason: 'no' });
         await expect(pending).resolves.toMatchObject({ ok: false });
         expect((await pending).error).toContain('GATED_REJECTED');
+    });
+
+    it('workspace-write runs local commands without approval but still gates dangerous ones', async () => {
+        const broker = new ApprovalBroker({ emit: () => {}, timeoutMs: 1000 });
+        const gateway = new RuntimeToolGateway({
+            rootGoalId: 'r',
+            goalId: 'g',
+            taskId: 't',
+            level: 'workspace-write',
+            tools: TOOLS,
+            execute,
+            approval: broker,
+        });
+        // 工具链命令是 unknown，随 tier auto → 不审批
+        await expect(gateway.invoke('shell.run', { command: 'cargo build' })).resolves.toMatchObject({
+            ok: true,
+        });
+        expect(broker.pending()).toHaveLength(0);
+
+        // 危险命令仍需审批
+        const pending = gateway.invoke('shell.run', { command: 'rm -rf target' });
+        const requests = broker.pending();
+        expect(requests).toHaveLength(1);
+        broker.settle(requests[0].invocationId, { decision: 'rejected', reason: 'no' });
+        await expect(pending).resolves.toMatchObject({ ok: false });
     });
 
     it('executes a read tool and a draft tool through the pipeline', async () => {

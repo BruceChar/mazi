@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     AUTH_COMMAND_POLICY_FILE,
+    DEFAULT_COMMAND_POLICY,
     loadCommandPolicy,
     renderDefaultCommandPolicy,
     validateCommandPolicy,
@@ -77,6 +78,18 @@ describe('auth command policy', () => {
         expect(validateCommandPolicy({ subcommands: { git: ['status'] } }).ok).toBe(true);
         expect(validateCommandPolicy([]).ok).toBe(false);
         expect(validateCommandPolicy({ readonlyHeads: ['ping'] }).ok).toBe(true);
+    });
+
+    it('keeps toolchain commands tier-governed, destructive ones dangerous', () => {
+        const rules = authz.compileCommandPolicy(DEFAULT_COMMAND_POLICY);
+        // 工具链命令不强制逐次：随权限档位（workspace-write 下 auto）
+        expect(authz.classifyCommand('cargo build', rules)).toBe('unknown');
+        expect(authz.classifyCommand('cargo add serde', rules)).toBe('unknown');
+        expect(authz.classifyCommand('make', rules)).toBe('unknown');
+        // 破坏性/提权/系统命令仍逐次
+        expect(authz.classifyCommand('rm -rf target', rules)).toBe('dangerous');
+        expect(authz.classifyCommand('sudo ls', rules)).toBe('dangerous');
+        expect(authz.classifyCommand('git reset --hard', rules)).toBe('dangerous');
     });
 
     it('upgrades a legacy file in place, preserving user rules', () => {

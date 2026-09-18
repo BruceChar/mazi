@@ -16,14 +16,17 @@ export const PERMISSION_LEVELS = ['read-only', 'workspace-write', 'autonomous'] 
 /** Display metadata for the permission selector. */
 export const PERMISSION_META = {
     'read-only': { label: '只读', hint: '只能读；写文件/执行命令/联网需批准' },
-    'workspace-write': { label: '工作区写', hint: '可读写工作区；执行命令/联网需批准' },
+    'workspace-write': {
+        label: '工作区写',
+        hint: '可读写工作区、执行本地命令；联网/危险命令（rm、sudo、git reset 等）需批准',
+    },
     autonomous: {
         label: '完全',
         hint: '标准能力免批准；不可撤回操作/边界写/危险命令仍需审批，secret 写入禁止',
     },
     text: { label: '文本', hint: '纯对话，不提供工具' },
-    draft: { label: '草稿', hint: '读写工作区 + 联网；执行命令需批准' },
-    approved: { label: '审批', hint: '读写/联网免批准；执行命令需批准' },
+    draft: { label: '草稿', hint: '读写工作区 + 本地命令 + 联网；危险命令仍需批准' },
+    approved: { label: '审批', hint: '读写/联网/本地命令免批准；危险命令仍需批准' },
 };
 
 export const LOOP_MODES = [

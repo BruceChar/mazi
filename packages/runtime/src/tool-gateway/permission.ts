@@ -50,6 +50,8 @@ const WORKSPACE_WRITE_CAPABILITIES = [
     ...READ_CAPABILITIES,
     'fs.write.workspace',
     'fs.write.draft',
+    // 工作区写 = 信任本地命令执行（构建/测试/工具链）；联网与危险命令仍另受治理。
+    'fs.exec',
 ] as const;
 const APPROVED_CAPABILITIES = [
     ...DRAFT_CAPABILITIES,

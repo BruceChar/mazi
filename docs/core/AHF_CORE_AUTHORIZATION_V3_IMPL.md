@@ -128,3 +128,5 @@ type AuthzErrorCode =
 `ApprovalRequest.allowedScopes` 透传到运行时 `PendingApproval` 与 WebUI，高危命令隐藏「本会话/本工作区」按钮，避免用户点了却不会生效。
 
 **“完全”不等于一切免审**：`dangerous` 命令同时是运行时 tier 下限——即使派生 `tier=auto`（选择“完全”档），也强制进入审批且逐次。Q1/Q3 下限与 secret 底线同样不随档位放宽。
+
+**“工作区写”信任本地命令执行**：`workspace-write` 档位把 `fs.exec` 设为 `auto`（构建/测试/工具链命令如 `cargo build/add`、`make`、`go build` 默认按 `unknown` 随 tier 放行），因此项目初始化不再逐条弹窗。破坏性/提权/系统命令（`rm`/`sudo`/`git reset --hard`/`docker run`/`systemctl restart`…）仍是 `dangerous`，逐次审批；`curl`/`wget` 交出站账本。若部署希望更严，可在 `commands.json` 把工具链命令加回 `dangerousHeads` 或 `subcommands`。

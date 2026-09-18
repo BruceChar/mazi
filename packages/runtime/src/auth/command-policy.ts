@@ -53,7 +53,6 @@ export const DEFAULT_COMMAND_POLICY: authz.CommandPolicy = {
         'dnf',
         'apk',
         'brew',
-        'make',
         'terraform',
         'ansible',
         'ssh',
@@ -194,8 +193,6 @@ export const DEFAULT_COMMAND_POLICY: authz.CommandPolicy = {
         yarn: ['ls', 'list', 'view', 'info', 'outdated', 'why', 'ping', 'help', 'version'],
         pip: ['list', 'show', 'freeze', 'check', 'help', 'version'],
         pip3: ['list', 'show', 'freeze', 'check', 'help', 'version'],
-        go: ['version', 'env', 'list', 'doc', 'help'],
-        cargo: ['version', 'metadata', 'tree', 'search', 'help'],
     },
 };
 
