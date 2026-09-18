@@ -92,6 +92,8 @@ export interface RuntimeConfig {
         allowedTools?: string[];
     };
     systemPrompt?: string;
+    /** 命令分类规则文件路径；缺省 <MAZI_HOME>/config/auth/commands.json（MAZI_AUTH_CONFIG_DIR 可覆盖）。 */
+    authCommandPolicyFile?: string;
     /** 模型上下文窗口（token），runtime 上下文计量与利用率用 */
     contextWindow?: number;
     /** token 估算编码（js-tiktoken，缺省 o200k_base；仅近似厂商 tokenizer） */

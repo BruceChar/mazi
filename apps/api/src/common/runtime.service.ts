@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { CatalogChange } from '@mazi/runtime';
 import type { PermissionLevel } from '@mazi/core';
 import type {
+    CatalogChange,
     MaziPaths,
     PricingSchedule,
     ProviderConfig,
@@ -46,6 +46,7 @@ import {
     saveRuntimeSettings,
     toRuntimeConfig,
     withProviderSecrets,
+    writeDefaultCommandPolicy,
 } from '@mazi/runtime';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ApiError } from './api-error.js';
@@ -284,6 +285,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private config: RuntimeConfig;
 
     constructor() {
+        // 首次部署写入 auth 命令规则模板（已存在则不覆盖）。
+        writeDefaultCommandPolicy(this.paths.authCommandPolicyFile);
         // 启动：先用本地目录权威替换一次（同步、失败不阻断），再异步做在线发现（端点真实模型名）。
         try {
             this.syncProviderModels();

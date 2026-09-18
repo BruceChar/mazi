@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { CommandPolicy } from '../src/authz/command.js';
 import { derive } from '../src/authz/derive.js';
 import { DefaultToolGateway, isInScope, projectValues } from '../src/authz/gateway.js';
 import {
@@ -25,6 +26,14 @@ const SEMANTICS: Record<string, ToolSemantics> = {
     'fs.write.workspace': {},
     'fs.exec': {},
     'net.send': { egress: true, dataEgress: true },
+};
+
+/** 网关测试用命令规则（数据化；等价于运行时默认的一小份）。 */
+const TEST_COMMAND_POLICY: CommandPolicy = {
+    dangerousHeads: ['rm', 'dd', 'chmod'],
+    readonlyHeads: ['ping', 'ls', 'netstat'],
+    networkHeads: ['curl', 'wget'],
+    subcommands: { git: ['status', 'log', 'diff', 'show'] },
 };
 
 const GRANT: Grant = {
@@ -114,6 +123,7 @@ function build(
         ledger,
         taint,
         toolRegistry: new Map(TOOLS.map((t) => [t.name, t])),
+        commandPolicy: TEST_COMMAND_POLICY,
         ...(opts.approval ? { approval: opts.approval } : {}),
         ...(opts.approvalStore ? { approvalStore: opts.approvalStore } : {}),
         ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),

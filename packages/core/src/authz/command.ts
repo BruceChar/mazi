@@ -1,14 +1,18 @@
 /**
  * Shell 命令分类与审批目标（approval target）。
  *
- * 审批粒度按命令类别决定：
- * - dangerous：不可撤回 / 提权 / 写系统 / 任意执行类命令，永远逐次审批（tier 下限，不受“完全”档放宽）；
- * - readonly：只读命令（含多子命令工具的只读子命令）且无 shell 元字符，放宽为“命令名”粒度；
- * - network：curl/wget 等出网命令，交由出站账本裁决（clean 放行 / 有敏感读则转审批），不一律逐次；
- * - unknown：其余命令，按完整命令行粒度。
+ * 规则**数据化**：命令清单来自 CommandPolicy（运行时从 ~/.mazi/config/auth 加载），
+ * 代码里只保留与具体命令无关的硬条件：
+ * - shell 元字符（分号/管道/重定向/反引号/$ 展开/换行）→ 不得放宽为只读；
+ * - 解释器/提权命令（sh/bash/zsh/fish/eval/exec/source/sudo/su/doas）恒为 dangerous；
+ * - 多子命令工具未列出的子命令恒为 dangerous（保守默认）；
+ * - 无任何规则命中的命令 → unknown，正常走 shell.run（完整命令行 key）。
  *
- * 判定保守：命令任意位置出现高危词（按 ; | & 拆分后的 token）即 dangerous；
- * 多子命令工具（git/docker/npm…）只有白名单子命令算只读，其余（含未知子命令）一律 dangerous。
+ * 类别：
+ * - dangerous：永远逐次审批（tier 下限，不受“完全”档放宽）；
+ * - readonly：只读且无元字符，放宽为“命令名”粒度；
+ * - network：出网命令，交出站账本裁决（clean 放行 / 有敏感读转审批）；
+ * - unknown：完整命令行粒度。
  */
 
 import type { ApprovalScope, ToolRegistration } from './gateway-types.js';
@@ -17,198 +21,54 @@ import type { ValueProjection } from './types.js';
 
 export type CommandClass = 'dangerous' | 'readonly' | 'network' | 'unknown';
 
-/** 高危命令词：不可撤回、提权、写系统、可执行任意逻辑。 */
-const DANGEROUS_HEADS: ReadonlySet<string> = new Set([
-    'rm',
-    'rmdir',
-    'shred',
-    'dd',
-    'mkfs',
-    'fdisk',
-    'mkswap',
-    'truncate',
-    'chmod',
-    'chown',
-    'chgrp',
-    'mount',
-    'umount',
-    'sudo',
-    'su',
-    'doas',
-    'shutdown',
-    'reboot',
-    'halt',
-    'kill',
-    'pkill',
-    'killall',
-    'mv',
-    'cp',
-    'install',
-    'rsync',
-    'tee',
-    'apt',
-    'apt-get',
-    'yum',
-    'dnf',
-    'apk',
-    'brew',
-    'make',
-    'terraform',
-    'ansible',
-    'ssh',
-    'scp',
-    'sftp',
-    'telnet',
-    'nc',
-    'ncat',
-    'netcat',
-    'bash',
+/** 运行时可配置的命令规则（JSON 可序列化）。 */
+export interface CommandPolicy {
+    /** 高危命令词；永远逐次审批。 */
+    dangerousHeads?: readonly string[];
+    /** 只读命令词；无 shell 元字符时放宽为命令名粒度。 */
+    readonlyHeads?: readonly string[];
+    /** 出网命令词；交出站账本裁决。 */
+    networkHeads?: readonly string[];
+    /** 多子命令工具：head 到只读子命令白名单；未列出的子命令一律 dangerous。 */
+    subcommands?: Readonly<Record<string, readonly string[]>>;
+}
+
+export const EMPTY_COMMAND_POLICY: CommandPolicy = Object.freeze({});
+
+/** 结构性硬条件：解释器 / 提权命令恒为危险，不随配置放宽。 */
+const HARD_DANGEROUS_HEADS: readonly string[] = [
     'sh',
+    'bash',
     'zsh',
     'fish',
     'eval',
     'exec',
     'source',
-    'xargs',
-    'find',
-    'service',
-    'launchctl',
-]);
+    'sudo',
+    'su',
+    'doas',
+];
 
-/** 不出网、不落盘、不提权的信息类命令：无 shell 元字符时可放宽为命令名粒度。 */
-const READONLY_HEADS: ReadonlySet<string> = new Set([
-    'ping',
-    'ping6',
-    'traceroute',
-    'tracepath',
-    'mtr',
-    'dig',
-    'nslookup',
-    'host',
-    'netstat',
-    'ss',
-    'lsof',
-    'ps',
-    'top',
-    'free',
-    'df',
-    'du',
-    'uptime',
-    'uname',
-    'hostname',
-    'whoami',
-    'id',
-    'groups',
-    'date',
-    'cal',
-    'pwd',
-    'ls',
-    'which',
-    'whereis',
-    'type',
-    'command',
-    'echo',
-    'printf',
-    'true',
-    'false',
-    'test',
-    'sleep',
-    'bc',
-]);
+/** 编译后的规则（集合查询，供网关构造时编译一次）。 */
+export interface CommandRules {
+    dangerousHeads: ReadonlySet<string>;
+    readonlyHeads: ReadonlySet<string>;
+    networkHeads: ReadonlySet<string>;
+    subcommands: Readonly<Record<string, ReadonlySet<string>>>;
+}
 
-/** 出网命令：由出站账本（机制三）裁决，不一律逐次审批。 */
-const NETWORK_HEADS: ReadonlySet<string> = new Set(['curl', 'wget']);
-
-/** 多子命令工具：仅列出的子命令算只读；未列出/未知子命令一律 dangerous（保守默认）。 */
-const SUBCOMMAND_RULES: Readonly<Record<string, ReadonlySet<string>>> = {
-    git: new Set([
-        'status',
-        'log',
-        'diff',
-        'show',
-        'rev-parse',
-        'describe',
-        'blame',
-        'shortlog',
-        'whatchanged',
-        'ls-files',
-        'ls-remote',
-        'grep',
-        'fetch',
-        'cat-file',
-        'rev-list',
-        'name-rev',
-        'count-objects',
-        'verify-pack',
-        'fsck',
-        'help',
-        'version',
-    ]),
-    docker: new Set([
-        'ps',
-        'images',
-        'inspect',
-        'logs',
-        'version',
-        'info',
-        'stats',
-        'top',
-        'port',
-        'history',
-        'diff',
-        'search',
-        'events',
-        'help',
-    ]),
-    podman: new Set([
-        'ps',
-        'images',
-        'inspect',
-        'logs',
-        'version',
-        'info',
-        'stats',
-        'top',
-        'port',
-        'history',
-        'diff',
-        'search',
-        'events',
-        'help',
-    ]),
-    kubectl: new Set([
-        'get',
-        'describe',
-        'logs',
-        'top',
-        'explain',
-        'version',
-        'api-resources',
-        'api-versions',
-        'config',
-        'cluster-info',
-        'auth',
-        'help',
-    ]),
-    systemctl: new Set([
-        'status',
-        'list-units',
-        'list-unit-files',
-        'is-active',
-        'is-enabled',
-        'is-failed',
-        'show',
-        'cat',
-        'help',
-    ]),
-    npm: new Set(['ls', 'list', 'view', 'info', 'outdated', 'why', 'ping', 'help', 'version']),
-    pnpm: new Set(['ls', 'list', 'view', 'info', 'outdated', 'why', 'ping', 'help', 'version']),
-    yarn: new Set(['ls', 'list', 'view', 'info', 'outdated', 'why', 'ping', 'help', 'version']),
-    pip: new Set(['list', 'show', 'freeze', 'check', 'help', 'version']),
-    pip3: new Set(['list', 'show', 'freeze', 'check', 'help', 'version']),
-    go: new Set(['version', 'env', 'list', 'doc', 'help']),
-    cargo: new Set(['version', 'metadata', 'tree', 'search', 'help']),
-};
+export function compileCommandPolicy(policy: CommandPolicy = EMPTY_COMMAND_POLICY): CommandRules {
+    const subcommands: Record<string, ReadonlySet<string>> = {};
+    for (const [head, subs] of Object.entries(policy.subcommands ?? {})) {
+        subcommands[head] = new Set(subs);
+    }
+    return {
+        dangerousHeads: new Set([...(policy.dangerousHeads ?? []), ...HARD_DANGEROUS_HEADS]),
+        readonlyHeads: new Set(policy.readonlyHeads ?? []),
+        networkHeads: new Set(policy.networkHeads ?? []),
+        subcommands,
+    };
+}
 
 const TOKEN_SPLIT = /[\s;|&()<>]+/;
 const HEAD_SPLIT = /\s+/;
@@ -235,30 +95,33 @@ function subcommandOf(tokens: readonly string[]): string | undefined {
     return basename(second);
 }
 
-function isDangerousToken(token: string, next: string | undefined): boolean {
+function isDangerousToken(token: string, next: string | undefined, rules: CommandRules): boolean {
     const head = basename(token);
-    if (DANGEROUS_HEADS.has(head)) return true;
-    const rule = SUBCOMMAND_RULES[head];
-    if (rule !== undefined) {
+    if (rules.dangerousHeads.has(head)) return true;
+    const subRules = rules.subcommands[head];
+    if (subRules !== undefined) {
         if (next === undefined) return true;
-        return !rule.has(basename(next));
+        return !subRules.has(basename(next));
     }
     return false;
 }
 
-export function classifyCommand(command: string): CommandClass {
+export function classifyCommand(
+    command: string,
+    rules: CommandRules = compileCommandPolicy(),
+): CommandClass {
     const trimmed = command.trim();
     if (trimmed.length === 0) return 'unknown';
     const tokens = trimmed.split(TOKEN_SPLIT).filter((token) => token.length > 0);
-    if (tokens.some((token, index) => isDangerousToken(token, tokens[index + 1]))) {
+    if (tokens.some((token, index) => isDangerousToken(token, tokens[index + 1], rules))) {
         return 'dangerous';
     }
     const head = commandHead(trimmed);
     if (head === undefined) return 'unknown';
-    const rule = SUBCOMMAND_RULES[head];
-    if (rule !== undefined) {
+    const subRules = rules.subcommands[head];
+    if (subRules !== undefined) {
         const sub = subcommandOf(tokens);
-        if (sub !== undefined && rule.has(sub) && !hasShellMeta(trimmed)) return 'readonly';
+        if (sub !== undefined && subRules.has(sub) && !hasShellMeta(trimmed)) return 'readonly';
         const second = tokens[1];
         if (
             (second === '--version' || second === '--help' || second === '-v' || second === '-h') &&
@@ -266,17 +129,21 @@ export function classifyCommand(command: string): CommandClass {
         ) {
             return 'readonly';
         }
-        return 'unknown';
+        // 只读子命令白名单之外（含未知子命令）保守归 dangerous。
+        return 'dangerous';
     }
-    if (READONLY_HEADS.has(head) && !hasShellMeta(trimmed)) return 'readonly';
-    if (NETWORK_HEADS.has(head)) return 'network';
+    if (rules.readonlyHeads.has(head) && !hasShellMeta(trimmed)) return 'readonly';
+    if (rules.networkHeads.has(head)) return 'network';
     return 'unknown';
 }
 
 /** 该命令是否属于出网命令（shell.run 需走出站账本裁决）。 */
-export function isNetworkCommand(command: string): boolean {
+export function isNetworkCommand(
+    command: string,
+    rules: CommandRules = compileCommandPolicy(),
+): boolean {
     const head = commandHead(command);
-    return head !== undefined && NETWORK_HEADS.has(head);
+    return head !== undefined && rules.networkHeads.has(head);
 }
 
 export interface ApprovalTarget {
@@ -295,10 +162,11 @@ const ONCE_ONLY: readonly ApprovalScope[] = ['once'];
 export function approvalTargetOf(
     registration: ToolRegistration,
     projection: ValueProjection,
+    rules: CommandRules = compileCommandPolicy(),
 ): ApprovalTarget {
     if (projection.command !== undefined) {
         const command = projection.command.trim().replace(/\s+/g, ' ');
-        const commandClass = classifyCommand(command);
+        const commandClass = classifyCommand(command, rules);
         if (commandClass === 'dangerous') {
             return {
                 key: `${registration.name}:cmd:${command}`,

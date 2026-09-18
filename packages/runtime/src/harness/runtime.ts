@@ -3,12 +3,14 @@ import { authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
+import { loadCommandPolicy } from '../auth/command-policy.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
 import { MemoryManager, turnsToMemory } from '../memory/memory.js';
+import { maziPaths } from '../paths.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
@@ -56,6 +58,8 @@ export class HarnessRuntime {
     private approvalSeam?: authz.ApprovalSeam;
     /** 进程级 session/workspace 审批授权：绑定具体操作，跨 run 复用。 */
     private readonly approvalStore = new authz.InMemoryApprovalStore();
+    /** 命令分类规则（运行时从配置加载；未命中规则走 shell.run 默认）。 */
+    private readonly commandPolicy: authz.CommandPolicy;
     /** 待执行 Session 的 Conversation id（session 作用域审批匹配用） */
     private readonly pendingSessionId = new Map<string, string>();
     /** 长期记忆调度组合根（store 缺省进程内实现，可注入替换）。 */
@@ -67,6 +71,9 @@ export class HarnessRuntime {
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
+        this.commandPolicy = loadCommandPolicy(
+            config.authCommandPolicyFile ?? maziPaths().authCommandPolicyFile,
+        ).policy;
         configureTokenizer(config.tokenizerEncoding);
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
@@ -339,6 +346,7 @@ export class HarnessRuntime {
             ...(this.approvalSeam ? { approval: this.approvalSeam } : {}),
             approvalStore: this.approvalStore,
             ...(sessionId !== undefined ? { sessionId } : {}),
+            commandPolicy: this.commandPolicy,
         });
         const visible = new Set(gateway.visibleToolNames());
         const configured = this.config.goal?.allowedTools;

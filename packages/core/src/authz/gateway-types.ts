@@ -8,6 +8,7 @@
 
 import type { AuditIdentifiers } from '../observability.js';
 import type { ApprovalEcho } from './approval.js';
+import type { CommandPolicy } from './command.js';
 import type { AssetLabelRegistry } from './labels.js';
 import type { DataflowLedger, TaintTable } from './ledger.js';
 import type {
@@ -264,6 +265,8 @@ export interface GatewayBindInput {
     approvalStore?: ApprovalStore;
     /** 当前会话 id；session 作用域授权据此匹配，workspace 忽略。 */
     sessionId?: string;
+    /** 命令分类规则（运行时从配置加载）；缺省只用代码硬条件（空策略）。 */
+    commandPolicy?: CommandPolicy;
     audit: GatewayAuditSink;
     now?: () => number;
 }

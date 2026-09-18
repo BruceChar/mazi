@@ -14,6 +14,8 @@ import { homedir } from 'node:os';
 
 import { authz, type PermissionLevel } from '@mazi/core';
 
+import { DEFAULT_COMMAND_POLICY } from '../auth/command-policy.js';
+
 import type { ToolCallResult, ToolConfig } from '../config.js';
 
 const HOME = homedir();
@@ -164,6 +166,8 @@ export interface RuntimeGatewayOptions {
     approvalStore?: authz.ApprovalStore;
     /** 当前会话 id；session 作用域授权据此匹配。 */
     sessionId?: string;
+    /** 命令分类规则（运行时从配置加载）。 */
+    commandPolicy?: authz.CommandPolicy;
     workspaceRoot?: string;
     now?: () => number;
 }
@@ -216,6 +220,7 @@ export class RuntimeToolGateway {
             approval: opts.approval ?? standingApprovalSeam(),
             ...(opts.approvalStore ? { approvalStore: opts.approvalStore } : {}),
             ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
+            commandPolicy: opts.commandPolicy ?? DEFAULT_COMMAND_POLICY,
             audit: opts.audit ?? { log: () => {} },
             ...(opts.now ? { now: opts.now } : {}),
         });

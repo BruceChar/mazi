@@ -8,7 +8,13 @@
  */
 
 import { ulid } from '../ulid.js';
-import { type ApprovalTarget, approvalTargetOf, isNetworkCommand } from './command.js';
+import {
+    type ApprovalTarget,
+    approvalTargetOf,
+    type CommandRules,
+    compileCommandPolicy,
+    isNetworkCommand,
+} from './command.js';
 import {
     type ApprovalDecision,
     type ApprovalRequest,
@@ -92,11 +98,13 @@ function errorMessage(error: unknown): string {
 export class DefaultToolGateway implements ToolGateway {
     readonly stageNames = GATEWAY_PIPELINE_STAGES;
     private readonly sessionApprovals: SessionApproval[] = [];
+    private readonly commandRules: CommandRules;
     private stepsUsed = 0;
     private readonly now: () => number;
 
     constructor(private readonly bind: GatewayBindInput) {
         this.now = bind.now ?? (() => Date.now());
+        this.commandRules = compileCommandPolicy(bind.commandPolicy);
     }
 
     approvals(): readonly SessionApproval[] {
@@ -232,7 +240,8 @@ export class DefaultToolGateway implements ToolGateway {
             registration.semantics.egress === true ||
             registration.semantics.dataEgress === true ||
             // shell 中的 curl/wget 等出网命令也交出站账本裁决，而不是一律逐次审批
-            (projection.command !== undefined && isNetworkCommand(projection.command));
+            (projection.command !== undefined &&
+                isNetworkCommand(projection.command, this.commandRules));
         if (egressing) {
             const guarded = guardGenericEgress(req.args, {
                 mode: 'reject',
@@ -262,7 +271,7 @@ export class DefaultToolGateway implements ToolGateway {
         }
 
         // ⑤ approval (fail-closed when absent)
-        const approval = approvalTargetOf(registration, projection);
+        const approval = approvalTargetOf(registration, projection, this.commandRules);
         // 高危命令是运行时下限：即使派生 tier=auto（如“完全”档），也必须逐次审批。
         if (approval.alwaysPrompt) needsApproval = true;
         const approvalHit = !approval.alwaysPrompt && this.hasApproval(approval.key);

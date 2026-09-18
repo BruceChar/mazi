@@ -23,6 +23,9 @@ export const HOME_FILE_SETTINGS = 'settings.json';
 export const HOME_FILE_SECRETS = 'secrets.json';
 export const HOME_DB_FILE = 'mazi.db';
 export const HOME_EVENTS_DIR = 'events';
+/** Auth 治理配置目录（命令分类规则等）；可用 MAZI_AUTH_CONFIG_DIR 覆盖。 */
+export const HOME_AUTH_DIR = 'config/auth';
+export const AUTH_COMMAND_POLICY_FILE = 'commands.json';
 
 export interface MaziPaths {
     home: string;
@@ -33,9 +36,18 @@ export interface MaziPaths {
     secretsFile: string;
     dbPath: string;
     eventDir: string;
+    /** Auth 治理配置目录（命令分类规则等）。 */
+    authConfigDir: string;
+    /** 命令分类规则文件（默认 commands.json）。 */
+    authCommandPolicyFile: string;
 }
 
 export function maziPaths(home = maziHome()): MaziPaths {
+    const authOverride = process.env.MAZI_AUTH_CONFIG_DIR;
+    const authConfigDir =
+        authOverride && authOverride.length > 0
+            ? expandHome(authOverride)
+            : join(home, HOME_AUTH_DIR);
     return {
         home,
         providersFile: join(home, HOME_FILE_PROVIDERS),
@@ -45,6 +57,8 @@ export function maziPaths(home = maziHome()): MaziPaths {
         secretsFile: join(home, HOME_FILE_SECRETS),
         dbPath: join(home, HOME_DB_FILE),
         eventDir: join(home, HOME_EVENTS_DIR),
+        authConfigDir,
+        authCommandPolicyFile: join(authConfigDir, AUTH_COMMAND_POLICY_FILE),
     };
 }
 
@@ -53,6 +67,7 @@ export function ensureMaziDirs(home = maziHome()): MaziPaths {
     const paths = maziPaths(home);
     mkdirSync(paths.home, { recursive: true });
     mkdirSync(paths.eventDir, { recursive: true });
+    mkdirSync(paths.authConfigDir, { recursive: true });
     return paths;
 }
 
