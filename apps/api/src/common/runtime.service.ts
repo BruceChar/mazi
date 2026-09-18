@@ -20,6 +20,7 @@ import {
     apiKeyStatus,
     builtinModelsFor,
     CatalogService,
+    COMMAND_POLICY_DOC,
     configOverview,
     createPricingAnalyst,
     DEEPSEEK_PEAK_TIERS,
@@ -255,6 +256,8 @@ export interface AuthCommandPolicyView {
     source: 'file' | 'default';
     raw: string;
     schema: Record<string, unknown>;
+    /** 字段说明（即使配置文件是旧版缺少 _doc，也始终返回）。 */
+    doc: Record<string, string>;
     error?: string;
 }
 
@@ -998,6 +1001,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             source: result.source,
             raw,
             schema: AUTH_COMMAND_POLICY_SCHEMA,
+            doc: COMMAND_POLICY_DOC,
             ...(result.error !== undefined ? { error: result.error } : {}),
         };
     }

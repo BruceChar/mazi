@@ -233,7 +233,8 @@ export const AUTH_COMMAND_POLICY_SCHEMA: Record<string, unknown> = {
     },
 };
 
-const POLICY_DOC = {
+/** 字段说明（写入模板 _doc；加载时忽略）。 */
+export const COMMAND_POLICY_DOC: Readonly<Record<string, string>> = {
     dangerousHeads: '高危命令：永远逐次人工审批，不受档位/预授权放宽。',
     readonlyHeads: '只读命令：无 shell 元字符时放宽为命令名粒度（批准 ping 覆盖所有 ping）。',
     networkHeads: '出网命令：交出站账本裁决（账本干净放行，含敏感读则转审批）。',
@@ -248,7 +249,7 @@ export function renderDefaultCommandPolicy(): string {
         {
             $schema: `./${AUTH_COMMAND_POLICY_SCHEMA_FILE}`,
             version: AUTH_COMMAND_POLICY_VERSION,
-            _doc: POLICY_DOC,
+            _doc: COMMAND_POLICY_DOC,
             ...DEFAULT_COMMAND_POLICY,
         },
         null,
@@ -342,12 +343,17 @@ export function mergeCommandPolicy(
     };
 }
 
-/** 首次部署写入默认模板 + schema（仅当文件不存在）；由应用引导调用，测试不触发。 */
+/**
+ * 首次部署写入默认模板 + schema；旧文件缺少 $schema/_doc 时原地补上（保留用户字段）。
+ * 由应用引导调用，测试不触发。
+ */
 export function writeDefaultCommandPolicy(filePath: string): void {
     try {
         if (!existsSync(filePath)) {
             mkdirSync(dirname(filePath), { recursive: true });
             writeFileSync(filePath, renderDefaultCommandPolicy(), 'utf8');
+        } else {
+            upgradeLegacyPolicyFile(filePath);
         }
         const schemaPath = join(dirname(filePath), AUTH_COMMAND_POLICY_SCHEMA_FILE);
         if (!existsSync(schemaPath)) {
@@ -359,6 +365,25 @@ export function writeDefaultCommandPolicy(filePath: string): void {
         }
     } catch {
         // 只读文件系统等场景：写模板失败不影响用内置默认运行。
+    }
+}
+
+/** 旧版（无 _doc/$schema）配置原地补齐说明字段，保留用户已有规则。 */
+function upgradeLegacyPolicyFile(filePath: string): void {
+    try {
+        const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+        const obj = parsed as Record<string, unknown>;
+        if (obj.$schema !== undefined || obj._doc !== undefined) return;
+        const upgraded = {
+            $schema: `./${AUTH_COMMAND_POLICY_SCHEMA_FILE}`,
+            version: AUTH_COMMAND_POLICY_VERSION,
+            _doc: COMMAND_POLICY_DOC,
+            ...obj,
+        };
+        writeFileSync(filePath, `${JSON.stringify(upgraded, null, 2)}\n`, 'utf8');
+    } catch {
+        // 损坏文件交由 loadCommandPolicy 回退默认，不在此处覆盖。
     }
 }
 

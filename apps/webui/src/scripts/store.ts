@@ -354,6 +354,8 @@ export interface AuthCommandPolicyState {
     source: 'file' | 'default';
     raw: string;
     schema?: Record<string, unknown>;
+    /** 字段说明（后端始终返回，旧配置也能显示）。 */
+    doc?: Record<string, string>;
     error?: string;
 }
 

@@ -851,6 +851,7 @@ onBeforeUnmount(() => {
                 <ChatMain
                     :active-conversation="activeConversation"
                     :workspace-display-name="workspaceDisplayName"
+                    :workspace-root="workspaceRoot"
                     :runs="runs"
                     :run-details="runDetails"
                     :current="current"

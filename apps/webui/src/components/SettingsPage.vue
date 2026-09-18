@@ -143,7 +143,9 @@ const authParsed = computed(() => {
     }
 });
 const authDoc = computed(() => {
-    const doc = authParsed.value?._doc;
+    // 优先后端返回的 doc（旧配置文件缺少 _doc 时也能显示说明）。
+    const fromApi = props.authCommands?.doc;
+    const doc = fromApi && typeof fromApi === 'object' ? fromApi : authParsed.value?._doc;
     if (!doc || typeof doc !== 'object') return [];
     return Object.entries(doc).map(([key, text]) => ({ key, text: String(text) }));
 });

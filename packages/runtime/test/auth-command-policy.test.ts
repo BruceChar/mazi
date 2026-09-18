@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -77,6 +77,16 @@ describe('auth command policy', () => {
         expect(validateCommandPolicy({ subcommands: { git: ['status'] } }).ok).toBe(true);
         expect(validateCommandPolicy([]).ok).toBe(false);
         expect(validateCommandPolicy({ readonlyHeads: ['ping'] }).ok).toBe(true);
+    });
+
+    it('upgrades a legacy file in place, preserving user rules', () => {
+        const file = tempFile();
+        writeFileSync(file, JSON.stringify({ dangerousHeads: ['mycmd'] }));
+        writeDefaultCommandPolicy(file);
+        const upgraded = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+        expect(upgraded.$schema).toBe('./commands.schema.json');
+        expect(typeof upgraded._doc).toBe('object');
+        expect(upgraded.dangerousHeads).toEqual(['mycmd']);
     });
 
     it('renders a self-documenting default template with $schema/version/_doc', () => {
