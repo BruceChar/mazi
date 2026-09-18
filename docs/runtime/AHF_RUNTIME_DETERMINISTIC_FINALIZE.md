@@ -28,6 +28,7 @@
 
 - deliberation Step 的 `payload.answer` 更新为渲染后的最终答案，并新增 `payload.answerTemplate` 保留模型原始模板（可审计、可回放）。
 - invocation Step 仍按既有流程逐条落库工具调用与输出。
+- 展示侧（webui ExecStream）：最终回答由底部 Summary 呈现，但**该 step 的 reasoning 不能一起丢**——`deliberationRowDecision` 让同一步仍以 reasoning 行展示（仅抑制行内 answer），否则确定性单轮收尾时树的推理行会被整条跳过。
 
 ## 5. 测试基线
 

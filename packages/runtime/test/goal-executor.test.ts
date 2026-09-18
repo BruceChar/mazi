@@ -462,6 +462,7 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(outcome.finalMessage).toContain('晴');
         expect(outcome.finalMessage).not.toContain('{{result}}');
         const steps = await store.listSteps(t.taskId);
+        expect(steps.some((step) => step.kind === 'invocation')).toBe(true);
         const deliberation = steps.find((step) => step.kind === 'deliberation');
         expect((deliberation?.payload as { answer?: string }).answer).toContain('晴');
         expect((deliberation?.payload as { answerTemplate?: string }).answerTemplate).toBe(

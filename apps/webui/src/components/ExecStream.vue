@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import { deliberationRowDecision } from '../scripts/exec-tree.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { copyThinkingChain, ui } from '../scripts/store.ts';
 
@@ -160,14 +161,12 @@ function taskStepRows(task, lastAnswerId) {
     const steps = (task.steps || []).slice().sort((a, b) => a.startedAt - b.startedAt);
     const rows = [];
     for (const s of steps) {
-        if (s.kind === 'deliberation') {
-            const hasBody = Boolean(s.thinking || s.answer || s.content);
-            // 纯工具轮（无推理/无回答）：正文为空，执行细节由 invocation 行承载。
-            if (!hasBody) continue;
-            // 整条 run 的最终回答由底部 Summary 独立展示。
-            if (s.stepId === lastAnswerId) continue;
-        }
-        rows.push(stepToRow(s, rows.length));
+        const decision = deliberationRowDecision(s, lastAnswerId);
+        if (!decision.show) continue;
+        const row = stepToRow(s, rows.length);
+        // 最终回答已由 Summary 承载；行内只保留 reasoning，避免重复。
+        if (decision.suppressIntent) row.intentText = '';
+        rows.push(row);
     }
     return rows;
 }
