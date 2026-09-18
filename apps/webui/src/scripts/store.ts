@@ -518,6 +518,8 @@ export interface PendingApproval {
     tool: string;
     capability: string;
     summary: string;
+    /** 允许的作用域；高危命令只有 once，UI 据此隐藏其余按钮。 */
+    allowedScopes?: string[];
     identifiers?: { rootGoalId?: string };
     requestedAt?: number;
 }

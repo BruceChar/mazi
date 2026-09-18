@@ -213,8 +213,9 @@ describe('runtime permission bridge', () => {
             approval: neverAsk,
             approvalStore: store,
         });
+        // 只读命令按命令名放宽：换目标域名命中同一工作区授权
         await expect(
-            second.invoke('shell.run', { command: 'ping baidu.com' }),
+            second.invoke('shell.run', { command: 'ping bilibili.com' }),
         ).resolves.toMatchObject({ ok: true });
     });
 

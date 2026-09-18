@@ -19,6 +19,8 @@ export interface PendingApproval {
     capability: string;
     summary: string;
     echo: authz.ApprovalEcho;
+    /** 允许的作用域；高危命令只有 once，UI 据此隐藏其余按钮。 */
+    allowedScopes: readonly authz.ApprovalScope[];
     identifiers: AuditIdentifiers;
     requestedAt: number;
 }
@@ -65,6 +67,7 @@ export class ApprovalBroker implements authz.ApprovalSeam {
                 capability: request.capability,
                 summary: authz.summarizeEcho(request.echo),
                 echo: request.echo,
+                allowedScopes: request.allowedScopes,
                 identifiers,
                 requestedAt: this.now(),
             };

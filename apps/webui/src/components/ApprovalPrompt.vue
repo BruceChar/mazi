@@ -11,6 +11,12 @@ defineProps({
     approvals: { type: Array, default: () => [] },
 });
 const emit = defineEmits(['respond']);
+
+/** 该调用是否允许某个作用域；缺省（旧事件）视为允许。 */
+function allows(item, scope) {
+    const scopes = item?.allowedScopes;
+    return !Array.isArray(scopes) || scopes.includes(scope);
+}
 </script>
 
 <template>
@@ -45,6 +51,7 @@ const emit = defineEmits(['respond']);
                         允许一次
                     </button>
                     <button
+                        v-if="allows(item, 'session')"
                         type="button"
                         class="ghost"
                         @click="
@@ -58,6 +65,7 @@ const emit = defineEmits(['respond']);
                         本会话允许
                     </button>
                     <button
+                        v-if="allows(item, 'workspace')"
                         type="button"
                         class="primary"
                         @click="

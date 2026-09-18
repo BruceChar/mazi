@@ -8,9 +8,11 @@
  */
 
 import { ulid } from '../ulid.js';
+import { type ApprovalTarget, approvalTargetOf } from './command.js';
 import {
     type ApprovalDecision,
     type ApprovalRequest,
+    type ApprovalScope,
     GATEWAY_PIPELINE_STAGES,
     type GatewayBindInput,
     type GatewayStage,
@@ -22,7 +24,6 @@ import {
     type ToolSpec,
 } from './gateway-types.js';
 import { matchGlob, normalizeAssetPath } from './glob.js';
-import { stableStringify } from './hash.js';
 import type { ResolvedLabel } from './labels.js';
 import { assessQuestions, isWriteCapability } from './risk.js';
 import { guardGenericEgress, type SignedRequest } from './secret.js';
@@ -82,15 +83,6 @@ export function isInScope(
         }
     }
     return true;
-}
-
-/** 操作指纹：同一条命令/同一目标才复用授权；能力类目（fs.exec）不参与。 */
-export function approvalKeyOf(registration: ToolRegistration, projection: ValueProjection): string {
-    if (projection.command !== undefined) {
-        const command = projection.command.trim().replace(/\s+/g, ' ');
-        return `${registration.name}:cmd:${command}`;
-    }
-    return `${registration.name}:obs:${stableStringify(projection)}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -267,8 +259,9 @@ export class DefaultToolGateway implements ToolGateway {
         }
 
         // ⑤ approval (fail-closed when absent)
-        const approvalKey = approvalKeyOf(registration, projection);
-        if (needsApproval && !this.hasApproval(approvalKey)) {
+        const approval = approvalTargetOf(registration, projection);
+        const approvalHit = !approval.alwaysPrompt && this.hasApproval(approval.key);
+        if (needsApproval && !approvalHit) {
             if (!this.bind.approval) {
                 return reject(
                     'APPROVAL_UNAVAILABLE',
@@ -282,16 +275,17 @@ export class DefaultToolGateway implements ToolGateway {
                 tool: req.tool,
                 capability: registration.capability,
                 echo: this.buildEcho(registration, projection, invocationId),
+                allowedScopes: approval.allowedScopes,
                 identifiers,
             };
             log('approval', 'pending', { detail: 'approval-requested' });
             const decision = await this.bind.approval.decide(request);
-            const settled = this.settle(decision, approvalKey, registration.capability);
+            const settled = this.settle(decision, approval, registration.capability);
             if (settled) return reject(settled.code, settled.hint, 'approval');
             log('approval', 'allowed', { detail: decision.decision });
         } else {
             log('approval', 'allowed', {
-                detail: needsApproval ? 'session-approval-hit' : 'not-required',
+                detail: needsApproval ? 'approval-hit' : 'not-required',
             });
         }
 
@@ -423,7 +417,7 @@ export class DefaultToolGateway implements ToolGateway {
 
     private settle(
         decision: ApprovalDecision,
-        key: string,
+        target: ApprovalTarget,
         capability: string,
     ): { code: AuthzErrorCode; hint: string } | undefined {
         if (decision.decision === 'rejected') {
@@ -432,12 +426,14 @@ export class DefaultToolGateway implements ToolGateway {
         if (decision.decision === 'cancelled') {
             return { code: 'GATED_REJECTED', hint: '审批取消' };
         }
-        if (decision.scope !== 'once') {
+        // 高危命令永远逐次：忽略 UI 传来的 session/workspace，不落任何预授权。
+        const scope: ApprovalScope = target.alwaysPrompt ? 'once' : decision.scope;
+        if (scope !== 'once') {
             const approval: SessionApproval = {
                 id: ulid(),
-                key,
+                key: target.key,
                 capability,
-                scope: decision.scope,
+                scope,
                 ...(this.bind.sessionId !== undefined ? { sessionId: this.bind.sessionId } : {}),
                 createdAt: this.now(),
             };
@@ -445,7 +441,7 @@ export class DefaultToolGateway implements ToolGateway {
             // 不上浮到进程级 store，避免误命中其它会话。
             if (
                 this.bind.approvalStore &&
-                !(decision.scope === 'session' && this.bind.sessionId === undefined)
+                !(scope === 'session' && this.bind.sessionId === undefined)
             ) {
                 this.bind.approvalStore.remember(approval);
             } else {

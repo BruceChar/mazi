@@ -112,3 +112,10 @@ type AuthzErrorCode =
 `packages/runtime/src/tool-gateway/permission.ts` 将 UI 权限档位映射为 root `Grant`（`caps`），按 `ToolConfig` 推导能力与三问语义，装配 `DataflowLedger` + `TaintTable` + `DefaultToolGateway`。`approval.ts` 保持 `ApprovalSeam` 契约；`policy-audit.ts` 按新阶段集合压缩审计事件。
 
 **审批授权持久化**：`DefaultToolGateway` 逐 run 重建，因此 `session`/`workspace` 授权不能只存在网关实例内。`ApprovalStore`（核心契约 + `InMemoryApprovalStore`）持有授权，**按具体操作指纹**（`approvalKeyOf`：tool + 命令/路径/host/投影；能力类目不参与）而非能力类目——批准 `ping baidu.com` 不会顺带批准 `netstat`。作用域区分：`workspace` 跨会话生效（按 key 命中即放行）；`session` 需要 `sessionId` 匹配（会话 id 由 `HarnessRuntime` 从 `RunOptions.conversationId` 透传，API 为每次新会话预生成 id）；无会话 id 的 session 授权退化为本次 run 内有效。`HarnessRuntime` 持有进程级（= 每工作区）store 并透传，直到 `revoke` / `clearSession` / 运行时重建。
+
+**审批粒度策略**：`authz.command` 对 shell 命令分类，决定授权 key 与可用作用域：
+- `dangerous`（rm/dd/chmod/sudo/curl/git/…——命令任意位置出现高危词即命中）：永远逐次审批，`allowedScopes=['once']`；即使 UI 传 session/workspace 也不落预授权；
+- `readonly`（ping/ls/dig/netstat/… 且无 shell 元字符）：授权 key 放宽为**命令名**（`shell.run:cmdname:ping`），一次批准覆盖同类命令的不同参数；
+- `unknown`（其余）：完整命令行 key。
+
+`ApprovalRequest.allowedScopes` 透传到运行时 `PendingApproval` 与 WebUI，高危命令隐藏「本会话/本工作区」按钮，避免用户点了却不会生效。

@@ -32,7 +32,7 @@ const GRANT: Grant = {
         'fs.read.workspace': { tier: 'auto' },
         'fs.read.host': { tier: 'auto', maxLabel: 'secret' },
         'fs.write.workspace': { tier: 'auto' },
-        'fs.exec': { tier: 'auto' },
+        'fs.exec': { tier: 'gated' },
         'net.send': { tier: 'auto' },
     },
 };
@@ -178,23 +178,49 @@ describe('authz execution gateway', () => {
         ).toMatchObject({ kind: 'rejected', code: 'FORBIDDEN_BY_HARD_FLOOR' });
     });
 
-    it('workspace approval is per-operation: same command persists, other command still asks', async () => {
+    it('readonly command approval broadens to the command name, other commands still ask', async () => {
         const store = new InMemoryApprovalStore();
         const first = build({
             approval: approving([{ decision: 'granted', scope: 'workspace' }]),
             approvalStore: store,
         });
         expect(
-            await first.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf src/' } }),
+            await first.gateway.invoke({ tool: 'shell', args: { command: 'ping baidu.com' } }),
         ).toMatchObject({ kind: 'executed' });
 
         const second = build({ approvalStore: store });
+        // 只读命令按“命令名”粒度：换目标域名仍命中同一授权
         expect(
-            await second.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf src/' } }),
+            await second.gateway.invoke({ tool: 'shell', args: { command: 'ping bilibili.com' } }),
         ).toMatchObject({ kind: 'executed' });
-        // 不同命令必须单独审批：无审批 seam → fail-closed
+        // 另一个只读命令 key 不同，仍需审批
         expect(
-            await second.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf dist/' } }),
+            await second.gateway.invoke({ tool: 'shell', args: { command: 'netstat -an' } }),
+        ).toMatchObject({ kind: 'rejected', code: 'APPROVAL_UNAVAILABLE' });
+    });
+
+    it('dangerous commands always prompt, even after a workspace grant', async () => {
+        const store = new InMemoryApprovalStore();
+        const scopes: Array<readonly string[]> = [];
+        const first = build({
+            approval: {
+                decide: async (request) => {
+                    scopes.push(request.allowedScopes);
+                    return { decision: 'granted', scope: 'workspace' };
+                },
+            },
+            approvalStore: store,
+        });
+        expect(
+            await first.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf ./tmp' } }),
+        ).toMatchObject({ kind: 'executed' });
+        // 高危命令只提供 once 作用域
+        expect(scopes[0]).toEqual(['once']);
+
+        // 即使上一次点了“工作区允许”，rm 仍然逐次审批
+        const second = build({ approvalStore: store });
+        expect(
+            await second.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf ./tmp' } }),
         ).toMatchObject({ kind: 'rejected', code: 'APPROVAL_UNAVAILABLE' });
     });
 
@@ -206,19 +232,19 @@ describe('authz execution gateway', () => {
             sessionId: 'c1',
         });
         expect(
-            await first.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf src/' } }),
+            await first.gateway.invoke({ tool: 'shell', args: { command: 'ping baidu.com' } }),
         ).toMatchObject({ kind: 'executed' });
 
         const sameSession = build({ approvalStore: store, sessionId: 'c1' });
         expect(
-            await sameSession.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf src/' } }),
+            await sameSession.gateway.invoke({ tool: 'shell', args: { command: 'ping baidu.com' } }),
         ).toMatchObject({ kind: 'executed' });
 
         const otherSession = build({ approvalStore: store, sessionId: 'c2' });
         expect(
             await otherSession.gateway.invoke({
                 tool: 'shell',
-                args: { command: 'rm -rf src/' },
+                args: { command: 'ping baidu.com' },
             }),
         ).toMatchObject({ kind: 'rejected', code: 'APPROVAL_UNAVAILABLE' });
     });

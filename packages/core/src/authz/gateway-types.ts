@@ -102,8 +102,11 @@ export interface InvocationRequest {
     taskId?: string;
 }
 
+/** 审批授权作用域：一次 / 本会话 / 本工作区。 */
+export type ApprovalScope = 'once' | 'session' | 'workspace';
+
 export type ApprovalDecision =
-    | { decision: 'granted'; scope: 'once' | 'session' | 'workspace' }
+    | { decision: 'granted'; scope: ApprovalScope }
     | { decision: 'rejected'; reason: string }
     | { decision: 'cancelled' };
 
@@ -112,6 +115,8 @@ export interface ApprovalRequest {
     tool: string;
     capability: string;
     echo: ApprovalEcho;
+    /** 该调用允许的作用域；高危命令只有 once，UI 应隐藏其余按钮。 */
+    allowedScopes: readonly ApprovalScope[];
     /** Harness-injected attribution so the UI can route the request. */
     identifiers: AuditIdentifiers;
 }

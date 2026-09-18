@@ -4,6 +4,7 @@
  */
 
 export * from './approval.js';
+export * from './command.js';
 export * from './derive.js';
 export * from './egress.js';
 export * from './gateway.js';
