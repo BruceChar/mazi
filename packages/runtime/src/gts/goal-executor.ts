@@ -6,6 +6,7 @@
 
 import type { Goal, LLMMessage, Step, Task, ToolSchema } from '@mazi/core';
 import { ulid } from '@mazi/core';
+import { ContextManager, type SecretRedactor } from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
 import type { ExecutorRoundContext, RoundResult } from './round-types.js';
 
@@ -39,6 +40,8 @@ export interface GoalExecutorDeps {
     now?: () => number;
     /** Step 落库后即时回调（流式上报：思考/工具/观察），供事件总线实时推送给 UI */
     onStep?: (step: Step) => void;
+    /** 敏感内容进入 context 的断流端口（V3 机制二）；缺省时 secret 观察值 fail-closed */
+    redactor?: SecretRedactor;
 }
 
 export type TaskStopReason = 'final-answer' | 'max-steps' | 'driver-error' | 'blocked-tool';
@@ -50,10 +53,6 @@ export interface TaskOutcome {
     reason: TaskStopReason;
     finalMessage?: string;
     errorMessage?: string;
-}
-
-function toUserMessage(statement: string): LLMMessage {
-    return { role: 'user', content: [{ type: 'text', text: statement }] };
 }
 
 export async function executeTask(
@@ -74,8 +73,13 @@ export async function executeTask(
     const maxSteps = deps.maxSteps ?? 50;
     const invoker = deps.invoker;
     const allowed = new Set(deps.allowedTools ?? []);
-    const history = deps.history ?? [];
-    const messages: LLMMessage[] = [...history, toUserMessage(goal.statement)];
+    const context = new ContextManager({
+        ...(deps.systemPrompt !== undefined ? { systemPrompt: deps.systemPrompt } : {}),
+        tools: deps.tools ?? [],
+        ...(deps.history !== undefined ? { history: deps.history } : {}),
+        ...(deps.redactor !== undefined ? { redactor: deps.redactor } : {}),
+    });
+    context.appendUser(goal.statement);
     const steps: Step[] = [];
 
     // Persist the task before the first round. Live observers rebuild the tree via
@@ -84,16 +88,19 @@ export async function executeTask(
     task.status = 'active';
     await saveTask();
 
-    const roundRequest = (): Promise<RoundResult> =>
-        deps.requestRound({
+    const roundRequest = (): Promise<RoundResult> => {
+        const systemPrompt = context.systemPrompt();
+        return deps.requestRound({
             goalId: task.goalId,
             taskId: task.taskId,
             model: deps.model ?? { providerId: 'default', modelId: 'default' },
-            messages,
-            baseMessageCount: history.length,
-            ...(deps.systemPrompt ? { systemPrompt: deps.systemPrompt } : {}),
-            tools: deps.tools ?? [],
+            messages: context.messages(),
+            baseMessageCount: context.baseMessageCount(),
+            ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+            tools: context.tools(),
+            context,
         });
+    };
 
     // 死循环护栏：连续相同工具调用达 3 轮视为未收敛（不烧完剩余轮次）
     let prevCallKey: string | undefined;
@@ -320,20 +327,22 @@ export async function executeTask(
                 deps.onStep?.(toolStep);
             }
             // 回注：assistant toolCalls + tool 结果消息；模型本轮文本一并回注（截断防爆上下文），
-            // 避免模型在后续轮次“失忆”而重复发起相同工具调用
-            messages.push({
-                role: 'assistant',
-                content:
-                    round.text.length > 0
-                        ? [{ type: 'text', text: round.text.slice(0, 4000) }]
-                        : [],
+            // 避免模型在后续轮次“失忆”而重复发起相同工具调用。secret 观察值经 ContextManager 断流。
+            context.appendAssistant({
+                text: round.text,
                 toolCalls: round.toolCalls.map((c) => ({
                     callId: c.callId,
                     name: c.toolName,
                     arguments: c.arguments,
                 })),
             });
-            messages.push({ role: 'tool', results: outputs });
+            context.appendToolResults(
+                outputs.map((o) => ({
+                    callId: o.callId,
+                    output: o.output,
+                    isError: o.isError,
+                })),
+            );
         }
         task.status = 'failed';
         await saveTask();

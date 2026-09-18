@@ -68,7 +68,22 @@ export {
     saveRuntimeSettings,
     toRuntimeConfig,
 } from './configs/config-io.js';
-export { HarnessRuntime, type RunOptions } from './harness/index.js';
+export {
+    ContextManager,
+    type ContextAssistantTurn,
+    type ContextContribution,
+    type ContextManagerOptions,
+    type ContextSecretRef,
+    type ContextToolObservation,
+    HarnessRuntime,
+    parseSecretRef,
+    type RunOptions,
+    SecretRedactionUnavailableError,
+    type SecretRedactor,
+    secretServiceRedactor,
+    SECRET_REF_FIELD,
+    serializeSecretRef,
+} from './harness/index.js';
 export type { GoalStore } from './memory/goal-store.js';
 // 观测层（事件总线；apps 直接消费）
 export type { EventBusOptions, NewEventInput } from './events/event-bus.js';

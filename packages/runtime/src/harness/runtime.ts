@@ -11,23 +11,23 @@ import { type authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot } from '@mazi/libs';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
-import type { CatalogService } from '../provider/catalog/service.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
+import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
+import { StepEventEmitter } from '../events/step-events.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
-import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
+import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
+import { GENERAL_PROMPT } from '../templates/prompts/general.prompt.js';
 import { configureTokenizer } from '../token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
 import { RuntimeToolGateway } from '../tool-gateway/permission.js';
 import { RuntimePolicyAuditSink } from '../tool-gateway/policy-audit.js';
 import { conversationMessages, type FeedbackInput, type RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
-import { RoundRunner, type ModelRecoveryFn } from './round-runner.js';
-import { StepEventEmitter } from '../events/step-events.js';
+import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
-import { GENERAL_PROMPT } from '../templates/prompts/general.prompt.js';
 
 const DEFAULT_AGENT_SYSTEM_PROMPT = GENERAL_PROMPT;
 
@@ -195,8 +195,7 @@ export class HarnessRuntime {
         if (goals.length === 0) {
             throw new Error(`Goal 树不存在：${rootGoalId}`);
         }
-        // 每轮 run 重置上下文基线：首个 round 的 delta 从 0 起算，不与上一个会话串味。
-        this.roundRunner.resetBaselines();
+        // 上下文 delta 基线由每个 Task 的 ContextManager 自己持有，无需跨 run 重置。
         const history = this.pendingHistory.get(rootGoalId) ?? [];
         this.pendingHistory.delete(rootGoalId);
         const reasoningLevel = this.pendingReasoning.get(rootGoalId);

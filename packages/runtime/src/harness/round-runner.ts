@@ -1,7 +1,5 @@
 import type { LLMRequest } from '@mazi/core';
-import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
 import { ulid } from '@mazi/core';
-import type { CatalogService } from '../provider/catalog/service.js';
 import { type DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import type {
     ExecutorRoundContext,
@@ -9,7 +7,9 @@ import type {
     RoundPin,
     RoundResult,
 } from '../gts/round-types.js';
-import { RoundExecutor, type RoundOutcome, type RoundStreamListener } from '../provider/index.js';
+import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
+import type { CatalogService } from '../provider/catalog/service.js';
+import type { RoundExecutor, RoundOutcome, RoundStreamListener } from '../provider/index.js';
 import { measureContext } from './context-measure.js';
 import { describeLlmError, isModelRelatedError } from './llm-error.js';
 import type { ModelResolver } from './model-resolver.js';
@@ -53,12 +53,6 @@ export class RoundRunner {
     private readonly bus: DefaultEventBus;
     private readonly executor: RoundExecutor;
     private readonly resolver: ModelResolver;
-    /** 上一轮上下文总量（估算跨轮 delta 用；仅同一 Task 内有效） */
-    private lastContextTotal?: number;
-    /** 上一轮消息条数（取本步新增内容 diff 用；仅同一 Task 内有效） */
-    private lastMessageCount?: number;
-    /** 最近一次计量的 taskId（跨 Task 时重置基线） */
-    private lastTaskId?: string;
     /** 可选目录账本：接入后每轮 usage 追加凭证（凭证闭环） */
     private catalogService?: CatalogService;
     /** 可选模型恢复：模型名被厂商拒绝时重同步并换模重试一次 */
@@ -78,13 +72,6 @@ export class RoundRunner {
     /** 接入模型恢复：模型名被厂商拒绝时重同步并换模重试一次（llm.error 事件后自愈）。 */
     setRecovery(fn: ModelRecoveryFn): void {
         this.recovery = fn;
-    }
-
-    /** 每轮 run 前重置上下文基线：首个 round 的 delta 从 0 起算，不与上一个会话串味。 */
-    resetBaselines(): void {
-        this.lastContextTotal = undefined;
-        this.lastMessageCount = undefined;
-        this.lastTaskId = undefined;
     }
 
     /**
@@ -109,14 +96,15 @@ export class RoundRunner {
                 ? { extra: { reasoningEffort: reasoningLevel } }
                 : {}),
         };
-        // runtime 维度：请求发出前的上下文分段计量（同一 Task 内累计 delta / 新增内容）
-        const sameTask = ctx.taskId !== undefined && ctx.taskId === this.lastTaskId;
-        const contextUsage = measureContext(
-            ctx,
-            sameTask ? this.lastContextTotal : undefined,
-            sameTask ? this.lastMessageCount : ctx.baseMessageCount,
-            this.resolver.contextWindowOf(ctx.model.providerId, ctx.model.modelId),
+        // runtime 维度：请求发出前的上下文分段计量。ContextManager 持有跨轮 delta 基线；
+        // 未装配 context 的调用方（如独立 TOC 分析）退回无状态计量。
+        const contextWindow = this.resolver.contextWindowOf(
+            ctx.model.providerId,
+            ctx.model.modelId,
         );
+        const contextUsage = ctx.context
+            ? ctx.context.measure(contextWindow)
+            : measureContext(ctx, undefined, ctx.baseMessageCount, contextWindow);
         const streamId = ulid();
         const streamable = ctx.goalId !== undefined && ctx.taskId !== undefined;
         const onStream: RoundStreamListener | undefined = streamable
@@ -232,9 +220,6 @@ export class RoundRunner {
         outcome: RoundOutcome,
     ): Promise<RoundResult> {
         const result = toRoundResult(outcome);
-        this.lastContextTotal = contextUsage.totalContextTokens;
-        this.lastMessageCount = ctx.messages.length;
-        this.lastTaskId = ctx.taskId;
         // 输入漂移：有符号（breakdown total − vendor.input），并给出漂移率
         const vendorInput = result.vendorUsage?.inputTokens;
         if (vendorInput !== undefined) {

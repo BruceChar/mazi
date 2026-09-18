@@ -14,6 +14,14 @@ import type {
     VendorUsage,
 } from '@mazi/core';
 
+/**
+ * 上下文计量端口：由 ContextManager 实现，RoundRunner 据此做跨轮 delta。
+ * 只依赖 core 的 breakdown 契约，避免 round-types 依赖具体上下文实现。
+ */
+export interface ContextMeter {
+    measure(contextWindow: number): RuntimeContextBreakdown;
+}
+
 /** 单次 LLM 轮次请求 */
 export interface ExecutorRoundContext {
     model: { providerId: string; modelId: string };
@@ -27,6 +35,8 @@ export interface ExecutorRoundContext {
     taskId?: string;
     /** 前置历史消息条数（Conversation 共享上下文；用于区分「本步新增内容」） */
     baseMessageCount?: number;
+    /** 上下文计量端口；由 ContextManager 提供，缺省时 RoundRunner 走无状态计量。 */
+    context?: ContextMeter;
 }
 
 export interface RoundToolCall {
