@@ -430,4 +430,108 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         const invocation = steps.find((step) => step.kind === 'invocation');
         expect((invocation?.payload as { output?: string }).output).toContain('[ok]');
     });
+
+    it('模板 + 工具调用：单轮收尾，不再请求 LLM', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        let rounds = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['weather'],
+                invoker: { invoke: async () => ({ ok: true, content: '晴' }) },
+                requestRound: async () => {
+                    rounds += 1;
+                    return {
+                        text: '**明天的天气是 {{result}}**',
+                        reasoning: '',
+                        toolCalls: [{ callId: 'c1', toolName: 'weather', arguments: {} }],
+                        finishReason: 'tool_calls',
+                        ttftMs: 0,
+                        totalMs: 1,
+                    };
+                },
+            },
+            t,
+            g,
+        );
+        expect(rounds).toBe(1);
+        expect(outcome.ok).toBe(true);
+        expect(outcome.reason).toBe('final-answer');
+        expect(outcome.finalMessage).toContain('晴');
+        expect(outcome.finalMessage).not.toContain('{{result}}');
+        const steps = await store.listSteps(t.taskId);
+        const deliberation = steps.find((step) => step.kind === 'deliberation');
+        expect((deliberation?.payload as { answer?: string }).answer).toContain('晴');
+        expect((deliberation?.payload as { answerTemplate?: string }).answerTemplate).toBe(
+            '**明天的天气是 {{result}}**',
+        );
+    });
+
+    it('占位符无法填满时不收尾，继续请求模型', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        let rounds = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['weather'],
+                invoker: { invoke: async () => ({ ok: true, content: '晴' }) },
+                requestRound: async () => {
+                    rounds += 1;
+                    if (rounds === 1) {
+                        return {
+                            text: '{{result:2}}',
+                            reasoning: '',
+                            toolCalls: [{ callId: 'c1', toolName: 'weather', arguments: {} }],
+                            finishReason: 'tool_calls',
+                            ttftMs: 0,
+                            totalMs: 1,
+                        };
+                    }
+                    return okRound;
+                },
+            },
+            t,
+            g,
+        );
+        expect(rounds).toBe(2);
+        expect(outcome.reason).toBe('final-answer');
+        expect(outcome.finalMessage).toContain('README');
+    });
+
+    it('工具失败时不做确定性收尾', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        let rounds = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['weather'],
+                invoker: { invoke: async () => ({ ok: false, error: 'boom' }) },
+                requestRound: async () => {
+                    rounds += 1;
+                    if (rounds === 1) {
+                        return {
+                            text: '{{result}}',
+                            reasoning: '',
+                            toolCalls: [{ callId: 'c1', toolName: 'weather', arguments: {} }],
+                            finishReason: 'tool_calls',
+                            ttftMs: 0,
+                            totalMs: 1,
+                        };
+                    }
+                    return okRound;
+                },
+            },
+            t,
+            g,
+        );
+        expect(rounds).toBe(2);
+        expect(outcome.reason).toBe('final-answer');
+        expect(outcome.finalMessage).toContain('README');
+    });
 });

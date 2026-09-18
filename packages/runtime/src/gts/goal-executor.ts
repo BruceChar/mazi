@@ -13,6 +13,7 @@ import {
     type SecretRedactor,
 } from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
+import { decideFinalize, type FinalizeResult } from './deterministic-finalize.js';
 import type { ExecutorRoundContext, RoundResult } from './round-types.js';
 
 export interface GoalToolInvoker {
@@ -110,6 +111,8 @@ export async function executeTask(
     // 死循环护栏：连续相同工具调用达 3 轮视为未收敛（不烧完剩余轮次）
     let prevCallKey: string | undefined;
     let repeatCount = 0;
+    // 本轮的 deliberation step 引用；确定性收尾时回填渲染后的最终答案
+    let deliberationStep: Step | undefined;
 
     try {
         for (let roundIndex = 0; roundIndex < maxSteps; roundIndex += 1) {
@@ -195,6 +198,7 @@ export async function executeTask(
                 steps.push(deliberation);
                 await deps.store.saveStep(deliberation);
                 deps.onStep?.(deliberation);
+                deliberationStep = deliberation;
             }
 
             if (round.toolCalls.length === 0) {
@@ -332,6 +336,39 @@ export async function executeTask(
                 await deps.store.saveStep(toolStep);
                 deps.onStep?.(toolStep);
             }
+
+            // 确定性收尾：模型同轮给出答案模板 + 工具调用，且全部成功、占位符可填满时，
+            // 直接用模板与结果渲染最终答案，不再请求 LLM。
+            const executed: FinalizeResult[] = round.toolCalls.map((call) => {
+                const output = outputs.find((item) => item.callId === call.callId);
+                return {
+                    callId: call.callId,
+                    toolName: call.toolName,
+                    output: output?.output ?? '',
+                    isError: output?.isError ?? true,
+                };
+            });
+            const decision = decideFinalize(round.text, executed);
+            if (
+                decision !== undefined &&
+                deliberationStep !== undefined &&
+                deliberationStep.kind === 'deliberation'
+            ) {
+                deliberationStep.payload.answer = decision.finalMessage;
+                deliberationStep.payload.answerTemplate = round.text;
+                await deps.store.saveStep(deliberationStep);
+                deps.onStep?.(deliberationStep);
+                task.status = 'succeeded';
+                await saveTask();
+                return {
+                    task,
+                    steps,
+                    ok: true,
+                    reason: 'final-answer',
+                    finalMessage: decision.finalMessage,
+                };
+            }
+
             // 回注：assistant toolCalls + tool 结果消息；模型本轮文本一并回注（截断防爆上下文），
             // 避免模型在后续轮次“失忆”而重复发起相同工具调用。secret 观察值经 ContextManager 断流。
             context.appendAssistant({

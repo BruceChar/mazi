@@ -69,6 +69,17 @@ export {
 // 观测层（事件总线；apps 直接消费）
 export type { EventBusOptions, NewEventInput } from './events/event-bus.js';
 export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './events/event-bus.js';
+export type {
+    FinalizeDecision,
+    FinalizeResult,
+    RenderedTemplate,
+} from './gts/deterministic-finalize.js';
+export {
+    decideFinalize,
+    hasResultPlaceholder,
+    RESULT_PLACEHOLDER,
+    renderResultTemplate,
+} from './gts/deterministic-finalize.js';
 export {
     type ContextAssistantTurn,
     type ContextContribution,

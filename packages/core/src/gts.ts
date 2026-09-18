@@ -5,9 +5,9 @@
  *
  */
 
-import type { ULID } from './ulid.js';
 import type { PermissionLevel } from './permissions.js';
 import type { ToolCall } from './provider.js';
+import type { ULID } from './ulid.js';
 
 export type OriginKind = 'human' | 'agent' | 'system';
 type Status = 'pending' | 'active' | 'succeeded' | 'blocked' | 'failed' | 'aborted' | 'timeout';
@@ -117,6 +117,8 @@ export type StepKind =
 export interface DeliberationPayload {
     thinking?: string;
     answer?: string;
+    /** 确定性收尾前的原始答案模板（含 {{result}} 占位符）；用于审计与回放 */
+    answerTemplate?: string;
     /** 模型本轮提议的工具调用；callId 与 InvocationPayload.callId 配对 */
     toolCalls?: ToolCall[];
 }
