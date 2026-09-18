@@ -1,78 +1,76 @@
 /**
- * Decision log — append-only signed hash chain with checkpoints and an
- * external anchor (§9.5.3, §11).
+ * Trust anchor seam (V3 §7 floor 4).
  *
- * A gateway-local signing subkey keeps every record signed without HSM
- * throughput limits; the head is periodically anchored externally. Any chain
- * or anchor mismatch raises `AUDIT_TAMPER_SUSPECTED`. Residual risk: a
- * compromised gateway can forge records within the most recent checkpoint
- * window — declared, not repaired.
+ * The TCB cannot prove itself: root keys, approver identity and audit integrity
+ * are anchored outside the system. The decision log is append-only, signed and
+ * chained; the head is periodically committed to an external anchor. Any chain
+ * or anchor mismatch raises `AUDIT_TAMPER_SUSPECTED`.
  */
 
+import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
+
 import { contentVersion, stableStringify } from './hash.js';
-import type { Signer } from './root-trust.js';
 
-/** Canonical decisionLog event catalog (§11). */
-export const DECISION_EVENT_TYPES = [
-    'ruleHit',
-    'rule-precedence',
-    'guard-pair',
-    'condition-attach',
-    'condition-verdict',
-    'boundary-write',
-    'handle-ref',
-    'handle-inject-origin',
-    'handle-refused',
-    'sign-policy-passed',
-    'sign-policy-violation',
-    'sign-max-uses-exceeded',
-    'token-issued',
-    'token-revoked',
-    'egress-check',
-    'danger-verb',
-    'clamp',
-    'derive-reject',
-    'grant-revision',
-    'escalation-request',
-    'escalation-granted',
-    'escalation-denied',
-    'full-trust-invocation',
-    'sandbox-unavailable',
-    'ledger-write',
-    'ledger-barrier',
-    'generation-switch',
-    'generation-egress-attestation',
-    'reference-drift',
-    'derived-label-applied',
-    'derived-label-cleared',
-    'label-resolution',
-    'policy-revoked',
-    'audit-tamper-suspected',
-    'task-scratch-cleanup-failed',
-    'approval-rate-alert',
-] as const;
+export interface Signer {
+    readonly keyId: string;
+    sign(payload: string): string;
+    verify(payload: string, signature: string): boolean;
+}
 
-export type DecisionEventType = (typeof DECISION_EVENT_TYPES)[number];
+export class Ed25519Signer implements Signer {
+    readonly keyId: string;
+    readonly publicKeyPem: string;
+    private readonly privateKeyPem: string;
 
-export interface DecisionEvent {
-    type: DecisionEventType | (string & {});
-    [key: string]: unknown;
+    private constructor(keyId: string, privateKeyPem: string, publicKeyPem: string) {
+        this.keyId = keyId;
+        this.privateKeyPem = privateKeyPem;
+        this.publicKeyPem = publicKeyPem;
+    }
+
+    static generate(keyId = 'root-1'): Ed25519Signer {
+        const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+        return new Ed25519Signer(
+            keyId,
+            privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+            publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+        );
+    }
+
+    sign(payload: string): string {
+        return sign(
+            null,
+            Buffer.from(payload, 'utf8'),
+            createPrivateKey(this.privateKeyPem),
+        ).toString('base64');
+    }
+
+    verify(payload: string, signature: string): boolean {
+        try {
+            return verify(
+                null,
+                Buffer.from(payload, 'utf8'),
+                createPublicKey(this.publicKeyPem),
+                Buffer.from(signature, 'base64'),
+            );
+        } catch {
+            return false;
+        }
+    }
+}
+
+export interface AuditAnchor {
+    put(headHash: string): void | Promise<void>;
+    get(): string | undefined | Promise<string | undefined>;
 }
 
 export interface DecisionLogRecord {
     seq: number;
     prevHash: string;
-    payload: DecisionEvent;
+    payload: Record<string, unknown>;
     hash: string;
     keyId: string;
     signature: string;
-}
-
-export const AUDIT_GENESIS = 'genesis';
-
-export interface AuditAnchor {
-    put(headHash: string): void | Promise<void>;
-    get(): string | undefined | Promise<string | undefined>;
 }
 
 export interface AuditVerification {
@@ -81,7 +79,9 @@ export interface AuditVerification {
     reason?: string;
 }
 
-function recordHash(seq: number, prevHash: string, payload: DecisionEvent): string {
+export const AUDIT_GENESIS = 'genesis';
+
+function recordHash(seq: number, prevHash: string, payload: Record<string, unknown>): string {
     return contentVersion(stableStringify({ seq, prevHash, payload })).toString(16);
 }
 
@@ -96,10 +96,10 @@ export class DecisionLog {
     head(): string {
         return this.records.length === 0
             ? AUDIT_GENESIS
-            : this.records[this.records.length - 1].hash;
+            : (this.records[this.records.length - 1] as DecisionLogRecord).hash;
     }
 
-    append(payload: DecisionEvent): DecisionLogRecord {
+    append(payload: Record<string, unknown>): DecisionLogRecord {
         const seq = this.records.length + 1;
         const prevHash = this.head();
         const hash = recordHash(seq, prevHash, payload);
@@ -129,8 +129,7 @@ export class DecisionLog {
                     reason: `prevHash 断链（seq=${record.seq}）`,
                 };
             }
-            const expected = recordHash(record.seq, record.prevHash, record.payload);
-            if (record.hash !== expected) {
+            if (record.hash !== recordHash(record.seq, record.prevHash, record.payload)) {
                 return {
                     ok: false,
                     code: 'AUDIT_TAMPER_SUSPECTED',
@@ -152,7 +151,6 @@ export class DecisionLog {
         return { ok: true };
     }
 
-    /** Checkpoint the head to the external root-trust anchor. */
     async checkpoint(): Promise<string> {
         const head = this.head();
         if (this.anchor) await this.anchor.put(head);

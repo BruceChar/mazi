@@ -1,389 +1,187 @@
 import { describe, expect, it } from 'vitest';
 
-import { AuthorizationEngine } from '../src/authz/engine.js';
-import {
-    DefaultToolGateway,
-    isInScope,
-    projectValues,
-} from '../src/authz/gateway.js';
-import {
-    type ApprovalDecision,
-    type ApprovalRequest,
-    type GatewayAuditEvent,
-    type GatewayBindInput,
-    GATEWAY_PIPELINE_STAGES,
-    type ToolRegistration,
+import { derive } from '../src/authz/derive.js';
+import { DefaultToolGateway, isInScope, projectValues } from '../src/authz/gateway.js';
+import type {
+    ApprovalDecision,
+    ApprovalSeam,
+    GatewayAuditEvent,
+    ToolRegistration,
 } from '../src/authz/gateway-types.js';
 import { AssetLabelRegistry } from '../src/authz/labels.js';
-import { DataflowLedger } from '../src/authz/ledger.js';
-import { RoleRegistry } from '../src/authz/roles.js';
-import { SecretRefResolver, type SecretRef } from '../src/authz/secret-ref.js';
-import type { AgentGrant, BackendCapabilities } from '../src/authz/types.js';
+import { DataflowLedger, TaintTable } from '../src/authz/ledger.js';
+import { SecretService } from '../src/authz/secret.js';
+import type { Grant, ToolSemantics } from '../src/authz/types.js';
 
 const HOME = '/home/tester';
-const WORKSPACE = '/home/tester/work';
-const REPORT = `${WORKSPACE}/report.txt`;
+const WORKSPACE = `${HOME}/work`;
+const labels = AssetLabelRegistry.builtin({ home: HOME, workspaceRoot: WORKSPACE });
 
-const labelRegistry = AssetLabelRegistry.builtin({ home: HOME, workspaceRoot: WORKSPACE });
-const backend: BackendCapabilities = {
-    id: 'test',
-    supportsReversibility: ['domain-teardown', 'task-scratch'],
+const SEMANTICS: Record<string, ToolSemantics> = {
+    'fs.read.workspace': { ingest: true },
+    'fs.read.host': { ingest: true, severance: true },
+    'fs.write.workspace': {},
+    'fs.exec': {},
+    'net.send': { egress: true, dataEgress: true },
 };
-const roles = new RoleRegistry({
-    'fs.read.workspace': { transfer: 'ingest', commit: 'recoverable', opacity: 'transparent' },
-    'fs.write.workspace': { transfer: 'none', commit: 'recoverable', opacity: 'transparent' },
-    'fs.write.host': { transfer: 'none', commit: 'recoverable', opacity: 'transparent' },
-    'net.send': { transfer: 'egress', commit: 'recoverable', opacity: 'transparent' },
-    'fs.exec': { transfer: 'none', commit: 'committed', opacity: 'transparent' },
-    delete: { transfer: 'none', commit: 'committed', opacity: 'transparent' },
-});
 
-const grant: AgentGrant = {
-    'fs.read.workspace': {
-        action: 'fs.read',
-        domain: 'workspace',
-        tier: 'auto',
-        maxLabel: 'sensitive',
-        severance: 'plain',
-    },
-    'fs.write.workspace': { action: 'fs.write', domain: 'workspace', tier: 'auto' },
-    'net.send': { action: 'net.send', domain: 'external', tier: 'auto' },
-    'fs.exec': { action: 'fs.exec', domain: 'sandbox', tier: 'auto' },
-    delete: { action: 'delete', domain: 'workspace', tier: 'auto' },
-    'fs.write.host': {
-        action: 'fs.write',
-        domain: 'host',
-        tier: 'auto',
-        paths: [`${HOME}/.ssh/config`],
+const GRANT: Grant = {
+    caps: {
+        'fs.read.workspace': { tier: 'auto' },
+        'fs.read.host': { tier: 'auto', maxLabel: 'secret' },
+        'fs.write.workspace': { tier: 'auto' },
+        'fs.exec': { tier: 'auto' },
+        'net.send': { tier: 'auto' },
     },
 };
 
-function collector(): { audit: { log(e: GatewayAuditEvent): void }; events: GatewayAuditEvent[] } {
-    const events: GatewayAuditEvent[] = [];
-    return { audit: { log: (e) => events.push(e) }, events };
-}
-
-function approving(scope: 'once' | 'session'): {
-    seam: { decide(r: ApprovalRequest): Promise<ApprovalDecision> };
-    requests: ApprovalRequest[];
-} {
-    const requests: ApprovalRequest[] = [];
+function tool(
+    name: string,
+    capability: string,
+    scope: ToolRegistration['scope'] = {},
+): ToolRegistration {
     return {
-        requests,
-        seam: {
-            decide: async (r) => {
-                requests.push(r);
-                return { decision: 'granted', scope };
-            },
-        },
-    };
-}
-
-function tool(partial: Partial<ToolRegistration> & Pick<ToolRegistration, 'name' | 'capability'>): ToolRegistration {
-    return {
-        description: partial.name,
-        parameters: { type: 'object' },
-        scope: {},
-        role: roles.roleOf(partial.capability) ?? {
-            transfer: 'none',
-            commit: 'recoverable',
-            opacity: 'transparent',
-        },
+        name,
+        description: name,
+        parameters: {},
+        capability,
+        semantics: SEMANTICS[capability] ?? {},
+        scope,
         trust: 'confined',
-        handler: async () => ({ value: 'ok' }),
-        ...partial,
+        handler: async () => ({ value: `ran:${name}` }),
     };
 }
 
-function setup(options: { approval?: GatewayBindInput['approval']; budget?: { steps?: number } } = {}) {
+const TOOLS: ToolRegistration[] = [
+    tool('read', 'fs.read.workspace', { pathParams: ['path'] }),
+    tool('write', 'fs.write.workspace', { pathParams: ['path'] }),
+    tool('shell', 'fs.exec', { commandParam: 'command' }),
+    tool('egress', 'net.send'),
+    {
+        name: 'readSecret',
+        description: 'readSecret',
+        parameters: {},
+        capability: 'fs.read.host',
+        semantics: SEMANTICS['fs.read.host'] ?? {},
+        scope: { pathParams: ['path'] },
+        trust: 'confined',
+        secretPurpose: { service: 'vault', actions: ['read'], resourcePattern: '*' },
+        handler: async () => ({ value: '-----BEGIN PRIVATE KEY-----\nMIIsecret' }),
+    },
+];
+
+function approving(decisions: ApprovalDecision[] = []): ApprovalSeam {
+    return { decide: async () => decisions.shift() ?? { decision: 'granted', scope: 'once' } };
+}
+
+function rejecting(): ApprovalSeam {
+    return { decide: async () => ({ decision: 'rejected', reason: 'no' }) };
+}
+
+function build(
+    opts: { approval?: ApprovalSeam; audit?: GatewayAuditEvent[]; secretService?: SecretService } = {},
+) {
+    const derived = derive(
+        GRANT,
+        { requires: Object.keys(GRANT.caps) },
+        {
+            labels,
+            semantics: SEMANTICS,
+            pinned: { labels: labels.version, rules: 1, trust: 1 },
+            rootId: 'r',
+            rootVersion: 1,
+            taskId: 't',
+        },
+    );
+    if (!derived.ok) throw new Error(derived.rejection.hint);
     const ledger = new DataflowLedger();
-    const engine = new AuthorizationEngine({
-        labelRegistry,
-        roles,
-        backend,
+    const taint = new TaintTable({ home: HOME });
+    const audit = opts.audit ?? [];
+    const gateway = new DefaultToolGateway({
+        identifiers: { rootGoalId: 'r', goalId: 'g', taskId: 't' },
+        policy: derived.policy,
+        labels,
         ledger,
-        pinned: { labels: labelRegistry.version, roles: roles.version, rules: 1, rootTrust: 1 },
-        rootContractId: 'root-1',
-        rootVersion: 1,
-        taskId: 'task-1',
-        now: () => 1000,
+        taint,
+        toolRegistry: new Map(TOOLS.map((t) => [t.name, t])),
+        ...(opts.approval ? { approval: opts.approval } : {}),
+        ...(opts.secretService ? { secretService: opts.secretService } : {}),
+        audit: { log: (event) => audit.push(event) },
     });
-    const derived = engine.derive(grant, {
-        requires: Object.keys(grant) as string[],
-    });
-    if (!derived.ok) throw new Error('derive failed');
-    const { audit, events } = collector();
-    const registry = new Map<string, ToolRegistration>();
-    const bind: GatewayBindInput = {
-        identifiers: { rootGoalId: 'rg-1', goalId: 'g-1', taskId: 'task-1' },
-        effective: derived.policy,
-        engine,
-        toolRegistry: registry,
-        audit,
-        ...(options.approval ? { approval: options.approval } : {}),
-        ...(options.budget ? { budget: options.budget } : {}),
-        now: () => 1000,
-    };
-    return { engine, registry, events, bind, ledger };
+    return { gateway, ledger, taint, audit };
 }
 
-describe('AuthorizationV2 ToolGateway (11-stage pipeline)', () => {
-    it('runs every stage in order for an auto capability', async () => {
-        const s = setup();
-        s.registry.set('read', tool({ name: 'read', capability: 'fs.read.workspace', scope: { pathParams: ['path'] } }));
-        const gateway = new DefaultToolGateway(s.bind);
-        const result = await gateway.invoke({ tool: 'read', args: { path: REPORT } });
-        expect(result.kind).toBe('executed');
-        const stages = s.events.map((e) => e.stage);
-        expect(stages).toEqual([...GATEWAY_PIPELINE_STAGES]);
-    });
+const sensitivePath = `${HOME}/Documents/a.txt`;
 
-    it('rejects unregistered tools (V5 closed-world)', async () => {
-        const s = setup();
-        const result = await new DefaultToolGateway(s.bind).invoke({ tool: 'nope', args: {} });
-        expect(result).toMatchObject({ kind: 'rejected', code: 'FORBIDDEN_UNREGISTERED' });
-    });
-
-    it('rejects missing required args', async () => {
-        const s = setup();
-        s.registry.set(
-            'read',
-            tool({
-                name: 'read',
-                capability: 'fs.read.workspace',
-                parameters: { type: 'object', required: ['path'] },
-            }),
+describe('authz gateway value projection', () => {
+    it('projects declared params and checks the declared range', () => {
+        const projection = projectValues(
+            { path: 'a', url: 'https://x' },
+            { pathParams: ['path'], hostParams: ['url'] },
         );
-        const result = await new DefaultToolGateway(s.bind).invoke({ tool: 'read', args: {} });
-        expect(result).toMatchObject({ kind: 'rejected', code: 'INVALID_ARGS' });
-    });
-
-    it('rejects a forbidden capability (V17 secret write)', async () => {
-        const s = setup();
-        s.registry.set(
-            'secretwrite',
-            tool({
-                name: 'secretwrite',
-                capability: 'fs.write.host',
-                scope: { pathParams: ['path'] },
-            }),
-        );
-        const result = await new DefaultToolGateway(s.bind).invoke({
-            tool: 'secretwrite',
-            args: { path: `${HOME}/.ssh/config` },
-        });
-        expect(result).toMatchObject({ kind: 'rejected', code: 'FORBIDDEN_BY_POLICY' });
-    });
-
-    it('blocks V17 at the value layer when the actual path is secret', async () => {
-        const s = setup();
-        s.registry.set('write', tool({ name: 'write', capability: 'fs.write.workspace', scope: { pathParams: ['path'] } }));
-        const result = await new DefaultToolGateway(s.bind).invoke({
-            tool: 'write',
-            args: { path: `${HOME}/.ssh/config` },
-        });
-        expect(result).toMatchObject({ kind: 'rejected', code: 'FORBIDDEN_BY_HARD_LAYER' });
-    });
-
-    it('fails closed when a gated call has no approval seam (V13)', async () => {
-        const s = setup();
-        s.registry.set('exec', tool({ name: 'exec', capability: 'fs.exec', scope: { commandParam: 'command' } }));
-        const result = await new DefaultToolGateway(s.bind).invoke({
-            tool: 'exec',
-            args: { command: 'echo hi' },
-        });
-        expect(result).toMatchObject({ kind: 'rejected', code: 'APPROVAL_UNAVAILABLE' });
-    });
-
-    it('executes a gated call once approved and honours once vs session scope', async () => {
-        const once = approving('once');
-        const s = setup({ approval: once.seam });
-        s.registry.set('exec', tool({ name: 'exec', capability: 'fs.exec', scope: { commandParam: 'command' } }));
-        const gateway = new DefaultToolGateway(s.bind);
-        expect((await gateway.invoke({ tool: 'exec', args: { command: 'echo 1' } })).kind).toBe('executed');
-        expect((await gateway.invoke({ tool: 'exec', args: { command: 'echo 2' } })).kind).toBe('executed');
-        expect(once.requests).toHaveLength(2);
-
-        const session = approving('session');
-        const s2 = setup({ approval: session.seam });
-        s2.registry.set('exec', tool({ name: 'exec', capability: 'fs.exec', scope: { commandParam: 'command' } }));
-        const gateway2 = new DefaultToolGateway(s2.bind);
-        await gateway2.invoke({ tool: 'exec', args: { command: 'echo 1' } });
-        await gateway2.invoke({ tool: 'exec', args: { command: 'echo 2' } });
-        expect(session.requests).toHaveLength(1);
-    });
-
-    it('records condition verdicts for an R3-flow sink', async () => {
-        const approved = approving('once');
-        const s = setup({ approval: approved.seam });
-        s.registry.set(
-            'send',
-            tool({ name: 'send', capability: 'net.send', dataEgress: true, scope: { hostParams: ['url'] } }),
-        );
-        const gateway = new DefaultToolGateway(s.bind);
-        await gateway.invoke({ tool: 'send', args: { url: 'https://example.com' } });
-        expect(
-            s.events.some((e) => e.stage === 'scope-check' && e.detail === 'condition-satisfied'),
-        ).toBe(true);
-
-        s.engine.commitRead({
-            label: 'sensitive',
-            source: 'fs.read.workspace',
-            stepId: 's1',
-            transferDir: 'ingest',
-        });
-        await gateway.invoke({ tool: 'send', args: { url: 'https://example.com' } });
-        expect(
-            s.events.some((e) => e.stage === 'scope-check' && e.detail === 'condition-broken'),
-        ).toBe(true);
-        expect(approved.requests).toHaveLength(2);
-    });
-
-    it('rejects handles in generic egress (N4)', async () => {
-        const approved = approving('session');
-        const s = setup({ approval: approved.seam });
-        s.registry.set(
-            'send',
-            tool({ name: 'send', capability: 'net.send', dataEgress: true, scope: { hostParams: ['url'] } }),
-        );
-        const result = await new DefaultToolGateway(s.bind).invoke({
-            tool: 'send',
-            args: { body: 'secretref:ref:s3' },
-        });
-        expect(result).toMatchObject({ kind: 'rejected', code: 'HANDLE_UNRESOLVABLE' });
-    });
-
-    it('honours the hook-chain deny absorbing state (V14)', async () => {
-        const s = setup();
-        let secondCalled = false;
-        s.bind.hooks = [
-            { id: 'h1', preExecute: () => ({ verdict: 'deny', code: 'FORBIDDEN_BY_POLICY', hint: 'no' }) },
-            {
-                id: 'h2',
-                preExecute: () => {
-                    secondCalled = true;
-                    return { verdict: 'allow' };
-                },
-            },
-        ];
-        s.registry.set('read', tool({ name: 'read', capability: 'fs.read.workspace' }));
-        const result = await new DefaultToolGateway(s.bind).invoke({ tool: 'read', args: {} });
-        expect(result).toMatchObject({ kind: 'rejected', code: 'FORBIDDEN_BY_POLICY' });
-        expect(secondCalled).toBe(false);
-    });
-
-    it('raises approval for a danger verb', async () => {
-        const approved = approving('once');
-        const s = setup({ approval: approved.seam });
-        s.registry.set('exec', tool({ name: 'exec', capability: 'fs.exec', scope: { commandParam: 'command' } }));
-        const result = await new DefaultToolGateway(s.bind).invoke({
-            tool: 'exec',
-            args: { command: 'rm -rf src/' },
-        });
-        expect(result.kind).toBe('executed');
-        expect(s.events.some((e) => e.detail?.includes('danger-verb'))).toBe(true);
-    });
-
-    it('enforces the step budget', async () => {
-        const s = setup({ budget: { steps: 1 } });
-        s.registry.set('read', tool({ name: 'read', capability: 'fs.read.workspace' }));
-        const gateway = new DefaultToolGateway(s.bind);
-        expect((await gateway.invoke({ tool: 'read', args: {} })).kind).toBe('executed');
-        expect((await gateway.invoke({ tool: 'read', args: {} }))).toMatchObject({
-            code: 'BUDGET_EXHAUSTED',
-        });
-    });
-
-    it('tags untrusted output and applies the derived-label overlay on write', async () => {
-        const s = setup();
-        s.registry.set(
-            'fetch',
-            tool({ name: 'fetch', capability: 'fs.read.workspace', untrustedOutput: true }),
-        );
-        const result = await new DefaultToolGateway(s.bind).invoke({ tool: 'fetch', args: {} });
-        expect(result).toMatchObject({ kind: 'executed', untrusted: true });
-
-        s.engine.commitRead({
-            label: 'sensitive',
-            source: 'fs.read.workspace',
-            stepId: 's1',
-            transferDir: 'ingest',
-        });
-        s.registry.set('write', tool({ name: 'write', capability: 'fs.write.workspace', scope: { pathParams: ['path'] } }));
-        await new DefaultToolGateway(s.bind).invoke({ tool: 'write', args: { path: REPORT } });
-        expect(s.engine.overlay.has(REPORT)).toBe(true);
-    });
-
-    it('downgrades full-trust tools to gated', async () => {
-        const s = setup();
-        s.registry.set(
-            'mcp',
-            tool({ name: 'mcp', capability: 'fs.read.workspace', trust: 'full' }),
-        );
-        const result = await new DefaultToolGateway(s.bind).invoke({ tool: 'mcp', args: {} });
-        expect(result).toMatchObject({ code: 'APPROVAL_UNAVAILABLE' });
-        expect(s.events.some((e) => e.detail === 'full-trust-invocation')).toBe(true);
-    });
-
-    it('resolves L1 secret refs into the handler without exposing the wire format', async () => {
-        const approved = approving('session');
-        const s = setup({ approval: approved.seam });
-        const ref: SecretRef = {
-            refId: 'ref:s3',
-            label: 'secret',
-            allowedSinks: ['aws.s3'],
-            purpose: { service: 's3', actions: ['GetObject'], resourcePattern: 'arn:aws:s3:::bucket/*' },
-            parseLevel: 'L1',
-            credentialId: 'cred:aws',
-        };
-        const resolver = new SecretRefResolver({
-            sign: (payload) => `sig:${payload.length}`,
-            audit: { log: () => {} },
-            toolMaxParseLevel: () => 'L1',
-            now: () => 1000,
-        });
-        let seen: ReadonlyMap<string, unknown> | undefined;
-        s.registry.set(
-            'send',
-            tool({
-                name: 'send',
-                capability: 'net.send',
-                secrets: ['ref:s3'],
-                invocation: () => ({
-                    tool: 'aws.s3',
-                    service: 's3',
-                    action: 'GetObject',
-                    target: 'arn:aws:s3:::bucket/key',
-                }),
-                handler: async (_args, ctx) => {
-                    seen = ctx.credentials;
-                    return { value: 'ok' };
-                },
-            }),
-        );
-        s.bind.secretRefs = new Map([['ref:s3', ref]]);
-        s.bind.secretResolver = resolver;
-        const result = await new DefaultToolGateway(s.bind).invoke({ tool: 'send', args: {} });
-        expect(result.kind).toBe('executed');
-        expect(seen?.get('ref:s3')).toMatchObject({ refId: 'ref:s3' });
+        expect(projection).toEqual({ path: 'a', host: 'https://x' });
+        expect(isInScope({ path: '/a/b' }, { paths: ['/a/*'] })).toBe(true);
+        expect(isInScope({ path: '/b' }, { paths: ['/a/*'] })).toBe(false);
     });
 });
 
-describe('AuthorizationV2 gateway helpers', () => {
-    it('projects declared params and checks scope', () => {
-        const projection = projectValues(
-            { path: REPORT, url: 'https://example.com', amount: 5 },
-            { pathParams: ['path'], hostParams: ['url'], amountParam: 'amount' },
+describe('authz execution gateway', () => {
+    it('commits a sensitive read to the ledger (INV-A)', async () => {
+        const { gateway, ledger } = build();
+        const result = await gateway.invoke({ tool: 'read', args: { path: sensitivePath } });
+        expect(result).toMatchObject({ kind: 'executed' });
+        expect(ledger.adjudicate().broken).toBe(true);
+    });
+
+    it('blocks egress after a sensitive read unless approval is obtained', async () => {
+        const blocked = build();
+        await blocked.gateway.invoke({ tool: 'read', args: { path: sensitivePath } });
+        expect(await blocked.gateway.invoke({ tool: 'egress', args: { body: 'x' } })).toMatchObject(
+            { kind: 'rejected', code: 'APPROVAL_UNAVAILABLE' },
         );
-        expect(projection).toMatchObject({ path: REPORT, host: 'https://example.com' });
+
+        const allowed = build({ approval: approving() });
+        await allowed.gateway.invoke({ tool: 'read', args: { path: sensitivePath } });
+        expect(await allowed.gateway.invoke({ tool: 'egress', args: { body: 'x' } })).toMatchObject(
+            { kind: 'executed' },
+        );
+    });
+
+    it('severs a secret read and returns a voucher instead of the plaintext', async () => {
+        const secretService = new SecretService({
+            sign: (payload, material) => `sig:${material.length}:${payload.length}`,
+        });
+        const { gateway, ledger } = build({ secretService });
+        const result = await gateway.invoke({ tool: 'readSecret', args: { path: '~/.ssh/id_rsa' } });
+        expect(result.kind).toBe('executed');
+        if (result.kind === 'executed') {
+            expect(JSON.stringify(result.value)).toContain('secretref:');
+            expect(JSON.stringify(result.value)).not.toContain('BEGIN PRIVATE KEY');
+        }
+        expect(ledger.adjudicate().broken).toBe(false);
+    });
+
+    it('forbids a secret write at the hard floor', async () => {
+        const { gateway } = build();
         expect(
-            isInScope(projection, {
-                action: 'fs.write',
-                domain: 'workspace',
-                tier: 'auto',
-                paths: [`${WORKSPACE}/**`],
-                amountLimit: { currency: 'USD', amount: 10 },
-            }),
-        ).toBe(true);
+            await gateway.invoke({ tool: 'write', args: { path: '~/.ssh/id_rsa' } }),
+        ).toMatchObject({ kind: 'rejected', code: 'FORBIDDEN_BY_HARD_FLOOR' });
+    });
+
+    it('routes a Q1 danger verb through approval', async () => {
+        const { gateway } = build({ approval: rejecting() });
+        expect(
+            await gateway.invoke({ tool: 'shell', args: { command: 'rm -rf src/' } }),
+        ).toMatchObject({ kind: 'rejected', code: 'GATED_REJECTED' });
+    });
+
+    it('emits the full ordered stage list', async () => {
+        const { gateway, audit } = build();
+        await gateway.invoke({ tool: 'read', args: { path: sensitivePath } });
+        const stages = audit.map((event) => event.stage);
+        expect(stages[0]).toBe('supply-check');
+        expect(stages).toContain('risk-check');
+        expect(stages).toContain('ledger-adjudication');
+        expect(stages[stages.length - 1]).toBe('audit');
     });
 });

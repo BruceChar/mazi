@@ -1,6 +1,5 @@
 /**
- * ToolGateway contract v2 — the enforce-stage types for the single invocation
- * chokepoint (ToolGateway doc §5, V2 §3/§5.5/§9.3).
+ * Execution gateway contract (V3 §8).
  *
  * The gateway consumes an immutable EffectivePolicy snapshot produced by
  * derive(); it never computes policy or widens it. Stages execute in
@@ -9,29 +8,29 @@
 
 import type { AuditIdentifiers } from '../observability.js';
 import type { ApprovalEcho } from './approval.js';
-import type { AuthorizationEngine } from './engine.js';
-import type { EgressAttestation } from './ledger.js';
+import type { AssetLabelRegistry } from './labels.js';
+import type { DataflowLedger, TaintTable } from './ledger.js';
 import type {
-    CapabilityToken,
     Invocation,
+    SecretPurpose,
     SecretRef,
-    SecretRefResolver,
+    SecretService,
     SignedRequest,
-} from './secret-ref.js';
+} from './secret.js';
 import type {
     AuthzErrorCode,
     Budget,
-    CapabilityKey,
-    CapabilityRule,
+    CapabilitySpec,
     EffectivePolicy,
-    Role,
-    SeveranceMode,
+    Question,
+    ToolSemantics,
+    ValueProjection,
 } from './types.js';
 
 /** Tool parameter JSON Schema (bridges to @mazi/provider; core stays schema-agnostic). */
 export type JSONSchemaSpec = Record<string, unknown>;
 
-/** confined = sandboxable; full = outside sandbox control (clamped to gated, D3). */
+/** confined = sandboxable; full = outside sandbox control (clamped to gated). */
 export type ToolTrust = 'confined' | 'full';
 
 export type PendingHandle = string;
@@ -45,29 +44,10 @@ export interface ScopeProjection {
     sqlParam?: string;
 }
 
-/** Runtime value projection extracted from args (input to scope/verb/egress checks). */
-export interface ValueProjection {
-    path?: string;
-    host?: string;
-    amount?: { currency: string; amount: number };
-    command?: string;
-    sql?: string;
-}
-
-export type ScopeProjector = (
-    args: Record<string, unknown>,
-    projection: ScopeProjection,
-) => ValueProjection;
-
-/** Handler context — deliberately minimal (V6: handlers are unprivileged logic). */
 export interface HandlerContext {
     signal: AbortSignal;
-    /**
-     * Resolved credentials for L1/L2 secret refs, keyed by refId. For L1 the
-     * handler receives the TCB-constructed SignedRequest, never the wire format
-     * (N16) nor the secret material.
-     */
-    credentials?: ReadonlyMap<string, SignedRequest | CapabilityToken>;
+    /** Counter-signed requests keyed by refId; the handler never sees plaintext. */
+    credentials?: ReadonlyMap<string, SignedRequest>;
 }
 
 export interface ToolOutput {
@@ -80,28 +60,25 @@ export type ToolHandler = (
     ctx: HandlerContext,
 ) => Promise<ToolOutput>;
 
-/** Registry entry. Unregistered tools are forbidden (V5 closed-world). */
+/** Registry entry. Unregistered tools are forbidden (closed world). */
 export interface ToolRegistration {
     name: string;
     description: string;
     parameters: JSONSchemaSpec;
     /** Dispatch anchor into the effective policy. */
-    capability: CapabilityKey;
-    /** Additional capabilities jointly dispatched (strictest governs). */
-    coCapabilities?: readonly CapabilityKey[];
+    capability: string;
+    coCapabilities?: readonly string[];
+    /** Three-question declaration for this tool. */
+    semantics: ToolSemantics;
     scope: ScopeProjection;
-    role: Role;
-    /** Source severance for ingest tools (R3-hard). */
-    severance?: SeveranceMode;
     trust: ToolTrust;
-    /** net.fetch / MCP-class: returned value is tagged untrusted. */
+    /** net.fetch / MCP-class: the returned value is tagged untrusted. */
     untrustedOutput?: boolean;
-    /** Requires the outbound dataflow check (⑨/⑤). */
-    dataEgress?: boolean;
-    irreversible?: boolean;
     /** Secret ref ids this tool may resolve; only in allowedSinks. */
     secrets?: readonly string[];
-    /** Structured invocation builder for L1 signing (handler never builds wire format). */
+    /** Purpose bound to a severed secret read (mechanism 2 attribute proxy). */
+    secretPurpose?: SecretPurpose;
+    /** Structured invocation builder for gateway signing. */
     invocation?: (args: Record<string, unknown>) => Invocation;
     handler: ToolHandler;
 }
@@ -111,22 +88,15 @@ export interface ToolSpec {
     name: string;
     description: string;
     parameters: JSONSchemaSpec;
-    capability: CapabilityKey;
+    capability: string;
     effectiveTier: 'auto' | 'gated';
     trust: ToolTrust;
     irreversible?: boolean;
 }
 
-/** V12 escalation payload: only strictly-wider requests are considered. */
-export interface EscalationPayload {
-    requested: CapabilityRule;
-    justification: string;
-}
-
 export interface InvocationRequest {
     tool: string;
     args: Record<string, unknown>;
-    escalation?: EscalationPayload;
     /** Harness-injected attribution overrides (never model-supplied). */
     stepId?: string;
     taskId?: string;
@@ -134,72 +104,49 @@ export interface InvocationRequest {
 
 export type ApprovalDecision =
     | { decision: 'granted'; scope: 'once' | 'session' | 'workspace' }
-    | { decision: 'generation-attestation'; attestation: EgressAttestation }
     | { decision: 'rejected'; reason: string }
     | { decision: 'cancelled' };
 
 export interface ApprovalRequest {
     invocationId: string;
     tool: string;
-    capability: CapabilityKey;
+    capability: string;
     echo: ApprovalEcho;
     /** Harness-injected attribution so the UI can route the request. */
     identifiers: AuditIdentifiers;
 }
 
-/** Human-in-the-loop seam; absent → gated calls fail closed (V13). */
+/** Human-in-the-loop seam; absent → gated calls fail closed. */
 export interface ApprovalSeam {
     decide(request: ApprovalRequest): Promise<ApprovalDecision>;
 }
 
 export interface SessionApproval {
     id: string;
-    capability: CapabilityKey;
-    scope: 'session' | 'workspace' | 'generation';
+    capability: string;
+    scope: 'session' | 'workspace';
     createdAt: number;
 }
 
 export type InvocationResult =
     | { kind: 'executed'; value: unknown; untrusted?: boolean }
-    | { kind: 'pending'; handle: PendingHandle; capability: CapabilityKey; hint: string }
+    | { kind: 'pending'; handle: PendingHandle; capability: string; hint: string }
     | { kind: 'failed'; error: string; code: AuthzErrorCode }
-    | { kind: 'rejected'; code: AuthzErrorCode; hint: string; ruleId?: string };
-
-export interface HookContext {
-    tool: ToolSpec;
-    args: Record<string, unknown>;
-    projection: ValueProjection;
-    identifiers: AuditIdentifiers;
-    approvals: readonly SessionApproval[];
-}
-
-export type HookVerdict =
-    | { verdict: 'allow' }
-    | { verdict: 'deny'; code: AuthzErrorCode; hint: string };
-
-export interface GatewayHook {
-    id: string;
-    preExecute(ctx: HookContext): HookVerdict | Promise<HookVerdict>;
-    postExecute?(ctx: HookContext & { result: ToolOutput }): void | Promise<void>;
-}
+    | { kind: 'rejected'; code: AuthzErrorCode; hint: string; question?: Question };
 
 /**
- * Canonical pipeline stages (ToolGateway doc §5; acceptance baseline). Dataflow
- * operations map onto them: ⑤ scope-check resolves labels + adjudicates
- * R3-flow conditions + runs the outbound check; ⑨ execute resolves secret refs;
- * ⑩ output-taint writes the ledger and applies the derived-label overlay.
+ * Canonical pipeline stages. Dataflow operations map onto them: risk-check
+ * answers Q1/Q2/Q3, ledger-adjudication runs the outbound check, execute
+ * resolves vouchers, writeback commits the read and applies residue taint.
  */
 export const GATEWAY_PIPELINE_STAGES = [
-    'escalation-short-circuit',
     'supply-check',
-    'hook-chain',
-    'tier-dispatch',
     'scope-check',
-    'danger-match',
+    'risk-check',
+    'ledger-adjudication',
     'approval',
-    'budget',
     'execute',
-    'output-taint',
+    'writeback',
     'audit',
 ] as const;
 
@@ -210,50 +157,28 @@ export interface GatewayAuditEvent {
     decision: 'allowed' | 'denied' | 'pending' | 'info';
     identifiers: AuditIdentifiers;
     tool?: string;
-    capability?: CapabilityKey;
+    capability?: string;
     detail?: string;
-    ruleId?: string;
     code?: AuthzErrorCode;
+    question?: Question;
 }
 
 export interface GatewayAuditSink {
     log(event: GatewayAuditEvent): void;
 }
 
-/** Value-layer danger rule (command / path / capability matching). */
-export interface DangerRule {
-    id: string;
-    commandPatterns?: readonly RegExp[];
-    pathPatterns?: readonly RegExp[];
-    capabilities?: readonly CapabilityKey[];
-    outcome: 'forbidden' | 'gated';
-    reason: string;
-}
-
-export interface AppliedDangerRule {
-    ruleId: string;
-    outcome: DangerRule['outcome'];
-    reason: string;
-    appliesTo: CapabilityKey[];
-}
-
 export interface GatewayBindInput {
     /** Harness-injected identity; stepId is filled per invocation. */
     identifiers: Omit<AuditIdentifiers, 'stepId'> & { stepId?: string };
-    effective: EffectivePolicy;
-    /** Dataflow engine: ledger, overlay, label resolution, condition verdict. */
-    engine: AuthorizationEngine;
+    policy: EffectivePolicy;
+    labels: AssetLabelRegistry;
+    ledger: DataflowLedger;
+    taint: TaintTable;
+    secretService?: SecretService;
     toolRegistry: ReadonlyMap<string, ToolRegistration>;
     budget?: Budget;
     approval?: ApprovalSeam;
     audit: GatewayAuditSink;
-    hooks?: readonly GatewayHook[];
-    dangerRules?: readonly AppliedDangerRule[];
-    project?: ScopeProjector;
-    /** Secret refs the tool may resolve, keyed by refId. */
-    secretRefs?: ReadonlyMap<string, SecretRef>;
-    /** Resolver; declared secrets without one fail closed (V13). */
-    secretResolver?: SecretRefResolver;
     now?: () => number;
 }
 
@@ -261,3 +186,6 @@ export interface ToolGateway {
     readonly stageNames: readonly GatewayStage[];
     invoke(req: InvocationRequest): Promise<InvocationResult>;
 }
+
+/** Re-exported for registration convenience. */
+export type { CapabilitySpec, SecretRef };

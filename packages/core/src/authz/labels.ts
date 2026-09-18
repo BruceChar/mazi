@@ -1,33 +1,48 @@
 /**
- * AssetLabel registry — unified sensitivity annotations with N15 conflict
- * resolution, platform-curated negative entries (B1) and suppression
- * aggregation (B3).
+ * AssetLabel registry — sensitivity and boundary annotations.
  *
- * Fail-safe defaults (P13/N1): an unannotated asset is `internal`; a doubtful
- * asset is `sensitive`. The conservative direction is not configurable.
+ * Fail-safe defaults: an unannotated asset is `internal`; an annotation in doubt
+ * is `sensitive`. The conservative direction is not configurable. Platform
+ * curated negative entries are the low-cost outlet for known-safe patterns
+ * (e.g. `*.pub.pem`, `.env.example`), cancelling broader positive declarations.
  */
 
 import { isInsidePath, matchGlob, normalizeAssetPath, specificityOf } from './glob.js';
 import { contentVersion } from './hash.js';
-import {
-    type AssetKind,
-    type AssetLabel,
-    type AssetQuery,
-    LABEL_RANK,
-    type LabelResolutionEvent,
-    type ResolvedLabel,
-    type SensitivityLabel,
-} from './types.js';
+import { LABEL_RANK, type SensitivityLabel } from './types.js';
+
+export type AssetKind = 'path' | 'env' | 'host' | 'db';
+export type LabelOrigin = 'platform' | 'user' | 'platform-curated-negative';
+
+export interface AssetLabel {
+    kind: AssetKind;
+    /** Glob / FQN / domain wildcard. */
+    pattern: string;
+    label: SensitivityLabel;
+    /** Permission-envelope asset → Q3 on write. */
+    boundary?: boolean;
+    /** Pattern concreteness: count of non-wildcard characters. */
+    specificity?: number;
+    origin: LabelOrigin;
+}
+
+export interface AssetQuery {
+    kind: AssetKind;
+    value: string;
+}
+
+export interface ResolvedLabel {
+    label: SensitivityLabel;
+    boundary: boolean;
+    specificity: number;
+    matches: readonly AssetLabel[];
+}
 
 const HOME_USER_DATA_PATTERN = '~/**';
 
-/**
- * Built-in platform annotations (§4.2 table + §7.3 boundary set). Users may
- * append entries; secret-level platform declarations cannot be downgraded by
- * user declarations (N15).
- */
+/** Platform annotations: secrets (sever on read / forbid on write), boundary assets, negative entries. */
 export const BUILTIN_ASSET_LABELS: readonly AssetLabel[] = [
-    // —— secrets: mandatory severance on read; write forbidden (V17) ——
+    // —— secrets ——
     { kind: 'path', pattern: '~/.ssh/**', label: 'secret', origin: 'platform' },
     { kind: 'path', pattern: '**/.env*', label: 'secret', origin: 'platform' },
     { kind: 'path', pattern: '**/*.pem', label: 'secret', origin: 'platform' },
@@ -41,7 +56,7 @@ export const BUILTIN_ASSET_LABELS: readonly AssetLabel[] = [
     { kind: 'env', pattern: '*_PASSWORD', label: 'secret', origin: 'platform' },
     { kind: 'env', pattern: '*_API_KEY', label: 'secret', origin: 'platform' },
 
-    // —— platform-curated negative entries (B1): the low-cost secret outlet ——
+    // —— platform-curated negative entries ——
     {
         kind: 'path',
         pattern: '**/*.pub.pem',
@@ -94,7 +109,7 @@ export const BUILTIN_ASSET_LABELS: readonly AssetLabel[] = [
     // —— user data outside the workspace: sensitive ——
     { kind: 'path', pattern: HOME_USER_DATA_PATTERN, label: 'sensitive', origin: 'platform' },
 
-    // —— boundary set §7.3: identity persistence ——
+    // —— boundary set: identity persistence ——
     {
         kind: 'path',
         pattern: '~/.ssh/authorized_keys',
@@ -119,7 +134,7 @@ export const BUILTIN_ASSET_LABELS: readonly AssetLabel[] = [
         origin: 'platform',
     },
 
-    // —— boundary set §7.3: execution persistence ——
+    // —— boundary set: execution persistence ——
     {
         kind: 'path',
         pattern: '/etc/crontab',
@@ -157,7 +172,7 @@ export const BUILTIN_ASSET_LABELS: readonly AssetLabel[] = [
         origin: 'platform',
     },
 
-    // —— boundary set §7.3: shell rc / profiles ——
+    // —— boundary set: shell rc / profiles ——
     { kind: 'path', pattern: '~/.bashrc', label: 'sensitive', boundary: true, origin: 'platform' },
     {
         kind: 'path',
@@ -176,7 +191,7 @@ export const BUILTIN_ASSET_LABELS: readonly AssetLabel[] = [
         origin: 'platform',
     },
 
-    // —— boundary set §7.3: supply-chain hooks ——
+    // —— boundary set: supply-chain hooks ——
     {
         kind: 'path',
         pattern: '**/.git/hooks/**',
@@ -220,7 +235,7 @@ export const BUILTIN_ASSET_LABELS: readonly AssetLabel[] = [
         origin: 'platform',
     },
 
-    // —— boundary set §7.3: tool-config persistence ——
+    // —— boundary set: tool-config persistence ——
     {
         kind: 'path',
         pattern: '~/.gitconfig',
@@ -259,7 +274,7 @@ export const BUILTIN_ASSET_LABELS: readonly AssetLabel[] = [
         origin: 'platform',
     },
 
-    // —— boundary set §7.3: harness self-envelope (TCB self-reference, T2) ——
+    // —— boundary set: harness self-envelope (TCB self-reference) ——
     { kind: 'path', pattern: '~/.mazi/**', label: 'sensitive', boundary: true, origin: 'platform' },
     {
         kind: 'path',
@@ -275,7 +290,7 @@ export interface LabelRegistryOptions {
     workspaceRoot?: string;
 }
 
-export function normalizeAssetLabel(label: AssetLabel): AssetLabel {
+function normalizeLabel(label: AssetLabel): AssetLabel {
     return { ...label, specificity: label.specificity ?? specificityOf(label.pattern) };
 }
 
@@ -294,16 +309,10 @@ function matches(label: AssetLabel, value: string, opts: LabelRegistryOptions): 
 }
 
 /**
- * N15 conflict resolution.
- *
- *  - secret-level platform annotations cannot be downgraded by user
- *    declarations; each attempt emits a suppression event (B3 aggregation);
- *  - platform-curated negative entries are a legal secret-downgrade outlet:
- *    a negative matching at least as specifically as a secret pattern cancels
- *    that secret declaration (the asset falls through to internal);
- *  - sensitive and below: strictest label wins → more specific pattern →
- *    user origin over platform;
- *  - boundary is the union of all surviving matches.
+ * Strictest label wins; platform negative entries cancel every positive
+ * declaration they are at least as specific as; boundary is the union of the
+ * surviving matches. A secret platform declaration is the highest label, so a
+ * user declaration can never downgrade it.
  */
 export function resolveLabel(
     query: AssetQuery,
@@ -313,69 +322,34 @@ export function resolveLabel(
     const value = query.kind === 'path' ? normalizeAssetPath(query.value, opts.home) : query.value;
     const matched = labels
         .filter((label) => label.kind === query.kind && matches(label, value, opts))
-        .map(normalizeAssetLabel);
+        .map(normalizeLabel);
 
     const negatives = matched.filter((l) => l.origin === 'platform-curated-negative');
-    const positives = matched.filter((l) => l.origin !== 'platform-curated-negative');
     const negativeSpecificity = negatives.length
         ? Math.max(...negatives.map((l) => l.specificity ?? 0))
         : -1;
-    // A platform-curated negative entry cancels every broader platform
-    // positive declaration (secret and non-secret): it is the platform's
-    // known-safe statement for that asset. User declarations are never
-    // cancelled — a user may still explicitly raise an asset.
-    const survivors = positives.filter(
-        (l) => l.origin === 'user' || (l.specificity ?? 0) > negativeSpecificity,
+    const survivors = matched.filter(
+        (l) =>
+            l.origin === 'user' ||
+            (l.origin !== 'platform-curated-negative' &&
+                (l.specificity ?? 0) > negativeSpecificity),
     );
 
-    const suppressed: LabelResolutionEvent[] = [];
-    const platformSecret = survivors.filter((l) => l.label === 'secret' && l.origin !== 'user');
-    let label: SensitivityLabel;
-    if (platformSecret.length > 0) {
-        label = 'secret';
-        for (const user of survivors) {
-            if (user.origin === 'user' && LABEL_RANK[user.label] < LABEL_RANK.secret) {
-                suppressed.push({
-                    reason: 'user-downgrade-suppressed',
-                    kind: query.kind,
-                    asset: value,
-                    userLabel: user.label,
-                    enforcedLabel: 'secret',
-                });
-            }
-        }
-    } else {
-        const ranked = [...survivors].sort(compareLabels);
-        label = ranked[0]?.label ?? 'internal';
+    let label: SensitivityLabel = 'internal';
+    let specificity = 0;
+    for (const survivor of survivors) {
+        if (LABEL_RANK[survivor.label] > LABEL_RANK[label]) label = survivor.label;
+        specificity = Math.max(specificity, survivor.specificity ?? 0);
     }
-
-    const ranked = [...survivors].sort(compareLabels);
     return {
         label,
         boundary: survivors.some((l) => l.boundary === true),
-        specificity: ranked[0]?.specificity ?? 0,
-        matches: ranked,
-        suppressed,
-        fromOverlay: false,
+        specificity,
+        matches: survivors,
     };
 }
 
-/** Strictest label → higher specificity → user origin over platform. */
-function compareLabels(a: AssetLabel, b: AssetLabel): number {
-    const byLabel = LABEL_RANK[b.label] - LABEL_RANK[a.label];
-    if (byLabel !== 0) return byLabel;
-    const bySpecificity = (b.specificity ?? 0) - (a.specificity ?? 0);
-    if (bySpecificity !== 0) return bySpecificity;
-    return originRank(b.origin) - originRank(a.origin);
-}
-
-function originRank(origin: AssetLabel['origin']): number {
-    if (origin === 'user') return 2;
-    if (origin === 'platform') return 1;
-    return 0;
-}
-
-/** Immutable, versioned AssetLabel registry (TCB component). */
+/** Immutable, content-versioned AssetLabel registry (TCB component). */
 export class AssetLabelRegistry {
     readonly labels: readonly AssetLabel[];
     readonly version: number;
@@ -383,7 +357,7 @@ export class AssetLabelRegistry {
     readonly workspaceRoot?: string;
 
     constructor(labels: readonly AssetLabel[], opts: LabelRegistryOptions = {}) {
-        this.labels = [...labels].map(normalizeAssetLabel);
+        this.labels = [...labels].map(normalizeLabel);
         this.home = opts.home;
         this.workspaceRoot = opts.workspaceRoot;
         this.version = contentVersion(this.labels);
@@ -393,7 +367,7 @@ export class AssetLabelRegistry {
         return new AssetLabelRegistry(BUILTIN_ASSET_LABELS, opts);
     }
 
-    withUserLabels(labels: readonly AssetLabel[]): AssetLabelRegistry {
+    withUserLabels(labels: readonly Omit<AssetLabel, 'origin'>[]): AssetLabelRegistry {
         const user = labels.map((l) => ({ ...l, origin: 'user' as const }));
         return new AssetLabelRegistry([...this.labels, ...user], {
             home: this.home,
@@ -407,40 +381,4 @@ export class AssetLabelRegistry {
             workspaceRoot: this.workspaceRoot,
         });
     }
-}
-
-export interface SuppressionGroup {
-    asset: string;
-    kind: AssetKind;
-    userLabel: SensitivityLabel;
-    enforcedLabel: SensitivityLabel;
-    count: number;
-}
-
-/** Aggregate suppression events for UI presentation (B3). */
-export function aggregateSuppressions(events: readonly LabelResolutionEvent[]): SuppressionGroup[] {
-    const groups = new Map<string, SuppressionGroup>();
-    for (const event of events) {
-        const key = `${event.kind}:${event.asset}:${event.userLabel}`;
-        const existing = groups.get(key);
-        if (existing) {
-            existing.count += 1;
-        } else {
-            groups.set(key, {
-                asset: event.asset,
-                kind: event.kind,
-                userLabel: event.userLabel,
-                enforcedLabel: event.enforcedLabel,
-                count: 1,
-            });
-        }
-    }
-    return [...groups.values()];
-}
-
-/** Chinese user-facing notice for aggregated suppressions (B3). */
-export function formatSuppressionNotice(groups: readonly SuppressionGroup[]): string {
-    if (groups.length === 0) return '全部标注均已生效。';
-    const listed = groups.map((g) => `${g.asset}（声明 ${g.userLabel} → 强制 ${g.enforcedLabel}）`);
-    return `你的 ${groups.length} 条标注未生效：${listed.join('、')}`;
 }

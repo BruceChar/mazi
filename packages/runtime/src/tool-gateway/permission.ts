@@ -1,12 +1,13 @@
 /**
  * Runtime permission bridge — maps the human-facing permission ceiling and the
- * runtime ToolConfig catalogue onto the authorization-v2 ToolGateway.
+ * runtime ToolConfig catalogue onto the authorization-v3 execution gateway.
  *
- * The selected ceiling is a root-level standing grant (the user's choice in the
- * composer). Capabilities above the ceiling are never granted, so their tools
- * disappear from the supply view and are rejected if hallucinated. Gated calls
- * inside the granted surface are approved by a standing seam until a real
- * human-in-the-loop seam is wired.
+ * The selected ceiling is the **auto boundary**, not a visibility filter: every
+ * standard capability is granted, those within the selected level run `auto`,
+ * those above it are `gated` (the model still sees the tool and calling it
+ * raises a human approval instead of silently failing). Only `text` hides the
+ * tool surface entirely. `forbidden` is reserved for the hard floor, which no
+ * ceiling can relax. Q1/Q3 floors always force at least `gated`.
  */
 
 import { homedir } from 'node:os';
@@ -17,22 +18,22 @@ import type { ToolCallResult, ToolConfig } from '../config.js';
 
 const HOME = homedir();
 
-/** Capability roles for the runtime tool catalogue. */
-export const RUNTIME_ROLES: Record<string, authz.Role> = {
-    'fs.read.workspace': { transfer: 'ingest', commit: 'recoverable', opacity: 'transparent' },
-    'fs.write.workspace': { transfer: 'none', commit: 'recoverable', opacity: 'transparent' },
-    'fs.write.draft': {
-        transfer: 'none',
-        commit: 'reversible',
-        opacity: 'transparent',
-        reversibleBy: 'task-scratch',
-    },
-    'fs.exec': { transfer: 'none', commit: 'committed', opacity: 'transparent' },
-    'net.fetch': { transfer: 'ingest', commit: 'recoverable', opacity: 'transparent' },
-    'net.send': { transfer: 'egress', commit: 'recoverable', opacity: 'transparent' },
-    delete: { transfer: 'none', commit: 'committed', opacity: 'transparent' },
-    publish: { transfer: 'egress', commit: 'committed', opacity: 'transparent' },
-    pay: { transfer: 'egress', commit: 'committed', opacity: 'transparent' },
+/** Three-question semantic declaration per runtime capability. */
+export const RUNTIME_SEMANTICS: Record<string, authz.ToolSemantics> = {
+    'fs.read.workspace': { ingest: true },
+    'fs.write.workspace': {},
+    'fs.write.draft': {},
+    'fs.exec': {},
+    'net.fetch': { ingest: true },
+    'net.send': { egress: true, dataEgress: true },
+    delete: { irreversible: true },
+    publish: { irreversible: true, egress: true, dataEgress: true },
+    pay: { irreversible: true, egress: true, dataEgress: true },
+    'fs.read.host': { ingest: true, severance: true },
+    'fs.write.host': {},
+    'db.read': { ingest: true },
+    'db.write': {},
+    'db.schema': { irreversible: true },
 };
 
 const READ_CAPABILITIES = ['fs.read.workspace'] as const;
@@ -67,75 +68,37 @@ const AUTONOMOUS_CAPABILITIES = [
 const CAPABILITIES_BY_LEVEL: Record<string, readonly string[]> = {
     text: [],
     'read-only': READ_CAPABILITIES,
-    // UI level "工作区写": read + workspace writes auto; exec/net stay gated.
     'workspace-write': WORKSPACE_WRITE_CAPABILITIES,
     draft: DRAFT_CAPABILITIES,
     approved: APPROVED_CAPABILITIES,
     autonomous: AUTONOMOUS_CAPABILITIES,
 };
 
-function capRule(capability: string): authz.CapabilityRule {
-    if (capability === 'fs.write.draft') {
-        return {
-            action: 'fs.write.draft',
-            domain: 'workspace',
-            tier: 'auto',
-            scope: 'task-scratch',
-        };
-    }
-    if (capability === 'fs.read.host') {
-        return {
-            action: 'fs.read',
-            domain: 'host',
-            tier: 'auto',
-            maxLabel: 'secret',
-            severance: 'handle',
-        };
-    }
-    if (capability === 'fs.write.host') {
-        return { action: 'fs.write', domain: 'host', tier: 'auto', maxLabel: 'sensitive' };
-    }
-    if (capability.startsWith('db.')) {
-        return { action: capability, domain: 'host', tier: 'auto', maxLabel: 'sensitive' };
-    }
+function capSpec(capability: string, tier: authz.EffectTier): authz.CapabilitySpec {
+    if (capability === 'fs.read.host') return { tier, maxLabel: 'secret' };
+    if (capability === 'fs.write.host') return { tier, maxLabel: 'sensitive' };
+    if (capability.startsWith('db.')) return { tier, maxLabel: 'sensitive' };
     if (capability.startsWith('net.') || capability === 'publish' || capability === 'pay') {
-        return { action: capability, domain: 'external', tier: 'auto', maxLabel: 'internal' };
+        return { tier, maxLabel: 'internal' };
     }
-    // fs.read.workspace / fs.write.workspace / delete: the capability string is
-    // also the action name (`isWriteAction` recognizes the write/delete forms).
     return {
-        action: capability,
-        domain: 'workspace',
-        tier: 'auto',
+        tier,
         maxLabel: capability === 'fs.read.workspace' ? 'internal' : 'sensitive',
-        ...(capability === 'fs.read.workspace' ? { severance: 'plain' as const } : {}),
     };
 }
 
 /** The full effect surface the runtime can request (all levels combined). */
 const STANDARD_SURFACE = AUTONOMOUS_CAPABILITIES;
 
-/**
- * Build the root grant for a human-facing permission ceiling.
- *
- * The ceiling is the **auto boundary**, not a visibility filter: every standard
- * capability is granted; those within the selected level run `auto`, those
- * above it are `gated` (the model still sees the tool and calling it raises a
- * human approval instead of silently failing). Only `text` hides the tool
- * surface entirely. `forbidden` is reserved for the hard layer (V17) and the
- * backend cap (V15), which no ceiling can relax.
- */
-export function grantForPermissionLevel(level: PermissionLevel): authz.AgentGrant {
-    if (level === 'text') return {};
+/** Build the root grant for a human-facing permission ceiling. */
+export function grantForPermissionLevel(level: PermissionLevel): authz.Grant {
+    if (level === 'text') return { caps: {} };
     const auto = new Set<string>(CAPABILITIES_BY_LEVEL[level] ?? READ_CAPABILITIES);
-    const grant: authz.AgentGrant = {};
+    const caps: Record<string, authz.CapabilitySpec> = {};
     for (const capability of STANDARD_SURFACE) {
-        grant[capability] = {
-            ...capRule(capability),
-            tier: auto.has(capability) ? 'auto' : 'gated',
-        };
+        caps[capability] = capSpec(capability, auto.has(capability) ? 'auto' : 'gated');
     }
-    return grant;
+    return { caps };
 }
 
 /** Dispatch capability for a runtime tool. */
@@ -163,23 +126,16 @@ function registrationForTool(
     capability: string,
     execute: RuntimeGatewayOptions['execute'],
 ): authz.ToolRegistration {
-    const role = RUNTIME_ROLES[capability] ?? {
-        transfer: 'none',
-        commit: 'recoverable',
-        opacity: 'transparent',
-    };
     const effects = new Set(tool.sideEffects ?? []);
     return {
         name: tool.name,
         description: tool.description,
         parameters: (tool.parameters ?? {}) as Record<string, unknown>,
         capability,
+        semantics: RUNTIME_SEMANTICS[capability] ?? {},
         scope: scopeForTool(tool),
-        role,
         trust: 'confined',
-        ...(capability === 'fs.read.workspace' ? { severance: 'plain' as const } : {}),
-        ...(effects.has('net') ? { untrustedOutput: true, dataEgress: true } : {}),
-        ...(tool.irreversible === true ? { irreversible: true } : {}),
+        ...(effects.has('net') ? { untrustedOutput: true } : {}),
         handler: async (args) => {
             const result = await execute(tool, args);
             if (!result.ok) throw new Error(result.error ?? `工具执行失败：${tool.name}`);
@@ -209,40 +165,36 @@ export interface RuntimeGatewayOptions {
 }
 
 /**
- * Task-bound runtime gateway. Builds the v2 registrations for the tools
+ * Task-bound runtime gateway. Builds the v3 registrations for the tools
  * permitted by the ceiling, derives the effective policy once, and routes every
- * invocation through the 11-stage pipeline.
+ * invocation through the staged pipeline.
  */
 export class RuntimeToolGateway {
     private readonly registrations = new Map<string, authz.ToolRegistration>();
-    private readonly gateway: authz.ToolGateway;
+    private readonly gateway: authz.DefaultToolGateway;
 
     constructor(readonly opts: RuntimeGatewayOptions) {
-        const labelRegistry = authz.AssetLabelRegistry.builtin({
+        const labels = authz.AssetLabelRegistry.builtin({
             home: HOME,
             ...(opts.workspaceRoot ? { workspaceRoot: opts.workspaceRoot } : {}),
         });
-        const roles = new authz.RoleRegistry(RUNTIME_ROLES);
-        const backend: authz.BackendCapabilities = {
-            id: 'local',
-            supportsReversibility: ['domain-teardown', 'task-scratch'],
-        };
-        const ledger = new authz.DataflowLedger({ ...(opts.now ? { now: opts.now } : {}) });
-        const engine = new authz.AuthorizationEngine({
-            labelRegistry,
-            roles,
-            backend,
-            ledger,
-            pinned: { labels: labelRegistry.version, roles: roles.version, rules: 1, rootTrust: 1 },
-            rootContractId: `runtime:${opts.rootGoalId}`,
-            rootVersion: 1,
-            taskId: opts.taskId,
-            ...(opts.now ? { now: opts.now } : {}),
-        });
+        const ledger = new authz.DataflowLedger();
+        const taint = new authz.TaintTable({ home: HOME });
         const grant = grantForPermissionLevel(opts.level);
-        const derived = engine.derive(grant, { requires: Object.keys(grant) });
+        const derived = authz.derive(
+            grant,
+            { requires: Object.keys(grant.caps) },
+            {
+                labels,
+                semantics: RUNTIME_SEMANTICS,
+                pinned: { labels: labels.version, rules: 1, trust: 1 },
+                rootId: `runtime:${opts.rootGoalId}`,
+                rootVersion: 1,
+                taskId: opts.taskId,
+            },
+        );
         if (!derived.ok) {
-            throw new Error(`运行权限派生失败：${derived.rejection.reason}`);
+            throw new Error(`运行权限派生失败：${derived.rejection.hint}`);
         }
         for (const tool of opts.tools) {
             const capability = capabilityForTool(tool);
@@ -252,8 +204,10 @@ export class RuntimeToolGateway {
         }
         this.gateway = new authz.DefaultToolGateway({
             identifiers: { rootGoalId: opts.rootGoalId, goalId: opts.goalId, taskId: opts.taskId },
-            effective: derived.policy,
-            engine,
+            policy: derived.policy,
+            labels,
+            ledger,
+            taint,
             toolRegistry: this.registrations,
             approval: opts.approval ?? standingApprovalSeam(),
             audit: opts.audit ?? { log: () => {} },

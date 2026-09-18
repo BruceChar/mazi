@@ -3,7 +3,7 @@
  * 保留：provider-core / permissions(档位+效果域) / goal-coordinate(Goal-Task-Step) /
  * observability(事件契约) / usage / id(ulid)。
  *
- * 权限系统 v2 位于 `authz` 命名空间（数据语义 + ToolGateway 实现）。
+ * 权限系统 v3 位于 `authz` 命名空间（数据语义 + 三问求值 + 执行网关）。
  */
 
 export * as authz from './authz/index.js';

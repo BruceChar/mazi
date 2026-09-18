@@ -1,22 +1,25 @@
 /**
- * Dataflow ledger — context-generation scoped, versioned and linearizable
- * (§6.5, N7/N8/N11).
+ * Dataflow ledger and residue taint table (V3 §6.3–§6.5).
  *
- * Writes commit atomically at a single linearization point (monotonic
- * `version`). Adjudication must read a full-order prefix; a barrier waits for
- * in-flight writes, and a timeout fails closed (`LEDGER_BARRIER_TIMEOUT`).
- * Generation switches inherit conservatively: auto-compaction inherits the
- * ledger, only an explicit user flush clears it.
+ * The ledger records sensitive reads scoped to a period (context generation).
+ * Writes linearize at a monotonic version. INV-A: a sensitive read's commit must
+ * precede the value becoming visible to the model. INV-B: egress adjudication
+ * reads the latest committed version and re-adjudicates if a newer commit
+ * appears. Autocompaction inherits the ledger; only an explicit user reset
+ * clears it. Taint marking (mechanism 5) is applied on write when the ledger
+ * holds an unsevered sensitive read and is cleared per file, decoupled from
+ * reset.
  */
 
+import { normalizeAssetPath } from './glob.js';
 import { contentVersion } from './hash.js';
 import { isAtLeastSensitive, type LedgerVersion, type SensitivityLabel } from './types.js';
 
-export type GenerationTrigger =
+export type PeriodTrigger =
     | 'session-created'
-    | 'user'
+    | 'user-reset'
     | 'auto-compaction'
-    | 'context-destroyed';
+    | 'session-destroyed';
 
 export type InheritanceMode = 'full' | 'summary';
 
@@ -25,9 +28,10 @@ export interface LedgerEntry {
     label: SensitivityLabel;
     source: string;
     stepId: string;
-    transferDir: 'ingest' | 'egress' | 'none';
-    /** Source severance: severed reads never pollute the ledger's flow state. */
+    /** Severed reads never entered the context and cannot pollute egress. */
     severed: boolean;
+    /** db projection accounting: only selected columns are recorded. */
+    columns?: string[];
     version: LedgerVersion;
 }
 
@@ -35,267 +39,171 @@ export interface LedgerWrite {
     label: SensitivityLabel;
     source: string;
     stepId: string;
-    transferDir: LedgerEntry['transferDir'];
     severed?: boolean;
+    columns?: string[];
 }
 
 export interface LedgerSnapshot {
-    generationId: string;
+    periodId: string;
     version: LedgerVersion;
     entries: readonly LedgerEntry[];
 }
 
-export interface GenerationSwitchEvent {
-    type: 'generation-switch';
-    reason: GenerationTrigger;
-    generationId: string;
-    fromGenerationId?: string;
-    cleared?: boolean;
-    inherited?: InheritanceMode;
-    archived?: boolean;
+export interface EgressVerdict {
+    broken: boolean;
+    version: LedgerVersion;
+    sources: string[];
+    entries: readonly LedgerEntry[];
 }
 
-export interface EgressAttestationEvent {
-    type: 'generation-egress-attestation';
-    attestor: string;
-    generationId: string;
-    ledgerVersion: LedgerVersion;
-    timestamp: number;
-    scope: string;
+export interface LedgerAuditEvent {
+    type: string;
+    [key: string]: unknown;
 }
-
-export type LedgerAuditEvent = GenerationSwitchEvent | EgressAttestationEvent;
 
 export interface LedgerAuditSink {
     log(event: LedgerAuditEvent): void;
 }
 
 export interface LedgerOptions {
-    generationId?: string;
+    periodId?: string;
     audit?: LedgerAuditSink;
-    now?: () => number;
-}
-
-export class LedgerBarrierTimeoutError extends Error {
-    readonly code = 'LEDGER_BARRIER_TIMEOUT' as const;
-    constructor(pending: number) {
-        super(`账本屏障超时：仍有 ${pending} 笔写未提交（fail-closed）`);
-        this.name = 'LedgerBarrierTimeoutError';
-    }
-}
-
-interface PendingWrite {
-    resolve: () => void;
-    promise: Promise<void>;
 }
 
 export class DataflowLedger {
-    private generationId: string;
-    private generationSeq: number;
+    private periodId: string;
+    private periodSeq: number;
     private entries: LedgerEntry[] = [];
     private version: LedgerVersion = 0;
-    private pending = new Map<number, PendingWrite>();
-    private pendingSeq = 0;
     private readonly audit?: LedgerAuditSink;
-    private readonly now: () => number;
 
     constructor(opts: LedgerOptions = {}) {
-        this.generationId = opts.generationId ?? 'gen-1';
-        this.generationSeq = 1;
+        this.periodId = opts.periodId ?? 'period-1';
+        this.periodSeq = 1;
         this.audit = opts.audit;
-        this.now = opts.now ?? (() => Date.now());
-        this.emit({
-            type: 'generation-switch',
-            reason: 'session-created',
-            generationId: this.generationId,
-        });
+        this.emit({ type: 'period-switch', reason: 'session-created', periodId: this.periodId });
     }
 
     get currentVersion(): LedgerVersion {
         return this.version;
     }
 
-    currentGeneration(): string {
-        return this.generationId;
-    }
-
-    /** Register an in-flight write; `barrier` waits for it to commit or abort. */
-    beginWrite(): number {
-        const id = ++this.pendingSeq;
-        let resolve!: () => void;
-        const promise = new Promise<void>((r) => {
-            resolve = r;
-        });
-        this.pending.set(id, { resolve, promise });
-        return id;
-    }
-
-    /** Atomic linearization point: append + version increment happen together. */
-    commit(handle: number, write: LedgerWrite): LedgerVersion {
-        this.version += 1;
-        const entry: LedgerEntry = {
-            id: `${this.generationId}:${this.version}`,
-            label: write.label,
-            source: write.source,
-            stepId: write.stepId,
-            transferDir: write.transferDir,
-            severed: write.severed === true,
-            version: this.version,
-        };
-        this.entries.push(entry);
-        this.settle(handle);
-        return this.version;
-    }
-
-    abort(handle: number): void {
-        this.settle(handle);
-    }
-
-    private settle(handle: number): void {
-        const pending = this.pending.get(handle);
-        if (pending) {
-            this.pending.delete(handle);
-            pending.resolve();
-        }
-    }
-
-    /** Wait for in-flight writes, then return the committed full-order prefix. */
-    async barrier(timeoutMs = 0): Promise<LedgerSnapshot> {
-        if (this.pending.size > 0) {
-            const waiting = Promise.all([...this.pending.values()].map((p) => p.promise));
-            if (timeoutMs <= 0) {
-                await waiting;
-            } else {
-                let timer: ReturnType<typeof setTimeout> | undefined;
-                const timeout = new Promise<never>((_, reject) => {
-                    timer = setTimeout(
-                        () => reject(new LedgerBarrierTimeoutError(this.pending.size)),
-                        timeoutMs,
-                    );
-                });
-                try {
-                    await Promise.race([waiting, timeout]);
-                } finally {
-                    if (timer) clearTimeout(timer);
-                }
-            }
-        }
-        return this.snapshot();
+    currentPeriod(): string {
+        return this.periodId;
     }
 
     /**
-     * Full-order prefix read. A requested version beyond the current one is
-     * clamped to current; the returned `version` may advance, so callers must
-     * re-read when they observe advancement (N8).
+     * Atomic linearization point (INV-A). Callers must commit before making the
+     * read's value visible to the model; a failed commit means the value is not
+     * returned (fail-closed).
      */
+    commit(write: LedgerWrite): LedgerVersion {
+        this.version += 1;
+        const entry: LedgerEntry = {
+            id: `${this.periodId}:${this.version}`,
+            label: write.label,
+            source: write.source,
+            stepId: write.stepId,
+            severed: write.severed === true,
+            version: this.version,
+        };
+        if (write.columns !== undefined) entry.columns = [...write.columns];
+        this.entries.push(entry);
+        this.emit({ type: 'ledger-write', entry: { ...entry } });
+        return this.version;
+    }
+
+    /** Full-order prefix read; a version beyond the head is clamped to the head. */
     snapshot(version?: LedgerVersion): LedgerSnapshot {
         const target = version === undefined ? this.version : Math.min(version, this.version);
         return {
-            generationId: this.generationId,
+            periodId: this.periodId,
             version: target,
             entries: this.entries.filter((e) => e.version <= target),
         };
     }
 
-    /**
-     * N8 conservative re-read: if the ledger advanced past the version a
-     * caller adjudicated against, the caller MUST re-adjudicate on the latest
-     * version before allowing execution.
-     */
-    recheck(version: LedgerVersion): {
-        snapshot: LedgerSnapshot;
-        requested: LedgerVersion;
-        advanced: boolean;
-    } {
-        return { snapshot: this.snapshot(), requested: version, advanced: version < this.version };
+    hasSensitiveUnsevered(): boolean {
+        return this.sensitiveEntries().length > 0;
     }
 
-    /** Missing/insufficient ledger state must be treated as broken (N5). */
-    hasSensitiveIngest(snapshot?: LedgerSnapshot): boolean {
-        const view = snapshot ?? this.snapshot();
-        return view.entries.some(
-            (e) => e.transferDir === 'ingest' && isAtLeastSensitive(e.label) && !e.severed,
-        );
+    /** INV-B: adjudicate against the latest committed version. */
+    adjudicate(): EgressVerdict {
+        const snap = this.snapshot();
+        const entries = this.unseveredSensitive(snap.entries);
+        return {
+            broken: entries.length > 0,
+            version: snap.version,
+            sources: [...new Set(entries.map((e) => e.source))],
+            entries,
+        };
     }
 
-    sensitiveIngestEntries(snapshot?: LedgerSnapshot): readonly LedgerEntry[] {
-        const view = snapshot ?? this.snapshot();
-        return view.entries.filter(
-            (e) => e.transferDir === 'ingest' && isAtLeastSensitive(e.label) && !e.severed,
-        );
+    /** True when a newer commit appeared between adjudication and execution. */
+    recheck(version: LedgerVersion): boolean {
+        return version < this.version;
     }
 
     /**
-     * Generation switch (N11/P19). Only an explicit user flush clears the
-     * ledger; auto-compaction inherits (full event set by default, boolean
-     * summary in the minimal deployment).
+     * Period switch. Only an explicit user reset clears the ledger;
+     * autocompaction inherits (full entry set, or a boolean summary in the
+     * minimal deployment). Destruction archives and clears.
      */
-    switchGeneration(trigger: GenerationTrigger, mode: InheritanceMode = 'full'): LedgerSnapshot {
-        const from = this.generationId;
-        this.generationSeq += 1;
-        this.generationId = `gen-${this.generationSeq}`;
+    switchPeriod(trigger: PeriodTrigger, mode: InheritanceMode = 'full'): LedgerSnapshot {
+        const from = this.periodId;
+        this.periodSeq += 1;
+        this.periodId = `period-${this.periodSeq}`;
         this.version = 0;
 
-        if (trigger === 'session-created') {
-            this.entries = [];
+        if (trigger === 'auto-compaction') {
+            this.entries = mode === 'full' ? this.inheritFull() : this.inheritSummary();
+            this.version = this.entries.length;
             this.emit({
-                type: 'generation-switch',
+                type: 'period-switch',
                 reason: trigger,
-                generationId: this.generationId,
-            });
-        } else if (trigger === 'user') {
-            this.entries = [];
-            this.emit({
-                type: 'generation-switch',
-                reason: trigger,
-                generationId: this.generationId,
-                fromGenerationId: from,
-                cleared: true,
-            });
-        } else if (trigger === 'auto-compaction') {
-            const inherited = mode === 'full' ? this.inheritFull() : this.inheritSummary();
-            this.entries = inherited;
-            // Inherited events occupy the new generation's version prefix.
-            this.version = inherited.length;
-            this.emit({
-                type: 'generation-switch',
-                reason: trigger,
-                generationId: this.generationId,
-                fromGenerationId: from,
+                periodId: this.periodId,
+                fromPeriodId: from,
                 inherited: mode,
             });
         } else {
-            this.emit({
-                type: 'generation-switch',
-                reason: trigger,
-                generationId: this.generationId,
-                fromGenerationId: from,
-                archived: true,
-            });
             this.entries = [];
+            this.emit({
+                type: 'period-switch',
+                reason: trigger,
+                periodId: this.periodId,
+                fromPeriodId: from,
+                cleared: trigger === 'user-reset',
+                archived: trigger === 'session-destroyed',
+            });
         }
         return this.snapshot();
     }
 
+    /** Content version of the ledger state — attribution / tests. */
+    stateVersion(): number {
+        return contentVersion({ periodId: this.periodId, entries: this.entries });
+    }
+
+    private sensitiveEntries(): readonly LedgerEntry[] {
+        return this.unseveredSensitive(this.entries);
+    }
+
+    private unseveredSensitive(entries: readonly LedgerEntry[]): LedgerEntry[] {
+        return entries.filter((e) => !e.severed && isAtLeastSensitive(e.label));
+    }
+
     private inheritFull(): LedgerEntry[] {
-        const sensitive = this.entries.filter(
-            (e) => e.transferDir === 'ingest' && isAtLeastSensitive(e.label),
-        );
-        return sensitive.map((e, index) => ({ ...e, version: index + 1 }));
+        return this.sensitiveEntries().map((e, index) => ({ ...e, version: index + 1 }));
     }
 
     private inheritSummary(): LedgerEntry[] {
-        const any = this.entries.some(
-            (e) => e.transferDir === 'ingest' && isAtLeastSensitive(e.label),
-        );
-        if (!any) return [];
+        if (this.sensitiveEntries().length === 0) return [];
         return [
             {
-                id: `${this.generationId}:summary`,
+                id: `${this.periodId}:summary`,
                 label: 'sensitive',
                 source: 'inherited-summary',
                 stepId: '',
-                transferDir: 'ingest',
                 severed: false,
                 version: 1,
             },
@@ -305,94 +213,94 @@ export class DataflowLedger {
     private emit(event: LedgerAuditEvent): void {
         this.audit?.log(event);
     }
-
-    /** Content version of the ledger state — used for attribution/tests. */
-    stateVersion(): number {
-        return contentVersion({ generationId: this.generationId, entries: this.entries });
-    }
 }
 
 // ============================================================
-// R3-flow condition verdict
+// Mechanism 5: residue taint table
 // ============================================================
 
-export type ConditionVerdict = 'satisfied' | 'broken';
-
-/**
- * Adjudicate a `no-sensitive-ingest` predicate against a ledger snapshot. A
- * missing snapshot (ledger unavailable) is broken — fail-safe (N5).
- */
-export function evaluateNoSensitiveIngest(snapshot: LedgerSnapshot | undefined): ConditionVerdict {
-    if (!snapshot) return 'broken';
-    const broken = snapshot.entries.some(
-        (e) => e.transferDir === 'ingest' && isAtLeastSensitive(e.label) && !e.severed,
-    );
-    return broken ? 'broken' : 'satisfied';
-}
-
-// ============================================================
-// Generation-level informed attestation (A2a/A2b)
-// ============================================================
-
-export interface EgressAttestation {
-    attestor: string;
-    generationId: string;
+export interface TaintAppliedEvent {
+    type: 'taint-applied';
+    target: string;
     ledgerVersion: LedgerVersion;
-    timestamp: number;
-    scope: string;
 }
+
+export interface TaintClearedEvent {
+    type: 'taint-cleared';
+    attestor: string;
+    target: string;
+    reason: string;
+}
+
+export type TaintAuditEvent = TaintAppliedEvent | TaintClearedEvent;
+
+export interface TaintAuditSink {
+    log(event: TaintAuditEvent): void;
+}
+
+export interface TaintOptions {
+    home?: string;
+    audit?: TaintAuditSink;
+}
+
+const TAINT_LABEL = 'sensitive' as const;
 
 /**
- * A2a: validity is decided synchronously against the current ledger version
- * prefix — valid iff no ≥sensitive unsevered read was committed after the
- * signed version. No asynchronous listener, no invalidation window.
+ * The taint table is a conservative approximation of workspace residue. It only
+ * participates in ledger adjudication — it never drives the hard floor — and its
+ * clearing is a per-file security decision independent of ledger reset.
  */
-export function isAttestationValid(
-    attestation: EgressAttestation,
-    snapshot: LedgerSnapshot,
-): boolean {
-    if (attestation.generationId !== snapshot.generationId) return false;
-    return !snapshot.entries.some(
-        (e) =>
-            e.version > attestation.ledgerVersion &&
-            e.transferDir === 'ingest' &&
-            isAtLeastSensitive(e.label) &&
-            !e.severed,
-    );
-}
+export class TaintTable {
+    private readonly taints = new Map<string, LedgerVersion>();
+    private readonly home?: string;
+    private readonly audit?: TaintAuditSink;
 
-/**
- * A2b: the approval echo must tell the truth about the generation state. Never
- * "I confirm no sensitive residue" — the trigger for the confirmation is
- * exactly that residue.
- */
-export function buildAttestationText(
-    snapshot: LedgerSnapshot,
-    derivedLabelTargets: readonly string[],
-): string {
-    const sensitive = snapshot.entries.filter(
-        (e) => e.transferDir === 'ingest' && isAtLeastSensitive(e.label) && !e.severed,
-    );
-    const sources = [...new Set(sensitive.map((e) => e.source))];
-    const targets = derivedLabelTargets;
-    return [
-        `本世代已发生 ${sensitive.length} 次 sensitive 读（来源列表：${sources.join('、') || '无'}）；`,
-        `工作区存在 ${targets.length} 个 derived-label 文件（列表：${targets.join('、') || '无'}）；`,
-        '签署后本世代 egress 将静默。',
-    ].join('');
-}
+    constructor(opts: TaintOptions = {}) {
+        this.home = opts.home;
+        this.audit = opts.audit;
+    }
 
-export function makeAttestation(
-    attestor: string,
-    scope: string,
-    snapshot: LedgerSnapshot,
-    timestamp: number,
-): EgressAttestation {
-    return {
-        attestor,
-        generationId: snapshot.generationId,
-        ledgerVersion: snapshot.version,
-        timestamp,
-        scope,
-    };
+    /** Apply a taint iff the ledger holds an unsevered sensitive read. */
+    markFromLedger(target: string, ledger: DataflowLedger): boolean {
+        const entries = ledger.adjudicate().entries;
+        if (entries.length === 0) return false;
+        const normalized = normalizeAssetPath(target, this.home);
+        const version = ledger.currentVersion;
+        const existing = this.taints.get(normalized);
+        this.taints.set(normalized, Math.max(existing ?? 0, version));
+        this.audit?.log({ type: 'taint-applied', target: normalized, ledgerVersion: version });
+        return true;
+    }
+
+    has(target: string): boolean {
+        return this.taints.has(normalizeAssetPath(target, this.home));
+    }
+
+    /** Taint labels are capped at sensitive and only tighten the flow layer. */
+    labelFor(target: string): typeof TAINT_LABEL | undefined {
+        return this.has(target) ? TAINT_LABEL : undefined;
+    }
+
+    ledgerVersionOf(target: string): LedgerVersion | undefined {
+        return this.taints.get(normalizeAssetPath(target, this.home));
+    }
+
+    targets(): string[] {
+        return [...this.taints.keys()];
+    }
+
+    /** Explicit per-file clear; user reset must NOT call this (N20 decoupling). */
+    clear(target: string, attestor: string, reason: string): boolean {
+        const normalized = normalizeAssetPath(target, this.home);
+        if (!this.taints.delete(normalized)) return false;
+        this.audit?.log({ type: 'taint-cleared', attestor, target: normalized, reason });
+        return true;
+    }
+
+    /** sandbox/draft-domain taints die with the domain teardown. */
+    clearByDomainTeardown(): number {
+        const count = this.taints.size;
+        this.taints.clear();
+        return count;
+    }
 }

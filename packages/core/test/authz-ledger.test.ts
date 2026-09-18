@@ -1,171 +1,88 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-    buildAttestationText,
-    DataflowLedger,
-    evaluateNoSensitiveIngest,
-    isAttestationValid,
-    LedgerBarrierTimeoutError,
-    makeAttestation,
-    type LedgerAuditEvent,
-} from '../src/authz/ledger.js';
+import { DataflowLedger, TaintTable } from '../src/authz/ledger.js';
 
-function collector(): { audit: { log(e: LedgerAuditEvent): void }; events: LedgerAuditEvent[] } {
-    const events: LedgerAuditEvent[] = [];
-    return { audit: { log: (e) => events.push(e) }, events };
-}
-
-describe('AuthorizationV2 dataflow ledger', () => {
-    it('assigns a monotonic version at the commit point', () => {
+describe('authz dataflow ledger', () => {
+    it('commits at a monotonic version and exposes a prefix snapshot', () => {
         const ledger = new DataflowLedger();
-        const a = ledger.beginWrite();
-        const v1 = ledger.commit(a, {
-            label: 'internal',
-            source: 'fs.write',
-            stepId: 's1',
-            transferDir: 'none',
-        });
-        const b = ledger.beginWrite();
-        const v2 = ledger.commit(b, {
-            label: 'sensitive',
-            source: 'fs.read',
-            stepId: 's2',
-            transferDir: 'ingest',
-        });
-        expect(v1).toBe(1);
-        expect(v2).toBe(2);
+        expect(ledger.commit({ label: 'internal', source: 'a', stepId: 's1' })).toBe(1);
+        expect(ledger.commit({ label: 'sensitive', source: 'b', stepId: 's2' })).toBe(2);
         expect(ledger.snapshot(1).entries).toHaveLength(1);
-        expect(ledger.snapshot(1).version).toBe(1);
+        expect(ledger.snapshot().entries).toHaveLength(2);
     });
 
-    it('barrier waits for in-flight writes to commit', async () => {
+    it('adjudicates egress as broken once an unsevered sensitive read is committed', () => {
         const ledger = new DataflowLedger();
-        const handle = ledger.beginWrite();
-        setTimeout(() => {
-            ledger.commit(handle, {
-                label: 'sensitive',
-                source: 'fs.read',
-                stepId: 's1',
-                transferDir: 'ingest',
-            });
-        }, 10);
-        const snapshot = await ledger.barrier(1000);
-        expect(snapshot.version).toBe(1);
-        expect(evaluateNoSensitiveIngest(snapshot)).toBe('broken');
+        expect(ledger.adjudicate().broken).toBe(false);
+        ledger.commit({ label: 'sensitive', source: 'db.read', stepId: 's1' });
+        const verdict = ledger.adjudicate();
+        expect(verdict.broken).toBe(true);
+        expect(verdict.sources).toEqual(['db.read']);
     });
 
-    it('fails closed when the barrier times out (LEDGER_BARRIER_TIMEOUT)', async () => {
+    it('does not break egress for a severed secret read', () => {
         const ledger = new DataflowLedger();
-        ledger.beginWrite();
-        await expect(ledger.barrier(5)).rejects.toBeInstanceOf(LedgerBarrierTimeoutError);
-        await expect(ledger.barrier(5)).rejects.toMatchObject({
-            code: 'LEDGER_BARRIER_TIMEOUT',
-        });
+        ledger.commit({ label: 'secret', source: 'fs.read.host', stepId: 's1', severed: true });
+        expect(ledger.adjudicate().broken).toBe(false);
     });
 
-    it('auto-compaction inherits the unsevered sensitive event set (N11)', () => {
-        const { audit } = collector();
-        const ledger = new DataflowLedger({ audit });
-        ledger.commit(ledger.beginWrite(), {
-            label: 'sensitive',
-            source: 'fs.read',
-            stepId: 's1',
-            transferDir: 'ingest',
-        });
-        ledger.commit(ledger.beginWrite(), {
-            label: 'secret',
-            source: 'fs.read',
-            stepId: 's2',
-            transferDir: 'ingest',
-            severed: true,
-        });
-        const inherited = ledger.switchGeneration('auto-compaction', 'full');
-        expect(inherited.entries).toHaveLength(2);
-        expect(evaluateNoSensitiveIngest(inherited)).toBe('broken');
-    });
-
-    it('boolean-summary inheritance keeps the flag without attribution (minimal deployment)', () => {
+    it('reports a newer commit after adjudication (INV-B)', () => {
         const ledger = new DataflowLedger();
-        ledger.commit(ledger.beginWrite(), {
-            label: 'sensitive',
-            source: 'fs.read',
-            stepId: 's1',
-            transferDir: 'ingest',
-        });
-        const inherited = ledger.switchGeneration('auto-compaction', 'summary');
-        expect(inherited.entries).toHaveLength(1);
-        expect(inherited.entries[0].source).toBe('inherited-summary');
-        expect(evaluateNoSensitiveIngest(inherited)).toBe('broken');
+        const version = ledger.commit({ label: 'internal', source: 'a', stepId: 's1' });
+        expect(ledger.recheck(version)).toBe(false);
+        ledger.commit({ label: 'internal', source: 'b', stepId: 's2' });
+        expect(ledger.recheck(version)).toBe(true);
     });
 
-    it('only an explicit user flush clears the ledger', () => {
+    it('inherits the ledger on compaction but clears it on user reset', () => {
         const ledger = new DataflowLedger();
-        ledger.commit(ledger.beginWrite(), {
-            label: 'sensitive',
-            source: 'fs.read',
-            stepId: 's1',
-            transferDir: 'ingest',
-        });
-        expect(ledger.hasSensitiveIngest()).toBe(true);
-        const cleared = ledger.switchGeneration('user');
-        expect(cleared.entries).toHaveLength(0);
-        expect(ledger.hasSensitiveIngest()).toBe(false);
+        ledger.commit({ label: 'sensitive', source: 'db.read', stepId: 's1' });
+        ledger.switchPeriod('auto-compaction');
+        expect(ledger.adjudicate().broken).toBe(true);
+        ledger.switchPeriod('user-reset');
+        expect(ledger.adjudicate().broken).toBe(false);
     });
 
-    it('emits generation-switch audit events with the right reason', () => {
-        const { audit, events } = collector();
-        const ledger = new DataflowLedger({ audit });
-        ledger.switchGeneration('user');
-        ledger.switchGeneration('auto-compaction', 'full');
-        ledger.switchGeneration('context-destroyed');
-        const switches = events.filter((e) => e.type === 'generation-switch');
-        expect(switches.map((e) => (e.type === 'generation-switch' ? e.reason : ''))).toEqual([
-            'session-created',
-            'user',
-            'auto-compaction',
-            'context-destroyed',
-        ]);
-        expect(switches[1]).toMatchObject({ cleared: true });
-        expect(switches[2]).toMatchObject({ inherited: 'full' });
-        expect(switches[3]).toMatchObject({ archived: true });
-    });
-
-    it('treats a missing ledger snapshot as broken (N5 fail-safe)', () => {
-        expect(evaluateNoSensitiveIngest(undefined)).toBe('broken');
-    });
-
-    it('A2a: attestation validity is computed synchronously against the version prefix', () => {
+    it('honors minimal-deployment summary inheritance', () => {
         const ledger = new DataflowLedger();
-        ledger.commit(ledger.beginWrite(), {
-            label: 'sensitive',
-            source: 'fs.read',
-            stepId: 's1',
-            transferDir: 'ingest',
-        });
-        const attestation = makeAttestation('alice', 'egress', ledger.snapshot(), 1000);
-        expect(isAttestationValid(attestation, ledger.snapshot())).toBe(true);
-
-        ledger.commit(ledger.beginWrite(), {
-            label: 'sensitive',
-            source: 'fs.read',
-            stepId: 's2',
-            transferDir: 'ingest',
-        });
-        expect(isAttestationValid(attestation, ledger.snapshot())).toBe(false);
+        ledger.commit({ label: 'sensitive', source: 'db.read', stepId: 's1' });
+        ledger.switchPeriod('auto-compaction', 'summary');
+        const verdict = ledger.adjudicate();
+        expect(verdict.broken).toBe(true);
+        expect(verdict.sources).toEqual(['inherited-summary']);
     });
 
-    it('A2b: attestation text discloses counts, sources and derived-label files', () => {
+    it('records projection columns', () => {
         const ledger = new DataflowLedger();
-        ledger.commit(ledger.beginWrite(), {
+        ledger.commit({
             label: 'sensitive',
             source: 'db.read',
             stepId: 's1',
-            transferDir: 'ingest',
+            columns: ['email'],
         });
-        const text = buildAttestationText(ledger.snapshot(), ['/home/tester/work/report.txt']);
-        expect(text).toContain('1 次 sensitive 读');
-        expect(text).toContain('db.read');
-        expect(text).toContain('1 个 derived-label 文件');
-        expect(text).toContain('签署后本世代 egress 将静默');
+        expect(ledger.snapshot().entries[0]?.columns).toEqual(['email']);
+    });
+});
+
+describe('authz residue taint', () => {
+    it('taints a written file while the ledger holds an unsevered sensitive read', () => {
+        const ledger = new DataflowLedger();
+        const taint = new TaintTable();
+        expect(taint.markFromLedger('/w/report.txt', ledger)).toBe(false);
+        ledger.commit({ label: 'sensitive', source: 'db.read', stepId: 's1' });
+        expect(taint.markFromLedger('/w/report.txt', ledger)).toBe(true);
+        expect(taint.has('/w/report.txt')).toBe(true);
+        expect(taint.labelFor('/w/report.txt')).toBe('sensitive');
+    });
+
+    it('decouples taint clearing from ledger reset', () => {
+        const ledger = new DataflowLedger();
+        const taint = new TaintTable();
+        ledger.commit({ label: 'sensitive', source: 'db.read', stepId: 's1' });
+        taint.markFromLedger('/w/report.txt', ledger);
+        ledger.switchPeriod('user-reset');
+        expect(taint.has('/w/report.txt')).toBe(true);
+        expect(taint.clear('/w/report.txt', 'user', 'reviewed')).toBe(true);
+        expect(taint.has('/w/report.txt')).toBe(false);
     });
 });

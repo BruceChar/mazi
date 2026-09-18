@@ -7,6 +7,7 @@ import { ApprovalBroker } from '../src/tool-gateway/approval.js';
 import {
     capabilityForTool,
     grantForPermissionLevel,
+    RUNTIME_SEMANTICS,
     RuntimeToolGateway,
 } from '../src/tool-gateway/permission.js';
 
@@ -50,42 +51,35 @@ const execute = async (config: ToolConfig): Promise<ToolCallResult> => ({
 
 describe('runtime permission bridge', () => {
     it('maps the permission level to the auto boundary (above = gated)', () => {
-        expect(grantForPermissionLevel('text')).toEqual({});
+        expect(grantForPermissionLevel('text')).toEqual({ caps: {} });
         const readOnly = grantForPermissionLevel('read-only');
-        expect(readOnly['fs.read.workspace']).toMatchObject({ tier: 'auto' });
-        expect(readOnly['fs.exec']).toMatchObject({ tier: 'gated' });
-        expect(readOnly['fs.write.workspace']).toMatchObject({ tier: 'gated' });
+        expect(readOnly.caps['fs.read.workspace']).toMatchObject({ tier: 'auto' });
+        expect(readOnly.caps['fs.exec']).toMatchObject({ tier: 'gated' });
+        expect(readOnly.caps['fs.write.workspace']).toMatchObject({ tier: 'gated' });
 
         const workspaceWrite = grantForPermissionLevel('workspace-write');
-        expect(workspaceWrite['fs.read.workspace']).toMatchObject({ tier: 'auto' });
-        expect(workspaceWrite['fs.write.workspace']).toMatchObject({ tier: 'auto' });
-        expect(workspaceWrite['fs.exec']).toMatchObject({ tier: 'gated' });
-        expect(workspaceWrite['net.fetch']).toMatchObject({ tier: 'gated' });
+        expect(workspaceWrite.caps['fs.read.workspace']).toMatchObject({ tier: 'auto' });
+        expect(workspaceWrite.caps['fs.write.workspace']).toMatchObject({ tier: 'auto' });
+        expect(workspaceWrite.caps['fs.exec']).toMatchObject({ tier: 'gated' });
+        expect(workspaceWrite.caps['net.fetch']).toMatchObject({ tier: 'gated' });
 
         const draft = grantForPermissionLevel('draft');
-        expect(draft['fs.exec']).toMatchObject({ tier: 'auto' });
-        expect(draft['fs.write.workspace']).toMatchObject({ tier: 'auto' });
-        expect(draft['net.send']).toMatchObject({ tier: 'gated' });
-        expect(grantForPermissionLevel('approved')['net.send']).toMatchObject({ tier: 'auto' });
+        expect(draft.caps['fs.exec']).toMatchObject({ tier: 'auto' });
+        expect(draft.caps['fs.write.workspace']).toMatchObject({ tier: 'auto' });
+        expect(draft.caps['net.send']).toMatchObject({ tier: 'gated' });
+        expect(grantForPermissionLevel('approved').caps['net.send']).toMatchObject({ tier: 'auto' });
     });
 
-    it('derives a valid action/domain for each granted capability', () => {
+    it('declares the reachable max label and three-question semantics per capability', () => {
         const grant = grantForPermissionLevel('autonomous');
-        expect(grant['fs.read.workspace']).toMatchObject({
-            action: 'fs.read.workspace',
-            domain: 'workspace',
-        });
-        expect(grant['fs.write.workspace']).toMatchObject({
-            action: 'fs.write.workspace',
-            domain: 'workspace',
-        });
-        expect(grant['net.fetch']).toMatchObject({ domain: 'external' });
-        expect(grant['db.read']).toMatchObject({ domain: 'host' });
-        expect(grant['fs.read.host']).toMatchObject({
-            action: 'fs.read',
-            domain: 'host',
-            maxLabel: 'secret',
-        });
+        expect(grant.caps['fs.read.workspace']).toMatchObject({ maxLabel: 'internal' });
+        expect(grant.caps['fs.write.workspace']).toMatchObject({ maxLabel: 'sensitive' });
+        expect(grant.caps['net.fetch']).toMatchObject({ maxLabel: 'internal' });
+        expect(grant.caps['db.read']).toMatchObject({ maxLabel: 'sensitive' });
+        expect(grant.caps['fs.read.host']).toMatchObject({ maxLabel: 'secret' });
+        expect(RUNTIME_SEMANTICS['fs.read.workspace']).toMatchObject({ ingest: true });
+        expect(RUNTIME_SEMANTICS['net.send']).toMatchObject({ egress: true, dataEgress: true });
+        expect(RUNTIME_SEMANTICS['pay']).toMatchObject({ irreversible: true });
     });
 
     it('derives the dispatch capability from the tool shape', () => {
@@ -176,7 +170,7 @@ describe('runtime permission bridge', () => {
             execute,
             approval: broker,
         });
-        const pending = gateway.invoke('shell.run', { command: 'echo hi' }, { stepId: 's-9' });
+        const pending = gateway.invoke('shell.run', { command: 'rm -rf src/' }, { stepId: 's-9' });
         const requests = broker.pending();
         expect(requests).toHaveLength(1);
         expect(requests[0]).toMatchObject({ tool: 'shell.run', capability: 'fs.exec' });
@@ -197,7 +191,7 @@ describe('runtime permission bridge', () => {
             audit: { log: (event) => events.push(event) },
         });
         await gateway.invoke('rg', { pattern: 'x' }, { stepId: 's-1' });
-        expect(events.map((e) => e.stage)).toContain('tier-dispatch');
+        expect(events.map((e) => e.stage)).toContain('risk-check');
         expect(events.some((e) => e.identifiers.stepId === 's-1')).toBe(true);
     });
 });

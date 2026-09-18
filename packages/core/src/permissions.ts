@@ -3,9 +3,9 @@
  * runtime config and the observability contract.
  *
  * `PermissionLevel` is the human-facing goal ceiling (the UI's text / read-only
- * / draft / approved / autonomous selector) and an index into the v2 grant
- * presets — it is never an enforce decision. Enforcement reads the v2
- * `EffectivePolicy` (see authz/). `SideEffectScope` is descriptive metadata
+ * / draft / approved / autonomous selector) and an index into the v3 grant
+ * presets — it is never an enforce decision. Enforcement reads the v3
+ * `authz.EffectivePolicy` (see authz/). `SideEffectScope` is descriptive metadata
  * for observability and tool-directory lookup; it does not participate in
  * dispatch.
  */

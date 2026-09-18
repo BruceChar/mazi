@@ -15,7 +15,7 @@ function request(invocationId: string) {
             tool: 'shell.run',
             effectClass: 'fs.exec',
             dataflowSources: ['db.read'],
-            derivedLabelProvenance: [],
+            taintProvenance: [],
         },
     };
 }
@@ -57,7 +57,6 @@ describe('ApprovalBroker', () => {
         const cancelled = broker.decide(request('b'));
         broker.cancelAll();
         await expect(cancelled).resolves.toEqual({ decision: 'cancelled' });
-        // rejection is surfaced as approval.cancelled (with decision: 'rejected')
         const cancelledEvents = events.filter((event) => event.type === 'approval.cancelled');
         expect(cancelledEvents).toHaveLength(2);
         expect(cancelledEvents[0].payload).toMatchObject({ decision: 'rejected', reason: 'no' });

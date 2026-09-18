@@ -2,11 +2,11 @@
  * RuntimePolicyAuditSink — condenses the gateway's per-stage audit events into
  * one bus event per invocation.
  *
- * The 11-stage pipeline emits a decision event per stage; forwarding all of
- * them to the event bus floods the UI stream (and JSONL log) with 11 events per
- * tool call. This sink buffers the stages of one invocation (keyed by stepId)
- * and emits a single `policy.check` (allowed) or `policy.denied` (denied)
- * event whose payload still contains the full ordered stage list.
+ * The staged pipeline emits a decision event per stage; forwarding all of them
+ * to the event bus floods the UI stream (and JSONL log). This sink buffers the
+ * stages of one invocation (keyed by stepId) and emits a single `policy.check`
+ * (allowed) or `policy.denied` (denied) event whose payload still contains the
+ * full ordered stage list.
  */
 
 import type { authz, HarnessEvent } from '@mazi/core';
@@ -44,7 +44,7 @@ export class RuntimePolicyAuditSink implements authz.GatewayAuditSink {
 
     private flush(events: authz.GatewayAuditEvent[]): void {
         if (events.length === 0) return;
-        const last = events[events.length - 1];
+        const last = events[events.length - 1] as authz.GatewayAuditEvent;
         const denied = events.find((event) => event.decision === 'denied');
         this.opts.emit(
             newHarnessEvent({
@@ -63,13 +63,13 @@ export class RuntimePolicyAuditSink implements authz.GatewayAuditSink {
                         stage: event.stage,
                         decision: event.decision,
                         ...(event.detail ? { detail: event.detail } : {}),
-                        ...(event.ruleId ? { ruleId: event.ruleId } : {}),
+                        ...(event.question ? { question: event.question } : {}),
                     })),
                     ...(denied
                         ? {
                               code: denied.code,
                               detail: denied.detail,
-                              ...(denied.ruleId ? { ruleId: denied.ruleId } : {}),
+                              ...(denied.question ? { question: denied.question } : {}),
                           }
                         : {}),
                 },

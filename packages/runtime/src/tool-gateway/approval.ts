@@ -1,11 +1,11 @@
 /**
- * ApprovalBroker — the human-in-the-loop ApprovalSeam (V18/T8).
+ * ApprovalBroker — the human-in-the-loop ApprovalSeam (V3 §6.3, §7 floor 4).
  *
  * Each gated invocation emits an `approval.requested` event carrying the
- * signed-echo summary (dataflow sources, counterparty, amount, derived-label
- * provenance, generation attestation text) and blocks until an approver
- * settles it through the API, or the TTL expires (fail-closed → cancelled).
- * Settlement emits `approval.granted` / `approval.cancelled`.
+ * summary (dataflow sources, counterparty, amount, residue provenance) and
+ * blocks until an approver settles it through the API, or the TTL expires
+ * (fail-closed → cancelled). Settlement emits `approval.granted` /
+ * `approval.cancelled`.
  */
 
 import type { AuditIdentifiers, HarnessEvent } from '@mazi/core';
