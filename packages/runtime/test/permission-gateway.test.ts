@@ -218,6 +218,78 @@ describe('runtime permission bridge', () => {
         ).resolves.toMatchObject({ ok: true });
     });
 
+    it('审批绑定具体命令与会话作用域', async () => {
+        const store = new authz.InMemoryApprovalStore();
+        const broker = new ApprovalBroker({ emit: () => {}, timeoutMs: 1000 });
+        const first = new RuntimeToolGateway({
+            rootGoalId: 'r',
+            goalId: 'g',
+            taskId: 't',
+            level: 'read-only',
+            tools: TOOLS,
+            execute,
+            approval: broker,
+            approvalStore: store,
+            sessionId: 'c1',
+        });
+        const pending = first.invoke('shell.run', { command: 'ping baidu.com' });
+        broker.settle(broker.pending()[0].invocationId, { decision: 'granted', scope: 'session' });
+        await expect(pending).resolves.toMatchObject({ ok: true });
+
+        const noAsk: authz.ApprovalSeam = {
+            decide: async () => {
+                throw new Error('不应再次请求审批');
+            },
+        };
+        const rejectAsk: authz.ApprovalSeam = {
+            decide: async () => ({ decision: 'rejected', reason: '需要单独审批' }),
+        };
+        const sameSessionSameCommand = new RuntimeToolGateway({
+            rootGoalId: 'r2',
+            goalId: 'g2',
+            taskId: 't2',
+            level: 'read-only',
+            tools: TOOLS,
+            execute,
+            approval: noAsk,
+            approvalStore: store,
+            sessionId: 'c1',
+        });
+        await expect(
+            sameSessionSameCommand.invoke('shell.run', { command: 'ping baidu.com' }),
+        ).resolves.toMatchObject({ ok: true });
+
+        const sameSessionOtherCommand = new RuntimeToolGateway({
+            rootGoalId: 'r3',
+            goalId: 'g3',
+            taskId: 't3',
+            level: 'read-only',
+            tools: TOOLS,
+            execute,
+            approval: rejectAsk,
+            approvalStore: store,
+            sessionId: 'c1',
+        });
+        await expect(
+            sameSessionOtherCommand.invoke('shell.run', { command: 'netstat -an' }),
+        ).resolves.toMatchObject({ ok: false });
+
+        const otherSessionSameCommand = new RuntimeToolGateway({
+            rootGoalId: 'r4',
+            goalId: 'g4',
+            taskId: 't4',
+            level: 'read-only',
+            tools: TOOLS,
+            execute,
+            approval: rejectAsk,
+            approvalStore: store,
+            sessionId: 'c2',
+        });
+        await expect(
+            otherSessionSameCommand.invoke('shell.run', { command: 'ping baidu.com' }),
+        ).resolves.toMatchObject({ ok: false });
+    });
+
     it('emits gateway stage audit events', async () => {
         const events: authz.GatewayAuditEvent[] = [];
         const gateway = new RuntimeToolGateway({

@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { ulid } from '@mazi/core';
 import { renderThinkingChain } from '@mazi/libs';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
@@ -86,8 +87,11 @@ export class SessionsService {
                   ? body.modelId
                   : undefined;
         const history = conversationId ? await this.conversationHistory(conversationId) : [];
+        // 新会话也先确定 id，使 session 作用域审批在后续续聊中可匹配。
+        const sessionConversationId = conversationId ?? ulid();
         const created = await this.runtime.harness().createGoalSession(input, {
             userId,
+            conversationId: sessionConversationId,
             ...(permissionCeiling ? { permissionCeiling } : {}),
             ...(history.length > 0 ? { history } : {}),
             ...(reasoningLevel ? { reasoningLevel } : {}),
@@ -113,7 +117,10 @@ export class SessionsService {
             this.conversations.appendRun(conversationId, run);
             createdConversationId = conversationId;
         } else {
-            createdConversationId = this.conversations.recordNewRun(run);
+            createdConversationId = this.conversations.recordNewRun({
+                ...run,
+                conversationId: sessionConversationId,
+            });
         }
         return {
             sessionId: created.rootGoalId,

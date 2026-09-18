@@ -22,6 +22,7 @@ import {
     type ToolSpec,
 } from './gateway-types.js';
 import { matchGlob, normalizeAssetPath } from './glob.js';
+import { stableStringify } from './hash.js';
 import type { ResolvedLabel } from './labels.js';
 import { assessQuestions, isWriteCapability } from './risk.js';
 import { guardGenericEgress, type SignedRequest } from './secret.js';
@@ -81,6 +82,15 @@ export function isInScope(
         }
     }
     return true;
+}
+
+/** 操作指纹：同一条命令/同一目标才复用授权；能力类目（fs.exec）不参与。 */
+export function approvalKeyOf(registration: ToolRegistration, projection: ValueProjection): string {
+    if (projection.command !== undefined) {
+        const command = projection.command.trim().replace(/\s+/g, ' ');
+        return `${registration.name}:cmd:${command}`;
+    }
+    return `${registration.name}:obs:${stableStringify(projection)}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -257,7 +267,8 @@ export class DefaultToolGateway implements ToolGateway {
         }
 
         // ⑤ approval (fail-closed when absent)
-        if (needsApproval && !this.hasSessionApproval(registration.capability)) {
+        const approvalKey = approvalKeyOf(registration, projection);
+        if (needsApproval && !this.hasApproval(approvalKey)) {
             if (!this.bind.approval) {
                 return reject(
                     'APPROVAL_UNAVAILABLE',
@@ -275,7 +286,7 @@ export class DefaultToolGateway implements ToolGateway {
             };
             log('approval', 'pending', { detail: 'approval-requested' });
             const decision = await this.bind.approval.decide(request);
-            const settled = this.settle(decision, registration.capability);
+            const settled = this.settle(decision, approvalKey, registration.capability);
             if (settled) return reject(settled.code, settled.hint, 'approval');
             log('approval', 'allowed', { detail: decision.decision });
         } else {
@@ -368,9 +379,9 @@ export class DefaultToolGateway implements ToolGateway {
             : { kind: 'executed', value };
     }
 
-    private hasSessionApproval(capability: string): boolean {
-        if (this.bind.approvalStore?.has(capability) === true) return true;
-        return this.sessionApprovals.some((a) => a.capability === capability);
+    private hasApproval(key: string): boolean {
+        if (this.bind.approvalStore?.has(key, this.bind.sessionId) === true) return true;
+        return this.sessionApprovals.some((approval) => approval.key === key);
     }
 
     toolSpec(registration: ToolRegistration): ToolSpec {
@@ -401,6 +412,7 @@ export class DefaultToolGateway implements ToolGateway {
             invocationId,
             tool: registration.name,
             effectClass: registration.capability,
+            ...(projection.command !== undefined ? { command: projection.command } : {}),
             ...(projection.path !== undefined ? { targetAsset: projection.path } : {}),
             ...(projection.host !== undefined ? { counterparty: projection.host } : {}),
             ...(projection.amount !== undefined ? { amount: projection.amount } : {}),
@@ -411,6 +423,7 @@ export class DefaultToolGateway implements ToolGateway {
 
     private settle(
         decision: ApprovalDecision,
+        key: string,
         capability: string,
     ): { code: AuthzErrorCode; hint: string } | undefined {
         if (decision.decision === 'rejected') {
@@ -422,12 +435,22 @@ export class DefaultToolGateway implements ToolGateway {
         if (decision.scope !== 'once') {
             const approval: SessionApproval = {
                 id: ulid(),
+                key,
                 capability,
                 scope: decision.scope,
+                ...(this.bind.sessionId !== undefined ? { sessionId: this.bind.sessionId } : {}),
                 createdAt: this.now(),
             };
-            if (this.bind.approvalStore) this.bind.approvalStore.remember(approval);
-            else this.sessionApprovals.push(approval);
+            // 无会话 id 的 session 授权退化为本次 run 内有效（网关实例内），
+            // 不上浮到进程级 store，避免误命中其它会话。
+            if (
+                this.bind.approvalStore &&
+                !(decision.scope === 'session' && this.bind.sessionId === undefined)
+            ) {
+                this.bind.approvalStore.remember(approval);
+            } else {
+                this.sessionApprovals.push(approval);
+            }
         }
         return undefined;
     }

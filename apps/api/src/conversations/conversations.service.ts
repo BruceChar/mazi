@@ -16,6 +16,8 @@ interface ConversationsFile {
 export interface NewConversationRun {
     rootGoalId: string;
     input: string;
+    /** 预生成的 Conversation id（调用方需在 createGoalSession 之前确定会话身份时使用）。 */
+    conversationId?: string;
     userId?: string;
     workspace?: string;
     projectId?: string;
@@ -53,7 +55,7 @@ export class ConversationsService {
     /** 新 Goal run 默认创建一个只含该 run 的 Conversation，返回 conversationId */
     recordNewRun(input: NewConversationRun): string {
         this.read();
-        const conversationId = ulid();
+        const conversationId = input.conversationId ?? ulid();
         const now = Date.now();
         this.state.conversations.push({
             conversationId,

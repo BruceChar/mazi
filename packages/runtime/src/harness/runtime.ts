@@ -54,8 +54,10 @@ export class HarnessRuntime {
     private readonly workspaceRoot?: string;
     /** Human-in-the-loop approval seam; absent → runtime gateway uses the standing ceiling approval. */
     private approvalSeam?: authz.ApprovalSeam;
-    /** 进程级 session/workspace 审批授权：跨 run 复用，避免同一能力重复审批。 */
+    /** 进程级 session/workspace 审批授权：绑定具体操作，跨 run 复用。 */
     private readonly approvalStore = new authz.InMemoryApprovalStore();
+    /** 待执行 Session 的 Conversation id（session 作用域审批匹配用） */
+    private readonly pendingSessionId = new Map<string, string>();
     /** 长期记忆调度组合根（store 缺省进程内实现，可注入替换）。 */
     private readonly memoryManager = new MemoryManager();
     /** 待执行 Session 的推理强度（create → execute 之间传递） */
@@ -133,6 +135,9 @@ export class HarnessRuntime {
         opts: RunOptions = {},
     ): Promise<{ rootGoalId: string; goalId: string }> {
         const rootGoalId = ulid();
+        if (opts.conversationId !== undefined) {
+            this.pendingSessionId.set(rootGoalId, opts.conversationId);
+        }
         if (opts.history !== undefined && opts.history.length > 0) {
             await this.memoryManager.remember(turnsToMemory(opts.history, { rootGoalId }));
         }
@@ -195,11 +200,14 @@ export class HarnessRuntime {
         const modelId = this.pendingModel.get(rootGoalId);
         this.pendingModel.delete(rootGoalId);
         const model = this.resolver.resolveModelChoice(modelId);
+        const sessionId = this.pendingSessionId.get(rootGoalId);
+        this.pendingSessionId.delete(rootGoalId);
         const rootGoal = goals.find((goal) => goal.goalId === rootGoalId) ?? goals[0];
         const exec = this.goalExecutionConfig(
             rootGoalId,
             rootGoal?.goalId ?? rootGoalId,
             rootGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
+            sessionId,
         );
         const result = await runGoalTree(
             {
@@ -303,6 +311,7 @@ export class HarnessRuntime {
         rootGoalId: string,
         goalId: string,
         level: PermissionLevel,
+        sessionId?: string,
     ): {
         tools: ToolSchema[];
         invoker: GoalToolInvoker;
@@ -329,6 +338,7 @@ export class HarnessRuntime {
             audit: new RuntimePolicyAuditSink({ emit: (event) => this.bus.emit(event) }),
             ...(this.approvalSeam ? { approval: this.approvalSeam } : {}),
             approvalStore: this.approvalStore,
+            ...(sessionId !== undefined ? { sessionId } : {}),
         });
         const visible = new Set(gateway.visibleToolNames());
         const configured = this.config.goal?.allowedTools;

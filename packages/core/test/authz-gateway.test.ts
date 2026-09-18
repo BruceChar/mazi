@@ -84,6 +84,7 @@ function build(
     opts: {
         approval?: ApprovalSeam;
         approvalStore?: ApprovalStore;
+        sessionId?: string;
         audit?: GatewayAuditEvent[];
         secretService?: SecretService;
     } = {},
@@ -113,6 +114,7 @@ function build(
         toolRegistry: new Map(TOOLS.map((t) => [t.name, t])),
         ...(opts.approval ? { approval: opts.approval } : {}),
         ...(opts.approvalStore ? { approvalStore: opts.approvalStore } : {}),
+        ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
         ...(opts.secretService ? { secretService: opts.secretService } : {}),
         audit: { log: (event) => audit.push(event) },
     });
@@ -176,7 +178,7 @@ describe('authz execution gateway', () => {
         ).toMatchObject({ kind: 'rejected', code: 'FORBIDDEN_BY_HARD_FLOOR' });
     });
 
-    it('workspace approval persists across gateway instances sharing a store', async () => {
+    it('workspace approval is per-operation: same command persists, other command still asks', async () => {
         const store = new InMemoryApprovalStore();
         const first = build({
             approval: approving([{ decision: 'granted', scope: 'workspace' }]),
@@ -190,6 +192,35 @@ describe('authz execution gateway', () => {
         expect(
             await second.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf src/' } }),
         ).toMatchObject({ kind: 'executed' });
+        // 不同命令必须单独审批：无审批 seam → fail-closed
+        expect(
+            await second.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf dist/' } }),
+        ).toMatchObject({ kind: 'rejected', code: 'APPROVAL_UNAVAILABLE' });
+    });
+
+    it('session approval only applies to the matching session', async () => {
+        const store = new InMemoryApprovalStore();
+        const first = build({
+            approval: approving([{ decision: 'granted', scope: 'session' }]),
+            approvalStore: store,
+            sessionId: 'c1',
+        });
+        expect(
+            await first.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf src/' } }),
+        ).toMatchObject({ kind: 'executed' });
+
+        const sameSession = build({ approvalStore: store, sessionId: 'c1' });
+        expect(
+            await sameSession.gateway.invoke({ tool: 'shell', args: { command: 'rm -rf src/' } }),
+        ).toMatchObject({ kind: 'executed' });
+
+        const otherSession = build({ approvalStore: store, sessionId: 'c2' });
+        expect(
+            await otherSession.gateway.invoke({
+                tool: 'shell',
+                args: { command: 'rm -rf src/' },
+            }),
+        ).toMatchObject({ kind: 'rejected', code: 'APPROVAL_UNAVAILABLE' });
     });
 
     it('routes a Q1 danger verb through approval', async () => {

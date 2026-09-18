@@ -22,6 +22,8 @@ export interface RunOptions {
     workspaceRoot?: string;
     /** providerId → LLMProvider 覆盖（离线测试注入；优先生效） */
     llmProviders?: Record<string, LLMProvider>;
+    /** 所属 Conversation id；session 作用域审批据此匹配。 */
+    conversationId?: string;
     /** 同一 Conversation 内此前轮次，作为本轮前置消息（共享上下文） */
     history?: ConversationTurn[];
     /** 推理强度（off/low/medium/high...），透传 provider 的 reasoningEffort */

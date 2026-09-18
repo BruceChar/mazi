@@ -162,6 +162,8 @@ export interface RuntimeGatewayOptions {
     approval?: authz.ApprovalSeam;
     /** Process-level session/workspace 授权；跨 RuntimeToolGateway 复用，避免重复审批。 */
     approvalStore?: authz.ApprovalStore;
+    /** 当前会话 id；session 作用域授权据此匹配。 */
+    sessionId?: string;
     workspaceRoot?: string;
     now?: () => number;
 }
@@ -213,6 +215,7 @@ export class RuntimeToolGateway {
             toolRegistry: this.registrations,
             approval: opts.approval ?? standingApprovalSeam(),
             ...(opts.approvalStore ? { approvalStore: opts.approvalStore } : {}),
+            ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
             audit: opts.audit ?? { log: () => {} },
             ...(opts.now ? { now: opts.now } : {}),
         });

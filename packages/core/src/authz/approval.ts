@@ -14,6 +14,8 @@ export interface ApprovalEcho {
     effectClass: string;
     targetAsset?: string;
     counterparty?: string;
+    /** 具体命令/操作（shell 等）；审批人据此确认“批的是哪条命令”。 */
+    command?: string;
     amount?: { currency: string; amount: number };
     /** Dataflow origins (the ledger sources that triggered the request). */
     dataflowSources?: readonly string[];
@@ -27,6 +29,7 @@ export interface ApprovalEcho {
 export function summarizeEcho(echo: ApprovalEcho): string {
     const lines = [
         `调用 ${echo.invocationId}（工具 ${echo.tool}，效果 ${echo.effectClass}）`,
+        `命令/参数：${echo.command ?? '无'}`,
         `目标资产：${echo.targetAsset ?? '未声明'}`,
         `交易对手：${echo.counterparty ?? '无'}`,
         `金额：${echo.amount ? `${echo.amount.amount} ${echo.amount.currency}` : '无'}`,

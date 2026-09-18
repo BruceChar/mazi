@@ -121,43 +121,87 @@ export interface ApprovalSeam {
     decide(request: ApprovalRequest): Promise<ApprovalDecision>;
 }
 
+/**
+ * 一条被记住的审批：绑定到**具体操作**（tool + 命令/路径/host/参数指纹），
+ * 而不是能力类目。批准 `ping baidu.com` 不会顺带批准 `netstat`。
+ */
 export interface SessionApproval {
     id: string;
+    /** 操作指纹（approvalKeyOf 生成）。 */
+    key: string;
+    /** 归因：所属 capability（展示/审计用）。 */
     capability: string;
     scope: 'session' | 'workspace';
+    /** session 作用域限定的会话 id；workspace 作用域忽略该字段。 */
+    sessionId?: string;
     createdAt: number;
 }
 
 /**
  * Process-level approval store. The gateway is re-created per execution, so
  * session/workspace grants must live outside it or they are lost between runs.
- * Keyed by capability: approving a gated capability for the session/workspace
- * pre-authorizes further invocations of that capability until revoked.
+ * 命中条件：同 key，且（workspace）或（session 且 sessionId 匹配）。
  */
 export interface ApprovalStore {
     remember(approval: SessionApproval): void;
-    has(capability: string): boolean;
+    has(key: string, sessionId?: string): boolean;
     list(): readonly SessionApproval[];
-    revoke(capability: string): boolean;
+    /** 撤销某个操作的授权；缺省清空全部。返回删除条数。 */
+    revoke(key?: string): number;
+    /** 清理某个会话的 session 作用域授权；workspace 授权保留。 */
+    clearSession(sessionId: string): number;
 }
 
 export class InMemoryApprovalStore implements ApprovalStore {
-    private readonly approvals = new Map<string, SessionApproval>();
+    private readonly records = new Map<string, SessionApproval>();
 
-    remember(approval: SessionApproval): void {
-        this.approvals.set(approval.capability, approval);
+    private static recordId(approval: SessionApproval): string {
+        return `${approval.scope}:${approval.sessionId ?? ''}:${approval.key}`;
     }
 
-    has(capability: string): boolean {
-        return this.approvals.has(capability);
+    remember(approval: SessionApproval): void {
+        this.records.set(InMemoryApprovalStore.recordId(approval), approval);
+    }
+
+    has(key: string, sessionId?: string): boolean {
+        for (const record of this.records.values()) {
+            if (record.key !== key) continue;
+            if (record.scope === 'workspace') return true;
+            if (
+                record.scope === 'session' &&
+                sessionId !== undefined &&
+                record.sessionId === sessionId
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     list(): readonly SessionApproval[] {
-        return [...this.approvals.values()];
+        return [...this.records.values()];
     }
 
-    revoke(capability: string): boolean {
-        return this.approvals.delete(capability);
+    revoke(key?: string): number {
+        let removed = 0;
+        for (const [id, record] of [...this.records]) {
+            if (key === undefined || record.key === key) {
+                this.records.delete(id);
+                removed += 1;
+            }
+        }
+        return removed;
+    }
+
+    clearSession(sessionId: string): number {
+        let removed = 0;
+        for (const [id, record] of [...this.records]) {
+            if (record.scope === 'session' && record.sessionId === sessionId) {
+                this.records.delete(id);
+                removed += 1;
+            }
+        }
+        return removed;
     }
 }
 
@@ -213,6 +257,8 @@ export interface GatewayBindInput {
     approval?: ApprovalSeam;
     /** Process-level session/workspace grants; omit for per-gateway lifetime. */
     approvalStore?: ApprovalStore;
+    /** 当前会话 id；session 作用域授权据此匹配，workspace 忽略。 */
+    sessionId?: string;
     audit: GatewayAuditSink;
     now?: () => number;
 }
