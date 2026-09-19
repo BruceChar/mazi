@@ -110,9 +110,19 @@ onMounted(reload);
         <div v-else-if="buckets.length" class="cost-table">
             <div class="cost-row cost-head">
                 <span>时间（小时）</span>
-                <span>调用</span>
-                <span>花费</span>
-                <span>in / out</span>
+                <span>请求数</span>
+                <span>消费金额</span>
+                <span>消耗 token</span>
+            </div>
+            <!-- 累计首行：金额/token 均以 vendor 上报口径结算 -->
+            <div class="cost-row cost-total">
+                <span>累计</span>
+                <span>{{ totals.calls }}</span>
+                <span class="cost-amount">{{ fmtCost(totals.cost, totals.currency) }}</span>
+                <span class="cost-tokens">
+                    {{ fmtTokens((totals.inputTokens ?? 0) + (totals.outputTokens ?? 0)) }}
+                    <span class="cost-sub">in {{ fmtTokens(totals.inputTokens) }} / out {{ fmtTokens(totals.outputTokens) }}</span>
+                </span>
             </div>
             <div v-for="bucket in buckets" :key="bucket.hourStart" class="cost-row">
                 <span class="cost-hour">{{ bucket.label }}</span>
@@ -175,6 +185,17 @@ onMounted(reload);
     font-weight: 600;
     color: var(--fg);
     background: var(--bg-hover);
+}
+.cost-total {
+    font-weight: 600;
+    color: var(--fg);
+    background: var(--accent-soft);
+}
+.cost-sub {
+    margin-left: 8px;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--fg-tertiary);
 }
 .cost-hour {
     font-family: ui-monospace, monospace;
