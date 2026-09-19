@@ -17,6 +17,8 @@ export interface GoalStore {
     saveStep(step: Step): Promise<void>;
     loadStep(stepId: string): Promise<Step | undefined>;
     listSteps(taskId: string): Promise<Step[]>;
+    /** 全部 Step（跨 Goal/Task；花费回填等一次性遍历用）。 */
+    listAllSteps(): Promise<Step[]>;
     /** 级联删除一棵 Goal 树（goals + 其 tasks + 其 steps）；Conversation 删除用 */
     deleteGoalTree(rootGoalId: string): Promise<void>;
     close(): void;
@@ -69,6 +71,9 @@ export class MemoryGoalStore implements GoalStore {
             .filter((s) => s.taskId === taskId)
             .sort((a, b) => a.startedAt - b.startedAt)
             .map((s) => structuredClone(s));
+    }
+    async listAllSteps(): Promise<Step[]> {
+        return [...this.steps.values()].map((s) => structuredClone(s));
     }
     async deleteGoalTree(rootGoalId: string): Promise<void> {
         const roots = [...this.goals.values()].filter((g) => g.goalId === rootGoalId);
@@ -180,6 +185,10 @@ export class SqliteGoalStore implements GoalStore {
         const rows = this.db
             .prepare('SELECT json FROM goal_steps WHERE task_id = ?')
             .all(taskId) as Row[];
+        return rows.map((r) => fromJson<Step>(r.json)).filter((s): s is Step => s !== undefined);
+    }
+    async listAllSteps(): Promise<Step[]> {
+        const rows = this.db.prepare('SELECT json FROM goal_steps').all() as Row[];
         return rows.map((r) => fromJson<Step>(r.json)).filter((s): s is Step => s !== undefined);
     }
     async deleteGoalTree(rootGoalId: string): Promise<void> {

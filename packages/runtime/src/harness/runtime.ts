@@ -32,6 +32,7 @@ import {
 } from '../memory/question-store.js';
 import { BehaviorRecorder } from '../observability/behavior-recorder.js';
 import { maziPaths } from '../paths.js';
+import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
 import { type QuestionClassifier, QuestionLabeler } from '../question/labeler.js';
@@ -48,6 +49,11 @@ import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
 
 const DEFAULT_AGENT_SYSTEM_PROMPT = GENERAL_PROMPT;
+
+/** 取值兜底：非有限数 → 0（花费回填的 token 字段）。 */
+function numberOf(value: unknown): number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
 
 /** GoalRunResult → goal.ended summary（截断 2000 字符） */
 function goalRunSummary(result: GoalRunResult): string {
@@ -107,6 +113,8 @@ export class HarnessRuntime {
     private readonly running = new Map<string, AbortController>();
     /** JSONL→DB 迁移单飞（构造器与显式调用共享同一 Promise）。 */
     private behaviorMigration?: Promise<BehaviorMigrationResult>;
+    /** 接入后的目录账本（花费回填等一次性遍历用）。 */
+    private catalogService?: CatalogService;
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
@@ -175,7 +183,50 @@ export class HarnessRuntime {
 
     /** 接入目录与账本：此后每轮 LLM 调用按钉死的 offering 价目追加 UsageRecord。 */
     setCatalog(service: CatalogService): void {
+        this.catalogService = service;
         this.roundRunner.setCatalog(service);
+    }
+
+    /**
+     * 回填历史花费凭证：把已落库 Step 的 vendor 原始用量（`usage.raw`）按当前目录价目结算进账本。
+     * 凭证 id = `bf:<stepId>`，重复调用幂等；目录未收录/无价的模型跳过（目录是权威）。
+     */
+    async backfillUsage(): Promise<{ recorded: number; skipped: number }> {
+        const service = this.catalogService;
+        if (service === undefined) return { recorded: 0, skipped: 0 };
+        const existing = new Set((await service.usageRecords()).map((record) => record.id));
+        const steps = await this.goalStoreDb.listAllSteps();
+        let recorded = 0;
+        let skipped = 0;
+        for (const step of steps) {
+            const raw = (step.usage as { raw?: Record<string, unknown> } | undefined)?.raw;
+            const providerId = typeof raw?.providerId === 'string' ? raw.providerId : undefined;
+            const modelId = typeof raw?.modelId === 'string' ? raw.modelId : undefined;
+            if (providerId === undefined || modelId === undefined) continue;
+            const recordId = `bf:${step.stepId}`;
+            if (existing.has(recordId)) {
+                skipped += 1;
+                continue;
+            }
+            try {
+                const pin = service.pin(offeringIdOf(providerIdOf(providerId), modelIdOf(modelId)));
+                await service.settle(
+                    pin,
+                    {
+                        inputTokens: numberOf(raw?.inputTokens),
+                        outputTokens: numberOf(raw?.outputTokens),
+                        cacheReadTokens: numberOf(raw?.cachedInputTokens),
+                    },
+                    step.startedAt,
+                    recordId,
+                );
+                existing.add(recordId);
+                recorded += 1;
+            } catch {
+                skipped += 1;
+            }
+        }
+        return { recorded, skipped };
     }
 
     /** 接入模型恢复：模型名被厂商拒绝时重同步并换模重试一次（llm.error 事件后自愈）。 */

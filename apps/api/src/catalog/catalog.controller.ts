@@ -1,6 +1,12 @@
 import 'reflect-metadata';
-import type { DriverConfig, ModelAliasReason, ModelId, OfferingId } from '@mazi/runtime';
-import type { UsageFilter, UsageSummary } from '@mazi/runtime';
+import type {
+    DriverConfig,
+    ModelAliasReason,
+    ModelId,
+    OfferingId,
+    UsageFilter,
+    UsageSummary,
+} from '@mazi/runtime';
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
@@ -101,6 +107,12 @@ export class CatalogController {
         const parsed = optionalNumber(since);
         const after = parsed === undefined ? -1 : parsed;
         return { epoch: service.epoch(), changes: await service.changesSince(after) };
+    }
+
+    /** POST /api/catalog/usage/backfill：把历史 Step 的 vendor 用量回填进花费账本（幂等）。 */
+    @Post('usage/backfill')
+    async backfillUsage(): Promise<Record<string, unknown>> {
+        return this.runtime.harness().backfillUsage();
     }
 
     /** GET /api/catalog/usage/summary：按 offering/model/provider/epoch 聚合的账本口径。 */

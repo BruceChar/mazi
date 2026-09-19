@@ -6,6 +6,7 @@
  * 一致性：目录事务 saveFacts 成功后才 rebuild 快照；账本 append 独立，不改历史。
  */
 
+import { ulid } from '@mazi/core';
 import type {
     CatalogChange,
     CatalogSnapshot,
@@ -21,7 +22,6 @@ import type {
     UsageTokens,
 } from './contract.js';
 import { findOfferingView } from './contract.js';
-import { ulid } from '@mazi/core';
 import {
     buildUsageRecord,
     filterUsage,
@@ -249,6 +249,8 @@ export class CatalogService {
         pin: DispatchPin,
         tokens: UsageTokens,
         occurredAt: number = this.now(),
+        /** 显式凭证 id（回填用；缺省随机 ULID）。 */
+        recordId?: string,
     ): Promise<UsageRecord> {
         const facts = this.runtime.facts();
         const plan = facts.pricingPlans.find((item) => item.id === pin.pricingPlanId);
@@ -260,7 +262,7 @@ export class CatalogService {
             throw new Error('catalog.settle: offering ' + pin.offeringId + ' not found');
         }
         const record = buildUsageRecord({
-            id: this.id(),
+            id: recordId ?? this.id(),
             pin,
             offering,
             plan,

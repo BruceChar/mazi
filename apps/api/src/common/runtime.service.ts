@@ -572,7 +572,16 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     /** 目录服务异步就绪后接入运行时；就绪前的请求不落账本（best-effort，不阻断执行）。 */
     private attachCatalog(runtime: HarnessRuntime): void {
         void this.catalog()
-            .then((service) => runtime.setCatalog(service))
+            .then(async (service) => {
+                runtime.setCatalog(service);
+                // 历史 Step 的 vendor 用量回填进花费账本（幂等；目录未收录的模型跳过）。
+                const result = await runtime.backfillUsage();
+                if (result.recorded > 0) {
+                    this.logger.log(
+                        `usage backfill: ${result.recorded} records (${result.skipped} skipped)`,
+                    );
+                }
+            })
             .catch((error) => this.logger.warn(`attachCatalog failed: ${String(error)}`));
         // 模型被厂商拒绝 → 重同步端点模型并换模重试（llm.error 自愈路径）。
         runtime.setModelRecovery(async (request) => {
@@ -1041,9 +1050,10 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         const service = await CatalogService.open({
             store: new FileCatalogStore(join(this.paths.home, 'catalog')),
         });
-        if (service.epoch() === 0) {
-            await this.importCatalog(service, 'manual-import');
-        }
+        // providers.json 是本地配置的权威来源：**每次启动都对账导入**（sync 幂等，无变更不换代）。
+        // 只在 epoch===0 导入会导致：远程目录发现过之后，providers.json 里的模型永远补不出
+        // offering/价目 → 实际调用的模型无法结算 → 花费账本恒为空。
+        await this.importCatalog(service, 'manual-import');
         return service;
     }
 
