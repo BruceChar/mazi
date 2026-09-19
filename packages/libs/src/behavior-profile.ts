@@ -53,6 +53,14 @@ export interface BehaviorProfileSummary {
     sufficient: boolean;
 }
 
+/** 用户画像视图（GET /api/users/:id/profile 线协议；本期只有机械特征）。 */
+export interface UserProfileView {
+    userId: string;
+    behaviorCount: number;
+    summary: BehaviorProfileSummary;
+    generatedAt: number;
+}
+
 export const PROFILE_MIN_EVIDENCE = 8;
 
 export function summarizeBehaviors(behaviors: readonly UserBehaviorView[]): BehaviorProfileSummary {

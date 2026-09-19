@@ -1,22 +1,36 @@
 <script setup>
 /**
- * ProfilePage — 用户画像的机械特征层（个人中心 → 画像）。
+ * ProfilePage — 用户画像（个人中心 → 画像）。
  *
- * 只呈现行为流可确定性计算的计数/均值/比率（设计文档 §5.2）；
+ * 数据来自 GET /api/users/:userId/profile：本期只呈现机械特征简单统计；
  * 认知/性情/价值观等 LLM 维度待独立分析器，页面不臆造结论。
  */
-import { computed } from 'vue';
-import { collectBehaviors, summarizeBehaviors } from '@mazi/libs';
+import { computed, onMounted, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import { fetchUserProfile } from '../scripts/store.ts';
 
-const props = defineProps({
-    /** Conversation 各 run 的 timeline 快照（含 behaviors）；由 App 注入。 */
-    snapshots: { type: Array, default: () => [] },
-});
 const emit = defineEmits(['close']);
 
-const behaviors = computed(() => collectBehaviors(props.snapshots));
-const summary = computed(() => summarizeBehaviors(behaviors.value));
+const profile = ref(null);
+const loading = ref(true);
+const error = ref('');
+
+/** 加载完成前的占位（全 0，不臆造）。 */
+const EMPTY = {
+    total: 0,
+    questions: 0,
+    feedback: 0,
+    interrupts: 0,
+    ratings: 0,
+    ratingAverage: null,
+    approvals: 0,
+    granted: 0,
+    denied: 0,
+    denyRate: null,
+    avgApprovalLatencyMs: null,
+    sufficient: false,
+};
+const summary = computed(() => profile.value?.summary ?? EMPTY);
 const sampleState = computed(() => (summary.value.sufficient ? '样本充足' : '样本不足（<8）'));
 
 function fmtPercent(value) {
@@ -26,6 +40,16 @@ function fmtMs(value) {
     if (value === null) return '-';
     return value < 1000 ? Math.round(value) + 'ms' : (value / 1000).toFixed(1) + 's';
 }
+
+onMounted(async () => {
+    try {
+        profile.value = await fetchUserProfile('all');
+    } catch (e) {
+        error.value = String(e);
+    } finally {
+        loading.value = false;
+    }
+});
 </script>
 
 <template>
@@ -35,12 +59,14 @@ function fmtMs(value) {
                 <LineIcon name="chevronRight" size="16" />
             </button>
             <h1>用户画像</h1>
-            <span class="profile-badge">{{ behaviors.length }} 条行为 · {{ sampleState }}</span>
+            <span class="profile-badge">{{ summary.total }} 条行为 · {{ sampleState }}</span>
         </div>
         <p class="profile-note">
-            机械特征（本地确定性，来自用户行为流）；认知 / 性情 / 价值观等 LLM 维度待独立分析器生成。
+            机械特征（本机用户行为流，简单统计）；认知 / 性情 / 价值观等 LLM 维度待独立分析器生成。
         </p>
-        <div class="profile-grid">
+        <div v-if="error" class="empty-hint">{{ error }}</div>
+        <div v-else-if="loading" class="empty-hint">加载中…</div>
+        <div v-else class="profile-grid">
             <div class="profile-stat">
                 <span class="profile-stat-num">{{ summary.questions }}</span>
                 <span class="profile-stat-label">提问</span>

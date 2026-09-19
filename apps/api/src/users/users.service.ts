@@ -1,18 +1,10 @@
 import 'reflect-metadata';
-import type { BehaviorProfileSummary, UserBehaviorView } from '@mazi/libs';
+import type { UserBehaviorView, UserProfileView } from '@mazi/libs';
 import { mergeBehaviors, summarizeBehaviors } from '@mazi/libs';
 import { Injectable } from '@nestjs/common';
 import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
-
-/** 用户画像视图（本期只做机械特征简单统计；LLM 维度待分析器）。 */
-export interface UserProfileView {
-    userId: string;
-    behaviorCount: number;
-    summary: BehaviorProfileSummary;
-    generatedAt: number;
-}
 
 /**
  * 用户级行为聚合：Conversation（按 userId 过滤）→ runs → 各 run 行为流，按 ts 合并去重。

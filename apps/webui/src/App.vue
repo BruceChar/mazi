@@ -252,10 +252,6 @@ const headerWorkspace = computed(
 );
 const runs = computed(() => activeConversation.value?.runs || []);
 
-/** 个人中心（画像/行为链）：当前 Conversation 各 run 的 timeline 快照。 */
-const accountSnapshots = computed(() =>
-    runs.value.map((run) => runDetails[run.rootGoalId] ?? null),
-);
 
 /** Lazy-load timeline for every run in the active conversation */
 watch(
@@ -975,16 +971,8 @@ onBeforeUnmount(() => {
 
             <UserPreferencesPage v-else-if="ui.view === 'settings'" @close="backToChat" />
 
-            <ProfilePage
-                v-else-if="ui.view === 'profile'"
-                :snapshots="accountSnapshots"
-                @close="backToChat"
-            />
-            <BehaviorPage
-                v-else-if="ui.view === 'behavior'"
-                :snapshots="accountSnapshots"
-                @close="backToChat"
-            />
+            <ProfilePage v-else-if="ui.view === 'profile'" @close="backToChat" />
+            <BehaviorPage v-else-if="ui.view === 'behavior'" @close="backToChat" />
             <LedgerPage v-else-if="ui.view === 'ledger'" @close="backToChat" />
         </main>
 

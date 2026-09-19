@@ -4,12 +4,15 @@ import type {
     ConfigOverview,
     Conversation,
     EventItem,
+    FailureLedgerView,
     GoalTreeSnapshot,
     Project,
     RunOutcome,
     StepUsage,
     TocIterationView,
+    UserBehaviorView,
     UserPreferences,
+    UserProfileView,
 } from '../types.js';
 import { isAbortedReason, snapshotResumable } from './run-control.js';
 import { activeStream, applyStreamEvent, type LiveStream, type LiveStreamMap } from './stream.js';
@@ -1073,4 +1076,34 @@ export async function sendFeedback(
     });
     // 反馈已落行为流：立即刷新时间线，feedback 行无需等下一个事件。
     await refreshDetail(rootGoalId);
+}
+
+/**
+ * 用户级行为流（GET /api/users/:id/behaviors）。
+ * `userId = all` = 本机全部会话（单用户本地默认）。
+ */
+export async function fetchUserBehaviors(userId = 'all'): Promise<UserBehaviorView[]> {
+    const data = (await api(`/api/users/${encodeURIComponent(userId)}/behaviors`)) as {
+        behaviors?: UserBehaviorView[];
+    };
+    return Array.isArray(data?.behaviors) ? data.behaviors : [];
+}
+
+/** 用户画像（GET /api/users/:id/profile；本期只有机械特征简单统计）。 */
+export async function fetchUserProfile(userId = 'all'): Promise<UserProfileView> {
+    return (await api(`/api/users/${encodeURIComponent(userId)}/profile`)) as UserProfileView;
+}
+
+/** 失败分类账（GET /api/ledger?kind=&limit=）。 */
+export async function fetchLedger(
+    query: { kind?: string; limit?: number } = {},
+): Promise<FailureLedgerView[]> {
+    const params = new URLSearchParams();
+    if (query.kind) params.set('kind', query.kind);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const suffix = params.toString();
+    const data = (await api(`/api/ledger${suffix ? `?${suffix}` : ''}`)) as {
+        entries?: FailureLedgerView[];
+    };
+    return Array.isArray(data?.entries) ? data.entries : [];
 }

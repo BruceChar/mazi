@@ -6,6 +6,7 @@
 import type {
     Conversation,
     EventItem,
+    FailureLedgerView,
     GoalNodeView,
     GoalRunRef,
     GoalTreeSnapshot,
@@ -25,6 +26,8 @@ import type {
     TocFeedbackView,
     TocIterationView,
     TocRecordView,
+    UserBehaviorView,
+    UserProfileView,
 } from '@mazi/libs';
 
 /** GET /api/config response (re-exported from libs as ConfigOverview). */
@@ -33,6 +36,7 @@ export type { ConfigOverview } from '@mazi/libs';
 export type {
     Conversation,
     EventItem,
+    FailureLedgerView,
     GoalNodeView,
     GoalRunRef,
     GoalTreeSnapshot,
@@ -52,6 +56,8 @@ export type {
     TocFeedbackView,
     TocIterationView,
     TocRecordView,
+    UserBehaviorView,
+    UserProfileView,
 };
 
 // ============================================================

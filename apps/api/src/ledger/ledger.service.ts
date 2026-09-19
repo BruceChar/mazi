@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import type { FailureLedgerEntry, FailureLedgerQuery } from '@mazi/runtime';
+import type { FailureLedgerView } from '@mazi/libs';
+import type { FailureLedgerQuery } from '@mazi/runtime';
 import { Injectable } from '@nestjs/common';
 import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
@@ -11,7 +12,7 @@ export class LedgerService {
 
     constructor(private readonly runtime: ApiRuntimeService) {}
 
-    async list(query: FailureLedgerQuery): Promise<{ entries: FailureLedgerEntry[] }> {
+    async list(query: FailureLedgerQuery): Promise<{ entries: FailureLedgerView[] }> {
         const entries = await this.runtime.harness().listFailures(query);
         this.logger.debug(
             `list kind=${query.kind ?? '-'} limit=${query.limit ?? '-'} → ${entries.length}`,

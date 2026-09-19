@@ -2,18 +2,18 @@
 /**
  * BehaviorPage — 行为链（个人中心 → 行为链）。
  *
- * 展示当前 Conversation 全部 run 的用户行为指令（提问/反馈/授权/审批发起），按 ts 升序。
+ * 数据来自 GET /api/users/:userId/behaviors：聚合本机全部会话（当前 Conversation 之外
+ * 的历史 run 也含在内），按 ts 升序展示提问/反馈/授权/审批发起。
  */
-import { computed } from 'vue';
-import { collectBehaviors } from '@mazi/libs';
+import { onMounted, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import { fetchUserBehaviors } from '../scripts/store.ts';
 
-const props = defineProps({
-    snapshots: { type: Array, default: () => [] },
-});
 const emit = defineEmits(['close']);
 
-const behaviors = computed(() => collectBehaviors(props.snapshots));
+const behaviors = ref([]);
+const loading = ref(true);
+const error = ref('');
 
 const LABELS = {
     input: '提问',
@@ -47,6 +47,16 @@ function detailOf(behavior) {
     }
     return JSON.stringify(data);
 }
+
+onMounted(async () => {
+    try {
+        behaviors.value = await fetchUserBehaviors('all');
+    } catch (e) {
+        error.value = String(e);
+    } finally {
+        loading.value = false;
+    }
+});
 </script>
 
 <template>
@@ -58,7 +68,9 @@ function detailOf(behavior) {
             <h1>行为链</h1>
             <span class="behavior-badge">{{ behaviors.length }} 条</span>
         </div>
-        <div v-if="behaviors.length" class="behavior-list">
+        <div v-if="error" class="empty-hint">{{ error }}</div>
+        <div v-else-if="loading" class="empty-hint">加载中…</div>
+        <div v-else-if="behaviors.length" class="behavior-list">
             <div
                 v-for="behavior in behaviors"
                 :key="behavior.ts"
@@ -70,7 +82,7 @@ function detailOf(behavior) {
                 <span class="behavior-time">{{ timeOf(behavior.ts) }}</span>
             </div>
         </div>
-        <div v-else class="empty-hint">当前会话暂无用户行为</div>
+        <div v-else class="empty-hint">暂无用户行为</div>
     </div>
 </template>
 
