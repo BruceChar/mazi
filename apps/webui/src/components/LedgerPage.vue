@@ -83,7 +83,26 @@ onMounted(reload);
                 <LineIcon name="chevronRight" size="16" />
             </button>
             <h1>花费账本</h1>
-            <span class="ledger-badge">{{ totals.calls }} 次调用 · {{ fmtCost(totals.cost, totals.currency) }}</span>
+            <span class="ledger-badge">{{ buckets.length }} 个时段</span>
+        </div>
+
+        <!-- 总预览（搜索之上，卡片式）：金额/token 均以 vendor 上报口径结算 -->
+        <div class="cost-summary">
+            <div class="cost-card">
+                <span class="cost-card-label">累计消费</span>
+                <span class="cost-card-value">{{ fmtCost(totals.cost, totals.currency) }}</span>
+                <span class="cost-card-note">vendor token 口径结算</span>
+            </div>
+            <div class="cost-card">
+                <span class="cost-card-label">累计请求数</span>
+                <span class="cost-card-value">{{ totals.calls }}</span>
+                <span class="cost-card-note">已结算的模型调用</span>
+            </div>
+            <div class="cost-card">
+                <span class="cost-card-label">累计消耗 token</span>
+                <span class="cost-card-value">{{ fmtTokens((totals.inputTokens ?? 0) + (totals.outputTokens ?? 0)) }}</span>
+                <span class="cost-card-note">in {{ fmtTokens(totals.inputTokens) }} / out {{ fmtTokens(totals.outputTokens) }}</span>
+            </div>
         </div>
 
         <div class="cost-filters">
@@ -113,16 +132,6 @@ onMounted(reload);
                 <span>请求数</span>
                 <span>消费金额</span>
                 <span>消耗 token</span>
-            </div>
-            <!-- 累计首行：金额/token 均以 vendor 上报口径结算 -->
-            <div class="cost-row cost-total">
-                <span>累计</span>
-                <span>{{ totals.calls }}</span>
-                <span class="cost-amount">{{ fmtCost(totals.cost, totals.currency) }}</span>
-                <span class="cost-tokens">
-                    {{ fmtTokens((totals.inputTokens ?? 0) + (totals.outputTokens ?? 0)) }}
-                    <span class="cost-sub">in {{ fmtTokens(totals.inputTokens) }} / out {{ fmtTokens(totals.outputTokens) }}</span>
-                </span>
             </div>
             <div v-for="bucket in buckets" :key="bucket.hourStart" class="cost-row">
                 <span class="cost-hour">{{ bucket.label }}</span>
@@ -186,15 +195,33 @@ onMounted(reload);
     color: var(--fg);
     background: var(--bg-hover);
 }
-.cost-total {
+.cost-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.cost-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    background: var(--bg-hover);
+}
+.cost-card-label {
+    font-size: 12px;
+    color: var(--fg-secondary);
+}
+.cost-card-value {
+    font-size: 22px;
     font-weight: 600;
     color: var(--fg);
-    background: var(--accent-soft);
+    font-variant-numeric: tabular-nums;
 }
-.cost-sub {
-    margin-left: 8px;
+.cost-card-note {
     font-size: 11px;
-    font-weight: 400;
     color: var(--fg-tertiary);
 }
 .cost-hour {
