@@ -148,6 +148,8 @@ export type Step = StepBase &
 - 决策链重建仍完整：deliberation 回答"模型看到什么后决定了什么（推理 / 回答 / 提议了哪些调用）"，invocation 回答"实际执行了什么、环境返回什么"；两者通过 `callId` 配对，模型看到 → 决定 → 执行 → 结果全程可追。
 - **失败是一等事实**：工具 / 策略失败由 `status` + `error.source` 表达，不再用 payload 上的 `isError` 布尔或 `structured` 旁路字段（默认工具调用桥只返回 string 结果，结构化旁路无消费者）。
 
+**用户行为不进 Step（v2.0，见 docs/用户行为流设计文档.md §10）**：用户的问题、反馈、授权行为与审批发起锚点记录在独立的 append-only 用户行为流，经只读纯函数 `projectBehaviorTimeline` 投影到 Step 时间线展示；**不新增 StepKind、不写入 `goal_steps`**。Step 二分会破坏的唯一判别式是归因原子，而用户行为是跨运行可携带的用户资产，二者生命周期与消费者不同，不合并。
+
 ## 4. GoalContract（Goal 的契约载荷）
 
 ```ts
