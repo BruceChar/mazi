@@ -4,6 +4,7 @@ import type {
     UserBehaviorExportView,
     UserBehaviorView,
     UserProfileView,
+    UserQuestionView,
 } from '@mazi/libs';
 import { mergeBehaviors, summarizeBehaviors } from '@mazi/libs';
 import { Injectable } from '@nestjs/common';
@@ -12,6 +13,18 @@ import { ApiRuntimeService } from '../common/runtime.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 
 const BEHAVIOR_STREAM_SCHEMA = '2.0';
+
+/** 问题查询过滤（`type` 即言说类型 speech_act）。 */
+export interface QuestionFilterQuery {
+    type?: string;
+    domain?: string;
+    category?: string;
+    topic?: string;
+    q?: string;
+    from?: number;
+    to?: number;
+    limit?: number;
+}
 
 /**
  * 用户级行为聚合与治理：Conversation（按 userId 过滤）→ runs → 各 run 行为流。
@@ -86,6 +99,30 @@ export class UsersService {
         }
         this.logger.log(`clearBehaviors user=${userId} runs=${runs.length}`);
         return { cleared: runs.length };
+    }
+
+    /**
+     * 用户问题查询：runtime 取问题视图（含有效标签），再按轴/全文过滤。
+     * `type` 即言说类型（speech_act）。
+     */
+    async questions(userId: string, filter: QuestionFilterQuery = {}): Promise<UserQuestionView[]> {
+        const views = await this.runtime.harness().listQuestions({
+            ...(userId !== 'all' ? { userId } : {}),
+            ...(filter.from !== undefined ? { from: filter.from } : {}),
+            ...(filter.to !== undefined ? { to: filter.to } : {}),
+            ...(filter.limit !== undefined ? { limit: filter.limit } : {}),
+        });
+        const key = filter.q?.trim().toLowerCase();
+        return views.filter((view) => {
+            const effective = view.effective;
+            if (filter.type && !(effective.speech_act ?? []).includes(filter.type)) return false;
+            if (filter.domain && !(effective.domain ?? []).includes(filter.domain)) return false;
+            if (filter.category && !(effective.category ?? []).includes(filter.category))
+                return false;
+            if (filter.topic && !(effective.topic ?? []).includes(filter.topic)) return false;
+            if (key && key.length > 0 && !view.text.toLowerCase().includes(key)) return false;
+            return true;
+        });
     }
 
     private async runsOf(userId: string): Promise<GoalRunRef[]> {

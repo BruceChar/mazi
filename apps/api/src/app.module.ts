@@ -16,6 +16,8 @@ import { IterationsController } from './iterations/iterations.controller.js';
 import { IterationsService } from './iterations/iterations.service.js';
 import { LedgerController } from './ledger/ledger.controller.js';
 import { LedgerService } from './ledger/ledger.service.js';
+import { QuestionsController } from './questions/questions.controller.js';
+import { QuestionsService } from './questions/questions.service.js';
 import { RunsController } from './runs/runs.controller.js';
 import { SessionsController } from './sessions/sessions.controller.js';
 import { SessionsService } from './sessions/sessions.service.js';
@@ -42,6 +44,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         IterationsController,
         UsersController,
         LedgerController,
+        QuestionsController,
     ],
     providers: [
         { provide: APP_FILTER, useClass: ApiExceptionsFilter },
@@ -53,6 +56,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         IterationsService,
         UsersService,
         LedgerService,
+        QuestionsService,
     ],
 })
 export class AppModule {}

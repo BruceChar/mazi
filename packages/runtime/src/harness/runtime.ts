@@ -35,7 +35,7 @@ import { maziPaths } from '../paths.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
 import { type QuestionClassifier, QuestionLabeler } from '../question/labeler.js';
-import { loadQuestionTaxonomy } from '../question/taxonomy.js';
+import { loadQuestionTaxonomy, type QuestionTaxonomy } from '../question/taxonomy.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
 import { GENERAL_PROMPT } from '../templates/prompts/general.prompt.js';
 import { configureTokenizer } from '../token-estimator.js';
@@ -95,6 +95,8 @@ export class HarnessRuntime {
     private readonly questionStore: QuestionStore;
     /** 问题标注器（规则同步 + LLM 精标 seam）。 */
     private readonly questionLabeler: QuestionLabeler;
+    /** 问题标签分类法（注册表）。 */
+    private readonly questionTaxonomy: QuestionTaxonomy;
     /** 失败分类账（Task 终态失败事实；只追加）。 */
     private readonly failureLedger: FailureLedgerStore;
     /** 待执行 Session 的推理强度（create → execute 之间传递） */
@@ -121,9 +123,11 @@ export class HarnessRuntime {
                 : new MemoryBehaviorStore();
         this.behaviorRecorder = new BehaviorRecorder(this.behaviorStore);
         this.questionStore = new SqliteQuestionStore(config.dbPath ?? ':memory:');
-        this.questionLabeler = new QuestionLabeler(
-            loadQuestionTaxonomy(config.questionTaxonomyFile ?? maziPaths().questionTaxonomyFile),
-            (questionId, labels) => this.questionStore.addLabels(questionId, labels),
+        this.questionTaxonomy = loadQuestionTaxonomy(
+            config.questionTaxonomyFile ?? maziPaths().questionTaxonomyFile,
+        );
+        this.questionLabeler = new QuestionLabeler(this.questionTaxonomy, (questionId, labels) =>
+            this.questionStore.addLabels(questionId, labels),
         );
         if (config.behaviorDir !== undefined && config.dbPath !== undefined) {
             void this.migrateBehaviorStream().catch((error: unknown) => {
@@ -182,6 +186,19 @@ export class HarnessRuntime {
     /** 接入人审审批 seam；缺省时运行时网关回退到 ceiling 常设授权。 */
     setApprovalSeam(seam: authz.ApprovalSeam): void {
         this.approvalSeam = seam;
+    }
+
+    /** 问题标签分类法（注册表；GET /api/question-taxonomy 消费）。 */
+    getQuestionTaxonomy(): QuestionTaxonomy {
+        return this.questionTaxonomy;
+    }
+
+    /** 对某问题重跑 LLM 精标（需已注入分类器）；返回是否命中该问题。 */
+    async classifyQuestion(questionId: string): Promise<boolean> {
+        const record = await this.questionStore.get(questionId);
+        if (record === undefined) return false;
+        await this.questionLabeler.classify(questionId, record.text);
+        return true;
     }
 
     /** 注入 LLM 问题分类器（可选；不注入则仅规则预标注）。输出经注册表校验后落库。 */
