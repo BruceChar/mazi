@@ -68,6 +68,8 @@ export class HarnessRuntime {
     private readonly pendingReasoning = new Map<string, string>();
     /** 待执行 Session 的模型 id（create → execute 之间传递） */
     private readonly pendingModel = new Map<string, string>();
+    /** 运行中的 Goal 树 → 协作式停止控制器（stop 生效、进程内互斥）。 */
+    private readonly running = new Map<string, AbortController>();
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
@@ -195,12 +197,16 @@ export class HarnessRuntime {
         return { rootGoalId, goalId: rootGoalId };
     }
 
-    /** 执行 Goal（plan → 逐 Task；事实全部经 goalStore 留痕）；发 goal.ended */
-    async executeGoalTree(rootGoalId: string): Promise<GoalRunResult> {
+    /** 执行 Goal（plan → 逐 Task；事实全部经 goalStore 留痕）；发 goal.ended / run.aborted */
+    async executeGoalTree(
+        rootGoalId: string,
+        options: { resume?: boolean } = {},
+    ): Promise<GoalRunResult> {
         const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
         if (goals.length === 0) {
             throw new Error(`Goal 树不存在：${rootGoalId}`);
         }
+        const resume = options.resume === true;
         // 上下文 delta 基线由每个 Task 的 ContextManager 自己持有，无需跨 run 重置。
         const reasoningLevel = this.pendingReasoning.get(rootGoalId);
         this.pendingReasoning.delete(rootGoalId);
@@ -216,53 +222,110 @@ export class HarnessRuntime {
             rootGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
             sessionId,
         );
-        const result = await runGoalTree(
-            {
-                store: this.goalStoreDb,
-                requestRound: (ctx) =>
-                    this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel, sessionId),
-                systemPrompt: this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT,
-                tools: exec.tools,
-                invoker: exec.invoker,
-                allowedTools: exec.allowedTools,
-                memory: this.memoryManager,
-                ...(model ? { model } : {}),
-                ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
-                onStep: (step) => this.stepEvents.emitStep(rootGoalId, step),
-            },
-            goals,
-        );
+        const controller = new AbortController();
+        this.running.set(rootGoalId, controller);
+        let result: GoalRunResult;
+        try {
+            result = await runGoalTree(
+                {
+                    store: this.goalStoreDb,
+                    requestRound: (ctx) =>
+                        this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel, sessionId),
+                    systemPrompt: this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT,
+                    tools: exec.tools,
+                    invoker: exec.invoker,
+                    allowedTools: exec.allowedTools,
+                    memory: this.memoryManager,
+                    ...(model ? { model } : {}),
+                    ...(this.workspaceRoot !== undefined
+                        ? { workspaceRoot: this.workspaceRoot }
+                        : {}),
+                    ...(resume ? { resume: true } : {}),
+                    signal: controller.signal,
+                    onStep: (step) => this.stepEvents.emitStep(rootGoalId, step),
+                },
+                goals,
+            );
+        } finally {
+            this.running.delete(rootGoalId);
+        }
+        const aborted = result.tasks.some((outcome) => outcome.reason === 'aborted');
         // Settle the Goal entities so the persisted tree/snapshot no longer reports
-        // every goal as 'active' after the run has finished.
+        // every goal as 'active' after the run has finished. Aborted runs stay
+        // resumable (Goal.status='aborted') instead of being marked failed.
         const outcomeByGoal = new Map(
             result.tasks.map((outcome) => [outcome.task.goalId, outcome]),
         );
         for (const goal of goals) {
             const outcome = outcomeByGoal.get(goal.goalId);
             goal.status = outcome
-                ? outcome.ok
-                    ? 'succeeded'
-                    : 'failed'
+                ? outcome.reason === 'aborted'
+                    ? 'aborted'
+                    : outcome.ok
+                      ? 'succeeded'
+                      : 'failed'
                 : result.ok
                   ? 'succeeded'
                   : 'failed';
             await this.goalStoreDb.saveGoal(goal);
         }
-        this.bus.emit(
-            newHarnessEvent({
-                type: 'goal.ended',
-                rootGoalId,
-                payload: {
-                    outcome: {
-                        status: result.ok ? 'success' : 'failed',
-                        summary: goalRunSummary(result),
+        if (aborted) {
+            this.bus.emit(
+                newHarnessEvent({
+                    type: 'run.aborted',
+                    rootGoalId,
+                    payload: { reason: 'user-stop' },
+                }),
+            );
+        } else {
+            this.bus.emit(
+                newHarnessEvent({
+                    type: 'goal.ended',
+                    rootGoalId,
+                    payload: {
+                        outcome: {
+                            status: result.ok ? 'success' : 'failed',
+                            summary: goalRunSummary(result),
+                        },
+                        error: result.rejected?.join(';'),
                     },
-                    error: result.rejected?.join(';'),
-                },
-            }),
-        );
+                }),
+            );
+        }
         await this.bus.flush();
         return result;
+    }
+
+    /** 请求停止运行中的 Goal 树；返回是否命中在跑的运行（不改变已落库事实）。 */
+    stopGoalTree(rootGoalId: string): boolean {
+        const controller = this.running.get(rootGoalId);
+        if (controller === undefined) return false;
+        controller.abort();
+        return true;
+    }
+
+    /** 该 Goal 树当前是否在本实例执行中。 */
+    isGoalRunning(rootGoalId: string): boolean {
+        return this.running.has(rootGoalId);
+    }
+
+    /**
+     * 恢复执行被停止的 Goal 树：复用 aborted/active Task，从已落库 Step 重放上下文后继续。
+     * reasoningLevel/modelId 为本轮恢复的模型选择（缺省沿用 provider 默认）。
+     */
+    async resumeGoalTree(
+        rootGoalId: string,
+        options: { reasoningLevel?: string; modelId?: string } = {},
+    ): Promise<GoalRunResult> {
+        if (options.reasoningLevel !== undefined) {
+            this.pendingReasoning.set(rootGoalId, options.reasoningLevel);
+        }
+        if (options.modelId !== undefined) {
+            this.pendingModel.set(rootGoalId, options.modelId);
+        }
+        this.bus.emit(newHarnessEvent({ type: 'run.resumed', rootGoalId, payload: {} }));
+        await this.bus.flush();
+        return this.executeGoalTree(rootGoalId, { resume: true });
     }
 
     /** 一站式 Goal 会话：创建 + 执行 + 返回结果与树快照（apps/api 端点消费） */

@@ -96,6 +96,8 @@ export class RoundRunner {
             ...(reasoningLevel && reasoningLevel.length > 0 && reasoningLevel !== 'off'
                 ? { extra: { reasoningEffort: reasoningLevel } }
                 : {}),
+            // 协作式停止：调用方 signal 透传到 provider，取消即报 aborted。
+            ...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
         };
         // runtime 维度：请求发出前的上下文分段计量。ContextManager 持有跨轮 delta 基线；
         // 未装配 context 的调用方（如独立 TOC 分析）退回无状态计量。

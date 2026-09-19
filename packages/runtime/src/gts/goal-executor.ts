@@ -9,6 +9,7 @@ import { ulid } from '@mazi/core';
 import {
     type ContextContribution,
     ContextManager,
+    type ContextToolObservation,
     EMPTY_SUCCESS_OUTPUT,
     formatToolObservation,
     type SecretRedactor,
@@ -49,9 +50,80 @@ export interface GoalExecutorDeps {
     onStep?: (step: Step) => void;
     /** 敏感内容进入 context 的断流端口（V3 机制二）；缺省时 secret 观察值 fail-closed */
     redactor?: SecretRedactor;
+    /** 协作式停止信号：每个轮次开始前检查；模型调用透传到 provider 层。 */
+    signal?: AbortSignal;
+    /** 恢复执行：该 Task 已落库的 Step（按 startedAt 升序），用于重放上下文。 */
+    resumeSteps?: readonly Step[];
 }
 
-export type TaskStopReason = 'final-answer' | 'max-steps' | 'driver-error' | 'blocked-tool';
+export type TaskStopReason =
+    | 'final-answer'
+    | 'max-steps'
+    | 'driver-error'
+    | 'blocked-tool'
+    | 'aborted';
+
+/**
+ * 从已落库 Step 重放 Task 上下文：deliberation -> assistant(toolCalls)，紧随的
+ * invocation 合并为一条 tool results；成功调用回填去重表，恢复后不重复执行。
+ * 返回已完成轮次数与最后一轮调用指纹（用于死循环护栏续接）。
+ */
+function replayPersistedSteps(
+    context: ContextManager,
+    steps: readonly Step[],
+    executedCalls: Map<string, { output: string; isError: boolean }>,
+): { rounds: number; lastCallKey?: string } {
+    let rounds = 0;
+    let lastCallKey: string | undefined;
+    let index = 0;
+    while (index < steps.length) {
+        const step = steps[index];
+        if (step === undefined) break;
+        if (step.kind !== 'deliberation') {
+            index += 1;
+            continue;
+        }
+        const toolCalls = step.payload.toolCalls ?? [];
+        context.appendAssistant({ text: step.payload.answer ?? '', toolCalls });
+        index += 1;
+        const observations: ContextToolObservation[] = [];
+        while (index < steps.length) {
+            const invocation = steps[index];
+            if (invocation === undefined || invocation.kind !== 'invocation') break;
+            const { callId, toolName, arguments: args, output } = invocation.payload;
+            const isError = invocation.status === 'error';
+            const settled = output ?? '';
+            if (callId !== undefined) {
+                observations.push({ callId, output: settled, isError });
+                if (!isError) {
+                    executedCalls.set(`${toolName}:${JSON.stringify(args ?? {})}`, {
+                        output: formatToolObservation(settled, false),
+                        isError: false,
+                    });
+                }
+            }
+            index += 1;
+        }
+        // assistant 的每个 toolCall 必须配对一条 tool result，否则请求非法：
+        // 异常缺失（如崩溃中断）补 error 观察值，模型据此自行决定是否重试。
+        for (const call of toolCalls) {
+            if (!observations.some((observation) => observation.callId === call.callId)) {
+                observations.push({ callId: call.callId, output: '', isError: true });
+            }
+        }
+        if (toolCalls.length > 0) {
+            context.appendToolResults(observations);
+        }
+        rounds += 1;
+        lastCallKey =
+            toolCalls.length > 0
+                ? toolCalls
+                      .map((call) => `${call.name}:${JSON.stringify(call.arguments)}`)
+                      .join('|')
+                : undefined;
+    }
+    return { rounds, ...(lastCallKey !== undefined ? { lastCallKey } : {}) };
+}
 
 /** 重试收尾时把已成功的结果合成最终答案；全为空成功时给一句完成语。 */
 function finalizeReplayedOutputs(outputs: readonly { output: string }[]): string {
@@ -97,11 +169,18 @@ export async function executeTask(
     });
     context.appendUser(goal.statement);
     const steps: Step[] = [];
+    // 已成功执行过的调用（tool+args 指纹 → 结果）：重复调用不再真正执行，避免空结果重试循环
+    const executedCalls = new Map<string, { output: string; isError: boolean }>();
+    // 恢复执行：把已落库 Step 重放回上下文，并从已完成的轮次继续计数。
+    const replayed = deps.resumeSteps
+        ? replayPersistedSteps(context, deps.resumeSteps, executedCalls)
+        : { rounds: 0, lastCallKey: undefined };
 
     // Persist the task before the first round. Live observers rebuild the tree via
     // GoalStore.listTasks(); without an early row the task (and all its in-progress
     // steps) stays invisible to /timeline until the task finishes.
     task.status = 'active';
+    task.endedAt = undefined;
     await saveTask();
 
     const roundRequest = (): Promise<RoundResult> => {
@@ -115,19 +194,24 @@ export async function executeTask(
             ...(systemPrompt !== undefined ? { systemPrompt } : {}),
             tools: context.tools(),
             context,
+            ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
         });
     };
 
     // 死循环护栏：连续相同工具调用达 3 轮视为未收敛（不烧完剩余轮次）
-    let prevCallKey: string | undefined;
+    let prevCallKey: string | undefined = replayed.lastCallKey;
     let repeatCount = 0;
     // 本轮的 deliberation step 引用；确定性收尾时回填渲染后的最终答案
     let deliberationStep: Step | undefined;
-    // 已成功执行过的调用（tool+args 指纹 → 结果）：重复调用不再真正执行，避免空结果重试循环
-    const executedCalls = new Map<string, { output: string; isError: boolean }>();
 
     try {
-        for (let roundIndex = 0; roundIndex < maxSteps; roundIndex += 1) {
+        for (let roundIndex = replayed.rounds; roundIndex < maxSteps; roundIndex += 1) {
+            // 协作式停止：在完整轮次之间生效，checkpoint 永远是上一轮的全部 Step。
+            if (deps.signal?.aborted === true) {
+                task.status = 'aborted';
+                await saveTask();
+                return { task, steps, ok: false, reason: 'aborted' };
+            }
             const round = await roundRequest();
 
             // 一轮 usage 归属：模型生成本轮的 deliberation step，携带 roundId；
@@ -438,6 +522,12 @@ export async function executeTask(
         await saveTask();
         return { task, steps, ok: false, reason: 'max-steps', errorMessage: '达到 Task 最大轮次' };
     } catch (error) {
+        // 停止信号触发的模型/流式中断归为 aborted（可恢复），不记为 driver-error。
+        if (deps.signal?.aborted === true) {
+            task.status = 'aborted';
+            await saveTask();
+            return { task, steps, ok: false, reason: 'aborted' };
+        }
         task.status = 'failed';
         await saveTask();
         return {

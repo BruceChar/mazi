@@ -7,10 +7,10 @@
  * 一个进程内 MemoryManager，测试可直接注入。
  */
 
-import { type Goal, type Step, ulid } from '@mazi/core';
+import { type Goal, type Step, type Task, ulid } from '@mazi/core';
 import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../gts/goal-executor.js';
 import { executeTask } from '../gts/goal-executor.js';
-import { planGoalTree } from '../gts/goal-planner.js';
+import { planTask } from '../gts/goal-planner.js';
 import type { ContextContribution } from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
 import { type MemoryItem, MemoryManager, turnsToMemory } from '../memory/index.js';
@@ -44,6 +44,10 @@ export interface GoalRunDeps {
     workspaceRoot?: string;
     /** Step 流式回调（透传 executeTask.onStep） */
     onStep?: GoalExecutorDeps['onStep'];
+    /** 协作式停止信号（透传 executeTask）。 */
+    signal?: AbortSignal;
+    /** 恢复模式：复用未终结 Task 并从已落库 Step 重放上下文。 */
+    resume?: boolean;
 }
 
 export interface GoalRunResult {
@@ -53,18 +57,32 @@ export interface GoalRunResult {
     rejected?: string[];
 }
 
+/** 恢复执行时为 Goal 选取可复用 Task（最近一个 aborted/active 的未终结 Task）。 */
+async function resumableTask(store: GoalStore, goal: Goal): Promise<Task | undefined> {
+    const tasks = await store.listTasks(goal.goalId);
+    const latest = [...tasks].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)).at(-1);
+    if (latest === undefined) return undefined;
+    return latest.status === 'aborted' || latest.status === 'active' ? latest : undefined;
+}
+
 export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<GoalRunResult> {
     const memory = deps.memory ?? new MemoryManager();
     const runId = goals[0]?.goalId ?? '';
-    const plan = planGoalTree({ goals });
+    const resume = deps.resume === true;
+    const executable = goals.filter(
+        (goal) => goal.status === 'active' || (resume && goal.status === 'aborted'),
+    );
     const outcomes: TaskOutcome[] = [];
-    for (const goal of plan.goals) {
-        const task = plan.tasks.find((t) => t.goalId === goal.goalId);
-        if (task === undefined) continue;
+    for (const [index, goal] of executable.entries()) {
+        const planIndex = executable.length > 1 ? index : undefined;
+        const task =
+            (resume ? await resumableTask(deps.store, goal) : undefined) ??
+            planTask(goal, planIndex);
         const contribution: ContextContribution = await memory.prepareContribution(
             { rootGoalId: runId },
             { id: 'memory' },
         );
+        const resumeSteps = resume ? await deps.store.listSteps(task.taskId) : undefined;
         const outcome = await executeTask(
             {
                 store: deps.store,
@@ -75,6 +93,8 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                 ...(deps.invoker !== undefined ? { invoker: deps.invoker } : {}),
                 ...(deps.allowedTools !== undefined ? { allowedTools: deps.allowedTools } : {}),
                 ...(deps.workspaceRoot !== undefined ? { workspaceRoot: deps.workspaceRoot } : {}),
+                ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+                ...(resumeSteps !== undefined && resumeSteps.length > 0 ? { resumeSteps } : {}),
                 contributions: [contribution],
                 ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
             },

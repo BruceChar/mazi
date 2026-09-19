@@ -7,6 +7,8 @@ import { PERMISSION_META } from '../scripts/goal-contract.ts';
 const props = defineProps({
     modelValue: { type: String, default: '' },
     busy: { type: Boolean, default: false },
+    /** 当前 run 被停止且空闲：展示「继续」入口。 */
+    resumable: { type: Boolean, default: false },
     activeConversation: { type: Object, default: null },
     projects: { type: Array, default: () => [] },
     workspaceRoot: { type: String, default: '' },
@@ -21,6 +23,8 @@ const props = defineProps({
 const emit = defineEmits([
     'update:modelValue',
     'submit',
+    'stop',
+    'resume',
     'switch-project',
     'open-system-picker',
     'exit-workspace',
@@ -251,8 +255,21 @@ function doExitWorkspace() {
                                 </div>
                             </div>
                         </div>
-                        <!-- Send button -->
-                        <button class="send" :disabled="busy" title="发送" @click="emit('submit')">
+                        <!-- Resume: current run was stopped, idle again -->
+                        <button
+                            v-if="resumable && !busy"
+                            class="resume"
+                            title="继续执行"
+                            @click="emit('resume')"
+                        >
+                            <LineIcon name="play" size="12" />
+                            <span>继续</span>
+                        </button>
+                        <!-- Primary: stop while executing, send otherwise -->
+                        <button v-if="busy" class="send stop" title="停止" @click="emit('stop')">
+                            <LineIcon name="stop" size="14" />
+                        </button>
+                        <button v-else class="send" title="发送" @click="emit('submit')">
                             <LineIcon name="arrowUp" size="16" />
                         </button>
                     </div>
@@ -504,5 +521,31 @@ function doExitWorkspace() {
 .send:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+}
+/* Stop while executing; resume when the run was stopped. */
+.send.stop {
+    background: #ef4444;
+}
+.send.stop:hover:not(:disabled) {
+    background: #dc2626;
+}
+.resume {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-panel);
+    color: var(--fg-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.resume:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-soft);
 }
 </style>

@@ -20,6 +20,10 @@ export const RUNTIME_EVENT_TYPES = [
     'context.strategy.applied',
     'reflection.verdict',
     'rollback.executed',
+    /** 协作式停止：运行在 Step 边界停下，Task/Goal 置 aborted 等待恢复 */
+    'run.aborted',
+    /** 从已落库 Step 重放后继续执行 */
+    'run.resumed',
 ] as const;
 
 export type RuntimeEventType = (typeof RUNTIME_EVENT_TYPES)[number];

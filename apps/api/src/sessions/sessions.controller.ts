@@ -17,6 +17,16 @@ export class SessionsController {
         return this.sessions.executeSession(sessionId);
     }
 
+    @Post(':id/stop')
+    stop(@Param('id') sessionId: string) {
+        return this.sessions.stopSession(sessionId);
+    }
+
+    @Post(':id/resume')
+    resume(@Param('id') sessionId: string, @Body() body: Record<string, unknown>) {
+        return this.sessions.resumeSession(sessionId, body);
+    }
+
     @Get(':id')
     detail(@Param('id') sessionId: string) {
         return this.sessions.sessionDetail(sessionId);

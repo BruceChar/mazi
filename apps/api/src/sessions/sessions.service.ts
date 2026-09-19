@@ -227,6 +227,52 @@ export class SessionsService {
         return result;
     }
 
+    /**
+     * POST /api/sessions/:id/stop：向运行中的 Goal 树发协作式停止信号。
+     * 空闲/已结束的会话幂等返回 idle，不抛错（stop 不进串行锁）。
+     */
+    stopSession(sessionId: string): { sessionId: string; state: 'stopping' | 'idle' } {
+        const stopping = this.runtime.harness().stopGoalTree(sessionId);
+        this.logger.log(`stopSession ${sessionId} -> ${stopping ? 'stopping' : 'idle'}`);
+        return { sessionId, state: stopping ? 'stopping' : 'idle' };
+    }
+
+    /**
+     * POST /api/sessions/:id/resume：恢复被停止的 Goal 树——复用 aborted/active Task，
+     * 从已落库 Step 重放上下文后继续执行（进程内串行，busy -> 409）。
+     */
+    async resumeSession(sessionId: string, body: Record<string, unknown> = {}) {
+        const goalBody =
+            body.goal && typeof body.goal === 'object'
+                ? (body.goal as Record<string, unknown>)
+                : undefined;
+        const reasoningLevel =
+            typeof goalBody?.reasoningLevel === 'string'
+                ? goalBody.reasoningLevel
+                : typeof body.reasoningLevel === 'string'
+                  ? body.reasoningLevel
+                  : undefined;
+        const modelId =
+            typeof goalBody?.modelId === 'string'
+                ? goalBody.modelId
+                : typeof body.modelId === 'string'
+                  ? body.modelId
+                  : undefined;
+        this.logger.log(`resumeSession ${sessionId}`);
+        const started = Date.now();
+        const result = await this.runtime.runExclusive(() =>
+            this.runtime.harness().resumeGoalTree(sessionId, {
+                ...(reasoningLevel ? { reasoningLevel } : {}),
+                ...(modelId ? { modelId } : {}),
+            }),
+        );
+        const last = result.tasks[result.tasks.length - 1];
+        this.logger.log(
+            `resumeSession done ${sessionId} ms=${Date.now() - started} ok=${result.ok} tasks=${result.tasks.length} reason=${last?.reason ?? '-'}`,
+        );
+        return result;
+    }
+
     /** GET /api/sessions/:id（含 /:id/timeline）：Goal 树快照（goals/tasks/steps 四元组） */
     async sessionDetail(sessionId: string) {
         const snapshot = await this.runtime.harness().goalSnapshot(sessionId);

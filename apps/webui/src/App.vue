@@ -18,6 +18,7 @@ import { buildAuditView } from './scripts/audit.ts';
 import { API_BASE } from './api.js';
 import {
     activeLiveStream,
+    activeRunId,
     approvals,
     busy,
     cfg,
@@ -26,6 +27,7 @@ import {
     current,
     deleteWorkspaceProject,
     currentConversation,
+    currentResumable,
     deleteConversationById,
     detail,
     runDetails,
@@ -48,6 +50,7 @@ import {
     projects,
     renameProject,
     respondApproval,
+    resumeRun,
     runOutcomes,
     clearAuditSelection,
     selectStep,
@@ -66,6 +69,7 @@ import {
     short,
     statusLabel,
     stopEvents,
+    stopRun,
     syncConfig,
     theme,
     ui,
@@ -624,6 +628,27 @@ async function submitPrompt() {
     );
 }
 
+/** 执行中点击停止：后端在 Step 边界协作式停止当前 run。 */
+async function stopPrompt() {
+    const rootGoalId = activeRunId.value ?? current.value;
+    if (!rootGoalId || !busy.value) return;
+    try {
+        await stopRun(rootGoalId);
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
+/** 继续执行被停止的 run（沿用当前模型/推理强度选择）。 */
+async function resumePrompt() {
+    const rootGoalId = current.value;
+    if (!rootGoalId || busy.value) return;
+    await resumeRun(rootGoalId, {
+        modelId: selectedModel.value,
+        reasoningLevel: reasoningLevel.value,
+    });
+}
+
 function openRenameConversation(conversation) {
     promptDialog.value = {
         open: true,
@@ -868,6 +893,7 @@ onBeforeUnmount(() => {
                     :reasoning-levels="REASONING_LEVELS"
                     :permission="sessionPermission"
                     :permission-levels="PERMISSION_LEVELS"
+                    :resumable="currentResumable"
                     :approvals="approvals"
                     :task-count="taskCount"
                     :step-count="stepCount"
@@ -879,6 +905,8 @@ onBeforeUnmount(() => {
                     @use-suggestion="useSuggestion"
                     @update:prompt="prompt = $event"
                     @submit="submitPrompt"
+                    @stop="stopPrompt"
+                    @resume="resumePrompt"
                     @switch-project="switchProject"
                     @open-system-picker="openSystemPicker"
                     @exit-workspace="exitWorkspace"

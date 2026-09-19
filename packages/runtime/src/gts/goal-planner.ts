@@ -35,13 +35,23 @@ function acceptanceFrom(goal: Goal): AcceptanceSpec {
 export function planGoalTree(input: PlanGoalTreeInput): GoalPlan {
     const { goals } = input;
     const executable = goals.filter((g) => g.status === 'active');
-    const tasks: Task[] = executable.map((goal, i) => ({
+    const tasks = executable.map((goal, i) =>
+        planTask(goal, executable.length > 1 ? i : undefined),
+    );
+    return { goals: executable, tasks };
+}
+
+/**
+ * 为单个 Goal 生成可执行 Task。恢复执行时若存在未终结 Task 则不调用本函数
+ * （复用原 Task 以保留同一 taskId 与 Step 历史）。
+ */
+export function planTask(goal: Goal, planIndex?: number): Task {
+    return {
         taskId: ulid(),
         goalId: goal.goalId,
         title: goal.statement.slice(0, 80),
         acceptance: acceptanceFrom(goal),
         status: 'pending',
-        ...(executable.length > 1 ? { parentPlanNodeId: `plan-${i}` } : {}),
-    }));
-    return { goals: executable, tasks };
+        ...(planIndex !== undefined ? { parentPlanNodeId: `plan-${planIndex}` } : {}),
+    };
 }

@@ -14,6 +14,8 @@ const props = defineProps({
     runDetails: { type: Object, default: () => ({}) },
     current: { type: String, default: '' },
     busy: { type: Boolean, default: false },
+    /** 当前 run 被停止且空闲时可恢复（驱动「继续」入口）。 */
+    resumable: { type: Boolean, default: false },
     liveStream: { type: Object, default: null },
     /** Append-only live steps per run (store.liveSteps), keyed by rootGoalId. */
     liveSteps: { type: Object, default: () => ({}) },
@@ -42,6 +44,8 @@ const emit = defineEmits([
     'use-suggestion',
     'update:prompt',
     'submit',
+    'stop',
+    'resume',
     'switch-project',
     'open-system-picker',
     'exit-workspace',
@@ -292,6 +296,7 @@ onMounted(() => {
             <Composer
                 :model-value="prompt"
                 :busy="busy"
+                :resumable="resumable"
                 :active-conversation="activeConversation"
                 :projects="projects"
                 :workspace-root="workspaceRoot"
@@ -303,6 +308,8 @@ onMounted(() => {
                 :permission-levels="permissionLevels"
                 @update:model-value="emit('update:prompt', $event)"
                 @submit="emit('submit')"
+                @stop="emit('stop')"
+                @resume="emit('resume')"
                 @switch-project="emit('switch-project', $event)"
                 @open-system-picker="emit('open-system-picker')"
                 @exit-workspace="emit('exit-workspace')"

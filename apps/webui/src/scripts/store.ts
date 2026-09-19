@@ -11,6 +11,7 @@ import type {
     TocIterationView,
     UserPreferences,
 } from '../types.js';
+import { isAbortedReason, snapshotResumable } from './run-control.js';
 import { activeStream, applyStreamEvent, type LiveStream, type LiveStreamMap } from './stream.js';
 
 const THEME_KEY = 'mazi.web.theme';
@@ -27,8 +28,10 @@ const LIVE_EVENT_TYPES = [
     'approval.requested',
     'approval.granted',
     'approval.cancelled',
+    'run.aborted',
+    'run.resumed',
 ] as const;
-const REFRESH_EVENT_TYPES = new Set<string>(['session.ended', 'goal.ended']);
+const REFRESH_EVENT_TYPES = new Set<string>(['session.ended', 'goal.ended', 'run.aborted']);
 
 function systemPrefersDark(): boolean {
     return (
@@ -181,6 +184,8 @@ export const projects = ref<Project[]>([]);
 export const busy = ref<boolean>(false);
 /** Currently open Goal run (rootGoalId). */
 export const current = ref<string | null>(null);
+/** 正在执行的 run（停止按钮的作用对象）；执行结束后清空。 */
+export const activeRunId = ref<string | null>(null);
 export const currentConversation = ref<string | null>(null);
 // 切换会话 → 重新解析该会话的权限（会话覆盖 → 工作区覆盖 → 系统默认），
 // 因此一个会话/项目的设置不会串到其他会话/项目。
@@ -191,6 +196,19 @@ export const detail = ref<GoalTreeSnapshot | null>(null);
 export const runDetails = reactive<Record<string, GoalTreeSnapshot | null>>({});
 /** In-memory run outcomes (POST /run task summary; never persisted). */
 export const runOutcomes = reactive<Record<string, RunOutcome>>({});
+
+/**
+ * 当前 run 是否可恢复：空闲且最近一次执行被用户停止（内存摘要），
+ * 或从已加载快照看最新 Task 为 aborted（刷新/历史会话）。
+ */
+export const currentResumable = computed<boolean>(() => {
+    const id = current.value;
+    if (!id || busy.value) return false;
+    const outcome = runOutcomes[id];
+    if (outcome) return isAbortedReason(outcome.reason);
+    return snapshotResumable(detail.value ?? runDetails[id]);
+});
+
 export const events = reactive<{ list: EventItem[]; types: string }>({ list: [], types: 'all' });
 
 /** 系统日志（GET /api/logs）：服务端错误/告警/信息，供「日志 / 事件」面板查看。 */
@@ -932,10 +950,25 @@ export async function createRun({
     }
 }
 
+/** 缓存一次执行结果摘要（executeRun / resumeRun 共用）。 */
+function cacheRunOutcome(rootGoalId: string, result: Record<string, unknown>): void {
+    const tasks = Array.isArray(result.tasks) ? result.tasks : [];
+    const last = tasks[tasks.length - 1];
+    const rejected = Array.isArray(result.rejected) ? result.rejected.join('；') : '';
+    runOutcomes[rootGoalId] = {
+        ok: Boolean(result.ok),
+        finalMessage: last?.finalMessage || '',
+        errorMessage: last?.errorMessage || rejected || (result.ok ? '' : '任务失败'),
+        reason: last?.reason || (result.ok ? 'final-answer' : ''),
+        taskCount: tasks.length,
+    };
+}
+
 /** Execute a Goal run (POST /api/sessions/:id/run) and cache its task summary. */
 export async function executeRun(rootGoalId: string): Promise<void> {
     if (!rootGoalId) return;
     busy.value = true;
+    activeRunId.value = rootGoalId;
     ui.err = null;
     try {
         const result = await api(`/api/sessions/${rootGoalId}/run`, {
@@ -943,21 +976,55 @@ export async function executeRun(rootGoalId: string): Promise<void> {
             headers: { 'content-type': 'application/json' },
             body: '{}',
         });
-        const tasks = Array.isArray(result.tasks) ? result.tasks : [];
-        const last = tasks[tasks.length - 1];
-        const rejected = Array.isArray(result.rejected) ? result.rejected.join('；') : '';
-        runOutcomes[rootGoalId] = {
-            ok: Boolean(result.ok),
-            finalMessage: last?.finalMessage || '',
-            errorMessage: last?.errorMessage || rejected || (result.ok ? '' : '任务失败'),
-            reason: last?.reason || (result.ok ? 'final-answer' : ''),
-            taskCount: tasks.length,
-        };
+        cacheRunOutcome(rootGoalId, result);
         await loadConversations();
         await loadDetail(rootGoalId);
     } catch (error) {
         ui.err = String(error);
     } finally {
+        if (activeRunId.value === rootGoalId) activeRunId.value = null;
+        busy.value = false;
+    }
+}
+
+/** 请求停止正在执行的 run：后端在 Step 边界协作式停止（幂等）。 */
+export async function stopRun(rootGoalId: string): Promise<void> {
+    if (!rootGoalId) return;
+    await api(`/api/sessions/${encodeURIComponent(rootGoalId)}/stop`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+    });
+}
+
+export interface ResumeRunOptions {
+    modelId?: string;
+    reasoningLevel?: string;
+}
+
+/** 恢复被停止的 run：复用 aborted Task，从已落库 Step 重放后继续执行。 */
+export async function resumeRun(rootGoalId: string, options: ResumeRunOptions = {}): Promise<void> {
+    if (!rootGoalId) return;
+    busy.value = true;
+    activeRunId.value = rootGoalId;
+    ui.err = null;
+    try {
+        const goalPayload: Record<string, unknown> = {};
+        if (options.modelId) goalPayload.modelId = options.modelId;
+        if (options.reasoningLevel) goalPayload.reasoningLevel = options.reasoningLevel;
+        const body = Object.keys(goalPayload).length > 0 ? { goal: goalPayload } : {};
+        const result = await api(`/api/sessions/${encodeURIComponent(rootGoalId)}/resume`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        cacheRunOutcome(rootGoalId, result);
+        await loadConversations();
+        await loadDetail(rootGoalId);
+    } catch (error) {
+        ui.err = String(error);
+    } finally {
+        if (activeRunId.value === rootGoalId) activeRunId.value = null;
         busy.value = false;
     }
 }
