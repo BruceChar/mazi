@@ -4,6 +4,9 @@
  * in sync with the serialization shape produced by the server.
  */
 
+// 用户行为指令的线协议视图在 behavior.ts 定义；此处仅类型引用，不构成运行时环。
+import type { UserBehaviorView } from './behavior.js';
+
 // ============================================================
 // Conversation domain (apps/api conversations.service)
 // ============================================================
@@ -360,6 +363,11 @@ export interface GoalTreeSnapshot {
     goals: GoalNodeView[];
     taskCount: number;
     stepCount: number;
+    /**
+     * 会话的用户行为指令（append-only 行为流；时间线投影见 projectBehaviorTimeline）。
+     * 加法可选字段：无行为时缺省不输出。
+     */
+    behaviors?: UserBehaviorView[];
 }
 
 // ============================================================

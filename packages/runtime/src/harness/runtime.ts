@@ -380,7 +380,9 @@ export class HarnessRuntime {
             }
         }
         const { snapshotGoalTree } = await import('../observability/goal-snapshot.js');
-        return snapshotGoalTree(rootGoalId, goals, tasks, steps);
+        const snapshot = snapshotGoalTree(rootGoalId, goals, tasks, steps);
+        const behaviors = await this.behaviorRecorder.list(rootGoalId);
+        return behaviors.length > 0 ? { ...snapshot, behaviors } : snapshot;
     }
 
     /** 用户对 root goal 结果的反馈（CLI/调用方显式给出）：先落行为流，再发事件。 */
