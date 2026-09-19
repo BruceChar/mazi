@@ -1167,14 +1167,6 @@ export async function backfillUserBehaviors(userId = 'all'): Promise<number> {
     return typeof data?.backfilled === 'number' ? data.backfilled : 0;
 }
 
-/** 清除用户行为数据（治理删除）；返回清除 run 数。 */
-export async function clearUserBehaviors(userId = 'all'): Promise<number> {
-    const data = (await api(`/api/users/${encodeURIComponent(userId)}/behaviors/clear`, {
-        method: 'POST',
-    })) as { cleared?: number };
-    return typeof data?.cleared === 'number' ? data.cleared : 0;
-}
-
 /** 触发浏览器下载（非浏览器环境静默跳过）。 */
 function downloadJson(filename: string, value: unknown): void {
     if (typeof document === 'undefined' || typeof Blob === 'undefined') return;

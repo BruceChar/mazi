@@ -91,16 +91,6 @@ export class UsersService {
         return { backfilled };
     }
 
-    /** 清除该用户行为流（治理删除）；返回清除的 run 数。 */
-    async clearBehaviors(userId: string): Promise<{ cleared: number }> {
-        const runs = await this.runsOf(userId);
-        for (const run of runs) {
-            await this.runtime.harness().clearBehaviors(run.rootGoalId);
-        }
-        this.logger.log(`clearBehaviors user=${userId} runs=${runs.length}`);
-        return { cleared: runs.length };
-    }
-
     /**
      * 用户问题查询：runtime 取问题视图（含有效标签），再按轴/全文过滤。
      * `type` 即言说类型（speech_act）。

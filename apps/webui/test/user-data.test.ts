@@ -40,7 +40,6 @@ function stubFetch(payloads: Record<string, unknown>): void {
 const {
     addQuestionLabels,
     backfillUserBehaviors,
-    clearUserBehaviors,
     exportUserBehaviors,
     fetchLedger,
     fetchQuestionTaxonomy,
@@ -83,10 +82,9 @@ describe('个人中心数据获取（GET /api/users|ledger）', () => {
         expect(calls[0]).toContain('/api/users/me/profile');
     });
 
-    it('export/backfill/clear 调用治理端点并解析计数', async () => {
+    it('export/backfill 调用治理端点并解析计数', async () => {
         stubFetch({
             '/api/users/all/behaviors/backfill': { backfilled: 12 },
-            '/api/users/all/behaviors/clear': { cleared: 12 },
             '/api/users/all/behaviors/export': {
                 format: 'user-behavior-stream',
                 schemaVersion: '2.0',
@@ -95,12 +93,10 @@ describe('个人中心数据获取（GET /api/users|ledger）', () => {
             },
         });
         expect(await backfillUserBehaviors('all')).toBe(12);
-        expect(await clearUserBehaviors('all')).toBe(12);
         const exported = await exportUserBehaviors('all');
         expect(exported.format).toBe('user-behavior-stream');
         expect(exported.behaviors).toHaveLength(1);
         expect(calls.some((url) => url.includes('/behaviors/backfill'))).toBe(true);
-        expect(calls.some((url) => url.includes('/behaviors/clear'))).toBe(true);
     });
 
     it('fetchUserQuestions / addQuestionLabels / taxonomy', async () => {

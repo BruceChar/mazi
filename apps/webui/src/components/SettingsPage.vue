@@ -2,11 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { LOOP_MODES, PERMISSION_LEVELS, PERMISSION_META } from '../scripts/goal-contract.ts';
 import { runSettings, saveRunSettings } from '../scripts/run-settings.ts';
-import {
-    backfillUserBehaviors,
-    clearUserBehaviors,
-    exportUserBehaviors,
-} from '../scripts/store.ts';
+import { backfillUserBehaviors, exportUserBehaviors } from '../scripts/store.ts';
 
 /** Update one run-default field and persist it. */
 function updateRun(key, value) {
@@ -16,7 +12,6 @@ function updateRun(key, value) {
 /* ---- Storage：用户行为数据治理（本机 userId=all） ---- */
 const behaviorBusy = ref('');
 const behaviorMsg = ref('');
-const confirmClear = ref(false);
 
 async function onBackfillBehaviors() {
     behaviorBusy.value = 'backfill';
@@ -44,24 +39,6 @@ async function onExportBehaviors() {
     }
 }
 
-/** 两步确认：首次点击进入待确认态，再次点击执行清除。 */
-async function onClearBehaviors() {
-    if (!confirmClear.value) {
-        confirmClear.value = true;
-        return;
-    }
-    confirmClear.value = false;
-    behaviorBusy.value = 'clear';
-    behaviorMsg.value = '';
-    try {
-        const count = await clearUserBehaviors('all');
-        behaviorMsg.value = `已清除 ${count} 个 run 的行为数据`;
-    } catch (error) {
-        behaviorMsg.value = String(error);
-    } finally {
-        behaviorBusy.value = '';
-    }
-}
 
 function permissionLabel(level) {
     return PERMISSION_META[level]?.label || level;
@@ -585,20 +562,6 @@ watch(
                         {{ behaviorBusy === 'export' ? '导出中…' : '导出 JSON' }}
                     </button>
                 </div>
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <div class="setting-name">清除行为数据</div>
-                        <div class="setting-desc">治理删除：删除本机全部行为流记录，不可恢复。</div>
-                    </div>
-                    <button
-                        class="setting-sync danger"
-                        :class="{ confirm: confirmClear }"
-                        :disabled="behaviorBusy === 'clear'"
-                        @click="onClearBehaviors"
-                    >
-                        {{ behaviorBusy === 'clear' ? '清除中…' : confirmClear ? '确认清除？' : '清除' }}
-                    </button>
-                </div>
                 <div v-if="behaviorMsg" class="setting-desc behavior-msg">{{ behaviorMsg }}</div>
             </div>
         </template>
@@ -713,14 +676,6 @@ watch(
 .setting-sync:disabled {
     opacity: 0.6;
     cursor: wait;
-}
-.setting-sync.danger {
-    border-color: var(--error);
-    color: var(--error);
-}
-.setting-sync.danger.confirm {
-    background: var(--error);
-    color: #fff;
 }
 .behavior-msg {
     margin-top: 10px;

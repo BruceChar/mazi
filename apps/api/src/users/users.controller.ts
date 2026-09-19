@@ -22,11 +22,6 @@ export class UsersController {
         return this.users.backfill(userId);
     }
 
-    @Post(':userId/behaviors/clear')
-    clearBehaviors(@Param('userId') userId: string) {
-        return this.users.clearBehaviors(userId);
-    }
-
     @Get(':userId/profile')
     profile(@Param('userId') userId: string) {
         return this.users.profile(userId);
