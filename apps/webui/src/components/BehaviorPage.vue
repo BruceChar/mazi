@@ -1,0 +1,126 @@
+<script setup>
+/**
+ * BehaviorPage — 行为链（个人中心 → 行为链）。
+ *
+ * 展示当前 Conversation 全部 run 的用户行为指令（提问/反馈/授权/审批发起），按 ts 升序。
+ */
+import { computed } from 'vue';
+import LineIcon from '../assets/LineIcon.vue';
+import { collectBehaviors } from '../scripts/user-profile.ts';
+
+const props = defineProps({
+    snapshots: { type: Array, default: () => [] },
+});
+const emit = defineEmits(['close']);
+
+const behaviors = computed(() => collectBehaviors(props.snapshots));
+
+const LABELS = {
+    input: '提问',
+    feedback: '反馈',
+    authorization: '授权',
+    approval: '审批',
+    setting: '设置',
+    session: '会话',
+};
+
+function labelOf(type) {
+    return LABELS[type] || type;
+}
+function timeOf(ts) {
+    return new Date(ts).toLocaleString();
+}
+function detailOf(behavior) {
+    const data = behavior.data || {};
+    if (behavior.type === 'input') return data.text || '';
+    if (behavior.type === 'feedback') {
+        if (data.kind === 'rating') return '评分 ' + (data.rating ?? '-');
+        if (data.kind === 'interrupt') return '主动中断';
+        return data.text || '';
+    }
+    if (behavior.type === 'approval') return data.summary || data.capability || '待审批';
+    if (behavior.type === 'authorization') {
+        const decision =
+            data.decision === 'granted' ? '允许' : data.decision === 'denied' ? '拒绝' : data.decision;
+        const latency = typeof data.latencyMs === 'number' ? data.latencyMs + 'ms' : '';
+        return [decision, data.scope, latency].filter(Boolean).join(' · ');
+    }
+    return JSON.stringify(data);
+}
+</script>
+
+<template>
+    <div class="page-card">
+        <div class="page-heading">
+            <button class="icon-btn back-btn" title="返回会话" @click="emit('close')">
+                <LineIcon name="chevronRight" size="16" />
+            </button>
+            <h1>行为链</h1>
+            <span class="behavior-badge">{{ behaviors.length }} 条</span>
+        </div>
+        <div v-if="behaviors.length" class="behavior-list">
+            <div
+                v-for="behavior in behaviors"
+                :key="behavior.ts"
+                class="behavior-row"
+                :class="'behavior-row-' + behavior.type"
+            >
+                <span class="behavior-tag">{{ labelOf(behavior.type) }}</span>
+                <span class="behavior-text">{{ detailOf(behavior) }}</span>
+                <span class="behavior-time">{{ timeOf(behavior.ts) }}</span>
+            </div>
+        </div>
+        <div v-else class="empty-hint">当前会话暂无用户行为</div>
+    </div>
+</template>
+
+<style scoped>
+.behavior-badge {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--fg-tertiary);
+}
+.behavior-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.behavior-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-left: 2px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--fg-secondary);
+}
+.behavior-row-input {
+    border-left-color: var(--accent);
+}
+.behavior-row-approval {
+    border-left-color: var(--warn);
+}
+.behavior-row-authorization {
+    border-left-color: var(--fg-tertiary);
+}
+.behavior-tag {
+    flex-shrink: 0;
+    width: 36px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg);
+}
+.behavior-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.behavior-time {
+    flex-shrink: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+}
+</style>

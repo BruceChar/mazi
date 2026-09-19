@@ -11,6 +11,10 @@ import TopBar from './components/TopBar.vue';
 import FeedbackModal from './components/FeedbackModal.vue';
 import PromptDialog from './components/PromptDialog.vue';
 import UserPreferencesPage from './components/UserPreferencesPage.vue';
+import ProfilePage from './components/ProfilePage.vue';
+import BehaviorPage from './components/BehaviorPage.vue';
+import LedgerPage from './components/LedgerPage.vue';
+import { accountViewOf } from './scripts/account.ts';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
 import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
@@ -247,6 +251,11 @@ const headerWorkspace = computed(
         activeConversation.value?.workspace || workspaceRoot.value || freeChatWorkspace.value,
 );
 const runs = computed(() => activeConversation.value?.runs || []);
+
+/** 个人中心（画像/行为链）：当前 Conversation 各 run 的 timeline 快照。 */
+const accountSnapshots = computed(() =>
+    runs.value.map((run) => runDetails[run.rootGoalId] ?? null),
+);
 
 /** Lazy-load timeline for every run in the active conversation */
 watch(
@@ -553,6 +562,17 @@ function backToChat() {
     ui.view = 'chat';
 }
 
+function toggleAccount() {
+    accountOpen.value = !accountOpen.value;
+}
+
+/** 个人中心菜单（docs/webui.md §3.2）→ 对应视图。 */
+function openAccount(id) {
+    accountOpen.value = false;
+    const view = accountViewOf(id);
+    if (view) ui.view = view;
+}
+
 async function openSystemPicker() {
     try {
         await pickWorkspace();
@@ -825,8 +845,11 @@ onBeforeUnmount(() => {
         :right-open="ui.rightOpen"
         :conversation-title="headerTitle"
         :workspace="headerWorkspace"
+        :account-open="accountOpen"
         @toggle-sidebar="ui.sidebar = !ui.sidebar"
         @toggle-right="ui.rightOpen = !ui.rightOpen"
+        @toggle-account="toggleAccount"
+        @account-item="openAccount"
     />
 
     <div class="app-shell" :class="{ 'panel-maximized': panelMaximized }">
@@ -951,6 +974,18 @@ onBeforeUnmount(() => {
             </template>
 
             <UserPreferencesPage v-else-if="ui.view === 'settings'" @close="backToChat" />
+
+            <ProfilePage
+                v-else-if="ui.view === 'profile'"
+                :snapshots="accountSnapshots"
+                @close="backToChat"
+            />
+            <BehaviorPage
+                v-else-if="ui.view === 'behavior'"
+                :snapshots="accountSnapshots"
+                @close="backToChat"
+            />
+            <LedgerPage v-else-if="ui.view === 'ledger'" @close="backToChat" />
         </main>
 
         <div

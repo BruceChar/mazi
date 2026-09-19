@@ -74,7 +74,7 @@ export function setTheme(value: 'dark' | 'light' | 'system'): void {
 applyTheme(theme.value);
 
 export interface UiState {
-    view: 'chat' | 'system-settings' | 'settings';
+    view: 'chat' | 'system-settings' | 'settings' | 'profile' | 'behavior' | 'ledger';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;
