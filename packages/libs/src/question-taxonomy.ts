@@ -27,6 +27,16 @@ export interface QuestionLabelView {
     model?: string;
 }
 
+/** 待写入的一条标签（append-only；与 QuestionLabelView 同形，语义为输入）。 */
+export interface QuestionLabelInput {
+    axis: LabelAxis;
+    label: string;
+    source: QuestionLabelSource;
+    confidence?: number;
+    taxonomyVersion?: number;
+    model?: string;
+}
+
 /** 单标签轴（每轴取一条）；其余为多标签轴。 */
 export const SINGLE_LABEL_AXES: readonly LabelAxis[] = [
     'speech_act',

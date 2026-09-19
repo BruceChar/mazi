@@ -176,6 +176,17 @@ export * from './provider/catalog/index.js';
 export type { PricingSchedule } from './provider/pricing.js';
 export type { PricingPage, PricingPageAnalyst } from './provider/pricing-analyst.js';
 export { createPricingAnalyst } from './provider/pricing-analyst.js';
+// 问题标注：规则 + LLM seam（QQ-D）
+export type { QuestionClassifier } from './question/labeler.js';
+export { QuestionLabeler, ruleQuestionLabels, ruleSpeechAct } from './question/labeler.js';
+export type { QuestionTaxonomy } from './question/taxonomy.js';
+export {
+    DEFAULT_QUESTION_TAXONOMY,
+    filterTaxonomyLabels,
+    KNOWN_AXES,
+    loadQuestionTaxonomy,
+    QUESTION_TAXONOMY_VERSION,
+} from './question/taxonomy.js';
 export type { SecretsFile } from './secrets.js';
 export {
     apiKeyStatus,

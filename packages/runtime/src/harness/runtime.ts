@@ -34,6 +34,8 @@ import { BehaviorRecorder } from '../observability/behavior-recorder.js';
 import { maziPaths } from '../paths.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
+import { type QuestionClassifier, QuestionLabeler } from '../question/labeler.js';
+import { loadQuestionTaxonomy } from '../question/taxonomy.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
 import { GENERAL_PROMPT } from '../templates/prompts/general.prompt.js';
 import { configureTokenizer } from '../token-estimator.js';
@@ -91,6 +93,8 @@ export class HarnessRuntime {
     private readonly behaviorRecorder: BehaviorRecorder;
     /** 用户问题与标签存储（问题实体 + 标签；与行为库同一 DB 文件）。 */
     private readonly questionStore: QuestionStore;
+    /** 问题标注器（规则同步 + LLM 精标 seam）。 */
+    private readonly questionLabeler: QuestionLabeler;
     /** 失败分类账（Task 终态失败事实；只追加）。 */
     private readonly failureLedger: FailureLedgerStore;
     /** 待执行 Session 的推理强度（create → execute 之间传递） */
@@ -117,6 +121,10 @@ export class HarnessRuntime {
                 : new MemoryBehaviorStore();
         this.behaviorRecorder = new BehaviorRecorder(this.behaviorStore);
         this.questionStore = new SqliteQuestionStore(config.dbPath ?? ':memory:');
+        this.questionLabeler = new QuestionLabeler(
+            loadQuestionTaxonomy(config.questionTaxonomyFile ?? maziPaths().questionTaxonomyFile),
+            (questionId, labels) => this.questionStore.addLabels(questionId, labels),
+        );
         if (config.behaviorDir !== undefined && config.dbPath !== undefined) {
             void this.migrateBehaviorStream().catch((error: unknown) => {
                 process.stderr.write(`behavior migration error: ${String(error)}\n`);
@@ -174,6 +182,11 @@ export class HarnessRuntime {
     /** 接入人审审批 seam；缺省时运行时网关回退到 ceiling 常设授权。 */
     setApprovalSeam(seam: authz.ApprovalSeam): void {
         this.approvalSeam = seam;
+    }
+
+    /** 注入 LLM 问题分类器（可选；不注入则仅规则预标注）。输出经注册表校验后落库。 */
+    setQuestionClassifier(classifier: QuestionClassifier): void {
+        this.questionLabeler.setClassifier(classifier);
     }
 
     /** Goal/Task/Step 存储（Goal 会话审计/级联删除） */
@@ -240,10 +253,14 @@ export class HarnessRuntime {
             createdAt: Date.now(),
         };
         await this.goalStoreDb.saveGoal(goal);
-        await this.behaviorRecorder.recordInput(rootGoalId, input, {
+        const recorded = await this.behaviorRecorder.recordInput(rootGoalId, input, {
             ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
             ...(opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {}),
         });
+        const question = recorded[0];
+        if (question !== undefined) {
+            await this.questionLabeler.label(`${rootGoalId}:${question.ts}`, input);
+        }
         this.bus.emit(
             newHarnessEvent({
                 type: 'goal.started',
@@ -503,12 +520,17 @@ export class HarnessRuntime {
         return this.behaviorMigration;
     }
 
-    /** 历史提问回填（采集上线前的 run；写入一条 derived input）。 */
-    backfillBehaviorInput(
+    /** 历史提问回填（采集上线前的 run；写入一条 derived input 并规则标注）。 */
+    async backfillBehaviorInput(
         rootGoalId: string,
         run: { input: string; createdAt: number },
     ): Promise<UserBehaviorView[]> {
-        return this.behaviorRecorder.backfillInput(rootGoalId, run);
+        const written = await this.behaviorRecorder.backfillInput(rootGoalId, run);
+        const first = written[0];
+        if (first !== undefined) {
+            await this.questionLabeler.label(`${rootGoalId}:${first.ts}`, run.input);
+        }
+        return written;
     }
 
     /** 清除某运行会话的行为流（治理删除）。 */

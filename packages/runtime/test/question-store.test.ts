@@ -62,7 +62,14 @@ describe('用户问题入库与标签（QQ-C）', () => {
             ]);
             const overridden = await runtime.getQuestion(question?.questionId ?? '');
             expect(overridden?.effective.domain).toEqual(['professional']);
-            expect(overridden?.labels.filter((row) => row.axis === 'domain')).toHaveLength(2);
+            const domainRows = overridden?.labels.filter((row) => row.axis === 'domain') ?? [];
+            expect(domainRows).toContainEqual({
+                axis: 'domain',
+                label: 'professional',
+                source: 'user',
+            });
+            // rule + llm + user 三来源共存（append-only），有效标签取 user。
+            expect(domainRows.length).toBeGreaterThanOrEqual(2);
         } finally {
             await runtime.close();
         }

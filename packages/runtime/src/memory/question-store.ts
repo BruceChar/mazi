@@ -8,10 +8,13 @@
 import { DatabaseSync } from 'node:sqlite';
 import type {
     LabelAxis,
+    QuestionLabelInput,
     QuestionLabelSource,
     QuestionLabelView,
     UserQuestionRecord,
 } from '@mazi/libs';
+
+export type { QuestionLabelInput } from '@mazi/libs';
 
 export interface QuestionQuery {
     userId?: string;
@@ -21,16 +24,6 @@ export interface QuestionQuery {
     /** ts <= to */
     to?: number;
     limit?: number;
-}
-
-/** 待写入的一条标签（append-only）。 */
-export interface QuestionLabelInput {
-    axis: LabelAxis;
-    label: string;
-    source: QuestionLabelSource;
-    confidence?: number;
-    taxonomyVersion?: number;
-    model?: string;
 }
 
 export interface QuestionStore {
