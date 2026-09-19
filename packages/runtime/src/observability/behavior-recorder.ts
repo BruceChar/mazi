@@ -63,8 +63,21 @@ export class BehaviorRecorder {
         this.now = now;
     }
 
-    recordInput(rootGoalId: string, text: string): Promise<UserBehaviorView[]> {
-        return this.store.append(rootGoalId, [{ type: 'input', data: { text } }]);
+    recordInput(
+        rootGoalId: string,
+        text: string,
+        context: { userId?: string; conversationId?: string } = {},
+    ): Promise<UserBehaviorView[]> {
+        return this.store.append(rootGoalId, [
+            {
+                type: 'input',
+                ...(context.userId !== undefined ? { userId: context.userId } : {}),
+                ...(context.conversationId !== undefined
+                    ? { conversationId: context.conversationId }
+                    : {}),
+                data: { text },
+            },
+        ]);
     }
 
     recordFeedback(rootGoalId: string, feedback: FeedbackInput): Promise<UserBehaviorView[]> {

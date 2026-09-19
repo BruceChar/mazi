@@ -9,6 +9,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { UserBehaviorRef, UserBehaviorType, UserBehaviorView } from '@mazi/libs';
+import { ensureQuestionTables } from './question-store.js';
 
 /** 一条待写入的用户行为指令（ts 缺省由存储按单调守卫分配）。 */
 export interface BehaviorRecordInput {
@@ -236,6 +237,7 @@ export class SqliteBehaviorStore implements BehaviorStore {
             CREATE INDEX IF NOT EXISTS idx_user_behaviors_session ON user_behaviors(session_id, ts);
             CREATE INDEX IF NOT EXISTS idx_user_behaviors_user ON user_behaviors(user_id, ts);
         `);
+        ensureQuestionTables(this.db);
     }
 
     async append(
@@ -263,6 +265,9 @@ export class SqliteBehaviorStore implements BehaviorStore {
                 JSON.stringify(input.data),
                 Date.now(),
             );
+            if (input.type === 'input') {
+                this.projectQuestion(rootGoalId, ts, input);
+            }
             written.push(toView(ts, input));
         }
         this.lastTs.set(rootGoalId, last);
@@ -289,8 +294,35 @@ export class SqliteBehaviorStore implements BehaviorStore {
     }
 
     async clear(rootGoalId: string): Promise<void> {
+        this.db
+            .prepare(
+                'DELETE FROM question_labels WHERE question_id IN (SELECT question_id FROM user_questions WHERE session_id = ?)',
+            )
+            .run(rootGoalId);
+        this.db.prepare('DELETE FROM user_questions WHERE session_id = ?').run(rootGoalId);
         this.db.prepare('DELETE FROM user_behaviors WHERE session_id = ?').run(rootGoalId);
         this.lastTs.delete(rootGoalId);
+    }
+
+    /** input → user_questions 投影（问题实体；标签由 question-store 维护）。 */
+    private projectQuestion(rootGoalId: string, ts: number, input: BehaviorRecordInput): void {
+        const text = typeof input.data.text === 'string' ? input.data.text : '';
+        const derived = input.data.derived === true ? 1 : 0;
+        this.db
+            .prepare(
+                'INSERT OR REPLACE INTO user_questions (question_id, behavior_id, ts, user_id, session_id, conversation_id, text, derived, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            )
+            .run(
+                rootGoalId + ':' + ts,
+                rootGoalId + ':' + ts,
+                ts,
+                input.userId ?? null,
+                rootGoalId,
+                input.conversationId ?? null,
+                text,
+                derived,
+                Date.now(),
+            );
     }
 
     close(): void {

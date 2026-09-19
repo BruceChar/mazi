@@ -1,6 +1,7 @@
 import type { EventBus, Goal, PermissionLevel, Step, Task, ToolSchema } from '@mazi/core';
 import { authz, ulid } from '@mazi/core';
-import type { GoalTreeSnapshot, UserBehaviorView } from '@mazi/libs';
+import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
+import { buildQuestionView } from '@mazi/libs';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
 import { loadCommandPolicy } from '../auth/command-policy.js';
@@ -12,8 +13,8 @@ import {
     type BehaviorMigrationResult,
     type BehaviorStore,
     MemoryBehaviorStore,
-    SqliteBehaviorStore,
     migrateBehaviorJsonlToSqlite,
+    SqliteBehaviorStore,
 } from '../memory/behavior-store.js';
 import {
     type FailureLedgerEntry,
@@ -23,6 +24,12 @@ import {
 } from '../memory/failure-ledger.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
 import { MemoryManager, turnsToMemory } from '../memory/memory.js';
+import {
+    type QuestionLabelInput,
+    type QuestionQuery,
+    type QuestionStore,
+    SqliteQuestionStore,
+} from '../memory/question-store.js';
 import { BehaviorRecorder } from '../observability/behavior-recorder.js';
 import { maziPaths } from '../paths.js';
 import type { CatalogService } from '../provider/catalog/service.js';
@@ -82,6 +89,8 @@ export class HarnessRuntime {
     private readonly behaviorStore: BehaviorStore;
     /** 用户行为指令记录器（输入/反馈/审批；行为流 append-only）。 */
     private readonly behaviorRecorder: BehaviorRecorder;
+    /** 用户问题与标签存储（问题实体 + 标签；与行为库同一 DB 文件）。 */
+    private readonly questionStore: QuestionStore;
     /** 失败分类账（Task 终态失败事实；只追加）。 */
     private readonly failureLedger: FailureLedgerStore;
     /** 待执行 Session 的推理强度（create → execute 之间传递） */
@@ -107,6 +116,7 @@ export class HarnessRuntime {
                 ? new SqliteBehaviorStore(config.dbPath)
                 : new MemoryBehaviorStore();
         this.behaviorRecorder = new BehaviorRecorder(this.behaviorStore);
+        this.questionStore = new SqliteQuestionStore(config.dbPath ?? ':memory:');
         if (config.behaviorDir !== undefined && config.dbPath !== undefined) {
             void this.migrateBehaviorStream().catch((error: unknown) => {
                 process.stderr.write(`behavior migration error: ${String(error)}\n`);
@@ -184,6 +194,7 @@ export class HarnessRuntime {
         this.goalStoreDb.close();
         this.tocStore.close();
         this.behaviorRecorder.close();
+        this.questionStore.close();
         this.failureLedger.close();
     }
 
@@ -229,7 +240,10 @@ export class HarnessRuntime {
             createdAt: Date.now(),
         };
         await this.goalStoreDb.saveGoal(goal);
-        await this.behaviorRecorder.recordInput(rootGoalId, input);
+        await this.behaviorRecorder.recordInput(rootGoalId, input, {
+            ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
+            ...(opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {}),
+        });
         this.bus.emit(
             newHarnessEvent({
                 type: 'goal.started',
@@ -444,6 +458,29 @@ export class HarnessRuntime {
     /** 读取会话的用户行为指令（Step 投影输入；见 @mazi/libs projectBehaviorTimeline）。 */
     listBehaviors(rootGoalId: string): Promise<UserBehaviorView[]> {
         return this.behaviorRecorder.list(rootGoalId);
+    }
+
+    /** 问题视图（含有效标签）——apps/api 问题查询消费。 */
+    async listQuestions(query: QuestionQuery = {}): Promise<UserQuestionView[]> {
+        const records = await this.questionStore.list(query);
+        const labels = await this.questionStore.listLabelsFor(
+            records.map((record) => record.questionId),
+        );
+        return records.map((record) =>
+            buildQuestionView(record, labels.get(record.questionId) ?? []),
+        );
+    }
+
+    /** 单条问题视图（无则 undefined）。 */
+    async getQuestion(questionId: string): Promise<UserQuestionView | undefined> {
+        const record = await this.questionStore.get(questionId);
+        if (record === undefined) return undefined;
+        return buildQuestionView(record, await this.questionStore.listLabels(questionId));
+    }
+
+    /** 追加标签（append-only；user 覆盖由 effectiveLabels 合并规则承担）。 */
+    addQuestionLabels(questionId: string, labels: readonly QuestionLabelInput[]): Promise<void> {
+        return this.questionStore.addLabels(questionId, labels);
     }
 
     /**

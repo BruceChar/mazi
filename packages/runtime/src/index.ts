@@ -154,6 +154,12 @@ export {
     recentMemoryPolicy,
     turnsToMemory,
 } from './memory/index.js';
+export type {
+    QuestionLabelInput,
+    QuestionQuery,
+    QuestionStore,
+} from './memory/question-store.js';
+export { ensureQuestionTables, SqliteQuestionStore } from './memory/question-store.js';
 export { BehaviorRecorder, feedbackBehaviorRecords } from './observability/behavior-recorder.js';
 export type { MaziPaths } from './paths.js';
 export {
