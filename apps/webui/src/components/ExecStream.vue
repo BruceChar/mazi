@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import { formatTokens } from '../scripts/audit.ts';
+import { behaviorRowsOf, groupBehaviorsByTask } from '../scripts/behavior-rows.ts';
 import { deliberationRowDecision } from '../scripts/exec-tree.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { copyThinkingChain, ui } from '../scripts/store.ts';
@@ -205,24 +206,42 @@ function finalSummaryRowOf(detailObj) {
  */
 function buildExecTree(detailObj) {
     const lastAnswerId = lastAnswerStepId(detailObj);
-    const goals = detailObj?.goals || [];
-    return goals
-        .filter((goal) => (goal.tasks || []).length > 0)
-        .map((goal) => ({
-            goalId: goal.goalId,
-            statement: goal.statement,
-            status: goal.status,
-            tasks: (goal.tasks || []).map((task) => {
-                const startedAt = taskStartedAt(task);
-                return {
-                    taskId: task.taskId,
-                    title: task.title,
-                    status: task.status,
-                    time: startedAt ? fmtDateTime(startedAt) : '',
-                    steps: taskStepRows(task, lastAnswerId),
-                };
-            }),
-        }));
+    const goals = (detailObj?.goals || []).filter((goal) => (goal.tasks || []).length > 0);
+    const behaviorRows = behaviorRowsOf(allStepViewsOf(detailObj), detailObj?.behaviors || []);
+    // 扁平任务时间窗：行为行按 at 落到所属任务（run 结束后的反馈归末任务）。
+    let cursor = 0;
+    const flatTasks = goals.flatMap((goal) =>
+        (goal.tasks || []).map((task) => {
+            const start = taskStartedAt(task) ?? cursor;
+            cursor = start;
+            return { task, start };
+        }),
+    );
+    const grouped = groupBehaviorsByTask(flatTasks.map((entry) => entry.start), behaviorRows);
+    const behaviorsByTask = new Map(
+        flatTasks.map((entry, index) => [entry.task.taskId, grouped[index] || []]),
+    );
+    return goals.map((goal) => ({
+        goalId: goal.goalId,
+        statement: goal.statement,
+        status: goal.status,
+        tasks: (goal.tasks || []).map((task) => {
+            const startedAt = taskStartedAt(task);
+            return {
+                taskId: task.taskId,
+                title: task.title,
+                status: task.status,
+                time: startedAt ? fmtDateTime(startedAt) : '',
+                steps: taskStepRows(task, lastAnswerId),
+                behaviors: behaviorsByTask.get(task.taskId) || [],
+            };
+        }),
+    }));
+}
+function allStepViewsOf(detailObj) {
+    return (detailObj?.goals || []).flatMap((goal) =>
+        (goal.tasks || []).flatMap((task) => task.steps || []),
+    );
 }
 function allStepsOf(detailObj) {
     const goals = detailObj?.goals || [];
@@ -436,7 +455,19 @@ const outputAt = computed(() => {
                                 class="exec-intent-inline markdown-body"
                                 v-html="renderMarkdown(row.intentText)"
                             ></div>
-
+                        </div>
+                        <div v-if="task.behaviors.length" class="exec-behaviors">
+                            <div
+                                v-for="behavior in task.behaviors"
+                                :key="behavior.key"
+                                class="exec-behavior"
+                                :class="`exec-behavior-${behavior.type}`"
+                            >
+                                <LineIcon :name="behavior.icon" size="14" />
+                                <span class="exec-behavior-tag">{{ behavior.label }}</span>
+                                <span class="exec-behavior-summary">{{ behavior.summary }}</span>
+                                <span class="exec-behavior-time">{{ fmtTime(behavior.at) }}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1128,5 +1159,50 @@ const outputAt = computed(() => {
     to {
         visibility: hidden;
     }
+}
+
+/* ---------- 用户行为指令行（审批 / 授权 / 反馈） ---------- */
+.exec-behaviors {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 4px 0 6px 28px;
+}
+.exec-behavior {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-left: 2px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    color: var(--fg-secondary);
+    background: var(--bg-hover);
+}
+.exec-behavior-tag {
+    font-weight: 600;
+    color: var(--fg);
+    flex-shrink: 0;
+}
+.exec-behavior-summary {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.exec-behavior-time {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.exec-behavior-approval {
+    border-left-color: var(--warn);
+}
+.exec-behavior-authorization {
+    border-left-color: var(--accent);
+}
+.exec-behavior-feedback {
+    border-left-color: var(--fg-tertiary);
 }
 </style>

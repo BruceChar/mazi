@@ -31,7 +31,13 @@ const LIVE_EVENT_TYPES = [
     'run.aborted',
     'run.resumed',
 ] as const;
-const REFRESH_EVENT_TYPES = new Set<string>(['session.ended', 'goal.ended', 'run.aborted']);
+const REFRESH_EVENT_TYPES = new Set<string>([
+    'session.ended',
+    'goal.ended',
+    'run.aborted',
+    // 行为流随审批/反馈事件刷新，使 approval/authorization/feedback 行进入执行流。
+    'user.feedback.captured',
+]);
 
 function systemPrefersDark(): boolean {
     return (
@@ -709,6 +715,7 @@ export function watchEvents(rootGoalId: string): void {
                 ) {
                     approvals.value = [...approvals.value, pending];
                 }
+                refreshLater(rootGoalId);
                 return;
             }
             if (event.type === 'approval.granted' || event.type === 'approval.cancelled') {
@@ -716,6 +723,7 @@ export function watchEvents(rootGoalId: string): void {
                 if (id) {
                     approvals.value = approvals.value.filter((a) => a.invocationId !== id);
                 }
+                refreshLater(rootGoalId);
                 return;
             }
             if (event.type === 'step.started') {
@@ -1063,4 +1071,6 @@ export async function sendFeedback(
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ type: 'output_rating', rating, content }),
     });
+    // 反馈已落行为流：立即刷新时间线，feedback 行无需等下一个事件。
+    await refreshDetail(rootGoalId);
 }
