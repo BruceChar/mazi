@@ -37,6 +37,21 @@ export interface QuestionLabelInput {
     model?: string;
 }
 
+/** 问题标签分类法注册表（GET /api/question-taxonomy 线协议）。 */
+export interface QuestionTaxonomy {
+    version: number;
+    /** 言说类型闭集。 */
+    speechAct: string[];
+    /** 主域 → 子类。 */
+    domains: Record<string, string[]>;
+    /** 话题别名归一（原始 → 规范）。 */
+    aliases: Record<string, string>;
+    /** 规则主域关键词（命中即打该主域；用于无 LLM 的确定性预标注）。 */
+    domainKeywords: Record<string, string[]>;
+    /** 规则话题关键词（原文包含 → 规范话题）。 */
+    topicKeywords: Record<string, string>;
+}
+
 /** 单标签轴（每轴取一条）；其余为多标签轴。 */
 export const SINGLE_LABEL_AXES: readonly LabelAxis[] = [
     'speech_act',

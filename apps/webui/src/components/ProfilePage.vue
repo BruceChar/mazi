@@ -7,13 +7,18 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
-import { fetchUserProfile } from '../scripts/store.ts';
+import { effectiveDistribution } from '../scripts/question-stats.ts';
+import { fetchUserProfile, fetchUserQuestions } from '../scripts/store.ts';
 
 const emit = defineEmits(['close']);
 
 const profile = ref(null);
+const questions = ref([]);
 const loading = ref(true);
 const error = ref('');
+
+/** 问题主域分布（来自有效标签，机械统计）。 */
+const domainDistribution = computed(() => effectiveDistribution(questions.value, 'domain'));
 
 /** 加载完成前的占位（全 0，不臆造）。 */
 const EMPTY = {
@@ -43,7 +48,12 @@ function fmtMs(value) {
 
 onMounted(async () => {
     try {
-        profile.value = await fetchUserProfile('all');
+        const [profileData, questionRows] = await Promise.all([
+            fetchUserProfile('all'),
+            fetchUserQuestions('all', { limit: 500 }),
+        ]);
+        profile.value = profileData;
+        questions.value = questionRows;
     } catch (e) {
         error.value = String(e);
     } finally {
@@ -96,6 +106,23 @@ onMounted(async () => {
                 <span class="profile-stat-label">主动中断</span>
             </div>
         </div>
+
+        <div class="profile-section">
+            <div class="profile-section-title">问题类别分布</div>
+            <div v-if="domainDistribution.length" class="profile-bars">
+                <div v-for="row in domainDistribution" :key="row.label" class="profile-bar-row">
+                    <span class="profile-bar-label">{{ row.label }}</span>
+                    <span class="profile-bar-track">
+                        <span
+                            class="profile-bar-fill"
+                            :style="{ width: (row.count / domainDistribution[0].count) * 100 + '%' }"
+                        ></span>
+                    </span>
+                    <span class="profile-bar-count">{{ row.count }}</span>
+                </div>
+            </div>
+            <div v-else class="empty-hint">暂无问题标签（新会话或回填历史提问后出现）</div>
+        </div>
     </div>
 </template>
 
@@ -134,5 +161,49 @@ onMounted(async () => {
 .profile-stat-label {
     font-size: 12px;
     color: var(--fg-secondary);
+}
+.profile-section {
+    margin-top: 24px;
+}
+.profile-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 10px;
+}
+.profile-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.profile-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.profile-bar-label {
+    width: 110px;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--fg-secondary);
+}
+.profile-bar-track {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    overflow: hidden;
+}
+.profile-bar-fill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+}
+.profile-bar-count {
+    width: 32px;
+    text-align: right;
+    font-size: 12px;
+    color: var(--fg-tertiary);
+    font-variant-numeric: tabular-nums;
 }
 </style>

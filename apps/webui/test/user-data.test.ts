@@ -38,12 +38,15 @@ function stubFetch(payloads: Record<string, unknown>): void {
 }
 
 const {
+    addQuestionLabels,
     backfillUserBehaviors,
     clearUserBehaviors,
     exportUserBehaviors,
     fetchLedger,
+    fetchQuestionTaxonomy,
     fetchUserBehaviors,
     fetchUserProfile,
+    fetchUserQuestions,
 } = await import('../src/scripts/store.ts');
 
 describe('个人中心数据获取（GET /api/users|ledger）', () => {
@@ -97,6 +100,39 @@ describe('个人中心数据获取（GET /api/users|ledger）', () => {
         expect(exported.behaviors).toHaveLength(1);
         expect(calls.some((url) => url.includes('/behaviors/backfill'))).toBe(true);
         expect(calls.some((url) => url.includes('/behaviors/clear'))).toBe(true);
+    });
+
+    it('fetchUserQuestions / addQuestionLabels / taxonomy', async () => {
+        stubFetch({
+            '/api/users/all/questions': {
+                userId: 'all',
+                questions: [
+                    {
+                        questionId: 'q1',
+                        ts: 1,
+                        text: 'q',
+                        derived: false,
+                        sessionId: 's',
+                        createdAt: 1,
+                        labels: [],
+                        effective: { speech_act: ['question'] },
+                    },
+                ],
+            },
+            '/api/questions/q1/labels': { questionId: 'q1', effective: { domain: ['growth'] } },
+            '/api/question-taxonomy': { version: 1, speechAct: ['question'], domains: {} },
+        });
+        const questions = await fetchUserQuestions('all', { type: 'question', q: 'q' });
+        expect(questions).toHaveLength(1);
+        expect(calls[0]).toContain('type=question');
+
+        const updated = await addQuestionLabels('q1', [
+            { axis: 'domain', label: 'growth', source: 'user' },
+        ]);
+        expect(updated.effective.domain).toEqual(['growth']);
+
+        const taxonomy = await fetchQuestionTaxonomy();
+        expect(taxonomy.speechAct).toContain('question');
     });
 
     it('fetchLedger：拼 kind/limit 并解析 entries', async () => {

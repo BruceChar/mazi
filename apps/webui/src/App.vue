@@ -12,6 +12,7 @@ import FeedbackModal from './components/FeedbackModal.vue';
 import PromptDialog from './components/PromptDialog.vue';
 import UserPreferencesPage from './components/UserPreferencesPage.vue';
 import ProfilePage from './components/ProfilePage.vue';
+import QuestionsPage from './components/QuestionsPage.vue';
 import BehaviorPage from './components/BehaviorPage.vue';
 import LedgerPage from './components/LedgerPage.vue';
 import { accountViewOf } from './scripts/account.ts';
@@ -967,6 +968,7 @@ onBeforeUnmount(() => {
             <UserPreferencesPage v-else-if="ui.view === 'settings'" @close="backToChat" />
 
             <ProfilePage v-else-if="ui.view === 'profile'" @close="backToChat" />
+            <QuestionsPage v-else-if="ui.view === 'questions'" @close="backToChat" />
             <BehaviorPage v-else-if="ui.view === 'behavior'" @close="backToChat" />
             <LedgerPage v-else-if="ui.view === 'ledger'" @close="backToChat" />
         </main>

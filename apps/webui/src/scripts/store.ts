@@ -1,3 +1,4 @@
+import type { QuestionLabelInput, QuestionTaxonomy, UserQuestionView } from '@mazi/libs';
 import { computed, reactive, ref, watch } from 'vue';
 import { API_BASE, api } from '../api.js';
 import type {
@@ -78,7 +79,7 @@ export function setTheme(value: 'dark' | 'light' | 'system'): void {
 applyTheme(theme.value);
 
 export interface UiState {
-    view: 'chat' | 'system-settings' | 'settings' | 'profile' | 'behavior' | 'ledger';
+    view: 'chat' | 'system-settings' | 'settings' | 'profile' | 'questions' | 'behavior' | 'ledger';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;
@@ -1093,6 +1094,52 @@ export async function fetchUserBehaviors(userId = 'all'): Promise<UserBehaviorVi
 /** 用户画像（GET /api/users/:id/profile；本期只有机械特征简单统计）。 */
 export async function fetchUserProfile(userId = 'all'): Promise<UserProfileView> {
     return (await api(`/api/users/${encodeURIComponent(userId)}/profile`)) as UserProfileView;
+}
+
+/** 问题查询过滤（`type` 即言说类型 speech_act）。 */
+export interface QuestionQueryFilters {
+    type?: string;
+    domain?: string;
+    category?: string;
+    topic?: string;
+    q?: string;
+    limit?: number;
+}
+
+/** 用户问题（GET /api/users/:id/questions；含有效标签）。 */
+export async function fetchUserQuestions(
+    userId = 'all',
+    filters: QuestionQueryFilters = {},
+): Promise<UserQuestionView[]> {
+    const params = new URLSearchParams();
+    const keys = ['type', 'domain', 'category', 'topic', 'q'] as const;
+    for (const key of keys) {
+        const value = filters[key];
+        if (value) params.set(key, value);
+    }
+    if (filters.limit !== undefined) params.set('limit', String(filters.limit));
+    const suffix = params.toString();
+    const data = (await api(
+        `/api/users/${encodeURIComponent(userId)}/questions${suffix ? `?${suffix}` : ''}`,
+    )) as { questions?: UserQuestionView[] };
+    return Array.isArray(data?.questions) ? data.questions : [];
+}
+
+/** 追加用户标签（append-only；source 由后端固定为 user）。 */
+export async function addQuestionLabels(
+    questionId: string,
+    labels: QuestionLabelInput[],
+): Promise<UserQuestionView> {
+    return (await api(`/api/questions/${encodeURIComponent(questionId)}/labels`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ labels }),
+    })) as UserQuestionView;
+}
+
+/** 问题标签分类法注册表（GET /api/question-taxonomy）。 */
+export async function fetchQuestionTaxonomy(): Promise<QuestionTaxonomy> {
+    return (await api('/api/question-taxonomy')) as QuestionTaxonomy;
 }
 
 /**

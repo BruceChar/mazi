@@ -6,21 +6,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import type { LabelAxis, QuestionLabelInput } from '@mazi/libs';
+import type { LabelAxis, QuestionLabelInput, QuestionTaxonomy } from '@mazi/libs';
 
-export interface QuestionTaxonomy {
-    version: number;
-    /** 言说类型闭集。 */
-    speechAct: string[];
-    /** 主域 → 子类。 */
-    domains: Record<string, string[]>;
-    /** 话题别名归一（原始 → 规范）。 */
-    aliases: Record<string, string>;
-    /** 规则主域关键词（命中即打该主域；用于无 LLM 的确定性预标注）。 */
-    domainKeywords: Record<string, string[]>;
-    /** 规则话题关键词（原文包含 → 规范话题）。 */
-    topicKeywords: Record<string, string>;
-}
+export type { QuestionTaxonomy } from '@mazi/libs';
 
 export const QUESTION_TAXONOMY_VERSION = 1;
 
