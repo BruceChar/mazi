@@ -737,3 +737,76 @@ describe('audit timing & context window', () => {
         expect(formatBytes(3 * 1024 * 1024)).toBe('3.00 MB');
     });
 });
+
+describe('audit 状态展示（task/step）', () => {
+    it('task 视图暴露任务状态；步骤行带 step 状态与所属 task 状态', () => {
+        const snapshot = snapshotOf([
+            stepView('s1', 'deliberation', 1, stepUsage()),
+            { ...stepView('s2', 'invocation', 2, null), status: 'pending', endedAt: undefined },
+        ]);
+        snapshot.goals[0].tasks[0].status = 'aborted';
+        const view = buildAuditView({ snapshot, taskId: 't1' });
+        expect(view.kind).toBe('task');
+        expect(view.taskStatus).toBe('aborted');
+        expect(view.status).toBe('');
+        expect(view.tasks).toEqual([
+            expect.objectContaining({ taskId: 't1', status: 'aborted', stepCount: 2 }),
+        ]);
+        expect(view.rows.map((row) => row.status)).toEqual(['succeeded', 'pending']);
+        expect(view.rows.every((row) => row.taskStatus === 'aborted')).toBe(true);
+    });
+
+    it('step 视图暴露步骤状态与所属任务状态', () => {
+        const snapshot = snapshotOf([
+            { ...stepView('s1', 'invocation', 1, null), status: 'pending', endedAt: undefined },
+        ]);
+        snapshot.goals[0].tasks[0].status = 'aborted';
+        const view = buildAuditView({ snapshot, stepId: 's1' });
+        expect(view.kind).toBe('step');
+        expect(view.status).toBe('pending');
+        expect(view.taskStatus).toBe('aborted');
+        expect(view.tasks.map((task) => task.status)).toEqual(['aborted']);
+    });
+
+    it('会话汇总列出所有任务状态（aborted / succeeded）', () => {
+        const run1 = snapshotOf([stepView('a1', 'deliberation', 1, stepUsage())], 't1', 'First');
+        run1.goals[0].tasks[0].status = 'aborted';
+        const run2 = snapshotOf(
+            [stepView('b1', 'deliberation', 1, stepUsage(), 't2')],
+            't2',
+            'Second',
+        );
+        const view = buildAuditView({
+            runs: [
+                { rootGoalId: 'r1', input: 'q1', snapshot: run1 },
+                { rootGoalId: 'r2', input: 'q2', snapshot: run2 },
+            ],
+        });
+        expect(view.tasks.map((task) => task.status)).toEqual(['aborted', 'succeeded']);
+        expect(view.tasks.map((task) => task.runIndex)).toEqual([1, 2]);
+        expect(view.status).toBe('');
+        expect(view.taskStatus).toBe('');
+    });
+
+    it('live 任务（未落快照）以 active 计入任务状态清单', () => {
+        const view = buildAuditView({
+            snapshot: null,
+            liveSteps: [
+                {
+                    stepId: 'l1',
+                    taskId: 'live-task',
+                    kind: 'invocation',
+                    toolName: 'shell.run',
+                    content: 'ls',
+                    status: 'pending',
+                    startedAt: 1,
+                    endedAt: null,
+                    usage: null,
+                },
+            ],
+        });
+        expect(view.tasks.map((task) => task.status)).toEqual(['active']);
+        expect(view.rows[0]?.status).toBe('pending');
+        expect(view.rows[0]?.taskStatus).toBe('active');
+    });
+});

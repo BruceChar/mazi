@@ -213,3 +213,98 @@ describe('goal-strategy 恢复（IR-C）', () => {
         expect(await store.listTasks(g.goalId)).toEqual([]);
     });
 });
+
+/** 一轮提议两个工具调用（用于验证 step 级中断与 pending 步骤）。 */
+const twoToolRound: RoundResult = {
+    text: '',
+    reasoning: '',
+    toolCalls: [
+        { callId: 'c1', toolName: 'noop', arguments: { x: 1 } },
+        { callId: 'c2', toolName: 'noop', arguments: { x: 2 } },
+    ],
+    finishReason: 'tool_calls',
+    ttftMs: 0,
+    totalMs: 1,
+};
+
+describe('goal-executor pending 步骤（已安排未执行）', () => {
+    async function runToAbort(): Promise<{
+        store: MemoryGoalStore;
+        g: Goal;
+        t: Task;
+        invoked: () => number;
+    }> {
+        const store = new MemoryGoalStore();
+        const g = goal();
+        const t = task(g.goalId);
+        const controller = new AbortController();
+        let invoked = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                signal: controller.signal,
+                allowedTools: ['noop'],
+                invoker: {
+                    invoke: async () => {
+                        invoked += 1;
+                        controller.abort();
+                        return { ok: true, content: 'OUT' };
+                    },
+                },
+                requestRound: async () => twoToolRound,
+            },
+            t,
+            g,
+        );
+        expect(outcome.reason).toBe('aborted');
+        return { store, g, t, invoked: () => invoked };
+    }
+
+    it('多工具轮逐个执行前检查停止：未执行的调用保留为 pending', async () => {
+        const { store, t, invoked } = await runToAbort();
+        expect(invoked()).toBe(1);
+        const invocations = (await store.listSteps(t.taskId)).filter(
+            (step) => step.kind === 'invocation',
+        );
+        expect(invocations).toHaveLength(2);
+        expect(invocations.map((step) => step.status).sort()).toEqual(['pending', 'succeeded']);
+        expect((await store.loadTask(t.taskId))?.status).toBe('aborted');
+    });
+
+    it('恢复：pending 调用在续跑时执行，两条 tool result 合并补齐', async () => {
+        const { store, g, t, invoked } = await runToAbort();
+        const abortedTask = (await store.loadTask(t.taskId))!;
+        const persisted = await store.listSteps(t.taskId);
+        const invokedArgs: string[] = [];
+        let toolResults: Array<{ callId: string; output: unknown }> = [];
+        const resumed = await executeTask(
+            {
+                store,
+                allowedTools: ['noop'],
+                resumeSteps: persisted,
+                invoker: {
+                    invoke: async (_name, args) => {
+                        invokedArgs.push(JSON.stringify(args));
+                        return { ok: true, content: 'SECOND' };
+                    },
+                },
+                requestRound: async (ctx) => {
+                    const toolMessage = ctx.messages.find((message) => message.role === 'tool');
+                    toolResults = toolMessage?.role === 'tool' ? toolMessage.results : [];
+                    return okRound;
+                },
+            },
+            abortedTask,
+            g,
+        );
+        expect(resumed.ok).toBe(true);
+        expect(invoked() + invokedArgs.length).toBe(2);
+        expect(invokedArgs).toEqual(['{"x":2}']);
+        expect(toolResults.map((item) => String(item.output))).toEqual(['OUT', 'SECOND']);
+        const invocations = (await store.listSteps(t.taskId)).filter(
+            (step) => step.kind === 'invocation',
+        );
+        expect(invocations.every((step) => step.status === 'succeeded')).toBe(true);
+        expect((await store.loadTask(t.taskId))?.status).toBe('succeeded');
+    });
+});

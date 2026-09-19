@@ -625,7 +625,8 @@ function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
         content,
         status,
         startedAt: at,
-        endedAt: status === 'active' ? null : at,
+        // pending/active 均视为未结束：pending 是「已安排未执行」。
+        endedAt: status === 'active' || status === 'pending' ? null : at,
         usage: (payload.usage as StepUsage | undefined) ?? null,
     };
 }

@@ -192,7 +192,10 @@ export interface AuditStepRow {
     toolLine: string;
     /** 工具完整输出（Context 面板单击展开；非工具步为 ''） */
     toolOutput: string;
+    /** 步骤状态：pending/active/succeeded/failed/error/blocked/aborted… */
     status: string;
+    /** 所属 Task 的当前状态：succeeded/aborted/failed…（审计面板任务状态展示用） */
+    taskStatus: string;
     durationMs: number | null;
     /** 该步模型生成速率（token/s）；工具/无 timing 步为 null */
     tokensPerSecond: number | null;
@@ -239,12 +242,29 @@ export interface AuditToolView {
     isError: boolean;
 }
 
+/** 任务状态行（审计面板任务列表：状态 + 步骤数）。 */
+export interface AuditTaskRow {
+    taskId: string;
+    runIndex: number;
+    taskIndex: number;
+    title: string;
+    /** Task 当前状态（succeeded/aborted/cancelled/failed/active/pending…） */
+    status: string;
+    stepCount: number;
+}
+
 /** 面板视图。 */
 export interface AuditView {
     kind: 'step' | 'task' | 'conversation' | 'none';
     stale: boolean;
     title: string;
     subtitle: string;
+    /** 主状态：step 视图为步骤状态，task 视图为任务状态，其余为空。 */
+    status: string;
+    /** 所属 Task 状态（step/task 视图用）。 */
+    taskStatus: string;
+    /** 视图覆盖范围内的任务状态清单。 */
+    tasks: AuditTaskRow[];
     usage: AggregatedUsage;
     segments: AuditSegment[];
     utilization: number | null;
@@ -311,6 +331,8 @@ interface ResolvedStep {
     kind: string;
     toolName: string;
     status: string;
+    /** 所属 Task 当前状态（snapshot 落库；live-only 任务视为 active）。 */
+    taskStatus: string;
     startedAt: number;
     endedAt: number | null;
     durationMs: number | null;
@@ -858,6 +880,7 @@ function collectSnapshotSteps(
                     toolCwd: step.toolCwd ?? null,
                     toolOutput: step.toolOutput ?? null,
                     status: step.status,
+                    taskStatus: task.status,
                     startedAt: step.startedAt ?? 0,
                     endedAt: step.endedAt ?? null,
                     durationMs: durationOf(step.startedAt, step.endedAt, step.usage),
@@ -891,7 +914,7 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             ? input.runs
             : [{ rootGoalId: '', input: '', snapshot: input.snapshot ?? null }];
     const out: ResolvedStep[] = [];
-    const indexMap = new Map<string, { index: number; title: string }>();
+    const indexMap = new Map<string, { index: number; title: string; status: string }>();
     for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
         const run = runs[runIndex];
         const snapshot = run.snapshot ?? null;
@@ -899,7 +922,11 @@ function collectRows(input: AuditInput): ResolvedStep[] {
         const runRows = collectSnapshotSteps(snapshot, runIndex + 1, run.input ?? '', 0);
         for (const row of runRows) {
             if (!indexMap.has(row.taskId)) {
-                indexMap.set(row.taskId, { index: row.taskIndex, title: row.taskTitle });
+                indexMap.set(row.taskId, {
+                    index: row.taskIndex,
+                    title: row.taskTitle,
+                    status: row.taskStatus,
+                });
             }
         }
         out.push(...runRows);
@@ -924,6 +951,7 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             runInput: '',
             taskIndex: meta?.index ?? nextLiveTaskIndex,
             taskTitle: meta?.title ?? '',
+            taskStatus: meta?.status ?? 'active',
             index: next,
             kind: step.kind,
             toolName: step.toolName,
@@ -964,6 +992,55 @@ function collectRows(input: AuditInput): ResolvedStep[] {
     return collapsed;
 }
 
+/**
+ * 任务状态清单：按 run/task 顺序汇总 Task 状态与步数；仅有实时步骤、尚未落快照的
+ * 新任务以 active 计入（与 collectRows 的 live 编号一致）。
+ */
+function collectTasks(input: AuditInput): AuditTaskRow[] {
+    const runs: AuditRunInput[] =
+        input.runs && input.runs.length > 0
+            ? input.runs
+            : [{ rootGoalId: '', input: '', snapshot: input.snapshot ?? null }];
+    const out: AuditTaskRow[] = [];
+    const seen = new Set<string>();
+    for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
+        const snapshot = runs[runIndex]?.snapshot ?? null;
+        let taskIndex = 0;
+        for (const goal of snapshot?.goals ?? []) {
+            for (const task of goal.tasks ?? []) {
+                taskIndex += 1;
+                seen.add(task.taskId);
+                out.push({
+                    taskId: task.taskId,
+                    runIndex: runIndex + 1,
+                    taskIndex,
+                    title: task.title,
+                    status: task.status,
+                    stepCount: (task.steps ?? []).length,
+                });
+            }
+        }
+    }
+    const liveSteps = input.liveSteps ?? [];
+    const liveTaskIds: string[] = [];
+    for (const step of liveSteps) {
+        if (step.taskId && !seen.has(step.taskId) && !liveTaskIds.includes(step.taskId)) {
+            liveTaskIds.push(step.taskId);
+        }
+    }
+    liveTaskIds.forEach((taskId, index) => {
+        out.push({
+            taskId,
+            runIndex: runs.length + 1,
+            taskIndex: index + 1,
+            title: '',
+            status: 'active',
+            stepCount: liveSteps.filter((step) => step.taskId === taskId).length,
+        });
+    });
+    return out;
+}
+
 function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
     const runtime = step.usage?.runtime;
     const tokens = (step.usage?.vendor?.inputTokens ?? 0) + (step.usage?.vendor?.outputTokens ?? 0);
@@ -985,6 +1062,7 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         toolLine: toolLineOf(step.toolName, step.toolCwd, step.toolArguments),
         toolOutput: step.toolOutput ?? '',
         status: step.status,
+        taskStatus: step.taskStatus,
         durationMs: step.durationMs,
         tokensPerSecond: step.usage?.timing?.tokensPerSecond ?? null,
         tokens,
@@ -1155,6 +1233,9 @@ function noneView(stale: boolean): AuditView {
         stale,
         title: stale ? '目标已失效' : '未选择',
         subtitle: stale ? '请重新选择 Step 或 Task' : '点击对话流中的 Step 或 Task 查看审计',
+        status: '',
+        taskStatus: '',
+        tasks: [],
         usage: EMPTY_USAGE,
         segments: [],
         utilization: null,
@@ -1212,6 +1293,7 @@ function spanOf(rows: ResolvedStep[]): { startedAt: number | null; endedAt: numb
 /** 目标解析：step 优先于 task；两者都无 → 会话汇总。 */
 export function buildAuditView(input: AuditInput): AuditView {
     const rows = collectRows(input);
+    const tasks = collectTasks(input);
     const stepId = input.stepId ?? '';
     const taskId = input.taskId ?? '';
     const selected = stepId
@@ -1251,6 +1333,9 @@ export function buildAuditView(input: AuditInput): AuditView {
             stale: false,
             title: `R#${selected.runIndex}·T#${selected.taskIndex}·S#${selected.index} · ${kindLabel(selected.kind)}${toolSuffix}`,
             subtitle: formatDuration(selected.durationMs) + statusSuffix,
+            status: selected.status,
+            taskStatus: selected.taskStatus,
+            tasks: tasks.filter((task) => task.taskId === selected.taskId),
             usage,
             segments: contextSegments(runtime),
             utilization: runtime?.contextWindowUtilization ?? null,
@@ -1275,15 +1360,19 @@ export function buildAuditView(input: AuditInput): AuditView {
     if (taskId) {
         const usage = aggregateUsage(taskRows);
         const runtime = usage.runtime;
-        const title = taskRows[0]?.taskTitle || 'Task';
-        const index = taskRows[0]?.taskIndex ?? 0;
-        const runIndex = taskRows[0]?.runIndex ?? 1;
+        const taskMeta = tasks.find((task) => task.taskId === taskId);
+        const title = taskRows[0]?.taskTitle || taskMeta?.title || 'Task';
+        const index = taskRows[0]?.taskIndex ?? taskMeta?.taskIndex ?? 0;
+        const runIndex = taskRows[0]?.runIndex ?? taskMeta?.runIndex ?? 1;
         const span = spanOf(taskRows);
         return {
             kind: 'task',
             stale: false,
             title: `R#${runIndex}·T#${index} · ${title}`,
             subtitle: `${taskRows.length} steps · ${formatDuration(usage.timing?.totalMs ?? null)}`,
+            status: '',
+            taskStatus: taskMeta?.status ?? taskRows[0]?.taskStatus ?? '',
+            tasks: taskMeta ? [taskMeta] : [],
             usage,
             segments: contextSegments(runtime),
             utilization: runtime?.contextWindowUtilization ?? null,
@@ -1311,6 +1400,9 @@ export function buildAuditView(input: AuditInput): AuditView {
         stale: false,
         title: '会话汇总',
         subtitle: (input.conversationTitle ?? '').trim() || `${runCount} 轮 · ${rows.length} 步`,
+        status: '',
+        taskStatus: '',
+        tasks,
         usage,
         segments: contextSegments(runtime),
         utilization: runtime?.contextWindowUtilization ?? null,

@@ -132,6 +132,15 @@ function diffClass(delta) {
     if (delta === null || delta === undefined || delta === 0) return 'flat';
     return delta > 0 ? 'up' : 'down';
 }
+/** Task/Step 状态 → 颜色语义（成功/失败/中止/进行中）。 */
+function statusClass(status) {
+    const s = String(status ?? '').toLowerCase();
+    if (s === 'succeeded' || s === 'success') return 'ok';
+    if (s === 'failed' || s === 'error' || s === 'blocked') return 'bad';
+    if (s === 'aborted' || s === 'cancelled' || s === 'canceled' || s === 'timeout') return 'warn';
+    if (s === 'pending' || s === 'active' || s === 'running') return 'run';
+    return '';
+}
 /* ---- 环形饼图 hover：扇区突出 + 气泡详情 ---- */
 const donutWrap = ref(null);
 const hoverKey = ref('');
@@ -439,7 +448,11 @@ watch(
             <div v-if="activeTab === 'audit' && audit" class="drawer-body audit-body audit-grid">
                 <div class="audit-head">
                     <div class="audit-head-main">
-                        <div class="audit-title">{{ audit.title }}</div>
+                        <div class="audit-title">
+                            {{ audit.title }}
+                            <span v-if="audit.status" class="audit-status" :class="statusClass(audit.status)">{{ audit.status }}</span>
+                            <span v-if="audit.taskStatus" class="audit-status task" :class="statusClass(audit.taskStatus)">task: {{ audit.taskStatus }}</span>
+                        </div>
                         <div v-if="audit.subtitle" class="audit-subtitle">{{ audit.subtitle }}</div>
                     </div>
                     <div
@@ -695,6 +708,17 @@ watch(
 
                     </template>
 
+                    <!-- 任务状态（会话汇总：每个 Task 的当前状态） -->
+                    <section v-if="audit.tasks.length" class="audit-section audit-span">
+                        <div class="audit-section-title">任务状态（{{ audit.tasks.length }}）</div>
+                        <div v-for="task in audit.tasks" :key="task.taskId" class="audit-task-row">
+                            <span class="audit-step-loc">R#{{ task.runIndex }}·T#{{ task.taskIndex }}</span>
+                            <span class="audit-task-title">{{ task.title || 'Task' }}</span>
+                            <span class="audit-status" :class="statusClass(task.status)">{{ task.status }}</span>
+                            <span class="audit-task-steps">{{ task.stepCount }} steps</span>
+                        </div>
+                    </section>
+
                     <!-- 步骤明细（会话流全局线 / 单个 Task） -->
                     <section v-if="audit.rows.length" class="audit-section audit-span">
                         <div class="audit-section-title">
@@ -717,6 +741,7 @@ watch(
                         <div class="audit-step-head">
                             <span class="audit-step-loc">位置</span>
                             <span class="audit-step-kind">类型</span>
+                            <span class="audit-step-status">状态</span>
                             <span class="audit-step-start">开始</span>
                             <span class="audit-step-ctx">上下文</span>
                             <span class="audit-step-delta">Δ</span>
@@ -732,6 +757,7 @@ watch(
                         >
                             <span class="audit-step-loc">R#{{ row.runIndex }}·T#{{ row.taskIndex }}·S#{{ row.index }}</span>
                             <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
+                            <span class="audit-step-status" :class="statusClass(row.status)">{{ row.status }}</span>
                             <span class="audit-step-start">{{ fmtPrecise(row.startedAt) }}</span>
                             <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
                             <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
@@ -1582,6 +1608,79 @@ watch(
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--fg);
+}
+/* Task/Step 状态徽标（审计面板） */
+.audit-status {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 16px;
+    background: var(--bg-hover);
+    color: var(--fg-secondary);
+    vertical-align: middle;
+}
+.audit-status.task {
+    font-weight: 500;
+    opacity: 0.9;
+}
+.audit-status.ok {
+    background: rgba(34, 197, 94, 0.12);
+    color: var(--ok);
+}
+.audit-status.bad {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+}
+.audit-status.warn {
+    background: rgba(245, 158, 11, 0.14);
+    color: #f59e0b;
+}
+.audit-status.run {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+.audit-step-status {
+    flex-shrink: 0;
+    min-width: 56px;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    text-align: center;
+    border-radius: 3px;
+    padding: 0 4px;
+    background: var(--bg-hover);
+    color: var(--fg-tertiary);
+}
+.audit-step-status.ok { color: var(--ok); }
+.audit-step-status.bad { color: #ef4444; }
+.audit-step-status.warn { color: #f59e0b; }
+.audit-step-status.run { color: var(--accent); }
+.audit-task-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+    border-radius: 4px;
+}
+.audit-task-row:hover {
+    background: var(--bg-hover);
+}
+.audit-task-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg);
+}
+.audit-task-steps {
+    flex-shrink: 0;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
 }
 .audit-step-ctx,
 .audit-step-delta,
