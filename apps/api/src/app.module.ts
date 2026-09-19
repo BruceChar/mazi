@@ -14,11 +14,15 @@ import { GoalsService } from './goals/goals.service.js';
 import { HealthController } from './health/health.controller.js';
 import { IterationsController } from './iterations/iterations.controller.js';
 import { IterationsService } from './iterations/iterations.service.js';
+import { LedgerController } from './ledger/ledger.controller.js';
+import { LedgerService } from './ledger/ledger.service.js';
 import { RunsController } from './runs/runs.controller.js';
 import { SessionsController } from './sessions/sessions.controller.js';
 import { SessionsService } from './sessions/sessions.service.js';
 import { StorageController } from './storage/storage.controller.js';
 import { StorageService } from './storage/storage.service.js';
+import { UsersController } from './users/users.controller.js';
+import { UsersService } from './users/users.service.js';
 import { WorkspacesController } from './workspaces/workspaces.controller.js';
 
 /** 根模块：全局错误过滤（{error} 契约）+ 各 feature 控制器 */
@@ -36,6 +40,8 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         ApprovalsController,
         StorageController,
         IterationsController,
+        UsersController,
+        LedgerController,
     ],
     providers: [
         { provide: APP_FILTER, useClass: ApiExceptionsFilter },
@@ -45,6 +51,8 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         ConversationsService,
         StorageService,
         IterationsService,
+        UsersService,
+        LedgerService,
     ],
 })
 export class AppModule {}
