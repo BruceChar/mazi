@@ -12,6 +12,7 @@ import {
     formatDuration,
     formatPercent,
     formatRate,
+    estimateCostOf,
     formatSigned,
     formatTokens,
     vendorCostOf,
@@ -154,6 +155,8 @@ describe('audit aggregateUsage', () => {
         // vendor 非 reasoning output = 20 - 5 = 15
         expect(usage.estimate?.outputDrift).toBe(3);
         expect(usage.estimate?.outputDriftRate).toBeCloseTo(0.2, 6);
+        // 未带 cachedRatio → null（UI 回退 0.8）
+        expect(usage.estimate?.cachedRatio).toBeNull();
         expect(usage.cost?.total).toBeCloseTo(0.002, 12);
         expect(usage.estimatedCost?.total).toBeCloseTo(0.0015, 12);
         expect(usage.timing?.totalMs).toBe(300);
@@ -194,6 +197,14 @@ describe('audit aggregateUsage', () => {
         expect(usage.runtime?.totalContextTokens).toBe(1200);
     });
 
+    it('estimate 缓存命中率取最新一轮（随 vendor 更新）', () => {
+        const usage = aggregateUsage([
+            { startedAt: 1, usage: stepUsage({ estimate: { outputTokens: 18, cachedRatio: 0.8 } }) },
+            { startedAt: 2, usage: stepUsage({ estimate: { outputTokens: 20, cachedRatio: 0.3 } }) },
+        ]);
+        expect(usage.estimate?.cachedRatio).toBe(0.3);
+    });
+
     it('同 roundId 的 thinking + intent 只计一次（不同轮次仍累加）', () => {
         const shared = stepUsage({ roundId: 'r1' });
         const deduped = aggregateUsage([
@@ -217,6 +228,9 @@ describe('audit aggregateUsage', () => {
         expect(usage).toEqual({
             vendor: null,
             runtime: null,
+            latestVendorInput: null,
+            latestInputDrift: null,
+            latestInputDriftRate: null,
             estimate: null,
             output: null,
             pricing: null,
@@ -253,6 +267,47 @@ describe('audit output & vendor cost', () => {
             totalOutputTokens: 60,
         });
         expect(aggregated.pricing?.inputPerMTok).toBe(3);
+    });
+
+    it('estimateCostOf：按公式用聚合估算重算（4070 in / 109 out / ratio 0.9）', () => {
+        const cost = estimateCostOf(
+            {
+                inputTotal: 4070,
+                inputDrift: null,
+                inputDriftRate: null,
+                outputTotal: 109,
+                outputDrift: null,
+                outputDriftRate: null,
+                cachedRatio: 0.9,
+            },
+            {
+                inputPerMTok: 1,
+                cachedInputPerMTok: 0.02,
+                outputPerMTok: 4,
+                currency: 'CNY',
+                version: 'v',
+                tier: 'base',
+            },
+        );
+        // 407*1 + 3663*0.02 + 109*4 = 916.26（1e-6）
+        expect(cost?.total).toBeCloseTo(0.000916, 6);
+    });
+
+    it('聚合 estimatedCost 与公式一致（不再逐轮求和）', () => {
+        const usage = stepUsage({
+            estimate: { outputTokens: 109, cachedRatio: 0.9 },
+            runtime: { ...stepUsage().runtime, totalContextTokens: 4070 },
+            pricing: {
+                inputPerMTok: 1,
+                cachedInputPerMTok: 0.02,
+                outputPerMTok: 4,
+                currency: 'CNY',
+                version: 'v',
+                tier: 'base',
+            },
+        });
+        const aggregated = aggregateUsage([{ startedAt: 1, usage }]);
+        expect(aggregated.estimatedCost?.total).toBeCloseTo(0.000916, 6);
     });
 
     it('vendorCostOf 按 vendor token + pricing 快照分解成本', () => {
@@ -424,6 +479,12 @@ describe('audit buildAuditView', () => {
         expect(conversation.rows.map((r) => r.taskIndex)).toEqual([1, 1, 1]);
         expect(conversation.rows.map((r) => r.contextDelta)).toEqual([null, 200, 300]);
         expect(conversation.rows[2]?.contextTotal).toBe(1500);
+        // 饼图/context diff/漂移统一用最新一轮；estimate.inputTotal 仍是聚合Σ（供成本说明）
+        expect(conversation.usage.runtime?.totalContextTokens).toBe(1500);
+        expect(conversation.usage.estimate?.inputTotal).toBe(3700);
+        expect(conversation.usage.latestVendorInput).toBe(100);
+        expect(conversation.usage.latestInputDrift).toBe(1400);
+        expect(conversation.usage.latestInputDriftRate).toBeCloseTo(14, 6);
         // 每步的 diff 原文随行带出（Context 追踪用），并按段拆分为有序列表
         expect(conversation.rows[0]?.diffContent).toContain('NI');
         expect(conversation.rows[0]?.diffParts.map((part) => part.label)).toEqual([
@@ -483,7 +544,7 @@ describe('audit buildAuditView', () => {
         expect(thinking.tool).toBeNull();
     });
 
-    it('task 目标：只列本任务步骤，diff 为 null', () => {
+    it('task 目标：只列本任务步骤；首步无前序 → diff 为 null', () => {
         const snapshot = snapshotOf([
             stepView('s1', 'deliberation', 1, stepUsage()),
             stepView('s2', 'invocation', 2, null),
@@ -495,6 +556,47 @@ describe('audit buildAuditView', () => {
         expect(view.usage.vendor?.total).toBe(120);
         expect(view.usage.estimate?.inputDrift).toBe(900);
         expect(view.rows.map((r) => r.contextTotal)).toEqual([1000, null]);
+    });
+
+    it('task 目标：展示本任务最后一步相对上一步的 context diff', () => {
+        const snapshot = snapshotOf([
+            stepView('s1', 'deliberation', 1, withTotal(1000)),
+            stepView('s2', 'invocation', 2, null),
+            stepView('s3', 'deliberation', 3, withTotal(1300)),
+        ]);
+        const view = buildAuditView({ snapshot, taskId: 't1' });
+        expect(view.kind).toBe('task');
+        expect(view.diff).toEqual({ delta: 300, from: 1000, to: 1300 });
+    });
+
+    it('live（流式）task：点击 task 标题也能给出最后一步的 context diff', () => {
+        const liveSteps = [
+            {
+                stepId: 'l1',
+                taskId: 't1',
+                kind: 'deliberation',
+                toolName: '',
+                content: 'a',
+                status: 'succeeded',
+                startedAt: 1,
+                endedAt: 2,
+                usage: withTotal(1000),
+            },
+            {
+                stepId: 'l2',
+                taskId: 't1',
+                kind: 'deliberation',
+                toolName: '',
+                content: 'b',
+                status: 'succeeded',
+                startedAt: 3,
+                endedAt: 4,
+                usage: withTotal(1250),
+            },
+        ];
+        const view = buildAuditView({ snapshot: null, taskId: 't1', liveSteps });
+        expect(view.kind).toBe('task');
+        expect(view.diff).toEqual({ delta: 250, from: 1000, to: 1250 });
     });
 
     it('deliberation / invocation 步骤均可定位（底部 Summary 点击不失效）', () => {

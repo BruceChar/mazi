@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import AuditDisclosure from './AuditDisclosure.vue';
 import StoragePanel from './StoragePanel.vue';
 import {
     donutArcs,
@@ -161,19 +162,28 @@ function toFixed1(value) {
     const n = Number(value ?? 0);
     return Number.isFinite(n) ? n.toFixed(1) : '0.0';
 }
+/** 估算 input 成本采用的缓存命中率（旧数据/尚未上报时缺省 0.9）。 */
+const estimateCachedRatio = computed(() => {
+    const ratio = props.audit?.usage?.estimate?.cachedRatio;
+    return typeof ratio === 'number' && Number.isFinite(ratio) ? ratio : 0.9;
+});
+const estimateCachedRatioLabel = computed(() => formatPercent(estimateCachedRatio.value));
 
-/* ---- 分段落原文 / diff 展开 ---- */
+/* ---- 分段落原文展开 ---- */
 const openSegments = ref(new Set());
-const openDiff = ref(false);
-const openContext = ref(new Set());
 function toggleSegment(key) {
     const next = new Set(openSegments.value);
     next.has(key) ? next.delete(key) : next.add(key);
     openSegments.value = next;
 }
-function toggleDiff() {
-    openDiff.value = !openDiff.value;
+/* ---- 审计折叠区块（context diff / Cost vendor / Cost 估算）：统一组件 + 统一事件 ---- */
+const openSections = ref(new Set());
+function toggleSection(key) {
+    const next = new Set(openSections.value);
+    next.has(key) ? next.delete(key) : next.add(key);
+    openSections.value = next;
 }
+const openContext = ref(new Set());
 function toggleContext(key) {
     const next = new Set(openContext.value);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -291,7 +301,8 @@ function toggleOutput() {
     openOutput.value = !openOutput.value;
 }
 function pricingRate(perMTok) {
-    return `$${perMTok}/M`;
+    // 与 formatCost 同币种符号（本项目计价口径为元）。
+    return `¥${perMTok}/M`;
 }
 
 /* ---- TOC / Iterations：冻结 thinking 链 → 独立分析 → 反馈 ---- */
@@ -541,28 +552,30 @@ watch(
                         </template>
                         <div v-else class="audit-muted">Runtime 未采集</div>
 
-                        <div v-if="audit.contextBytes != null" class="audit-row">
-                            <span class="audit-key">实际 context</span>
-                            <span class="audit-val">{{ formatBytes(audit.contextBytes) }}</span>
-                        </div>
-
-                        <div v-if="audit.diff" class="audit-row">
-                            <span class="audit-key">context diff</span>
-                            <span class="audit-val audit-diff" :class="diffClass(audit.diff.delta)">{{ formatSigned(audit.diff.delta) }}（{{ formatTokens(audit.diff.from) }} → {{ formatTokens(audit.diff.to) }}）</span>
-                        </div>
-                        <div v-if="audit.diffParts.length" class="audit-diff-parts">
-                            <div class="audit-section-sub">与上一轮相比的新增内容</div>
-                            <template v-for="part in audit.diffParts" :key="part.key">
-                                <div class="ctx-diff-label">{{ part.label }}</div>
-                                <pre class="seg-content">{{ part.text }}</pre>
+                        <AuditDisclosure
+                            v-if="audit.diff || audit.diffParts.length"
+                            label="context diff"
+                            :open="openSections.has('contextDiff')"
+                            title="本步估算 context 总量 − 会话流中上一步的估算 context 总量；点击展开相对上一轮的新增内容"
+                            @toggle="toggleSection('contextDiff')"
+                        >
+                            <span v-if="audit.diff" class="audit-diff" :class="diffClass(audit.diff.delta)">
+                                {{ formatSigned(audit.diff.delta) }}({{ formatTokens(audit.diff.from) }} → {{ formatTokens(audit.diff.to) }})
+                            </span>
+                            <span v-else class="audit-note-inline">{{ audit.diffParts.length }} 段新增</span>
+                            <template #body>
+                                <template v-for="part in audit.diffParts" :key="part.key">
+                                    <div class="ctx-diff-label">{{ part.label }}</div>
+                                    <pre class="seg-content">{{ part.text }}</pre>
+                                </template>
+                                <div v-if="!audit.diffParts.length" class="audit-muted">（本步无新增内容）</div>
                             </template>
-                        </div>
+                        </AuditDisclosure>
 
-                        <div v-if="audit.usage.estimate" class="audit-row">
-                            <span class="audit-key">input 漂移</span>
-                            <span class="audit-val" :class="diffClass(audit.usage.estimate.inputDrift)">
-                                {{ formatSigned(audit.usage.estimate.inputDrift) }}
-                                <span class="audit-note-inline">{{ formatRate(audit.usage.estimate.inputDriftRate) }}</span>
+                        <div v-if="audit.usage.runtime" class="audit-row">
+                            <span class="audit-key" title="input 漂移 = 本轮 tokenizer 估算 input − 本轮 vendor 上报 input（与上方饼图同一轮）；正=高估，负=低估">input 漂移</span>
+                            <span class="audit-val" :class="diffClass(audit.usage.latestInputDrift)">
+                                {{ formatTokens(audit.usage.runtime.totalContextTokens) }}<template v-if="audit.usage.latestVendorInput != null"> · vendor {{ formatTokens(audit.usage.latestVendorInput) }}({{ formatSigned(audit.usage.latestInputDrift) }}<span class="audit-note-inline">{{ formatRate(audit.usage.latestInputDriftRate) }}</span>)</template>
                             </span>
                         </div>
 
@@ -610,12 +623,52 @@ watch(
                         <div v-else class="audit-muted">无输出分段</div>
                     </section>
 
-                    <!-- Cost 双口径 -->
+                    <!-- Cost 双口径：默认只列 vendor / 估算，点行展开明细（统一折叠组件） -->
                     <section class="audit-section">
                         <div class="audit-section-title">Cost</div>
                         <template v-if="audit.usage.cost">
-                            <div class="audit-row"><span class="audit-key">vendor</span><span class="audit-val">{{ formatCost(audit.usage.cost.total) }}</span></div>
-                            <div v-if="audit.usage.estimatedCost" class="audit-row"><span class="audit-key">估算</span><span class="audit-val">{{ formatCost(audit.usage.estimatedCost.total) }}</span></div>
+                            <AuditDisclosure
+                                v-if="audit.vendorCost"
+                                label="vendor"
+                                :open="openSections.has('vendorCost')"
+                                title="点击展开 vendor 成本分解"
+                                @toggle="toggleSection('vendorCost')"
+                            >
+                                {{ formatCost(audit.usage.cost.total) }}
+                                <template #body>
+                                    <div class="audit-section-sub">vendor 分解 · vendor token × 入库计价快照</div>
+                                    <div class="audit-row"><span class="audit-key">input missed</span><span class="audit-val">{{ formatCost(audit.vendorCost.inputMissedUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.inputMissedTokens) }} tok</span></span></div>
+                                    <div class="audit-row"><span class="audit-key">input cached</span><span class="audit-val">{{ formatCost(audit.vendorCost.inputCachedUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.inputCachedTokens) }} tok</span></span></div>
+                                    <div class="audit-row"><span class="audit-key">reasoning</span><span class="audit-val">{{ formatCost(audit.vendorCost.reasoningUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.reasoningTokens) }} tok</span></span></div>
+                                    <div class="audit-row"><span class="audit-key">tool-call args</span><span class="audit-val">{{ formatCost(audit.vendorCost.toolCallArgsUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.toolCallArgsTokens) }} tok</span></span></div>
+                                    <div class="audit-row"><span class="audit-key">text</span><span class="audit-val">{{ formatCost(audit.vendorCost.textUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.textTokens) }} tok</span></span></div>
+                                    <div class="audit-row">
+                                        <span class="audit-key">pricing</span>
+                                        <span class="audit-val audit-muted">
+                                            in {{ pricingRate(audit.vendorCost.pricing.inputPerMTok) }} · cached {{ pricingRate(audit.vendorCost.pricing.cachedInputPerMTok) }} · out {{ pricingRate(audit.vendorCost.pricing.outputPerMTok) }}
+                                            <span v-if="audit.vendorCost.pricing.version" class="audit-note-inline">{{ audit.vendorCost.pricing.version }}</span>
+                                        </span>
+                                    </div>
+                                </template>
+                            </AuditDisclosure>
+                            <div v-else class="audit-row"><span class="audit-key">vendor</span><span class="audit-val">{{ formatCost(audit.usage.cost.total) }}</span></div>
+
+                            <AuditDisclosure
+                                v-if="audit.usage.estimatedCost"
+                                label="估算"
+                                :open="openSections.has('estimatedCost')"
+                                title="点击查看估算缓存命中率"
+                                @toggle="toggleSection('estimatedCost')"
+                            >
+                                {{ formatCost(audit.usage.estimatedCost.total) }}
+                                <template #body>
+                                    <div class="audit-row">
+                                        <span class="audit-key">cached ratio</span>
+                                        <span class="audit-val">{{ estimateCachedRatioLabel }}</span>
+                                    </div>
+                                </template>
+                            </AuditDisclosure>
+
                             <div v-if="audit.costDrift" class="audit-row">
                                 <span class="audit-key">漂移</span>
                                 <span class="audit-val" :class="diffClass(audit.costDrift.usd)">
@@ -623,28 +676,6 @@ watch(
                                     <span class="audit-note-inline">{{ formatRate(audit.costDrift.rate) }}</span>
                                 </span>
                             </div>
-                            <div class="audit-row"><span class="audit-key">in / out</span><span class="audit-val">{{ formatCost(audit.usage.cost.input) }} / {{ formatCost(audit.usage.cost.output) }}</span></div>
-                            <div v-if="audit.usage.cost.cacheRead || audit.usage.cost.cacheWrite" class="audit-row"><span class="audit-key">cache</span><span class="audit-val">{{ formatCost(audit.usage.cost.cacheRead + audit.usage.cost.cacheWrite) }}</span></div>
-                            <div v-if="audit.usage.cost.reasoning" class="audit-row"><span class="audit-key">reasoning</span><span class="audit-val">{{ formatCost(audit.usage.cost.reasoning) }}</span></div>
-                            <div v-if="audit.usage.cost.tier" class="audit-row"><span class="audit-key">tier</span><span class="audit-val">{{ audit.usage.cost.tier }}</span></div>
-
-                            <!-- vendor 分解：按 vendor token + 入库计价快照重算 -->
-                            <template v-if="audit.vendorCost">
-                                <div class="audit-section-sub">vendor 分解</div>
-                                <div class="audit-row"><span class="audit-key">input missed</span><span class="audit-val">{{ formatCost(audit.vendorCost.inputMissedUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.inputMissedTokens) }} tok</span></span></div>
-                                <div class="audit-row"><span class="audit-key">input cached</span><span class="audit-val">{{ formatCost(audit.vendorCost.inputCachedUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.inputCachedTokens) }} tok</span></span></div>
-                                <div class="audit-row"><span class="audit-key">reasoning</span><span class="audit-val">{{ formatCost(audit.vendorCost.reasoningUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.reasoningTokens) }} tok</span></span></div>
-                                <div class="audit-row"><span class="audit-key">tool-call args</span><span class="audit-val">{{ formatCost(audit.vendorCost.toolCallArgsUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.toolCallArgsTokens) }} tok</span></span></div>
-                                <div class="audit-row"><span class="audit-key">text</span><span class="audit-val">{{ formatCost(audit.vendorCost.textUsd) }} <span class="audit-note-inline">{{ formatTokens(audit.vendorCost.textTokens) }} tok</span></span></div>
-                                <div class="audit-row audit-total"><span class="audit-key">vendor 合计</span><span class="audit-val">{{ formatCost(audit.vendorCost.totalUsd) }}</span></div>
-                                <div class="audit-row">
-                                    <span class="audit-key">pricing</span>
-                                    <span class="audit-val audit-muted">
-                                        in {{ pricingRate(audit.vendorCost.pricing.inputPerMTok) }} · cached {{ pricingRate(audit.vendorCost.pricing.cachedInputPerMTok) }} · out {{ pricingRate(audit.vendorCost.pricing.outputPerMTok) }}
-                                        <span v-if="audit.vendorCost.pricing.version" class="audit-note-inline">{{ audit.vendorCost.pricing.version }}</span>
-                                    </span>
-                                </div>
-                            </template>
                         </template>
                         <div v-else class="audit-muted">未计价</div>
                     </section>

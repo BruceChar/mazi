@@ -107,6 +107,8 @@ export interface EstimateAggregate {
     /** outputTotal − Σ (vendor.output − vendor.reasoning) */
     outputDrift: number | null;
     outputDriftRate: number | null;
+    /** 估算 input 成本采用的缓存命中率（取最新一轮；缺省 null） */
+    cachedRatio: number | null;
 }
 
 /** 输出分段聚合（reasoning / tool-call args / text）。 */
@@ -146,6 +148,11 @@ export interface AggregatedUsage {
     } | null;
     /** 最新一轮的 input 分段（用于占比环形图） */
     runtime: StepRuntimeUsage | null;
+    /** 最新一轮（与 runtime/饼图同一轮）的 vendor input；用于同轮 input 漂移 */
+    latestVendorInput: number | null;
+    /** 同轮 input 漂移 = 该轮估算 input − 该轮 vendor.input */
+    latestInputDrift: number | null;
+    latestInputDriftRate: number | null;
     estimate: EstimateAggregate | null;
     /** 输出分段聚合（reasoning / tool-call args / text） */
     output: OutputAggregate | null;
@@ -378,8 +385,11 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
     let estimateInput = 0;
     let estimateOutput = 0;
     let hasEstimate = false;
+    let estimateCachedRatio: number | null = null;
+    let estimateCachedRatioAt = Number.NEGATIVE_INFINITY;
     let vendorInput = 0;
     let vendorOutputNonReasoning = 0;
+    let latestVendorInput: number | null = null;
     let totalMs = 0;
     let ttftSum = 0;
     let ttftCount = 0;
@@ -425,11 +435,20 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
             if (step.startedAt >= runtimeAt) {
                 runtime = usage.runtime;
                 runtimeAt = step.startedAt;
+                // 与饼图同一轮：记录该轮 vendor input，用于同轮 input 漂移
+                latestVendorInput = usage.vendor?.inputTokens ?? null;
             }
         }
         if (usage.estimate) {
             estimateOutput += usage.estimate.outputTokens ?? 0;
             hasEstimate = true;
+            if (
+                usage.estimate.cachedRatio !== undefined &&
+                step.startedAt >= estimateCachedRatioAt
+            ) {
+                estimateCachedRatio = usage.estimate.cachedRatio;
+                estimateCachedRatioAt = step.startedAt;
+            }
         }
         if (usage.output) {
             output ??= {
@@ -471,8 +490,19 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
                   vendor && vendorOutputNonReasoning > 0
                       ? (estimateOutput - vendorOutputNonReasoning) / vendorOutputNonReasoning
                       : null,
+              cachedRatio: estimateCachedRatio,
           }
         : null;
+    // 同轮 input 漂移：与饼图/context diff 使用同一轮（runtime 最新一轮），避免与合计口径打架。
+    const latestInputTotal = runtime?.totalContextTokens ?? null;
+    const latestInputDrift =
+        latestInputTotal !== null && latestVendorInput !== null
+            ? latestInputTotal - latestVendorInput
+            : null;
+    const latestInputDriftRate =
+        latestInputDrift !== null && latestVendorInput !== null && latestVendorInput > 0
+            ? latestInputDrift / latestVendorInput
+            : null;
     const timing = hasTiming
         ? {
               ttftMs: ttftCount > 0 ? ttftSum / ttftCount : 0,
@@ -483,7 +513,20 @@ export function aggregateUsage(steps: UsageBearingStep[]): AggregatedUsage {
                       : 0,
           }
         : null;
-    return { vendor, runtime, estimate, output, pricing, cost, estimatedCost, timing };
+    return {
+        vendor,
+        runtime,
+        latestVendorInput,
+        latestInputDrift,
+        latestInputDriftRate,
+        estimate,
+        output,
+        pricing,
+        cost,
+        // 有计价快照时按公式用聚合估算重算，避免逐轮求和与整体公式不一致。
+        estimatedCost: estimateCostOf(estimate, pricing) ?? estimatedCost,
+        timing,
+    };
 }
 
 // ============================================================
@@ -1002,6 +1045,33 @@ export function vendorCostOf(usage: AggregatedUsage): AuditVendorCost | null {
     };
 }
 
+/**
+ * 估算成本：以聚合后的估算 input/output + 当前 cached ratio + 入库计价快照按公式重算，
+ * 保证展示值与「in × ratio × cached_price + in × (1−ratio) × miss_price + out × out_price」一致；
+ * 各轮 ratio 不同时不再逐轮求和（求和与整体套公式不等）。
+ */
+export function estimateCostOf(
+    estimate: EstimateAggregate | null,
+    pricing: StepPricingUsage | null,
+): CostAggregate | null {
+    if (!estimate || !pricing) return null;
+    const ratio = estimate.cachedRatio ?? 0.9;
+    const cachedTokens = estimate.inputTotal * ratio;
+    const missedTokens = estimate.inputTotal * (1 - ratio);
+    const input = (missedTokens / 1_000_000) * pricing.inputPerMTok;
+    const cacheRead = (cachedTokens / 1_000_000) * pricing.cachedInputPerMTok;
+    const output = (estimate.outputTotal / 1_000_000) * pricing.outputPerMTok;
+    return {
+        total: input + cacheRead + output,
+        input,
+        output,
+        cacheWrite: 0,
+        cacheRead,
+        reasoning: 0,
+        tier: pricing.tier ?? '',
+    };
+}
+
 function extrasOf(
     usage: AggregatedUsage,
 ): Pick<
@@ -1068,6 +1138,9 @@ function toolViewOf(step: ResolvedStep): AuditToolView {
 const EMPTY_USAGE: AggregatedUsage = {
     vendor: null,
     runtime: null,
+    latestVendorInput: null,
+    latestInputDrift: null,
+    latestInputDriftRate: null,
     estimate: null,
     output: null,
     pricing: null,
@@ -1103,6 +1176,22 @@ function noneView(stale: boolean): AuditView {
         pricing: null,
         tool: null,
     };
+}
+
+/**
+ * Task 视图的 context diff：取本任务内**最后一个有上下文的步骤**相对会话流上一步的增量。
+ * 任务聚合了多步，用最后一步代表任务当前上下文；前序步骤（工具调用）无 context 则跳过。
+ */
+function diffOfRows(rows: ResolvedStep[]): AuditDiff | null {
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+        const row = rows[i];
+        if (row === undefined) continue;
+        const total = row.usage?.runtime?.totalContextTokens ?? null;
+        if (total === null || row.contextDelta === null) continue;
+        const from = row.previousContextTotal ?? total - row.contextDelta;
+        return { delta: row.contextDelta, from, to: total };
+    }
+    return null;
 }
 
 /** 行集合的最早开始 / 最晚结束（任务/会话视图用；无时间返回 null）。 */
@@ -1202,7 +1291,7 @@ export function buildAuditView(input: AuditInput): AuditView {
             contextWindowTokens: runtime?.contextWindowTokens ?? null,
             startedAt: taskRows[0]?.taskStartedAt ?? span.startedAt,
             endedAt: taskRows[0]?.taskEndedAt ?? span.endedAt,
-            diff: null,
+            diff: diffOfRows(taskRows),
             strategies: runtime?.strategyApplied ?? [],
             budgetPressureAction: runtime?.budgetPressureAction ?? '',
             rows: taskRows.map((row) => toRow(row, stepId)),

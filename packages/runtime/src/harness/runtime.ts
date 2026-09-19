@@ -220,7 +220,7 @@ export class HarnessRuntime {
             {
                 store: this.goalStoreDb,
                 requestRound: (ctx) =>
-                    this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel),
+                    this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel, sessionId),
                 systemPrompt: this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT,
                 tools: exec.tools,
                 invoker: exec.invoker,

@@ -230,6 +230,8 @@ export interface StepEstimateUsage {
     /** outputTokens − (vendor.output − vendor.reasoning) */
     outputDriftTokens?: number;
     outputDriftRate?: number;
+    /** 估算 input 成本采用的缓存命中率（0-1，初始 0.9，按会话随 vendor 更新） */
+    cachedRatio?: number;
 }
 
 /** 成本拆分（core CostBreakdown 的线协议投影）。 */

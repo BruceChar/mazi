@@ -115,6 +115,11 @@ export interface UsageEstimate {
     outputDriftTokens?: number;
     /** outputDriftTokens / (vendor.output − vendor.reasoning) */
     outputDriftRate?: number;
+    /**
+     * 估算 input 成本时采用的缓存命中率（0-1）：初始 0.9，随后按会话随 vendor 实际
+     * cacheRead/input 上报更新，用于把估算 input 拆成 cached + miss 两段计费。
+     */
+    cachedRatio?: number;
 }
 
 /** Context 策略动作 */

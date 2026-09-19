@@ -196,6 +196,8 @@ function estimateView(source: Record<string, unknown>): StepUsage['estimate'] | 
     if (drift !== undefined) view.outputDriftTokens = drift;
     const rate = numberOf(source.outputDriftRate);
     if (rate !== undefined) view.outputDriftRate = rate;
+    const cachedRatio = numberOf(source.cachedRatio);
+    if (cachedRatio !== undefined) view.cachedRatio = cachedRatio;
     return view;
 }
 

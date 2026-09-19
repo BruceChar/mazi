@@ -1,19 +1,16 @@
 import type { LLMRequest } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { type DefaultEventBus, newHarnessEvent } from '../events/index.js';
-import type {
-    ExecutorRoundContext,
-    RoundEstimate,
-    RoundPin,
-    RoundResult,
-} from '../gts/round-types.js';
+import type { ExecutorRoundContext, RoundPin, RoundResult } from '../gts/round-types.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import type { RoundExecutor, RoundOutcome, RoundStreamListener } from '../provider/index.js';
-import { measureContext } from './context-measure.js';
+import { attributeToolCallsToRoundDiff, measureContext } from './context-measure.js';
 import { describeLlmError, isModelRelatedError } from './llm-error.js';
 import type { ModelResolver } from './model-resolver.js';
 import {
+    DEFAULT_ESTIMATED_CACHED_RATIO,
+    nextEstimatedCachedRatio,
     outputBreakdown,
     pricingSnapshot,
     roundCost,
@@ -57,6 +54,8 @@ export class RoundRunner {
     private catalogService?: CatalogService;
     /** 可选模型恢复：模型名被厂商拒绝时重同步并换模重试一次 */
     private recovery?: ModelRecoveryFn;
+    /** 估算用缓存命中率：按会话（Conversation，缺省回退 run）记忆，初始 0.9，随 vendor 上报更新 */
+    private readonly estimatedCachedRatios = new Map<string, number>();
 
     constructor(deps: RoundRunnerDeps) {
         this.bus = deps.bus;
@@ -83,6 +82,8 @@ export class RoundRunner {
         rootGoalId: string,
         ctx: ExecutorRoundContext,
         reasoningLevel?: string,
+        /** 归属会话（Conversation）：估算缓存命中率按会话记忆，跨 run/task 更新。 */
+        conversationId?: string,
     ): Promise<RoundResult> {
         // 不设 request.model：模型 id 交由 provider-runtime 按候选（candidate.modelId）解析，
         // 避免占位 modelId（goal-executor 缺省 'default'）覆盖真实模型而报 unknown model。
@@ -151,7 +152,7 @@ export class RoundRunner {
                         outcome.metrics.providerId,
                     );
                 }
-                return await this.finishRound(ctx, contextUsage, outcome);
+                return await this.finishRound(rootGoalId, conversationId, contextUsage, outcome);
             } catch (error) {
                 const described = describeLlmError(error);
                 this.bus.emit(
@@ -214,8 +215,15 @@ export class RoundRunner {
         await this.bus.flush();
     }
 
+    /** 该会话当前的估算缓存命中率（未上报过 → 初始 0.9）。 */
+    private estimatedCachedRatioFor(key: string | undefined): number {
+        if (key === undefined) return DEFAULT_ESTIMATED_CACHED_RATIO;
+        return this.estimatedCachedRatios.get(key) ?? DEFAULT_ESTIMATED_CACHED_RATIO;
+    }
+
     private async finishRound(
-        ctx: ExecutorRoundContext,
+        rootGoalId: string,
+        conversationId: string | undefined,
         contextUsage: RuntimeContextBreakdownLike,
         outcome: RoundOutcome,
     ): Promise<RoundResult> {
@@ -235,11 +243,28 @@ export class RoundRunner {
         const usage = outcome.metrics.usage;
         const cost =
             usage !== undefined && schedule !== undefined ? roundCost(usage, schedule) : undefined;
+        // 估算缓存命中率 pre_cached_ratio：本轮先用“上一轮 vendor”累计的命中率（初始 0.9），
+        // 本轮 vendor 返回后再更新，供下一轮使用；按会话记忆（缺省回退 run）。
+        const ratioKey = conversationId ?? rootGoalId;
+        const cachedInputRatio = this.estimatedCachedRatioFor(ratioKey);
+        if (estimate !== undefined) estimate.cachedRatio = cachedInputRatio;
+        // IN = in × cachedRatio × cached_price + in × (1 − cachedRatio) × miss_price；OUT = out × out_price。
         const estimatedCost =
             schedule !== undefined && estimate !== undefined
-                ? roundEstimatedCost(contextUsage, estimate, schedule)
+                ? roundEstimatedCost(contextUsage, estimate, schedule, cachedInputRatio)
                 : undefined;
+        // 本轮 vendor 上报 → 更新会话命中率，用于后续轮次估算。
+        this.estimatedCachedRatios.set(
+            ratioKey,
+            nextEstimatedCachedRatio(
+                cachedInputRatio,
+                result.vendorUsage?.cacheReadInputTokens,
+                vendorInput,
+            ),
+        );
         const output = outputBreakdown(result);
+        // 本轮 tool-call 参数属于本轮 output：归到产出它的这一轮 diff（不再挂到下一轮 input）。
+        attributeToolCallsToRoundDiff(contextUsage, result.toolCalls ?? []);
         const pricing = schedule !== undefined ? pricingSnapshot(schedule) : undefined;
         const pin = await this.recordCatalogUsage(outcome);
         return {

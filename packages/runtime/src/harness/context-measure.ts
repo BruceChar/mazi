@@ -103,10 +103,8 @@ export function measureContext(
                 const json = JSON.stringify(call);
                 toolCallTokens += estimateTokens(json);
                 parts.toolCalls += `${json}\n`;
-                if (added) {
-                    diffByKey.toolCalls += `${json}\n`;
-                    diffParts.push(`[tool call]\n${json}`);
-                }
+                // 工具调用参数属于产出它的上一轮 output，不再计入下一轮 input diff；
+                // 由 attributeToolCallsToRoundDiff 归到产出它的那一轮（设计 §2.2）。
             }
         }
     }
@@ -175,4 +173,31 @@ export function measureContext(
             examples: '',
         },
     };
+}
+
+/**
+ * 把本轮产出的 tool-call 参数归到**产出它的这一轮**的 diff（设计 §2.2）：
+ * 下一轮请求会原样回放这些参数，但它们属于本轮 output（Output breakdown 已计量），
+ * 所以既不能计入下一轮 input diff，也不能在审计里丢失——落回本步的 diffContents.toolCalls。
+ * 仅改写展示字段（diffContents / diffContent），不参与 token 计量。
+ */
+export function attributeToolCallsToRoundDiff(
+    breakdown: RuntimeContextBreakdown,
+    toolCalls: readonly {
+        callId?: string;
+        toolName?: string;
+        name?: string;
+        arguments?: Record<string, unknown>;
+    }[],
+): void {
+    const text = toolCalls.map((call) => JSON.stringify(call)).join('\n');
+    if (text.length === 0) return;
+    if (breakdown.diffContents !== undefined) {
+        breakdown.diffContents.toolCalls = truncateText(text, SEGMENT_CONTENT_MAX);
+    }
+    const prefix =
+        breakdown.diffContent !== undefined && breakdown.diffContent.length > 0
+            ? `${breakdown.diffContent}\n\n`
+            : '';
+    breakdown.diffContent = truncateText(`${prefix}[tool call]\n${text}`, DIFF_CONTENT_MAX);
 }

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import { formatTokens } from '../scripts/audit.ts';
 import { deliberationRowDecision } from '../scripts/exec-tree.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { copyThinkingChain, ui } from '../scripts/store.ts';
@@ -458,13 +459,10 @@ const outputAt = computed(() => {
                 <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
                 <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
             </div>
-            <span>{{ stats.stepCount }} steps</span>
-            <span>·</span>
-            <span>{{ stats.taskCount }} tasks</span>
-            <span>·</span>
+            <span>|</span>
             <span>{{ stats.totalTime }}</span>
             <span>·</span>
-            <span>{{ stats.inputTokens }} in / {{ stats.outputTokens }} out tokens</span>
+            <span>{{ formatTokens(stats.inputTokens) }} in / {{ formatTokens(stats.outputTokens) }} out</span>
             <span>·</span>
             <span>{{ stats.tokensPerSecond.toFixed(1) }} tok/s</span>
             <span v-if="outputAt" class="exec-stats-time">{{ fmtPrecise(outputAt) }}</span>

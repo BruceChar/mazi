@@ -321,6 +321,8 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
             expect(usage?.cost?.totalCostUsd).toBeGreaterThan(0);
             expect(usage?.cost?.priceTierApplied).toBe('base');
             expect(usage?.estimate?.outputTokens).toBeGreaterThan(0);
+            // vendor 未上报 cachedInputTokens → 估算缓存命中率用初始 0.9
+            expect(usage?.estimate?.cachedRatio).toBe(0.9);
             expect(usage?.estimatedCost?.totalCostUsd).toBeGreaterThan(0);
 
             const payloadUsage = stepEvents
@@ -334,6 +336,292 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
             expect(payloadUsage?.timing).toBeDefined();
         } finally {
             unsubscribe();
+            await runtime.close();
+        }
+    });
+
+    it('vendor 上报 cachedInputTokens 时，估算缓存命中率更新为 cacheRead / input', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-stream-'));
+        dirs.push(dir);
+
+        const cachedProvider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new ProviderError('unknown', 'ask unused');
+            },
+            async *askStream(): AsyncIterable<StreamCompletionEvent> {
+                yield { type: 'start', model: 'faux-model' };
+                yield { type: 'text_delta', text: 'hi' };
+                yield {
+                    type: 'usage',
+                    usage: {
+                        inputTokens: 30,
+                        outputTokens: 12,
+                        cachedInputTokens: 15,
+                        totalTokens: 42,
+                    },
+                };
+                yield { type: 'finish', finishReason: 'stop' };
+            },
+        };
+
+        const pricing: PricingSchedule = {
+            currency: 'USD',
+            base: { inputPerMTok: 2, outputPerMTok: 8, cacheReadPerMTok: 0.5 },
+            tiers: [],
+            effectiveAt: 0,
+            version: 'test',
+        };
+
+        const config: RuntimeConfig = {
+            providers: [
+                {
+                    id: 'default',
+                    driver: { type: 'pi-ai', provider: 'faux', model: 'faux-model' },
+                    pricing,
+                },
+            ],
+            tools: [],
+            dbPath: ':memory:',
+            eventDir: dir,
+            goal: { allowedTools: [], permissionCeiling: 'read-only' },
+            contextWindow: 64000,
+        };
+
+        const runtime = new HarnessRuntime(config, { llmProviders: { default: cachedProvider } });
+        try {
+            const created = await runtime.createGoalSession('say hi');
+            await runtime.executeGoalTree(created.rootGoalId);
+            const snapshot = await runtime.goalSnapshot(created.rootGoalId);
+            const steps = snapshot.goals.flatMap((goal) =>
+                goal.tasks.flatMap((task) => task.steps),
+            );
+            const usage = steps.find((step) => step.usage !== undefined)?.usage;
+            expect(usage?.vendor?.cacheReadInputTokens).toBe(15);
+            // 首轮无「上一轮 vendor」→ 用初始 0.9；本轮 15/30=0.5 供下一轮
+            expect(usage?.estimate?.cachedRatio).toBe(0.9);
+            expect(usage?.estimatedCost?.cacheReadCostUsd).toBeGreaterThan(0);
+        } finally {
+            await runtime.close();
+        }
+    });
+
+    it('同一 Task 多轮：估算缓存命中率随 vendor 每轮上报更新', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-stream-'));
+        dirs.push(dir);
+
+        const provider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new ProviderError('unknown', 'ask unused');
+            },
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                const hasTool = request.messages.some((message) => message.role === 'tool');
+                if (!hasTool) {
+                    yield { type: 'start', model: 'faux-model' };
+                    yield { type: 'tool_call_start', index: 0, callId: 'c1', name: 'probe.tool' };
+                    yield { type: 'tool_call_delta', index: 0, argumentsDelta: '{}' };
+                    yield { type: 'tool_call_stop', index: 0 };
+                    yield {
+                        type: 'usage',
+                        usage: {
+                            inputTokens: 100,
+                            outputTokens: 10,
+                            cachedInputTokens: 30,
+                            totalTokens: 110,
+                        },
+                    };
+                    yield { type: 'finish', finishReason: 'tool_calls' };
+                } else {
+                    yield { type: 'start', model: 'faux-model' };
+                    yield { type: 'text_delta', text: 'done' };
+                    yield {
+                        type: 'usage',
+                        usage: {
+                            inputTokens: 100,
+                            outputTokens: 10,
+                            cachedInputTokens: 60,
+                            totalTokens: 110,
+                        },
+                    };
+                    yield { type: 'finish', finishReason: 'stop' };
+                }
+            },
+        };
+
+        const config: RuntimeConfig = {
+            providers: [],
+            tools: [
+                {
+                    name: 'probe.tool',
+                    description: 'probe tool',
+                    parameters: {},
+                    minPermission: 'read-only',
+                    sideEffects: [],
+                    impl: async () => ({ ok: true, content: 'ok' }),
+                },
+            ],
+            dbPath: ':memory:',
+            eventDir: dir,
+            goal: { allowedTools: ['probe.tool'], permissionCeiling: 'read-only' },
+            contextWindow: 64000,
+        };
+
+        const runtime = new HarnessRuntime(config, { llmProviders: { default: provider } });
+        try {
+            const created = await runtime.createGoalSession('go');
+            await runtime.executeGoalTree(created.rootGoalId);
+            const snapshot = await runtime.goalSnapshot(created.rootGoalId);
+            const modelSteps = snapshot.goals
+                .flatMap((goal) => goal.tasks.flatMap((task) => task.steps))
+                .filter((step) => step.kind === 'deliberation');
+            expect(modelSteps).toHaveLength(2);
+            // 首轮用初始 0.9；其后用上一轮 vendor（30/100 → 0.3 供第 2 轮）
+            expect(modelSteps[0]?.usage?.estimate?.cachedRatio).toBe(0.9);
+            expect(modelSteps[1]?.usage?.estimate?.cachedRatio).toBe(0.3);
+        } finally {
+            await runtime.close();
+        }
+    });
+
+    it('tool-call args 归到产出它的这一轮：下一轮 input diff 只有 tool result', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-stream-'));
+        dirs.push(dir);
+
+        const toolProvider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new ProviderError('unknown', 'ask unused');
+            },
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                const hasTool = request.messages.some((message) => message.role === 'tool');
+                if (!hasTool) {
+                    yield { type: 'start', model: 'faux-model' };
+                    yield { type: 'tool_call_start', index: 0, callId: 'c1', name: 'probe.tool' };
+                    yield { type: 'tool_call_delta', index: 0, argumentsDelta: '{"q":"x"}' };
+                    yield { type: 'tool_call_stop', index: 0 };
+                    yield { type: 'finish', finishReason: 'tool_calls' };
+                } else {
+                    yield { type: 'start', model: 'faux-model' };
+                    yield { type: 'text_delta', text: 'done' };
+                    yield { type: 'finish', finishReason: 'stop' };
+                }
+            },
+        };
+
+        const config: RuntimeConfig = {
+            providers: [],
+            tools: [
+                {
+                    name: 'probe.tool',
+                    description: 'probe tool',
+                    parameters: {},
+                    minPermission: 'read-only',
+                    sideEffects: [],
+                    impl: async () => ({ ok: true, content: 'OBSERVED-RESULT' }),
+                },
+            ],
+            dbPath: ':memory:',
+            eventDir: dir,
+            goal: { allowedTools: ['probe.tool'], permissionCeiling: 'read-only' },
+            contextWindow: 64000,
+        };
+
+        const runtime = new HarnessRuntime(config, { llmProviders: { default: toolProvider } });
+        try {
+            const created = await runtime.createGoalSession('probe');
+            await runtime.executeGoalTree(created.rootGoalId);
+            const snapshot = await runtime.goalSnapshot(created.rootGoalId);
+            const steps = snapshot.goals.flatMap((goal) =>
+                goal.tasks.flatMap((task) => task.steps),
+            );
+            const modelSteps = steps.filter((step) => step.kind === 'deliberation');
+            expect(modelSteps).toHaveLength(2);
+            // 产出轮：args 记在本轮 output + 本轮 diff；下一轮 input diff 只有工具结果。
+            expect(modelSteps[0]?.usage?.output?.toolCallArgsTokens).toBeGreaterThan(0);
+            expect(modelSteps[0]?.usage?.runtime?.diffContents?.toolCalls).toContain('probe.tool');
+            expect(modelSteps[1]?.usage?.runtime?.diffContents?.toolCalls).toBe('');
+            expect(modelSteps[1]?.usage?.runtime?.diffContents?.observation).toContain(
+                'OBSERVED-RESULT',
+            );
+        } finally {
+            await runtime.close();
+        }
+    });
+
+    it('同一 Conversation 跨 run：第 2 个 run 用第 1 个 run vendor 的 cached ratio', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-stream-'));
+        dirs.push(dir);
+        const provider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new ProviderError('unknown', 'ask unused');
+            },
+            async *askStream(): AsyncIterable<StreamCompletionEvent> {
+                yield { type: 'start', model: 'faux-model' };
+                yield { type: 'text_delta', text: 'hi' };
+                yield {
+                    type: 'usage',
+                    usage: {
+                        inputTokens: 100,
+                        outputTokens: 10,
+                        cachedInputTokens: 30,
+                        totalTokens: 110,
+                    },
+                };
+                yield { type: 'finish', finishReason: 'stop' };
+            },
+        };
+        const pricing: PricingSchedule = {
+            currency: 'CNY',
+            base: { inputPerMTok: 1, cacheReadPerMTok: 0.02, outputPerMTok: 4 },
+            tiers: [],
+            effectiveAt: 0,
+            version: 'test',
+        };
+        const config: RuntimeConfig = {
+            providers: [
+                {
+                    id: 'default',
+                    driver: { type: 'pi-ai', provider: 'faux', model: 'faux-model' },
+                    pricing,
+                },
+            ],
+            tools: [],
+            dbPath: ':memory:',
+            eventDir: dir,
+            goal: { allowedTools: [], permissionCeiling: 'read-only' },
+            contextWindow: 64000,
+        };
+        const runtime = new HarnessRuntime(config, { llmProviders: { default: provider } });
+        const ratioOf = async (rootGoalId: string): Promise<number | undefined> => {
+            const snap = await runtime.goalSnapshot(rootGoalId);
+            const step = snap.goals
+                .flatMap((goal) => goal.tasks.flatMap((task) => task.steps))
+                .find((item) => item.usage !== undefined);
+            return step?.usage?.estimate?.cachedRatio;
+        };
+        try {
+            const first = await runtime.createGoalSession('a', { conversationId: 'conv-1' });
+            await runtime.executeGoalTree(first.rootGoalId);
+            const second = await runtime.createGoalSession('b', { conversationId: 'conv-1' });
+            await runtime.executeGoalTree(second.rootGoalId);
+            // 第 1 个 run 无上一轮 → 初始 0.9；第 2 个 run 用第 1 个 run vendor 的 30/100 = 0.3
+            expect(await ratioOf(first.rootGoalId)).toBe(0.9);
+            expect(await ratioOf(second.rootGoalId)).toBe(0.3);
+        } finally {
             await runtime.close();
         }
     });

@@ -142,23 +142,54 @@ export function roundEstimate(result: RoundTextFacts): RoundEstimate | undefined
     };
 }
 
+/** 估算 input 成本的初始缓存命中率（vendor 首次上报前使用）。 */
+export const DEFAULT_ESTIMATED_CACHED_RATIO = 0.9;
+
+/**
+ * 估算缓存命中率的更新规则：vendor 上报了 cacheRead/input 就采用（clamp 到 [0,1]），
+ * 否则沿用当前值（初始 DEFAULT_ESTIMATED_CACHED_RATIO）。命中率按会话记忆、跨轮更新。
+ */
+export function nextEstimatedCachedRatio(
+    current: number,
+    reportedCachedInput: number | undefined,
+    vendorInput: number | undefined,
+): number {
+    if (reportedCachedInput !== undefined && vendorInput !== undefined && vendorInput > 0) {
+        return Math.min(1, Math.max(0, reportedCachedInput / vendorInput));
+    }
+    return current;
+}
+
 /** 本轮成本拆分（厂商口径）。调用方需先确保 usage 与 pricing 均存在。 */
 export function roundCost(usage: ProviderUsage, pricing: PricingSchedule): CostBreakdown {
     return computeCostBreakdown(usage, pricing, new Date());
 }
 
-/** 以 runtime 估算 token 重算成本（与 vendor 成本对照）。调用方需先确保 pricing 与 estimate 均存在。 */
+/**
+ * 以 runtime 估算 token 重算成本（与 vendor 成本对照）。调用方需先确保 pricing 与 estimate 均存在。
+ *
+ * 估算口径（docs/web/观测看板设计.md §2.4）：
+ *   IN_price  = in × cachedRatio × cached_price + in × (1 − cachedRatio) × miss_price
+ *   OUT_price = estimate_out_token × out_price
+ * 其中 cachedRatio 取 vendor 实际缓存命中率（cacheRead / input）：估算是对实际请求的近似，
+ * 命中结构沿用厂商上报。cachedRatio 缺省 0（全部按 miss 计）。
+ */
 export function roundEstimatedCost(
     contextUsage: RuntimeContextBreakdown,
     estimate: RoundEstimate,
     pricing: PricingSchedule,
+    cachedInputRatio = 0,
 ): CostBreakdown {
+    const estimatedInput = contextUsage.totalContextTokens;
+    const ratio = Number.isFinite(cachedInputRatio)
+        ? Math.min(1, Math.max(0, cachedInputRatio))
+        : 0;
     const estimatedUsage: TokenUsage = {
-        inputTokens: contextUsage.totalContextTokens,
-        cachedInputTokens: 0,
+        inputTokens: estimatedInput,
+        cachedInputTokens: Math.round(estimatedInput * ratio),
         outputTokens: estimate.outputTokens,
         reasoningTokens: 0,
-        totalTokens: contextUsage.totalContextTokens + estimate.outputTokens,
+        totalTokens: estimatedInput + estimate.outputTokens,
     };
     return computeCostBreakdown(estimatedUsage, pricing, new Date());
 }
