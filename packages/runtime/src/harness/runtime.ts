@@ -9,6 +9,12 @@ import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.j
 import { StepEventEmitter } from '../events/step-events.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
 import { JsonlBehaviorStore, MemoryBehaviorStore } from '../memory/behavior-store.js';
+import {
+    type FailureLedgerEntry,
+    type FailureLedgerQuery,
+    type FailureLedgerStore,
+    SqliteFailureLedger,
+} from '../memory/failure-ledger.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
 import { MemoryManager, turnsToMemory } from '../memory/memory.js';
 import { BehaviorRecorder } from '../observability/behavior-recorder.js';
@@ -68,6 +74,8 @@ export class HarnessRuntime {
     private readonly memoryManager = new MemoryManager();
     /** 用户行为指令记录器（输入/反馈/审批；行为流 append-only）。 */
     private readonly behaviorRecorder: BehaviorRecorder;
+    /** 失败分类账（Task 终态失败事实；只追加）。 */
+    private readonly failureLedger: FailureLedgerStore;
     /** 待执行 Session 的推理强度（create → execute 之间传递） */
     private readonly pendingReasoning = new Map<string, string>();
     /** 待执行 Session 的模型 id（create → execute 之间传递） */
@@ -88,6 +96,7 @@ export class HarnessRuntime {
                 ? new JsonlBehaviorStore(config.behaviorDir)
                 : new MemoryBehaviorStore(),
         );
+        this.failureLedger = new SqliteFailureLedger(config.dbPath ?? ':memory:');
         this.bus.subscribe(
             { types: ['approval.requested', 'approval.granted', 'approval.cancelled'] },
             {
@@ -159,6 +168,7 @@ export class HarnessRuntime {
         this.goalStoreDb.close();
         this.tocStore.close();
         this.behaviorRecorder.close();
+        this.failureLedger.close();
     }
 
     /** 创建 Goal 会话（单 Goal：user intent 直接产 Goal）并持久化；发 goal.started */
@@ -293,6 +303,22 @@ export class HarnessRuntime {
                   : 'failed';
             await this.goalStoreDb.saveGoal(goal);
         }
+        // 终态失败写入分类账；aborted 是协作式停止、可恢复，不记失败。
+        for (const outcome of result.tasks) {
+            if (outcome.ok || outcome.reason === 'aborted') continue;
+            await this.failureLedger.add({
+                failureId: ulid(),
+                sessionId: rootGoalId,
+                goalId: outcome.task.goalId,
+                taskId: outcome.task.taskId,
+                kind: outcome.reason,
+                ...(model !== undefined
+                    ? { providerId: model.providerId, modelId: model.modelId }
+                    : {}),
+                ...(outcome.errorMessage !== undefined ? { summary: outcome.errorMessage } : {}),
+                createdAt: Date.now(),
+            });
+        }
         if (aborted) {
             this.bus.emit(
                 newHarnessEvent({
@@ -402,6 +428,16 @@ export class HarnessRuntime {
     /** 读取会话的用户行为指令（Step 投影输入；见 @mazi/libs projectBehaviorTimeline）。 */
     listBehaviors(rootGoalId: string): Promise<UserBehaviorView[]> {
         return this.behaviorRecorder.list(rootGoalId);
+    }
+
+    /** 失败分类账查询（apps/api GET /api/ledger 消费）。 */
+    listFailures(query: FailureLedgerQuery = {}): Promise<FailureLedgerEntry[]> {
+        return this.failureLedger.list(query);
+    }
+
+    /** 级联删除某运行会话的失败记录（Conversation 删除用）。 */
+    deleteFailures(rootGoalId: string): Promise<void> {
+        return this.failureLedger.deleteByRoot(rootGoalId);
     }
 
     /**

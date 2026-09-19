@@ -190,6 +190,7 @@ export class ConversationsService {
         this.write();
         for (const run of conversation.runs) {
             await this.runtime.harness().goalStore.deleteGoalTree(run.rootGoalId);
+            await this.runtime.harness().deleteFailures(run.rootGoalId);
         }
         this.logger.log(
             `remove conversation=${conversationId} runs=${conversation.runs.length} (goal trees cascaded)`,

@@ -121,6 +121,12 @@ export {
 } from './harness/index.js';
 export type { BehaviorRecordInput, BehaviorStore } from './memory/behavior-store.js';
 export { JsonlBehaviorStore, MemoryBehaviorStore } from './memory/behavior-store.js';
+export type {
+    FailureLedgerEntry,
+    FailureLedgerQuery,
+    FailureLedgerStore,
+} from './memory/failure-ledger.js';
+export { MemoryFailureLedger, SqliteFailureLedger } from './memory/failure-ledger.js';
 export type { GoalStore } from './memory/goal-store.js';
 export type {
     MemoryItem,
