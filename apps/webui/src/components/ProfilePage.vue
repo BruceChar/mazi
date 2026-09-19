@@ -6,8 +6,8 @@
  * 认知/性情/价值观等 LLM 维度待独立分析器，页面不臆造结论。
  */
 import { computed } from 'vue';
+import { collectBehaviors, summarizeBehaviors } from '@mazi/libs';
 import LineIcon from '../assets/LineIcon.vue';
-import { collectBehaviors, summarizeBehaviors } from '../scripts/user-profile.ts';
 
 const props = defineProps({
     /** Conversation 各 run 的 timeline 快照（含 behaviors）；由 App 注入。 */
@@ -17,7 +17,7 @@ const emit = defineEmits(['close']);
 
 const behaviors = computed(() => collectBehaviors(props.snapshots));
 const summary = computed(() => summarizeBehaviors(behaviors.value));
-const sampleState = computed(() => (behaviors.value.length >= 8 ? '样本充足' : '样本不足（<8）'));
+const sampleState = computed(() => (summary.value.sufficient ? '样本充足' : '样本不足（<8）'));
 
 function fmtPercent(value) {
     return value === null ? '-' : (value * 100).toFixed(1) + '%';

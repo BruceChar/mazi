@@ -1,11 +1,12 @@
 /**
- * user-profile —— 用户行为流的本地聚合（纯函数，供个人中心画像/行为链视图与单测）。
+ * behavior-profile —— 用户行为流的聚合与机械特征（纯函数，api/webui 共享）。
  *
- * 画像当前只提供 mechanical features（设计文档 §5.2）：计数、评分均值、授权拒绝率与延迟。
- * LLM 维度分析（§5.1）待独立分析器，不在此臆造（宁缺毋滥）。
+ * 画像当前只提供 mechanical features（用户行为流设计文档 §5.2）：计数、评分均值、
+ * 授权拒绝率与延迟。LLM 维度分析（§5.1）待独立分析器，不在此臆造（宁缺毋滥）。
  */
 
-import type { GoalTreeSnapshot, UserBehaviorView } from '@mazi/libs';
+import type { UserBehaviorView } from './behavior.js';
+import type { GoalTreeSnapshot } from './types.js';
 
 /** 合并多个 run 快照的行为指令：按 ts 去重、升序（ts 即 id）。 */
 export function collectBehaviors(
@@ -20,7 +21,22 @@ export function collectBehaviors(
     return [...byTs.values()].sort((a, b) => a.ts - b.ts);
 }
 
+/** 按 ts 合并两组行为指令（跨会话聚合的输入）。 */
+export function mergeBehaviors(
+    ...groups: ReadonlyArray<readonly UserBehaviorView[]>
+): UserBehaviorView[] {
+    const byTs = new Map<number, UserBehaviorView>();
+    for (const group of groups) {
+        for (const behavior of group) {
+            if (!byTs.has(behavior.ts)) byTs.set(behavior.ts, behavior);
+        }
+    }
+    return [...byTs.values()].sort((a, b) => a.ts - b.ts);
+}
+
 export interface BehaviorProfileSummary {
+    /** 样本量（行为指令条数）。 */
+    total: number;
     questions: number;
     feedback: number;
     interrupts: number;
@@ -33,7 +49,11 @@ export interface BehaviorProfileSummary {
     /** denied / (granted + denied)；无授权时为 null（宁缺毋滥）。 */
     denyRate: number | null;
     avgApprovalLatencyMs: number | null;
+    /** 证据量是否达到出结论阈值（默认 8 条，设计文档 §5.1）。 */
+    sufficient: boolean;
 }
+
+export const PROFILE_MIN_EVIDENCE = 8;
 
 export function summarizeBehaviors(behaviors: readonly UserBehaviorView[]): BehaviorProfileSummary {
     const ratings: number[] = [];
@@ -70,6 +90,7 @@ export function summarizeBehaviors(behaviors: readonly UserBehaviorView[]): Beha
     }
     const decided = granted + denied;
     return {
+        total: behaviors.length,
         questions,
         feedback,
         interrupts,
@@ -84,5 +105,6 @@ export function summarizeBehaviors(behaviors: readonly UserBehaviorView[]): Beha
             latencies.length > 0
                 ? latencies.reduce((sum, n) => sum + n, 0) / latencies.length
                 : null,
+        sufficient: behaviors.length >= PROFILE_MIN_EVIDENCE,
     };
 }

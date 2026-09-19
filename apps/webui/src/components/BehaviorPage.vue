@@ -5,8 +5,8 @@
  * 展示当前 Conversation 全部 run 的用户行为指令（提问/反馈/授权/审批发起），按 ts 升序。
  */
 import { computed } from 'vue';
+import { collectBehaviors } from '@mazi/libs';
 import LineIcon from '../assets/LineIcon.vue';
-import { collectBehaviors } from '../scripts/user-profile.ts';
 
 const props = defineProps({
     snapshots: { type: Array, default: () => [] },
