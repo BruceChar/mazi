@@ -23,6 +23,7 @@ export const HOME_FILE_SETTINGS = 'settings.json';
 export const HOME_FILE_SECRETS = 'secrets.json';
 export const HOME_DB_FILE = 'mazi.db';
 export const HOME_EVENTS_DIR = 'events';
+export const HOME_BEHAVIOR_DIR = 'behavior';
 /** Auth 治理配置目录（命令分类规则等）；可用 MAZI_AUTH_CONFIG_DIR 覆盖。 */
 export const HOME_AUTH_DIR = 'config/auth';
 export const AUTH_COMMAND_POLICY_FILE = 'commands.json';
@@ -36,6 +37,8 @@ export interface MaziPaths {
     secretsFile: string;
     dbPath: string;
     eventDir: string;
+    /** 用户行为流 JSONL 目录（append-only 用户资产）。 */
+    behaviorDir: string;
     /** Auth 治理配置目录（命令分类规则等）。 */
     authConfigDir: string;
     /** 命令分类规则文件（默认 commands.json）。 */
@@ -57,6 +60,7 @@ export function maziPaths(home = maziHome()): MaziPaths {
         secretsFile: join(home, HOME_FILE_SECRETS),
         dbPath: join(home, HOME_DB_FILE),
         eventDir: join(home, HOME_EVENTS_DIR),
+        behaviorDir: join(home, HOME_BEHAVIOR_DIR),
         authConfigDir,
         authCommandPolicyFile: join(authConfigDir, AUTH_COMMAND_POLICY_FILE),
     };
@@ -67,6 +71,7 @@ export function ensureMaziDirs(home = maziHome()): MaziPaths {
     const paths = maziPaths(home);
     mkdirSync(paths.home, { recursive: true });
     mkdirSync(paths.eventDir, { recursive: true });
+    mkdirSync(paths.behaviorDir, { recursive: true });
     mkdirSync(paths.authConfigDir, { recursive: true });
     return paths;
 }
@@ -79,6 +84,11 @@ export function defaultConfigDir(): string {
 /** 默认事件目录：MAZI_HOME/events */
 export function defaultEventDir(): string {
     return maziPaths().eventDir;
+}
+
+/** 默认用户行为流目录：MAZI_HOME/behavior */
+export function defaultBehaviorDir(): string {
+    return maziPaths().behaviorDir;
 }
 
 /** 默认 SQLite 路径：MAZI_HOME/mazi.db */

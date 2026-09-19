@@ -25,6 +25,9 @@ export interface PendingApproval {
     requestedAt: number;
 }
 
+/** 结算来源：人工响应 / TTL 超时 / 停机关闭。 */
+export type ApprovalSettler = 'user' | 'timeout' | 'shutdown';
+
 export type ApprovalSettlement =
     | { decision: 'granted'; scope: 'once' | 'session' | 'workspace' }
     | { decision: 'rejected'; reason?: string }
@@ -72,7 +75,7 @@ export class ApprovalBroker implements authz.ApprovalSeam {
                 requestedAt: this.now(),
             };
             const timer = setTimeout(
-                () => this.settle(invocationId, { decision: 'cancelled' }),
+                () => this.settle(invocationId, { decision: 'cancelled' }, 'timeout'),
                 this.timeoutMs,
             );
             this.waiters.set(invocationId, { pending, resolve, timer });
@@ -84,7 +87,16 @@ export class ApprovalBroker implements authz.ApprovalSeam {
         return [...this.waiters.values()].map((waiter) => waiter.pending);
     }
 
-    settle(invocationId: string, settlement: ApprovalSettlement): boolean {
+    /**
+     * 结算一条待审：
+     * @param by 结算来源——`user` 人工响应；`timeout` TTL 到期；`shutdown` 停机关闭。
+     *   行为流只把 `user` 记为授权行为（见 docs/用户行为流设计文档.md §10.5）。
+     */
+    settle(
+        invocationId: string,
+        settlement: ApprovalSettlement,
+        by: ApprovalSettler = 'user',
+    ): boolean {
         const waiter = this.waiters.get(invocationId);
         if (!waiter) return false;
         clearTimeout(waiter.timer);
@@ -98,6 +110,7 @@ export class ApprovalBroker implements authz.ApprovalSeam {
                   : { decision: 'cancelled' };
         waiter.resolve(decision);
 
+        const latencyMs = Math.max(0, this.now() - waiter.pending.requestedAt);
         this.emitEvent(
             settlement.decision === 'granted' ? 'approval.granted' : 'approval.cancelled',
             waiter.pending.identifiers,
@@ -106,6 +119,8 @@ export class ApprovalBroker implements authz.ApprovalSeam {
                 invocationId,
                 ...settlement,
                 ...(settlement.decision === 'granted' ? { scope: settlement.scope } : {}),
+                by,
+                latencyMs,
             },
         );
         return true;
@@ -113,7 +128,7 @@ export class ApprovalBroker implements authz.ApprovalSeam {
 
     cancelAll(): void {
         for (const invocationId of [...this.waiters.keys()]) {
-            this.settle(invocationId, { decision: 'cancelled' });
+            this.settle(invocationId, { decision: 'cancelled' }, 'shutdown');
         }
     }
 

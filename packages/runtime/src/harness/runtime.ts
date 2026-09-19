@@ -1,6 +1,6 @@
 import type { EventBus, Goal, PermissionLevel, Step, Task, ToolSchema } from '@mazi/core';
 import { authz, ulid } from '@mazi/core';
-import type { GoalTreeSnapshot } from '@mazi/libs';
+import type { GoalTreeSnapshot, UserBehaviorView } from '@mazi/libs';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
 import { loadCommandPolicy } from '../auth/command-policy.js';
@@ -8,8 +8,10 @@ import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
+import { JsonlBehaviorStore, MemoryBehaviorStore } from '../memory/behavior-store.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
 import { MemoryManager, turnsToMemory } from '../memory/memory.js';
+import { BehaviorRecorder } from '../observability/behavior-recorder.js';
 import { maziPaths } from '../paths.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
@@ -64,6 +66,8 @@ export class HarnessRuntime {
     private readonly pendingSessionId = new Map<string, string>();
     /** 长期记忆调度组合根（store 缺省进程内实现，可注入替换）。 */
     private readonly memoryManager = new MemoryManager();
+    /** 用户行为指令记录器（输入/反馈/审批；行为流 append-only）。 */
+    private readonly behaviorRecorder: BehaviorRecorder;
     /** 待执行 Session 的推理强度（create → execute 之间传递） */
     private readonly pendingReasoning = new Map<string, string>();
     /** 待执行 Session 的模型 id（create → execute 之间传递） */
@@ -79,6 +83,24 @@ export class HarnessRuntime {
         configureTokenizer(config.tokenizerEncoding);
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
+        this.behaviorRecorder = new BehaviorRecorder(
+            config.behaviorDir !== undefined
+                ? new JsonlBehaviorStore(config.behaviorDir)
+                : new MemoryBehaviorStore(),
+        );
+        this.bus.subscribe(
+            { types: ['approval.requested', 'approval.granted', 'approval.cancelled'] },
+            {
+                id: 'behavior-recorder',
+                handle: (event) => {
+                    void this.behaviorRecorder
+                        .handleApprovalEvent(event)
+                        .catch((error: unknown) => {
+                            process.stderr.write(`behavior capture error: ${String(error)}\n`);
+                        });
+                },
+            },
+        );
         this.goalStoreDb = new SqliteGoalStore(config.dbPath ?? ':memory:');
         this.resolver = new ModelResolver(config, buildLlmProviders(config, options));
         this.stepEvents = new StepEventEmitter(this.bus);
@@ -136,6 +158,7 @@ export class HarnessRuntime {
     async close(): Promise<void> {
         this.goalStoreDb.close();
         this.tocStore.close();
+        this.behaviorRecorder.close();
     }
 
     /** 创建 Goal 会话（单 Goal：user intent 直接产 Goal）并持久化；发 goal.started */
@@ -180,6 +203,7 @@ export class HarnessRuntime {
             createdAt: Date.now(),
         };
         await this.goalStoreDb.saveGoal(goal);
+        await this.behaviorRecorder.recordInput(rootGoalId, input);
         this.bus.emit(
             newHarnessEvent({
                 type: 'goal.started',
@@ -359,8 +383,9 @@ export class HarnessRuntime {
         return snapshotGoalTree(rootGoalId, goals, tasks, steps);
     }
 
-    /** 用户对 root goal 结果的反馈（CLI/调用方显式给出） */
-    recordFeedback(rootGoalId: string, feedback: FeedbackInput): Promise<void> {
+    /** 用户对 root goal 结果的反馈（CLI/调用方显式给出）：先落行为流，再发事件。 */
+    async recordFeedback(rootGoalId: string, feedback: FeedbackInput): Promise<void> {
+        await this.behaviorRecorder.recordFeedback(rootGoalId, feedback);
         this.bus.emit(
             newHarnessEvent({
                 type: 'user.feedback.captured',
@@ -370,6 +395,11 @@ export class HarnessRuntime {
             }),
         );
         return this.bus.flush();
+    }
+
+    /** 读取会话的用户行为指令（Step 投影输入；见 @mazi/libs projectBehaviorTimeline）。 */
+    listBehaviors(rootGoalId: string): Promise<UserBehaviorView[]> {
+        return this.behaviorRecorder.list(rootGoalId);
     }
 
     /**

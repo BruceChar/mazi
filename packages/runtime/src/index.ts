@@ -10,11 +10,16 @@ export type {
     StepUsage,
     StepView,
     TaskNodeView,
+    TimelineEntry,
     TocAnalysisStatus,
     TocAnalysisView,
     TocFeedbackView,
     TocIterationView,
     TocRecordView,
+    UserBehaviorAnchor,
+    UserBehaviorRef,
+    UserBehaviorType,
+    UserBehaviorView,
 } from '@mazi/libs';
 export {
     buildPricingAnalysisPrompt,
@@ -114,6 +119,8 @@ export {
     secretServiceRedactor,
     serializeSecretRef,
 } from './harness/index.js';
+export type { BehaviorRecordInput, BehaviorStore } from './memory/behavior-store.js';
+export { JsonlBehaviorStore, MemoryBehaviorStore } from './memory/behavior-store.js';
 export type { GoalStore } from './memory/goal-store.js';
 export type {
     MemoryItem,
@@ -132,8 +139,10 @@ export {
     recentMemoryPolicy,
     turnsToMemory,
 } from './memory/index.js';
+export { BehaviorRecorder, feedbackBehaviorRecords } from './observability/behavior-recorder.js';
 export type { MaziPaths } from './paths.js';
 export {
+    defaultBehaviorDir,
     defaultConfigDir,
     defaultDbPath,
     defaultEventDir,
@@ -155,7 +164,11 @@ export {
     withProviderSecrets,
 } from './secrets.js';
 export type { GoalRunResult } from './strategy/goal-strategy.js';
-export type { ApprovalSettlement, PendingApproval } from './tool-gateway/approval.js';
+export type {
+    ApprovalSettlement,
+    ApprovalSettler,
+    PendingApproval,
+} from './tool-gateway/approval.js';
 export { ApprovalBroker, DEFAULT_APPROVAL_TTL_MS } from './tool-gateway/approval.js';
 export { RuntimeToolGateway } from './tool-gateway/permission.js';
 export { RuntimePolicyAuditSink } from './tool-gateway/policy-audit.js';

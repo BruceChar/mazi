@@ -160,13 +160,19 @@ export function resolveScopedPermission(
 /** 由已加载文件配置 + 存储路径默认值组装 RuntimeConfig（未显式传入则用 home 存储） */
 export function toRuntimeConfig(
     file: FileRuntimeConfig,
-    opts: { eventDir?: string; dbPath?: string; consoleEnabled?: boolean } = {},
+    opts: {
+        eventDir?: string;
+        dbPath?: string;
+        behaviorDir?: string;
+        consoleEnabled?: boolean;
+    } = {},
 ): RuntimeConfig {
     const paths = maziPaths();
     return {
         ...file,
         eventDir: opts.eventDir ?? paths.eventDir,
         dbPath: opts.dbPath ?? paths.dbPath,
+        behaviorDir: opts.behaviorDir ?? paths.behaviorDir,
         consoleEnabled: opts.consoleEnabled ?? false,
     };
 }

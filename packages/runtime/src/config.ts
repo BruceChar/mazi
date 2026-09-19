@@ -83,6 +83,8 @@ export interface RuntimeConfig {
     tools: ToolConfig[];
     /** 事件 JSONL 目录（默认 $EVENT_LOG_DIR 或 ./events） */
     eventDir?: string;
+    /** 用户行为流 JSONL 目录（缺省进程内存储；apps/api 通过 toRuntimeConfig 落到 MAZI_HOME/behavior） */
+    behaviorDir?: string;
     /** SQLite 文件路径（缺省内存库） */
     dbPath?: string;
     /** Goal 级选项（Goal 坐标系） */
