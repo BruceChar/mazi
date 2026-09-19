@@ -8,7 +8,13 @@ import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
-import { JsonlBehaviorStore, MemoryBehaviorStore } from '../memory/behavior-store.js';
+import {
+    type BehaviorMigrationResult,
+    type BehaviorStore,
+    MemoryBehaviorStore,
+    SqliteBehaviorStore,
+    migrateBehaviorJsonlToSqlite,
+} from '../memory/behavior-store.js';
 import {
     type FailureLedgerEntry,
     type FailureLedgerQuery,
@@ -72,6 +78,8 @@ export class HarnessRuntime {
     private readonly pendingSessionId = new Map<string, string>();
     /** 长期记忆调度组合根（store 缺省进程内实现，可注入替换）。 */
     private readonly memoryManager = new MemoryManager();
+    /** 用户行为流权威库（SQLite；缺 dbPath 时进程内）。 */
+    private readonly behaviorStore: BehaviorStore;
     /** 用户行为指令记录器（输入/反馈/审批；行为流 append-only）。 */
     private readonly behaviorRecorder: BehaviorRecorder;
     /** 失败分类账（Task 终态失败事实；只追加）。 */
@@ -82,6 +90,8 @@ export class HarnessRuntime {
     private readonly pendingModel = new Map<string, string>();
     /** 运行中的 Goal 树 → 协作式停止控制器（stop 生效、进程内互斥）。 */
     private readonly running = new Map<string, AbortController>();
+    /** JSONL→DB 迁移单飞（构造器与显式调用共享同一 Promise）。 */
+    private behaviorMigration?: Promise<BehaviorMigrationResult>;
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
@@ -91,11 +101,17 @@ export class HarnessRuntime {
         configureTokenizer(config.tokenizerEncoding);
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
-        this.behaviorRecorder = new BehaviorRecorder(
-            config.behaviorDir !== undefined
-                ? new JsonlBehaviorStore(config.behaviorDir)
-                : new MemoryBehaviorStore(),
-        );
+        // 问题/行为统一入 SQLite 权威库；JSONL 目录降级为导出/迁移来源。
+        this.behaviorStore =
+            config.dbPath !== undefined
+                ? new SqliteBehaviorStore(config.dbPath)
+                : new MemoryBehaviorStore();
+        this.behaviorRecorder = new BehaviorRecorder(this.behaviorStore);
+        if (config.behaviorDir !== undefined && config.dbPath !== undefined) {
+            void this.migrateBehaviorStream().catch((error: unknown) => {
+                process.stderr.write(`behavior migration error: ${String(error)}\n`);
+            });
+        }
         this.failureLedger = new SqliteFailureLedger(config.dbPath ?? ':memory:');
         this.bus.subscribe(
             { types: ['approval.requested', 'approval.granted', 'approval.cancelled'] },
@@ -428,6 +444,26 @@ export class HarnessRuntime {
     /** 读取会话的用户行为指令（Step 投影输入；见 @mazi/libs projectBehaviorTimeline）。 */
     listBehaviors(rootGoalId: string): Promise<UserBehaviorView[]> {
         return this.behaviorRecorder.list(rootGoalId);
+    }
+
+    /**
+     * 一次性把旧 JSONL 行为流导入 SQLite 权威库（幂等；JSONL 原文件保留为证据）。
+     * 启动时构造器已 fire-and-forget 调用一次；测试可直接 await。
+     */
+    migrateBehaviorStream(): Promise<BehaviorMigrationResult> {
+        if (this.behaviorMigration !== undefined) return this.behaviorMigration;
+        if (
+            this.config.behaviorDir === undefined ||
+            !(this.behaviorStore instanceof SqliteBehaviorStore)
+        ) {
+            this.behaviorMigration = Promise.resolve({ partitions: 0, imported: 0 });
+            return this.behaviorMigration;
+        }
+        this.behaviorMigration = migrateBehaviorJsonlToSqlite(
+            this.config.behaviorDir,
+            this.behaviorStore,
+        );
+        return this.behaviorMigration;
     }
 
     /** 历史提问回填（采集上线前的 run；写入一条 derived input）。 */

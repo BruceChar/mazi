@@ -37,7 +37,7 @@ export interface MaziPaths {
     secretsFile: string;
     dbPath: string;
     eventDir: string;
-    /** 用户行为流 JSONL 目录（append-only 用户资产）。 */
+    /** 用户行为流导出/迁移目录（权威库在 SQLite；见 docs/用户问题标签与分类设计.md §4）。 */
     behaviorDir: string;
     /** Auth 治理配置目录（命令分类规则等）。 */
     authConfigDir: string;

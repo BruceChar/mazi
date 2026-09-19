@@ -561,7 +561,7 @@ watch(
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-name">Behavior directory</div>
-                        <div class="setting-desc">{{ cfg?.storage?.behavior || '-' }} · 用户行为流（append-only）</div>
+                        <div class="setting-desc">{{ cfg?.storage?.behavior || '-' }} · 行为流导出/迁移目录（权威库在 SQLite）</div>
                     </div>
                 </div>
             </div>

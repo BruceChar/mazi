@@ -119,8 +119,17 @@ export {
     secretServiceRedactor,
     serializeSecretRef,
 } from './harness/index.js';
-export type { BehaviorRecordInput, BehaviorStore } from './memory/behavior-store.js';
-export { JsonlBehaviorStore, MemoryBehaviorStore } from './memory/behavior-store.js';
+export type {
+    BehaviorMigrationResult,
+    BehaviorRecordInput,
+    BehaviorStore,
+} from './memory/behavior-store.js';
+export {
+    JsonlBehaviorStore,
+    MemoryBehaviorStore,
+    migrateBehaviorJsonlToSqlite,
+    SqliteBehaviorStore,
+} from './memory/behavior-store.js';
 export type {
     FailureLedgerEntry,
     FailureLedgerQuery,
