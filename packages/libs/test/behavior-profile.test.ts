@@ -58,6 +58,7 @@ describe('behavior-profile（行为流 → 机械特征）', () => {
             ratings: 2,
             ratingAverage: 4,
             approvals: 1,
+            authorizations: 2,
             granted: 1,
             denied: 1,
             denyRate: 0.5,

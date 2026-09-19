@@ -40,6 +40,19 @@ export interface UserBehaviorView {
     data: Record<string, unknown>;
 }
 
+/**
+ * 行为来源：`approval` 锚点由 harness 发起（用户的授权引用它）；
+ * 其余（问题/反馈/授权/设置/会话）都来自用户（设计文档 §10.3）。
+ */
+export function behaviorSource(type: UserBehaviorType): 'user' | 'harness' {
+    return type === 'approval' ? 'harness' : 'user';
+}
+
+/** 是否为用户行为（排除 harness 发起的审批锚点）。 */
+export function isUserBehavior(behavior: { type: UserBehaviorType }): boolean {
+    return behaviorSource(behavior.type) === 'user';
+}
+
 /** 时间线条目：Step 与用户行为指令的只读合并视图。 */
 export type TimelineEntry =
     | { source: 'step'; at: number; step: StepView }

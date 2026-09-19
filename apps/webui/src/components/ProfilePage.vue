@@ -72,7 +72,8 @@ onMounted(async () => {
             <span class="profile-badge">{{ summary.total }} 条行为 · {{ sampleState }}</span>
         </div>
         <p class="profile-note">
-            机械特征（本机用户行为流，简单统计）；认知 / 性情 / 价值观等 LLM 维度待独立分析器生成。
+            机械特征（本机用户行为流，简单统计）；审批请求由系统（harness）发起、不计入用户行为，用户行为是授权。
+            认知 / 性情 / 价值观等 LLM 维度待独立分析器生成。
         </p>
         <div v-if="error" class="empty-hint">{{ error }}</div>
         <div v-else-if="loading" class="empty-hint">加载中…</div>
@@ -90,8 +91,8 @@ onMounted(async () => {
                 <span class="profile-stat-label">平均评分（{{ summary.ratings }} 次）</span>
             </div>
             <div class="profile-stat">
-                <span class="profile-stat-num">{{ summary.approvals }}</span>
-                <span class="profile-stat-label">审批发起</span>
+                <span class="profile-stat-num">{{ summary.authorizations }}</span>
+                <span class="profile-stat-label">授权（用户行为）</span>
             </div>
             <div class="profile-stat">
                 <span class="profile-stat-num">{{ fmtPercent(summary.denyRate) }}</span>

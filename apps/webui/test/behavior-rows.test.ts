@@ -21,7 +21,11 @@ describe('behavior-rows（用户行为指令 → 执行流行）', () => {
             ],
         );
         expect(rows.map((row) => row.type)).toEqual(['approval', 'feedback', 'authorization']);
-        expect(rows[0]).toMatchObject({ label: '审批', summary: 'shell.run: rm -rf build', icon: 'info' });
+        expect(rows[0]).toMatchObject({
+            label: '审批（系统）',
+            summary: 'shell.run: rm -rf build',
+            icon: 'info',
+        });
         expect(rows[1]).toMatchObject({ label: '反馈', summary: '评分 2', icon: 'dislike' });
         expect(rows[2]).toMatchObject({
             label: '授权',

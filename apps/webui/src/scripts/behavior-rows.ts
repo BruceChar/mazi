@@ -41,7 +41,7 @@ function iconOf(behavior: UserBehaviorView): string {
 }
 
 function labelOf(type: RenderableBehaviorType): string {
-    if (type === 'approval') return '审批';
+    if (type === 'approval') return '审批（系统）';
     if (type === 'authorization') return '授权';
     return '反馈';
 }

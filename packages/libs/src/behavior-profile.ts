@@ -43,7 +43,10 @@ export interface BehaviorProfileSummary {
     /** 评分次数（kind='rating'）。 */
     ratings: number;
     ratingAverage: number | null;
+    /** 审批请求数（harness 锚点，非用户行为）。 */
     approvals: number;
+    /** 用户授权行为次数（granted + denied）；审批请求不计入。 */
+    authorizations: number;
     granted: number;
     denied: number;
     /** denied / (granted + denied)；无授权时为 null（宁缺毋滥）。 */
@@ -114,6 +117,7 @@ export function summarizeBehaviors(behaviors: readonly UserBehaviorView[]): Beha
         ratingAverage:
             ratings.length > 0 ? ratings.reduce((sum, n) => sum + n, 0) / ratings.length : null,
         approvals,
+        authorizations: decided,
         granted,
         denied,
         denyRate: decided > 0 ? denied / decided : null,
