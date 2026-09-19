@@ -1,5 +1,6 @@
 export * from './behavior.js';
 export * from './behavior-profile.js';
+export * from './cost-ledger.js';
 export * from './iteration.js';
 export * from './ledger.js';
 export * from './question-taxonomy.js';

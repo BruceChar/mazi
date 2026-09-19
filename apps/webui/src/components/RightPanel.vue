@@ -15,6 +15,7 @@ import {
 import {
     analyzeToc,
     copyThinkingChain,
+    fetchLedger,
     iterations,
     iterationsLoading,
     loadIterations,
@@ -41,8 +42,6 @@ const props = defineProps({
     audit: { type: Object, default: null },
     /** 整条会话流的步骤行（Context 追踪用，不随选择变化）。 */
     contextRows: { type: Array, default: () => [] },
-    /** 进程内系统日志（GET /api/logs）：错误/告警/信息。 */
-    systemLogs: { type: Array, default: () => [] },
 });
 const emit = defineEmits([
     'update:activeTab',
@@ -53,7 +52,6 @@ const emit = defineEmits([
     'select-step',
     'locate-step',
     'select-conversation',
-    'refresh-logs',
 ]);
 
 function fmtClock(ts) {
@@ -96,17 +94,19 @@ function usageStats(usage) {
         hasData: total > 0 || cache > 0 || reasoning > 0,
     };
 }
-/* ---- 日志：系统日志视图（事件面板暂时下线，待系统/会话流梳理清楚） ---- */
-const LOG_LEVELS = [
-    { value: 'all', label: '全部' },
-    { value: 'error', label: '错误' },
-    { value: 'warn', label: '告警' },
-    { value: 'info', label: '信息' },
-    { value: 'debug', label: '调试' },
-];
-const logLevel = ref('all');
+/* ---- 日志：任务执行失败账本（GET /api/ledger；系统日志不再占据右侧栏） ---- */
+const FAILURE_KINDS = ['all', 'driver-error', 'max-steps', 'blocked-tool'];
+const failureKind = ref('all');
+const failures = ref([]);
+const failuresLoading = ref(false);
+const failuresError = ref('');
 
-/** 日志 hover 弹窗（宽度不足时查看完整内容）。 */
+const failureRows = computed(() => {
+    const list = failures.value || [];
+    return failureKind.value === 'all' ? list : list.filter((row) => row.kind === failureKind.value);
+});
+
+/** 摘要 hover 弹窗（宽度不足时看全）。 */
 const logTip = ref(null);
 function showLogTip(event, text) {
     logTip.value = { text, x: event.clientX, y: event.clientY };
@@ -115,12 +115,25 @@ function hideLogTip() {
     logTip.value = null;
 }
 
-const systemLogRows = computed(() => {
-    const list = props.systemLogs || [];
-    const filtered =
-        logLevel.value === 'all' ? list : list.filter((entry) => entry.level === logLevel.value);
-    return filtered.slice().reverse();
-});
+async function loadFailures() {
+    failuresLoading.value = true;
+    failuresError.value = '';
+    try {
+        failures.value = await fetchLedger({ limit: 500 });
+    } catch (error) {
+        failuresError.value = String(error);
+    } finally {
+        failuresLoading.value = false;
+    }
+}
+
+watch(
+    () => props.activeTab,
+    (tab) => {
+        if (tab === 'log') void loadFailures();
+    },
+    { immediate: true },
+);
 
 
 /* ---- Audit panel helpers (docs/web/观测看板设计.md v2) ---- */
@@ -908,28 +921,32 @@ watch(
             <StoragePanel v-else-if="activeTab === 'storage'" />
             <div v-else class="drawer-body">
                 <div class="drawer-tabs sub">
-                    <select v-model="logLevel" title="日志级别">
-                        <option v-for="l in LOG_LEVELS" :key="l.value" :value="l.value">{{ l.label }}</option>
+                    <select v-model="failureKind" title="失败类别">
+                        <option v-for="kind in FAILURE_KINDS" :key="kind" :value="kind">
+                            {{ kind === 'all' ? '全部类别' : kind }}
+                        </option>
                     </select>
-                    <button class="ev-toggle" @click="emit('refresh-logs')">刷新</button>
-                    <span class="log-count">{{ systemLogRows.length }} 条</span>
+                    <button class="ev-toggle" @click="loadFailures">刷新</button>
+                    <span class="log-count">{{ failureRows.length }} 条</span>
                 </div>
-                <div class="event-log">
+                <div v-if="failuresError" class="empty-hint">{{ failuresError }}</div>
+                <div v-else-if="failuresLoading" class="empty-hint">加载中…</div>
+                <div v-else class="event-log">
                     <div
-                        v-for="row in systemLogRows"
-                        :key="row.id"
+                        v-for="row in failureRows"
+                        :key="row.failureId"
                         class="event-row log-row"
-                        @mouseenter="showLogTip($event, row.message)"
-                        @mousemove="showLogTip($event, row.message)"
+                        @mouseenter="showLogTip($event, row.summary || '-')"
+                        @mousemove="showLogTip($event, row.summary || '-')"
                         @mouseleave="hideLogTip"
                     >
-                        <span class="ev-dot" :class="'ev-' + row.level"></span>
-                        <span class="event-time">{{ fmtClock(row.ts) }}</span>
-                        <span class="event-type" :class="'ev-' + row.level">{{ row.level }}</span>
-                        <span class="event-module">{{ row.module }}</span>
-                        <span class="event-summary">{{ row.message }}</span>
+                        <span class="ev-dot ev-approval"></span>
+                        <span class="event-time">{{ fmtClock(row.createdAt) }}</span>
+                        <span class="event-type ev-approval">{{ row.kind }}</span>
+                        <span class="event-module">{{ short(row.sessionId, 8) }}</span>
+                        <span class="event-summary">{{ row.summary || '-' }}</span>
                     </div>
-                    <div v-if="!systemLogRows.length" class="empty-hint">暂无系统日志</div>
+                    <div v-if="!failureRows.length" class="empty-hint">暂无失败记录</div>
                 </div>
             </div>
             <!-- 日志 hover 弹窗：宽度不足时显示完整内容 -->

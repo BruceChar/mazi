@@ -42,12 +42,10 @@ import {
     liveSteps,
     loadConfig,
     loadConversations,
-    loadSystemLogs,
     authCommands,
     loadAuthCommands,
     saveAuthCommands,
     loadWorkspace,
-    systemLogs,
     freeChatWorkspace,
     pickFreeChatWorkspace,
     saveFreeChatWorkspace,
@@ -808,7 +806,6 @@ onMounted(async () => {
         await loadConfig();
         await loadConversations();
         await loadWorkspace();
-        await loadSystemLogs();
         const firstConversation = activeConvList.value[0];
         if (firstConversation) {
             await openConversation(firstConversation);
@@ -820,10 +817,6 @@ onMounted(async () => {
     latencyTimer = setInterval(pingApi, 5000);
 });
 
-// 打开「日志 / 事件」时刷新系统日志（系统错误可能发生在会话之外）。
-watch(drawerTab, (tab) => {
-    if (tab === 'log' || tab === 'events') void loadSystemLogs();
-});
 
 onBeforeUnmount(() => {
     stopEvents();
@@ -995,8 +988,6 @@ onBeforeUnmount(() => {
             :show-all-events="showAllEvents"
             :audit="auditView"
             :context-rows="conversationAudit.rows"
-            :system-logs="systemLogs"
-            @refresh-logs="loadSystemLogs()"
             @select-step="onSelectStep"
             @locate-step="onLocateStep"
             @select-conversation="onSelectConversation"

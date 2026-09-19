@@ -1,4 +1,9 @@
-import type { QuestionLabelInput, QuestionTaxonomy, UserQuestionView } from '@mazi/libs';
+import type {
+    QuestionLabelInput,
+    QuestionTaxonomy,
+    UsageRecordView,
+    UserQuestionView,
+} from '@mazi/libs';
 import { computed, reactive, ref, watch } from 'vue';
 import { API_BASE, api } from '../api.js';
 import type {
@@ -1184,6 +1189,22 @@ function downloadJson(filename: string, value: unknown): void {
     } catch {
         // 下载失败不影响数据获取（导出数据已返回）。
     }
+}
+
+/** 花费账本明细（GET /api/catalog/usage?providerId=&modelId=&from=&to=）。 */
+export async function fetchUsageRecords(
+    filter: { providerId?: string; modelId?: string; from?: number; to?: number } = {},
+): Promise<UsageRecordView[]> {
+    const params = new URLSearchParams();
+    if (filter.providerId) params.set('providerId', filter.providerId);
+    if (filter.modelId) params.set('modelId', filter.modelId);
+    if (filter.from !== undefined) params.set('from', String(filter.from));
+    if (filter.to !== undefined) params.set('to', String(filter.to));
+    const suffix = params.toString();
+    const data = (await api(`/api/catalog/usage${suffix ? `?${suffix}` : ''}`)) as {
+        records?: UsageRecordView[];
+    };
+    return Array.isArray(data?.records) ? data.records : [];
 }
 
 /** 失败分类账（GET /api/ledger?kind=&limit=）。 */

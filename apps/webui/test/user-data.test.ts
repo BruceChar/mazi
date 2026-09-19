@@ -44,6 +44,7 @@ const {
     exportUserBehaviors,
     fetchLedger,
     fetchQuestionTaxonomy,
+    fetchUsageRecords,
     fetchUserBehaviors,
     fetchUserProfile,
     fetchUserQuestions,
@@ -133,6 +134,36 @@ describe('个人中心数据获取（GET /api/users|ledger）', () => {
 
         const taxonomy = await fetchQuestionTaxonomy();
         expect(taxonomy.speechAct).toContain('question');
+    });
+
+    it('fetchUsageRecords：拼 provider/model/日期并解析 records', async () => {
+        stubFetch({
+            '/api/catalog/usage': {
+                records: [
+                    {
+                        id: 'u1',
+                        offeringId: 'deepseek/deepseek-chat',
+                        modelId: 'deepseek-chat',
+                        providerId: 'deepseek',
+                        pricingPlanId: 'p',
+                        catalogEpoch: 1,
+                        inputTokens: 100,
+                        outputTokens: 50,
+                        cacheReadTokens: 0,
+                        cacheWriteTokens: 0,
+                        cost: 0.001,
+                        currency: 'USD',
+                        occurredAt: 1,
+                    },
+                ],
+            },
+        });
+        const records = await fetchUsageRecords({ providerId: 'deepseek', modelId: 'deepseek-chat', from: 1, to: 2 });
+        expect(records).toHaveLength(1);
+        expect(records[0]?.cost).toBe(0.001);
+        expect(calls[0]).toContain('providerId=deepseek');
+        expect(calls[0]).toContain('modelId=deepseek-chat');
+        expect(calls[0]).toContain('from=1');
     });
 
     it('fetchLedger：拼 kind/limit 并解析 entries', async () => {

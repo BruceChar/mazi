@@ -67,7 +67,7 @@
 | --- | --- | --- | --- |
 | 画像 | 用户画像（Profile） | 用户行为流的机械特征（本地确定性，见 用户行为流设计文档 §5.2）；LLM 维度待分析器 | 可用（机械层） |
 | 行为链 | 行为链（Behavior） | 当前 Conversation 各 run 的用户行为指令（`GET /api/sessions/:id/timeline` → `behaviors`） | 可用 |
-| 账本 | 失败分类账 | `GET /api/ledger` | 待后端接入（占位空态） |
+| 账本 | 花费账本（Cost） | `GET /api/catalog/usage`（provider/model/日期过滤；**小时粒度**聚合） | 可用（无调用即空态） |
 | 用户设置 | 个人设置 | localStorage 偏好 | 可用（复用 UserPreferencesPage） |
 
 > 画像/行为链是**用户级、跨会话**资产，因此入口在个人中心而非系统设置，也不作为右侧栏会话级 tab（右侧栏 审计/Context/Iterations/日志/存储 均随会话切换）。
