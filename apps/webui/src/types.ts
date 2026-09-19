@@ -26,6 +26,7 @@ import type {
     TocFeedbackView,
     TocIterationView,
     TocRecordView,
+    UserBehaviorExportView,
     UserBehaviorView,
     UserProfileView,
 } from '@mazi/libs';
@@ -56,6 +57,7 @@ export type {
     TocFeedbackView,
     TocIterationView,
     TocRecordView,
+    UserBehaviorExportView,
     UserBehaviorView,
     UserProfileView,
 };

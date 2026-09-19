@@ -8,6 +8,7 @@ const stubEl = () => ({
     appendChild: () => {},
     addEventListener: () => {},
     removeEventListener: () => {},
+    click: () => {},
 });
 (globalThis as any).location = { search: '' };
 (globalThis as any).document = {
@@ -36,9 +37,14 @@ function stubFetch(payloads: Record<string, unknown>): void {
     });
 }
 
-const { fetchLedger, fetchUserBehaviors, fetchUserProfile } = await import(
-    '../src/scripts/store.ts'
-);
+const {
+    backfillUserBehaviors,
+    clearUserBehaviors,
+    exportUserBehaviors,
+    fetchLedger,
+    fetchUserBehaviors,
+    fetchUserProfile,
+} = await import('../src/scripts/store.ts');
 
 describe('个人中心数据获取（GET /api/users|ledger）', () => {
     beforeEach(() => {
@@ -71,6 +77,26 @@ describe('个人中心数据获取（GET /api/users|ledger）', () => {
         const profile = await fetchUserProfile('me');
         expect(profile.behaviorCount).toBe(3);
         expect(calls[0]).toContain('/api/users/me/profile');
+    });
+
+    it('export/backfill/clear 调用治理端点并解析计数', async () => {
+        stubFetch({
+            '/api/users/all/behaviors/backfill': { backfilled: 12 },
+            '/api/users/all/behaviors/clear': { cleared: 12 },
+            '/api/users/all/behaviors/export': {
+                format: 'user-behavior-stream',
+                schemaVersion: '2.0',
+                subject: { id: 'all' },
+                behaviors: [{ ts: 1, type: 'input', data: { text: 'q' } }],
+            },
+        });
+        expect(await backfillUserBehaviors('all')).toBe(12);
+        expect(await clearUserBehaviors('all')).toBe(12);
+        const exported = await exportUserBehaviors('all');
+        expect(exported.format).toBe('user-behavior-stream');
+        expect(exported.behaviors).toHaveLength(1);
+        expect(calls.some((url) => url.includes('/behaviors/backfill'))).toBe(true);
+        expect(calls.some((url) => url.includes('/behaviors/clear'))).toBe(true);
     });
 
     it('fetchLedger：拼 kind/limit 并解析 entries', async () => {

@@ -2,10 +2,65 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { LOOP_MODES, PERMISSION_LEVELS, PERMISSION_META } from '../scripts/goal-contract.ts';
 import { runSettings, saveRunSettings } from '../scripts/run-settings.ts';
+import {
+    backfillUserBehaviors,
+    clearUserBehaviors,
+    exportUserBehaviors,
+} from '../scripts/store.ts';
 
 /** Update one run-default field and persist it. */
 function updateRun(key, value) {
     saveRunSettings({ [key]: value });
+}
+
+/* ---- Storage：用户行为数据治理（本机 userId=all） ---- */
+const behaviorBusy = ref('');
+const behaviorMsg = ref('');
+const confirmClear = ref(false);
+
+async function onBackfillBehaviors() {
+    behaviorBusy.value = 'backfill';
+    behaviorMsg.value = '';
+    try {
+        const count = await backfillUserBehaviors('all');
+        behaviorMsg.value = `已回填 ${count} 个 run 的历史提问`;
+    } catch (error) {
+        behaviorMsg.value = String(error);
+    } finally {
+        behaviorBusy.value = '';
+    }
+}
+
+async function onExportBehaviors() {
+    behaviorBusy.value = 'export';
+    behaviorMsg.value = '';
+    try {
+        const data = await exportUserBehaviors('all');
+        behaviorMsg.value = `已导出 ${data.behaviors.length} 条行为记录`;
+    } catch (error) {
+        behaviorMsg.value = String(error);
+    } finally {
+        behaviorBusy.value = '';
+    }
+}
+
+/** 两步确认：首次点击进入待确认态，再次点击执行清除。 */
+async function onClearBehaviors() {
+    if (!confirmClear.value) {
+        confirmClear.value = true;
+        return;
+    }
+    confirmClear.value = false;
+    behaviorBusy.value = 'clear';
+    behaviorMsg.value = '';
+    try {
+        const count = await clearUserBehaviors('all');
+        behaviorMsg.value = `已清除 ${count} 个 run 的行为数据`;
+    } catch (error) {
+        behaviorMsg.value = String(error);
+    } finally {
+        behaviorBusy.value = '';
+    }
 }
 
 function permissionLabel(level) {
@@ -479,6 +534,75 @@ watch(
                 </div>
             </div>
         </template>
+        <!-- Storage：数据路径 + 用户行为数据治理 -->
+        <template v-else-if="activeTab === 'storage'">
+            <h1 class="settings-title">Storage</h1>
+            <p class="settings-subtitle">数据目录与用户行为数据（append-only 用户资产）的导出 / 回填 / 清除。</p>
+            <div class="settings-group">
+                <div class="settings-group-title">Data locations</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Data directory</div>
+                        <div class="setting-desc">{{ cfg ? cfg.home : '-' }}</div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Database</div>
+                        <div class="setting-desc">{{ cfg?.storage ? `${cfg.storage.driver} · ${cfg.storage.db}` : '-' }}</div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Events directory</div>
+                        <div class="setting-desc">{{ cfg?.storage?.events || '-' }}</div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Behavior directory</div>
+                        <div class="setting-desc">{{ cfg?.storage?.behavior || '-' }} · 用户行为流（append-only）</div>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-group">
+                <div class="settings-group-title">用户行为数据</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">历史提问回填</div>
+                        <div class="setting-desc">行为采集上线前的 run 无记录；回填只补「提问」（历史反馈/授权从未采集，不臆造）。</div>
+                    </div>
+                    <button class="setting-sync" :disabled="behaviorBusy === 'backfill'" @click="onBackfillBehaviors">
+                        {{ behaviorBusy === 'backfill' ? '回填中…' : '回填历史提问' }}
+                    </button>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">导出行为数据</div>
+                        <div class="setting-desc">存储格式 = 导出格式（文件头 + 记录），可跨框架携带。</div>
+                    </div>
+                    <button class="setting-sync" :disabled="behaviorBusy === 'export'" @click="onExportBehaviors">
+                        {{ behaviorBusy === 'export' ? '导出中…' : '导出 JSON' }}
+                    </button>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">清除行为数据</div>
+                        <div class="setting-desc">治理删除：删除本机全部行为流记录，不可恢复。</div>
+                    </div>
+                    <button
+                        class="setting-sync danger"
+                        :class="{ confirm: confirmClear }"
+                        :disabled="behaviorBusy === 'clear'"
+                        @click="onClearBehaviors"
+                    >
+                        {{ behaviorBusy === 'clear' ? '清除中…' : confirmClear ? '确认清除？' : '清除' }}
+                    </button>
+                </div>
+                <div v-if="behaviorMsg" class="setting-desc behavior-msg">{{ behaviorMsg }}</div>
+            </div>
+        </template>
+
         <!-- About -->
         <template v-else-if="activeTab === 'about'">
             <h1 class="settings-title">About</h1>
@@ -500,27 +624,6 @@ watch(
                     <div class="setting-info">
                         <div class="setting-name">Session storage</div>
                         <div class="setting-desc">mazi.db (goal_nodes / goal_tasks / goal_steps)</div>
-                    </div>
-                </div>
-            </div>
-            <div class="settings-group">
-                <div class="settings-group-title">Storage</div>
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <div class="setting-name">Data directory</div>
-                        <div class="setting-desc">{{ cfg ? cfg.home : '-' }}</div>
-                    </div>
-                </div>
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <div class="setting-name">Database</div>
-                        <div class="setting-desc">{{ cfg ? `${cfg.storage.driver} · ${cfg.storage.db}` : '-' }}</div>
-                    </div>
-                </div>
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <div class="setting-name">Events directory</div>
-                        <div class="setting-desc">{{ cfg ? cfg.storage.events : '-' }}</div>
                     </div>
                 </div>
             </div>
@@ -610,6 +713,17 @@ watch(
 .setting-sync:disabled {
     opacity: 0.6;
     cursor: wait;
+}
+.setting-sync.danger {
+    border-color: var(--error);
+    color: var(--error);
+}
+.setting-sync.danger.confirm {
+    background: var(--error);
+    color: #fff;
+}
+.behavior-msg {
+    margin-top: 10px;
 }
 .setting-actions {
     display: flex;

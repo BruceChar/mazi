@@ -10,6 +10,7 @@ import type {
     RunOutcome,
     StepUsage,
     TocIterationView,
+    UserBehaviorExportView,
     UserBehaviorView,
     UserPreferences,
     UserProfileView,
@@ -1092,6 +1093,50 @@ export async function fetchUserBehaviors(userId = 'all'): Promise<UserBehaviorVi
 /** 用户画像（GET /api/users/:id/profile；本期只有机械特征简单统计）。 */
 export async function fetchUserProfile(userId = 'all'): Promise<UserProfileView> {
     return (await api(`/api/users/${encodeURIComponent(userId)}/profile`)) as UserProfileView;
+}
+
+/**
+ * 导出用户行为流（GET /api/users/:id/behaviors/export）并触发浏览器下载。
+ * 存储格式 = 导出格式（用户行为流设计文档 §6）。
+ */
+export async function exportUserBehaviors(userId = 'all'): Promise<UserBehaviorExportView> {
+    const data = (await api(
+        `/api/users/${encodeURIComponent(userId)}/behaviors/export`,
+    )) as UserBehaviorExportView;
+    downloadJson(`mazi-behavior-${userId}.json`, data);
+    return data;
+}
+
+/** 回填历史提问（采集上线前、行为流为空的 run）；返回回填 run 数。 */
+export async function backfillUserBehaviors(userId = 'all'): Promise<number> {
+    const data = (await api(`/api/users/${encodeURIComponent(userId)}/behaviors/backfill`, {
+        method: 'POST',
+    })) as { backfilled?: number };
+    return typeof data?.backfilled === 'number' ? data.backfilled : 0;
+}
+
+/** 清除用户行为数据（治理删除）；返回清除 run 数。 */
+export async function clearUserBehaviors(userId = 'all'): Promise<number> {
+    const data = (await api(`/api/users/${encodeURIComponent(userId)}/behaviors/clear`, {
+        method: 'POST',
+    })) as { cleared?: number };
+    return typeof data?.cleared === 'number' ? data.cleared : 0;
+}
+
+/** 触发浏览器下载（非浏览器环境静默跳过）。 */
+function downloadJson(filename: string, value: unknown): void {
+    if (typeof document === 'undefined' || typeof Blob === 'undefined') return;
+    try {
+        const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        if (typeof link.click === 'function') link.click();
+        URL.revokeObjectURL(url);
+    } catch {
+        // 下载失败不影响数据获取（导出数据已返回）。
+    }
 }
 
 /** 失败分类账（GET /api/ledger?kind=&limit=）。 */
