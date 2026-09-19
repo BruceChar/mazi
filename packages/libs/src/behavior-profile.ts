@@ -53,6 +53,14 @@ export interface BehaviorProfileSummary {
     sufficient: boolean;
 }
 
+/** 用户行为流导出（GET /api/users/:id/behaviors/export；存储格式=导出格式，doc §6）。 */
+export interface UserBehaviorExportView {
+    format: 'user-behavior-stream';
+    schemaVersion: string;
+    subject: { id: string };
+    behaviors: UserBehaviorView[];
+}
+
 /** 用户画像视图（GET /api/users/:id/profile 线协议；本期只有机械特征）。 */
 export interface UserProfileView {
     userId: string;

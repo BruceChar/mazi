@@ -84,6 +84,24 @@ export class BehaviorRecorder {
         return this.store.list(rootGoalId);
     }
 
+    /**
+     * 历史回填：为采集上线前的 run 写入一条 `input`（ts=run.createdAt，data.derived 标记）。
+     * 只补「提问」；历史反馈/授权从未采集，不臆造。
+     */
+    backfillInput(
+        rootGoalId: string,
+        run: { input: string; createdAt: number },
+    ): Promise<UserBehaviorView[]> {
+        return this.store.append(rootGoalId, [
+            { type: 'input', ts: run.createdAt, data: { text: run.input, derived: true } },
+        ]);
+    }
+
+    /** 清除某运行会话的行为流（治理删除，append-only 的例外操作）。 */
+    clear(rootGoalId: string): Promise<void> {
+        return this.store.clear(rootGoalId);
+    }
+
     close(): void {
         this.store.close();
     }

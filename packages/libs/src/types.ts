@@ -116,6 +116,14 @@ export interface ConfigOverview {
     apiKeyMasked?: Record<string, string>;
     /** provider id → 实际生效的 Key 来源（configured=配置的 Key / env=环境变量 / none）。 */
     apiKeySource?: Record<string, 'configured' | 'env' | 'none'>;
+    /** 存储路径（/api/config 附加；Settings → Storage 展示）。 */
+    storage?: {
+        driver: string;
+        db: string;
+        events: string;
+        /** 用户行为流目录（append-only 用户资产）。 */
+        behavior: string;
+    };
 }
 
 // ============================================================

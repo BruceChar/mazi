@@ -56,4 +56,49 @@ describe('users（用户级行为流与画像简单统计）', () => {
         expect(body.summary.ratings).toBeGreaterThanOrEqual(1);
         expect(typeof body.generatedAt).toBe('number');
     });
+
+    it('export / clear / backfill 行为数据治理', async () => {
+        const created = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '治理测试', userId: 'gov' },
+        });
+        const sessionId = created.json().sessionId as string;
+
+        const exported = await h.fastify.inject({
+            method: 'GET',
+            url: '/api/users/gov/behaviors/export',
+        });
+        expect(exported.statusCode).toBe(200);
+        const exportBody = exported.json() as {
+            format: string;
+            behaviors: Array<{ type: string }>;
+        };
+        expect(exportBody.format).toBe('user-behavior-stream');
+        expect(exportBody.behaviors.map((b) => b.type)).toEqual(['input']);
+
+        const cleared = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/users/gov/behaviors/clear',
+        });
+        expect(cleared.json().cleared).toBeGreaterThanOrEqual(1);
+        const afterClear = await h.fastify.inject({ method: 'GET', url: '/api/users/gov/behaviors' });
+        expect((afterClear.json() as { behaviors: unknown[] }).behaviors).toEqual([]);
+
+        const backfilled = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/users/gov/behaviors/backfill',
+        });
+        expect(backfilled.json().backfilled).toBe(1);
+        const afterBackfill = await h.fastify.inject({
+            method: 'GET',
+            url: '/api/users/gov/behaviors',
+        });
+        const rows = (afterBackfill.json() as { behaviors: Array<{ type: string; data: Record<string, unknown> }> })
+            .behaviors;
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ type: 'input', data: { derived: true, text: '治理测试' } });
+        expect(sessionId).toBeTruthy();
+    });
 });

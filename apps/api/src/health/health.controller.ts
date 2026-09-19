@@ -35,7 +35,12 @@ export class HealthController {
         return {
             ...overview,
             defaultConfigDir: paths.home,
-            storage: { driver: 'sqlite', db: paths.dbPath, events: paths.eventDir },
+            storage: {
+                driver: 'sqlite',
+                db: paths.dbPath,
+                events: paths.eventDir,
+                behavior: paths.behaviorDir,
+            },
         };
     }
 
@@ -151,7 +156,12 @@ export class HealthController {
         return {
             ...overview,
             defaultConfigDir: paths.home,
-            storage: { driver: 'sqlite', db: paths.dbPath, events: paths.eventDir },
+            storage: {
+                driver: 'sqlite',
+                db: paths.dbPath,
+                events: paths.eventDir,
+                behavior: paths.behaviorDir,
+            },
         };
     }
 }

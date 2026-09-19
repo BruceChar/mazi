@@ -428,8 +428,8 @@ GoalContract；新建会话不再弹出 GoalContract 配置弹窗，直接使用
 推理等级透传 provider 的 reasoningEffort（Off = 关闭思考）。
 
 **分类导航（现行）**：General（外观 / 工作区 / 新建 Goal 默认值）· Model（默认模型 / 推理等级 / 目录同步）·
-Providers（按 vendor 分组：价目源与 API Key）· Auth（`commands.json` 命令审批规则）· About（版本、配置与存储路径）。
-General 只保留用户偏好；**命令审批规则（Auth）独立成 tab**，数据目录等只读系统信息归 About，避免系统级配置挤占重点。
+Providers（按 vendor 分组：价目源与 API Key）· Auth（`commands.json` 命令审批规则）· Storage（数据目录：DB / events / **behavior** + 行为数据导出/清除）· About（版本与配置）。
+General 只保留用户偏好；**命令审批规则（Auth）独立成 tab**；数据路径与用户行为数据操作归 Storage，避免系统级配置挤占重点。
 
 ```
 ┌─ Settings ────────────────────────────────────────────────┐

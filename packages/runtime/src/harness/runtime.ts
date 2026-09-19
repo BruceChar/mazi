@@ -430,6 +430,19 @@ export class HarnessRuntime {
         return this.behaviorRecorder.list(rootGoalId);
     }
 
+    /** 历史提问回填（采集上线前的 run；写入一条 derived input）。 */
+    backfillBehaviorInput(
+        rootGoalId: string,
+        run: { input: string; createdAt: number },
+    ): Promise<UserBehaviorView[]> {
+        return this.behaviorRecorder.backfillInput(rootGoalId, run);
+    }
+
+    /** 清除某运行会话的行为流（治理删除）。 */
+    clearBehaviors(rootGoalId: string): Promise<void> {
+        return this.behaviorRecorder.clear(rootGoalId);
+    }
+
     /** 失败分类账查询（apps/api GET /api/ledger 消费）。 */
     listFailures(query: FailureLedgerQuery = {}): Promise<FailureLedgerEntry[]> {
         return this.failureLedger.list(query);
