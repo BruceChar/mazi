@@ -18,6 +18,7 @@ import { accountViewOf } from './scripts/account.ts';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
 import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
+import { SETTINGS_TABS } from './scripts/settings-tabs.ts';
 import { buildAuditView } from './scripts/audit.ts';
 import { API_BASE } from './api.js';
 import {
@@ -414,12 +415,6 @@ function onSelectConversation() {
 /** Whether the right panel is maximized over the workspace. */
 const panelMaximized = ref(false);
 const settingsTab = ref('general');
-const SETTINGS_TABS = [
-    { id: 'general', label: 'General', icon: 'settings' },
-    { id: 'model', label: 'Model', icon: 'cpu' },
-    { id: 'providers', label: 'Providers', icon: 'plug' },
-    { id: 'about', label: 'About', icon: 'info' },
-];
 function togglePanelMax() {
     panelMaximized.value = !panelMaximized.value;
 }

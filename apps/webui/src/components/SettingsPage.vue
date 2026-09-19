@@ -212,6 +212,7 @@ watch(
         <!-- General -->
         <template v-if="activeTab === 'general'">
             <h1 class="settings-title">General</h1>
+            <p class="settings-subtitle">外观、工作区与新建 Goal 的默认值；系统级配置见 Providers / Auth / About。</p>
             <div class="settings-group">
                 <div class="settings-group-title">Appearance</div>
                 <div class="setting-item">
@@ -302,64 +303,6 @@ watch(
                             {{ m.label }}
                         </option>
                     </select>
-                </div>
-            </div>
-            <div class="settings-group">
-                <div class="settings-group-title">Auth · 命令审批规则</div>
-                <div class="setting-item setting-item-column">
-                    <div class="setting-info">
-                        <div class="setting-name">commands.json</div>
-                        <div class="setting-desc">
-                            路径：{{ authCommands?.path || '—' }}
-                            <template v-if="authCommands?.error"> · {{ authCommands.error }}</template>
-                        </div>
-                        <div class="setting-desc">
-                            数组字段整段替换默认；subcommands 只有列出的子命令算只读，其余（含未知子命令）一律逐次审批；未命中规则按 shell.run 默认。
-                        </div>
-                    </div>
-                    <textarea
-                        class="setting-input auth-editor"
-                        :class="{ invalid: !authParsed }"
-                        v-model="authDraft"
-                        spellcheck="false"
-                        rows="14"
-                    ></textarea>
-                    <div v-if="authDoc.length" class="auth-doc">
-                        <div v-for="entry in authDoc" :key="entry.key" class="auth-doc-row">
-                            <code>{{ entry.key }}</code><span>{{ entry.text }}</span>
-                        </div>
-                    </div>
-                    <div class="setting-actions">
-                        <button class="setting-sync" @click="emit('load-auth-commands')">重新加载</button>
-                        <button
-                            class="setting-sync primary"
-                            :disabled="!authParsed"
-                            @click="emit('save-auth-commands', authDraft)"
-                        >
-                            保存并生效
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div class="settings-group">
-                <div class="settings-group-title">Storage</div>
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <div class="setting-name">Data directory</div>
-                        <div class="setting-desc">{{ cfg ? cfg.home : '-' }}</div>
-                    </div>
-                </div>
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <div class="setting-name">Database</div>
-                        <div class="setting-desc">{{ cfg ? `${cfg.storage.driver} · ${cfg.storage.db}` : '-' }}</div>
-                    </div>
-                </div>
-                <div class="setting-item">
-                    <div class="setting-info">
-                        <div class="setting-name">Events directory</div>
-                        <div class="setting-desc">{{ cfg ? cfg.storage.events : '-' }}</div>
-                    </div>
                 </div>
             </div>
         </template>
@@ -493,6 +436,49 @@ watch(
             <div v-if="!vendorGroups.length" class="setting-empty">No providers configured. Add API keys in ~/.mazi/providers.json</div>
         </template>
 
+
+        <!-- Auth：命令审批规则（系统级治理配置，从 General 拆出独立分类） -->
+        <template v-else-if="activeTab === 'auth'">
+            <h1 class="settings-title">Auth</h1>
+            <p class="settings-subtitle">命令审批规则：哪些 shell 命令只读放宽、哪些永远逐次审批。</p>
+            <div class="settings-group">
+                <div class="settings-group-title">Auth · 命令审批规则</div>
+                <div class="setting-item setting-item-column">
+                    <div class="setting-info">
+                        <div class="setting-name">commands.json</div>
+                        <div class="setting-desc">
+                            路径：{{ authCommands?.path || '—' }}
+                            <template v-if="authCommands?.error"> · {{ authCommands.error }}</template>
+                        </div>
+                        <div class="setting-desc">
+                            数组字段整段替换默认；subcommands 只有列出的子命令算只读，其余（含未知子命令）一律逐次审批；未命中规则按 shell.run 默认。
+                        </div>
+                    </div>
+                    <textarea
+                        class="setting-input auth-editor"
+                        :class="{ invalid: !authParsed }"
+                        v-model="authDraft"
+                        spellcheck="false"
+                        rows="14"
+                    ></textarea>
+                    <div v-if="authDoc.length" class="auth-doc">
+                        <div v-for="entry in authDoc" :key="entry.key" class="auth-doc-row">
+                            <code>{{ entry.key }}</code><span>{{ entry.text }}</span>
+                        </div>
+                    </div>
+                    <div class="setting-actions">
+                        <button class="setting-sync" @click="emit('load-auth-commands')">重新加载</button>
+                        <button
+                            class="setting-sync primary"
+                            :disabled="!authParsed"
+                            @click="emit('save-auth-commands', authDraft)"
+                        >
+                            保存并生效
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
         <!-- About -->
         <template v-else-if="activeTab === 'about'">
             <h1 class="settings-title">About</h1>
@@ -517,6 +503,27 @@ watch(
                     </div>
                 </div>
             </div>
+            <div class="settings-group">
+                <div class="settings-group-title">Storage</div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Data directory</div>
+                        <div class="setting-desc">{{ cfg ? cfg.home : '-' }}</div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Database</div>
+                        <div class="setting-desc">{{ cfg ? `${cfg.storage.driver} · ${cfg.storage.db}` : '-' }}</div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-info">
+                        <div class="setting-name">Events directory</div>
+                        <div class="setting-desc">{{ cfg ? cfg.storage.events : '-' }}</div>
+                    </div>
+                </div>
+            </div>
         </template>
     </div>
 </template>
@@ -529,13 +536,22 @@ watch(
     max-width: 720px;
 }
 .settings-title {
-    font-size: 24px;
+    font-size: 22px;
     font-weight: 600;
-    margin: 0 0 24px;
+    margin: 0 0 6px;
     color: var(--fg);
 }
+.settings-subtitle {
+    font-size: 13px;
+    color: var(--fg-secondary);
+    margin: 0 0 20px;
+}
 .settings-group {
-    margin-bottom: 28px;
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    background: var(--bg-panel);
 }
 .settings-group-title {
     font-size: 13px;
