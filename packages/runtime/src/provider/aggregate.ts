@@ -9,7 +9,7 @@
  *     工具调用 → 抛 ProviderError('unknown')（不静默产出“正常”响应）；
  *   - 空 content 且无 toolCalls → TextBlock('') 占位。
  *
- * 序列不变量（[CORE §7.2]）的硬断言器属 core（EventSequenceValidator，validation-tool.ts），
+ * 序列不变量（[CORE §7.2]）的硬断言器属 core（EventSequenceValidator），
  * 待 core 导出后在此接入；当前按容错解析实现，不吞上游异常。
  */
 
