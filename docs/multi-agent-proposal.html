@@ -1,0 +1,91 @@
+<html style="margin:0;padding:0;">
+<title>多Agent最小加法：让委托边可执行</title>
+<div style="width:100%;box-sizing:border-box;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#f7f8fa;padding:22px;color:#1f2937;">
+<style>
+  .wrap{max-width:980px;margin:0 auto;}
+  .title{font-size:20px;font-weight:700;margin:0 0 4px;}
+  .sub{font-size:14px;color:#6b7280;margin:0 0 18px;}
+  .band{display:flex;align-items:center;gap:10px;margin:8px 0;}
+  .node{background:#fff;border:1.5px solid;border-radius:10px;padding:12px 14px;box-sizing:border-box;}
+  .existing{border-color:#0d9488;}
+  .new{border-color:#d97706;background:#fffbeb;}
+  .law{border-style:dashed;border-color:#9ca3af;background:#f3f4f6;}
+  .tag{display:inline-block;font-size:12px;border-radius:4px;padding:1px 7px;margin-right:6px;vertical-align:1px;}
+  .tag-e{background:#ccfbf1;color:#0f766e;}
+  .tag-n{background:#fef3c7;color:#92400e;}
+  .tag-l{background:#e5e7eb;color:#4b5563;}
+  .t{font-size:15px;font-weight:600;margin:0 0 6px;}
+  .p{font-size:13.5px;color:#374151;margin:2px 0;line-height:1.5;}
+  .arrow{text-align:center;color:#6b7280;font-size:16px;line-height:1.2;margin:2px 0;}
+  .agents{display:flex;gap:12px;}
+  .agents .node{flex:1;}
+  .legend{display:flex;gap:16px;margin-top:16px;flex-wrap:wrap;font-size:13px;color:#4b5563;}
+  .legend span{display:inline-flex;align-items:center;gap:5px;}
+  .sw{display:inline-block;width:14px;height:14px;border-radius:3px;}
+  .sw-e{background:#ccfbf1;border:1.5px solid #0d9488;}
+  .sw-n{background:#fef3c7;border:1.5px solid #d97706;}
+  .sw-l{background:#f3f4f6;border:1.5px dashed #9ca3af;}
+</style>
+<div class="wrap">
+  <p class="title">多Agent组织：让委托边可执行</p>
+  <p class="sub">Agent 不是新实体 = 可独立执行的 Goal 子树 + 角色配置；新增仅「Orchestrator 决策层」与「执行扇出」两层（示意）</p>
+
+  <div class="band">
+    <div class="node existing" style="flex:1;">
+      <p class="t"><span class="tag tag-e">已有</span>根 Goal（用户委托）</p>
+      <p class="p">origin.kind ∈ { human, system }，归因链终点</p>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+  <div class="band">
+    <div class="node new" style="flex:1;">
+      <p class="t"><span class="tag tag-n">新增</span>Orchestrator 决策层</p>
+      <p class="p">planTask 规划 + 委托裁决：哪个子 Goal 派给哪个 Agent、串行还是并行；裁决默认 harness 规则驱动，模型仅提供建议</p>
+    </div>
+  </div>
+  <div class="arrow">▼ 委托边（<span style="color:#0f766e;">已有</span>：child.permissionCeiling ≤ 上游 · 兄弟预算之和 ≤ 父预算）</div>
+  <div class="agents">
+    <div class="node new">
+      <p class="t"><span class="tag tag-n">新增</span>Agent A · 子 Goal 子树</p>
+      <p class="p">模型 profile（provider/model）</p>
+      <p class="p">工具白名单（allowedTools）</p>
+      <p class="p">权限上限（继承父，法律2）</p>
+      <p class="p">记忆视图（MemoryManager contribution）</p>
+      <p class="p">独立 round-loop（RoundRunner）</p>
+    </div>
+    <div class="node new">
+      <p class="t"><span class="tag tag-n">新增</span>Agent B · 子 Goal 子树</p>
+      <p class="p">模型 profile（provider/model）</p>
+      <p class="p">工具白名单（allowedTools）</p>
+      <p class="p">权限上限（继承父，法律2）</p>
+      <p class="p">记忆视图（MemoryManager contribution）</p>
+      <p class="p">独立 round-loop（RoundRunner）</p>
+    </div>
+    <div class="node new">
+      <p class="t"><span class="tag tag-n">新增</span>Agent C · 子 Goal 子树</p>
+      <p class="p">模型 profile（provider/model）</p>
+      <p class="p">工具白名单（allowedTools）</p>
+      <p class="p">权限上限（继承父，法律2）</p>
+      <p class="p">记忆视图（MemoryManager contribution）</p>
+      <p class="p">独立 round-loop（RoundRunner）</p>
+    </div>
+  </div>
+  <div class="arrow">▼ 结果写回 / 归因（<span style="color:#0f766e;">已有</span>：causedBy 因果边 · seq 全序 · prevHash 哈希链）</div>
+  <div class="band">
+    <div class="node existing" style="flex:1;">
+      <p class="t"><span class="tag tag-e">已有 · 不变</span>GoalStore + 事件总线 + append-only 审计</p>
+      <p class="p">任何时刻停下，都能重建「模型看到什么 → 决定什么 → 执行什么 → 环境发生什么」</p>
+    </div>
+    <div class="node law" style="flex:1;">
+      <p class="t"><span class="tag tag-l">法律</span>唯一升权路径 = 人类审批</p>
+      <p class="p">委托只降权不升权；子 Agent 需要更高权限时走已有 approvals</p>
+    </div>
+  </div>
+  <div class="legend">
+    <span><span class="sw sw-e"></span>已有 / 复用</span>
+    <span><span class="sw sw-n"></span>本次新增</span>
+    <span><span class="sw sw-l"></span>架构法律（约束）</span>
+  </div>
+</div>
+</div>
+</html>

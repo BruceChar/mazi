@@ -6,6 +6,6 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/validation-tool.sts"],
   "exclude": ["src/**/*.test.ts"]
 }
