@@ -19,7 +19,6 @@ import {
     AUTH_COMMAND_POLICY_SCHEMA,
     apiKeyStatus,
     builtinModelsFor,
-    CapabilityRegistry,
     CatalogService,
     COMMAND_POLICY_DOC,
     configOverview,
@@ -48,6 +47,7 @@ import {
     resolveScopedPermission,
     resolveVendorPricingSource,
     type SecretsFile,
+    SkillRegistry,
     SkillRuntime,
     type SkillView,
     saveProviderApiKey,
@@ -545,7 +545,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         const signature = roots.map((root) => root.scope + ':' + root.dir).join('|');
         if (this.skillRuntime === undefined || signature !== this.skillRootsSignature) {
             const runtime = new SkillRuntime({
-                registry: CapabilityRegistry.open({ roots }),
+                registry: SkillRegistry.open({ roots }),
                 state: new FileSkillMountStore(this.paths.skillStateFile),
                 onAudit: (entry) =>
                     this.logger.log(`skill ${entry.action} ${entry.skillId} @${entry.at}`),
@@ -579,7 +579,6 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         name: string;
         description?: string;
         scope: WritableSkillRootScope;
-        permissionCeiling?: string;
     }): Promise<SkillView> {
         const before = await this.skills();
         if (before.detail(input.id) !== undefined) {
@@ -592,9 +591,6 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 id: input.id,
                 name: input.name,
                 ...(input.description !== undefined ? { description: input.description } : {}),
-                ...(input.permissionCeiling !== undefined
-                    ? { permissionCeiling: input.permissionCeiling }
-                    : {}),
             });
         } catch (error) {
             throw new ApiError(400, error instanceof Error ? error.message : String(error));
@@ -606,7 +602,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return view;
     }
 
-    /** 把技能工具面接入某运行时（构造时注入；未就绪则异步补齐）。 */
+    /** 把 Skill 目录提供者接入某运行时（构造时注入；未就绪则异步补齐）。 */
     private attachSkills(runtime: HarnessRuntime): void {
         if (this.skillRuntime !== undefined) {
             runtime.setSkillProvider(this.skillRuntime);

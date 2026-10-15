@@ -26,7 +26,6 @@ function createSkillInputOf(body: unknown): {
     name: string;
     description?: string;
     scope: WritableSkillRootScope;
-    permissionCeiling?: string;
 } {
     if (typeof body !== 'object' || body === null) throw new ApiError(400, '缺少请求体');
     const record = body as Record<string, unknown>;
@@ -44,17 +43,14 @@ function createSkillInputOf(body: unknown): {
         ...(typeof record.description === 'string' && record.description.trim().length > 0
             ? { description: record.description.trim() }
             : {}),
-        ...(typeof record.permissionCeiling === 'string'
-            ? { permissionCeiling: record.permissionCeiling }
-            : {}),
         scope,
     };
 }
 
 /**
- * 技能（能力包）管理：**发现 + 挂载 / 卸载**（docs/能力包规范.md §10）。
- * 技能是用户资产（$MAZI_HOME/skills、<workspace>/skills），不进代码仓库；
- * 挂载状态持久化在 $MAZI_HOME/skills.json。
+ * Skill（SKILL.md）管理：**发现 + 新建 + 挂载 / 卸载**（docs/能力包规范.md §6）。
+ * Skill 是用户资产（<workspace>/skills、$MAZI_HOME/skills；内置根只读），不进代码仓库；
+ * 挂载状态持久化在 $MAZI_HOME/skills.json，挂载只影响 catalog 注入，不改变工具面与权限。
  */
 @Controller('capabilities')
 export class CapabilitiesController {
@@ -66,7 +62,7 @@ export class CapabilitiesController {
         return discoveryOf(await this.runtime.skills());
     }
 
-    /** POST /api/capabilities：新建技能（写 manifest 脚手架 + 立即发现）；重名 → 409。 */
+    /** POST /api/capabilities：新建 Skill（写 SKILL.md 脚手架 + 立即发现）；重名 → 409。 */
     @Post()
     async create(@Body() body: unknown): Promise<SkillView> {
         return this.runtime.createSkill(createSkillInputOf(body));
