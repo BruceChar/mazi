@@ -16,7 +16,6 @@ import type {
     IterationStatus,
     Project,
     RunOutcome,
-    StepUsage,
     SystemVersionView,
     TocIterationView,
     UserBehaviorExportView,
@@ -24,6 +23,11 @@ import type {
     UserPreferences,
     UserProfileView,
 } from '../types.js';
+import {
+    applyStepEnded as applyLiveStepEnded,
+    applyStepStarted as applyLiveStepStarted,
+    type LiveStep,
+} from './arm-live.js';
 import type { ExperimentSummaryView, ExperimentView } from './experiments.js';
 import { isAbortedReason, snapshotResumable } from './run-control.js';
 import { activeStream, applyStreamEvent, type LiveStream, type LiveStreamMap } from './stream.js';
@@ -256,31 +260,8 @@ export const liveStreams = ref<LiveStreamMap>({});
 /** Most recent active stream of the current run (max updatedAt). */
 export const activeLiveStream = computed<LiveStream | null>(() => activeStream(liveStreams.value));
 
-/**
- * One step of an executing run, derived from live SSE events. The chat renders
- * these as an append-only list so it never has to swap a whole tree per tick.
- */
-export interface LiveStep {
-    stepId: string;
-    taskId: string;
-    kind: string;
-    toolName: string;
-    /** deliberation：推理文本（可展开正文）。 */
-    thinking?: string;
-    /** deliberation：模型回答（内联正文 / 最终输出）。 */
-    answer?: string;
-    /** invocation：工具输出。 */
-    output?: string;
-    /** Short one-line summary (the rendered title). */
-    title: string;
-    /** Full step content; reserved for expansion. */
-    content: string;
-    status: string;
-    startedAt: number;
-    endedAt: number | null;
-    /** Vendor/runtime/cost/timing of the round this step belongs to (may be null while running). */
-    usage: StepUsage | null;
-}
+// 实时步骤类型与投影实现见 ./arm-live.ts（实验台与主对话共用同一份纯函数）。
+export type { LiveStep };
 
 /** Live steps per run (rootGoalId -> ordered steps). */
 export const liveSteps = reactive<Record<string, LiveStep[]>>({});
@@ -629,64 +610,14 @@ async function refreshDetail(rootGoalId: string): Promise<void> {
     }
 }
 
-function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
-    const payload = (event.payload || {}) as Record<string, unknown>;
-    const content = typeof payload.content === 'string' ? payload.content : '';
-    const status = typeof payload.status === 'string' ? payload.status : fallbackStatus;
-    const at = typeof event.timestamp === 'number' ? event.timestamp : Date.now();
-    return {
-        stepId: String(event.stepId ?? ''),
-        taskId: String(event.taskId ?? ''),
-        kind: String(payload.kind ?? 'step'),
-        toolName: typeof payload.toolName === 'string' ? payload.toolName : '',
-        thinking: typeof payload.thinking === 'string' ? payload.thinking : undefined,
-        answer: typeof payload.answer === 'string' ? payload.answer : undefined,
-        output: typeof payload.output === 'string' ? payload.output : undefined,
-        title: content.replace(/\s+/g, ' ').trim().slice(0, 80),
-        content,
-        status,
-        startedAt: at,
-        // pending/active 均视为未结束：pending 是「已安排未执行」。
-        endedAt: status === 'active' || status === 'pending' ? null : at,
-        usage: (payload.usage as StepUsage | undefined) ?? null,
-    };
-}
-
-/** step.started: append a row and close any step still marked running. */
+/** step.started：追加一行（纯函数，见 arm-live.ts）。 */
 function applyStepStarted(rootGoalId: string, event: EventItem): void {
-    let list = liveSteps[rootGoalId];
-    if (!list) {
-        list = [];
-        liveSteps[rootGoalId] = list;
-    }
-    const at = typeof event.timestamp === 'number' ? event.timestamp : Date.now();
-    for (const step of list) {
-        if (step.status === 'active') {
-            step.status = 'succeeded';
-            step.endedAt = at;
-        }
-    }
-    list.push(liveStepOf(event, 'active'));
+    liveSteps[rootGoalId] = applyLiveStepStarted(liveSteps[rootGoalId] ?? [], event);
 }
 
-/** step.ended: update the matching row in place (tool call running -> ok/error). */
+/** step.ended：按 stepId 原地更新（工具调用 running → ok/error）。 */
 function applyStepEnded(rootGoalId: string, event: EventItem): void {
-    let list = liveSteps[rootGoalId];
-    if (!list) {
-        list = [];
-        liveSteps[rootGoalId] = list;
-    }
-    const updated = liveStepOf(event, 'succeeded');
-    const existing = list.find((step) => step.stepId === updated.stepId);
-    if (!existing) {
-        list.push(updated);
-        return;
-    }
-    existing.status = updated.status;
-    existing.content = updated.content;
-    existing.title = updated.title;
-    if (updated.toolName) existing.toolName = updated.toolName;
-    existing.endedAt = updated.endedAt;
+    liveSteps[rootGoalId] = applyLiveStepEnded(liveSteps[rootGoalId] ?? [], event);
 }
 
 export function stopEvents(): void {
@@ -1379,15 +1310,29 @@ export async function loadExperimentDetail(experimentId: string): Promise<Experi
     }
 }
 
-/** 定义并执行一次对照实验（同步等待两臂跑完）。 */
-export async function runExperiment(spec: Record<string, unknown>): Promise<ExperimentView> {
+/** 创建实验（只建两臂会话，不执行）：返回带 rootGoalId 的视图，供实验台立刻开窗并订阅事件流。 */
+export async function planExperiment(spec: Record<string, unknown>): Promise<ExperimentView> {
+    ui.err = null;
+    const view = (await api('/api/experiments', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(spec),
+    })) as ExperimentView;
+    experimentViews[view.experimentId] = view;
+    await loadExperiments();
+    return view;
+}
+
+/**
+ * 前台执行尚未完成的臂（并行）：请求保持到两臂结束；期间实验台用 SSE 实时渲染并应答审批。
+ * 与主对话共用同一进程内串行锁（忙 → 409）。
+ */
+export async function executeExperiment(experimentId: string): Promise<ExperimentView> {
     experimentRunning.value = true;
     ui.err = null;
     try {
-        const view = (await api('/api/experiments', {
+        const view = (await api(`/api/experiments/${encodeURIComponent(experimentId)}/run`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(spec),
         })) as ExperimentView;
         experimentViews[view.experimentId] = view;
         await loadExperiments();

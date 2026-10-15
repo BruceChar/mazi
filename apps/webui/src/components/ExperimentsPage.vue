@@ -1,14 +1,23 @@
 <script setup>
 /**
- * ExperimentsPage — 实验台（AB 对照实验，docs/AB测试设计.md §9.2）。
+ * ExperimentsPage — AB 实验室（对照实验，docs/AB测试设计.md §9.2）。
  *
- * 一个实验 = 同一输入 / 同一工作区 / 两臂，只改一条自变量（Feature 开关 / Skill 集合 /
- * 模型 / 权限 / 推理强度）。本页提供：新建 → 执行 → 并排看最终输出与 Trace → 写复盘；
- * 历史实验可随时回看（日志折叠结果，后端为唯一真相源）。
+ * 前台执行、与主对话同一条执行面：
+ *   1. 「运行」先 POST /api/experiments 建好两臂 Goal 会话（拿到两个 rootGoalId）；
+ *   2. 立刻为左右两个窗口订阅 /api/events/:rootGoalId?follow=1 —— 实时看 thinking / 工具 / 观察；
+ *   3. 再 POST /api/experiments/:id/run（前台请求，两臂并行）；期间审批会实时弹出并可应答；
+ *   4. 结束后刷新折叠视图：指标、Trace、输出并排 diff、复盘。
  */
 import { diffText } from '@mazi/libs';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { API_BASE } from '../api.js';
 import LineIcon from '../assets/LineIcon.vue';
+import {
+    applyArmEvent,
+    ARM_EVENT_TYPES,
+    armStreamText,
+    initialArmLive,
+} from '../scripts/arm-live.ts';
 import { PERMISSION_LEVELS } from '../scripts/goal-contract.ts';
 import {
     armConfigSummary,
@@ -28,6 +37,7 @@ import {
 import {
     cfg,
     deleteExperiment,
+    executeExperiment,
     experimentRunning,
     experiments,
     experimentViews,
@@ -40,16 +50,21 @@ import {
     loadFeatures,
     loadSkillOptions,
     loadWorkspace,
+    planExperiment,
     projects,
     rerunExperiment,
+    respondApproval,
     reviewExperiment,
-    runExperiment,
     skillOptions,
     workspaceRoot,
 } from '../scripts/store.js';
 
 const selectedId = ref('');
 const traces = reactive({});
+/** label -> ArmLive（实时投影，见 arm-live.ts）。 */
+const live = reactive({});
+/** label -> EventSource（非响应式，仅用于清理）。 */
+const sources = {};
 const error = ref('');
 const notice = ref('');
 const reviewNote = ref('');
@@ -80,6 +95,13 @@ const selected = computed(() => {
     const id = selectedId.value;
     return id ? (experimentViews[id] ?? null) : null;
 });
+
+const pendingArms = computed(
+    () =>
+        selected.value?.arms.filter(
+            (arm) => arm.rootGoalId && (arm.status === 'pending' || arm.status === 'running'),
+        ) ?? [],
+);
 
 const modelOptions = computed(() => {
     const providers = cfg.value?.providers || [];
@@ -140,7 +162,43 @@ onMounted(async () => {
     if (experiments.value[0]) await select(experiments.value[0].experimentId);
 });
 
+onBeforeUnmount(closeAllArms);
+
+/* ---- 实时：每臂一个 SSE 订阅（前台可见，审批可应答） ---- */
+
+function watchArm(arm) {
+    if (!arm.rootGoalId) return;
+    closeArm(arm.label);
+    live[arm.label] = initialArmLive('running');
+    if (typeof EventSource === 'undefined') return;
+    const url = API_BASE + '/api/events/' + encodeURIComponent(arm.rootGoalId) + '?follow=1';
+    const source = new EventSource(url);
+    const consume = (raw) => {
+        try {
+            const parsed = JSON.parse(raw.data);
+            live[arm.label] = applyArmEvent(live[arm.label] ?? initialArmLive('running'), parsed);
+        } catch {
+            // 坏帧忽略：事件流以 step.ended 为准。
+        }
+    };
+    for (const type of ARM_EVENT_TYPES) source.addEventListener(type, consume);
+    sources[arm.label] = source;
+}
+
+function closeArm(label) {
+    const source = sources[label];
+    if (source) {
+        source.close();
+        delete sources[label];
+    }
+}
+
+function closeAllArms() {
+    for (const label of Object.keys(sources)) closeArm(label);
+}
+
 async function select(experimentId) {
+    if (experimentId !== selectedId.value) closeAllArms();
     selectedId.value = experimentId;
     error.value = '';
     notice.value = '';
@@ -161,6 +219,12 @@ async function loadTraces() {
     );
 }
 
+/** 开窗订阅两臂事件流，然后前台执行（请求保持到两臂结束）。 */
+async function startRun(experimentId, arms) {
+    for (const arm of arms) watchArm(arm);
+    await executeExperiment(experimentId);
+}
+
 async function submit() {
     error.value = '';
     notice.value = '';
@@ -170,11 +234,32 @@ async function submit() {
         return;
     }
     try {
-        const view = await runExperiment(draft.spec);
-        notice.value = '实验完成：' + view.experimentId;
-        await select(view.experimentId);
+        const planned = await planExperiment(draft.spec);
+        await select(planned.experimentId);
+        await startRun(planned.experimentId, planned.arms);
+        await select(planned.experimentId);
+        notice.value = '实验完成：' + planned.experimentId;
     } catch (err) {
         error.value = String(err);
+    } finally {
+        closeAllArms();
+    }
+}
+
+/** 继续执行一次「已创建但未跑完」的实验（刷新页面后也能接着跑）。 */
+async function resumeSelected() {
+    const view = selected.value;
+    if (!view || experimentRunning.value) return;
+    error.value = '';
+    notice.value = '';
+    try {
+        await startRun(view.experimentId, pendingArms.value);
+        await select(view.experimentId);
+        notice.value = '实验完成：' + view.experimentId;
+    } catch (err) {
+        error.value = String(err);
+    } finally {
+        closeAllArms();
     }
 }
 
@@ -182,10 +267,24 @@ async function rerun() {
     const view = selected.value;
     if (!view || experimentRunning.value) return;
     error.value = '';
+    notice.value = '';
     try {
         const next = await rerunExperiment(view.experimentId);
-        notice.value = '已重跑为新实验：' + next.experimentId;
         await select(next.experimentId);
+        await startRun(next.experimentId, next.arms);
+        await select(next.experimentId);
+        notice.value = '已重跑为新实验：' + next.experimentId;
+    } catch (err) {
+        error.value = String(err);
+    } finally {
+        closeAllArms();
+    }
+}
+
+/** 行内应答审批（允许一次 / 本会话 / 拒绝）。 */
+async function decide(approval, decision, scope) {
+    try {
+        await respondApproval(approval.invocationId, decision, scope);
     } catch (err) {
         error.value = String(err);
     }
@@ -195,6 +294,7 @@ async function removeSelected() {
     const view = selected.value;
     if (!view) return;
     if (!window.confirm('删除实验日志「' + view.title + '」？Goal/Trace 事实不会被删除。')) return;
+    closeAllArms();
     try {
         await deleteExperiment(view.experimentId);
         selectedId.value = '';
@@ -238,6 +338,17 @@ function kpis(arm) {
         { label: '总耗时', value: formatMetric(metrics.durationMs, 'ms') },
         { label: '首 token', value: formatMetric(metrics.ttftMs, 'ms') },
     ];
+}
+
+function isLive(label) {
+    const state = live[label];
+    if (!state) return false;
+    return (
+        state.status === 'running' ||
+        state.steps.length > 0 ||
+        state.approvals.length > 0 ||
+        armStreamText(state).length > 0
+    );
 }
 </script>
 
@@ -376,7 +487,7 @@ function kpis(arm) {
                         </label>
                     </div>
                     <div class="create-actions">
-                        <span class="hint">两臂顺序执行（共享配额）；除自变量外运行参数完全一致。</span>
+                        <span class="hint">点运行后左右两窗同时前台执行；审批会实时弹出，不会卡在后台。</span>
                         <button class="btn primary" :disabled="experimentRunning" @click="submit">
                             <LineIcon name="play" size="13" />{{ experimentRunning ? '运行中…' : '运行对照实验' }}
                         </button>
@@ -397,6 +508,13 @@ function kpis(arm) {
                                 <span class="mono">{{ selected.experimentId }}</span>
                             </div>
                             <div class="actions">
+                                <button
+                                    v-if="pendingArms.length && !experimentRunning"
+                                    class="btn primary"
+                                    @click="resumeSelected"
+                                >
+                                    <LineIcon name="play" size="13" />继续运行（{{ pendingArms.length }} 臂待跑）
+                                </button>
                                 <button class="btn" :disabled="experimentRunning" @click="rerun">
                                     <LineIcon name="refresh" size="13" />重跑
                                 </button>
@@ -419,7 +537,7 @@ function kpis(arm) {
                         </div>
                     </div>
 
-                    <!-- 两臂并排 -->
+                    <!-- 两臂并排（前台执行，实时可见） -->
                     <div class="arms">
                         <div v-for="arm in selected.arms" :key="arm.label" class="card arm">
                             <div class="arm-head">
@@ -431,6 +549,44 @@ function kpis(arm) {
                                 <span v-for="id in armFeatureLabels(arm)" :key="id" class="setting-badge">开关 {{ id }}</span>
                             </div>
                             <div v-if="arm.error" class="notice error small">{{ arm.error }}</div>
+
+                            <!-- 实时执行：thinking / 工具 / 观察 + 行内审批 -->
+                            <div v-if="isLive(arm.label)" class="live">
+                                <div class="block-head">
+                                    实时执行
+                                    <span class="badge" :class="live[arm.label].status">
+                                        {{ armStatusLabel(live[arm.label].status) }}
+                                    </span>
+                                </div>
+                                <pre v-if="armStreamText(live[arm.label])" class="stream">{{ armStreamText(live[arm.label]) }}</pre>
+                                <div v-if="live[arm.label].error" class="notice error small">{{ live[arm.label].error }}</div>
+                                <ul class="live-steps">
+                                    <li
+                                        v-for="step in live[arm.label].steps"
+                                        :key="step.stepId"
+                                        :class="step.status"
+                                    >
+                                        <span class="step-kind">{{ step.kind === 'invocation' ? '工具' : '思考' }}</span>
+                                        <span class="step-title">{{ step.title || step.content }}</span>
+                                        <span class="step-status">{{ step.status }}</span>
+                                    </li>
+                                </ul>
+                                <div
+                                    v-for="approval in live[arm.label].approvals"
+                                    :key="approval.invocationId"
+                                    class="approval"
+                                >
+                                    <div class="approval-text">
+                                        需要人工审批：<code>{{ approval.toolName }}</code>
+                                        {{ approval.summary }}
+                                    </div>
+                                    <div class="approval-actions">
+                                        <button class="btn primary" @click="decide(approval, 'granted', 'once')">允许一次</button>
+                                        <button class="btn" @click="decide(approval, 'granted', 'session')">本会话允许</button>
+                                        <button class="btn danger" @click="decide(approval, 'rejected')">拒绝</button>
+                                    </div>
+                                </div>
+                            </div>
 
                             <div class="kpis">
                                 <div v-for="kpi in kpis(arm)" :key="kpi.label" class="kpi">
@@ -651,9 +807,6 @@ function kpis(arm) {
 .grid.two {
     grid-template-columns: 1fr 1fr;
 }
-.grid.three {
-    grid-template-columns: repeat(3, 1fr);
-}
 label {
     display: flex;
     flex-direction: column;
@@ -764,6 +917,8 @@ input:disabled {
     display: flex;
     gap: 6px;
     flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 .detail-meta,
 .hypothesis,
@@ -803,6 +958,82 @@ input:disabled {
     font-size: 12px;
     color: var(--fg-secondary);
 }
+/* 实时执行区：流式正文 + 步骤 + 行内审批 */
+.live {
+    margin-top: 10px;
+    padding: 8px;
+    border: 1px solid var(--accent-soft);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+}
+.stream {
+    margin: 0;
+    padding: 6px 8px;
+    max-height: 160px;
+    overflow-y: auto;
+    border-radius: var(--radius-sm);
+    background: var(--bg-code, var(--bg-panel));
+    color: var(--fg-secondary);
+    font-size: 11px;
+    font-family: inherit;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.live-steps {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+.live-steps li {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.step-kind {
+    flex-shrink: 0;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--bg-hover);
+    color: var(--fg-tertiary);
+    font-size: 10px;
+}
+.step-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.step-status {
+    color: var(--fg-tertiary);
+    font-size: 10px;
+}
+.live-steps li.active .step-title {
+    color: var(--fg);
+}
+.approval {
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--warn);
+    border-radius: var(--radius-sm);
+    background: var(--warn-soft);
+}
+.approval-text {
+    font-size: 12px;
+    color: var(--fg);
+}
+.approval-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
 .kpis {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -830,6 +1061,7 @@ input:disabled {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
+    gap: 8px;
     margin: 12px 0 6px;
     font-size: 12px;
     font-weight: 600;
@@ -968,6 +1200,29 @@ input:disabled {
     background: var(--error-soft);
     color: var(--error);
 }
+.review-form {
+    display: grid;
+    grid-template-columns: 120px 1fr auto;
+    gap: 8px;
+}
+.reviews {
+    list-style: none;
+    margin: 10px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.reviews li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--fg-secondary);
+}
+.review-note {
+    color: var(--fg);
+}
 .workspace-hint {
     margin-top: -2px;
 }
@@ -1024,29 +1279,5 @@ input:disabled {
     border-radius: 8px;
     padding: 0 5px;
     flex-shrink: 0;
-}
-
-.review-form {
-    display: grid;
-    grid-template-columns: 120px 1fr auto;
-    gap: 8px;
-}
-.reviews {
-    list-style: none;
-    margin: 10px 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-.reviews li {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--fg-secondary);
-}
-.review-note {
-    color: var(--fg);
 }
 </style>
