@@ -26,6 +26,12 @@ export class ExperimentsController {
         return this.experiments.detail(experimentId);
     }
 
+    /** 前台执行尚未完成的臂（并行；请求保持到两臂结束，期间 UI 订阅事件流并应答审批）。 */
+    @Post(':id/run')
+    run(@Param('id') experimentId: string) {
+        return this.experiments.execute(experimentId);
+    }
+
     @Post(':id/rerun')
     rerun(@Param('id') experimentId: string) {
         return this.experiments.rerun(experimentId);

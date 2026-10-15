@@ -28,8 +28,12 @@ function verdictOf(value: unknown): 'A' | 'B' | 'tie' | 'inconclusive' {
 
 /**
  * ExperimentsService —— 对照实验编排（docs/AB测试设计.md §7/§8.2）。
- * 实验是方法记录：创建即执行（进程内串行锁），两臂顺序跑同一输入；
- * 状态与指标全部由实验日志折叠得出，本层不持有真相源。
+ *
+ * 前台执行（不是后台任务）：
+ *   POST /api/experiments          只建两臂 Goal 会话（arm.planned 携 rootGoalId），立即返回；
+ *   POST /api/experiments/:id/run  在同一个进程内串行锁持有期内**并行**跑完两臂并返回。
+ * 前端据此立刻打开两个窗口并订阅 /api/events/:rootGoalId，实时渲染并在需要时应答审批 ——
+ * 执行面与主对话完全一致（createGoalSession / executeGoalTree / 事件总线 / 审批 seam）。
  */
 @Injectable()
 export class ExperimentsService {
@@ -50,14 +54,38 @@ export class ExperimentsService {
         return view;
     }
 
-    /** POST /api/experiments：定义并执行一次对照实验。 */
+    /** POST /api/experiments：创建实验（两臂会话就绪，不执行）。 */
     async create(body: unknown): Promise<ExperimentView> {
-        return this.execute(this.validate(body));
+        const spec = this.validate(body);
+        this.bindWorkspace(spec);
+        return (await this.runner()).create(spec);
     }
 
-    /** POST /api/experiments/:id/rerun：同一 spec 再跑一次（新 id，不覆盖原记录）。 */
+    /**
+     * POST /api/experiments/:id/run：前台执行尚未完成的臂（并行）。
+     * 已有会话在跑 → 409（复用主对话的进程内串行锁）；两臂都已完成 → 幂等返回。
+     */
+    async execute(experimentId: string): Promise<ExperimentView> {
+        const view = await this.detail(experimentId);
+        if (view.arms.every((arm) => arm.metrics !== undefined)) return view;
+        this.bindWorkspace(specOfExperiment(view));
+        const runner = await this.runner();
+        const started = Date.now();
+        const done = await this.runtime.runExclusive(() => runner.execute(experimentId));
+        this.logger.log(
+            `experiment ${done.experimentId} ${done.status} arms=${done.arms
+                .map((arm) => arm.status)
+                .join('/')} ms=${Date.now() - started}`,
+        );
+        return done;
+    }
+
+    /** POST /api/experiments/:id/rerun：复制为新的**待执行**实验（执行由前端前台触发）。 */
     async rerun(experimentId: string): Promise<ExperimentView> {
-        return this.execute(specOfExperiment(await this.detail(experimentId)));
+        const previous = await this.detail(experimentId);
+        const spec = specOfExperiment(previous);
+        this.bindWorkspace(spec);
+        return (await this.runner()).create(spec);
     }
 
     /** POST /api/experiments/:id/reviews：追加复盘备注（append-only）。 */
@@ -93,32 +121,20 @@ export class ExperimentsService {
         }
     }
 
-    /**
-     * 执行一次实验：进程内串行（复用 runExclusive，busy → 409）；spec.workspace 只
-     * 在本次执行期间生效，结束后恢复宿主原工作区选择（实验不改用户上下文）。
-     */
-    private async execute(spec: ExperimentSpec): Promise<ExperimentView> {
-        const previousWorkspace = this.runtime.selectedWorkspaceRoot;
-        return this.runtime.runExclusive(async () => {
-            const started = Date.now();
-            try {
-                if (spec.workspace !== undefined) this.runtime.setWorkspaceRoot(spec.workspace);
-                const features = await this.runtime.features();
-                const runner = new ExperimentRunner({
-                    harness: this.runtime.harness(),
-                    store: this.runtime.experiments(),
-                    featureResolver: (overrides) => features.resolve(overrides),
-                });
-                const view = await runner.run(spec);
-                this.logger.log(
-                    `experiment ${view.experimentId} ${view.status} arms=${view.arms
-                        .map((arm) => arm.status)
-                        .join('/')} ms=${Date.now() - started}`,
-                );
-                return view;
-            } finally {
-                this.runtime.setWorkspaceRoot(previousWorkspace);
-            }
+    private async runner(): Promise<ExperimentRunner> {
+        const features = await this.runtime.features();
+        return new ExperimentRunner({
+            harness: this.runtime.harness(),
+            store: this.runtime.experiments(),
+            featureResolver: (overrides) => features.resolve(overrides),
         });
+    }
+
+    /**
+     * 生效工作区：实验表单显式选择则切换「当前工作区」（与主对话一致 —— 选了就在该工作区跑），
+     * 不指定则沿用当前选择。**不做执行后回滚**：回滚会让已开的 SSE 订阅落到另一个运行时实例。
+     */
+    private bindWorkspace(spec: ExperimentSpec): void {
+        if (spec.workspace !== undefined) this.runtime.setWorkspaceRoot(spec.workspace);
     }
 }

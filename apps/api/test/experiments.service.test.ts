@@ -1,7 +1,7 @@
 /**
  * ExperimentsService 编排（docs/AB测试设计.md §7/§8.2）。
- * 用真实 HarnessRuntime（注入离线 faux provider）+ 内存实验日志，覆盖执行/复盘/重跑/删除
- * 与工作区恢复；HTTP 契约由 experiments.controller.test.ts 覆盖。
+ * create = 只建会话（前台可立刻开窗）；execute = 前台并行执行两臂。
+ * 用真实 HarnessRuntime（注入离线 faux provider）+ 内存实验日志。
  */
 
 import 'reflect-metadata';
@@ -11,12 +11,16 @@ import { join } from 'node:path';
 import type { ExperimentSpec, LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
 import { resolveFeatures } from '@mazi/core';
 import type { ExperimentStore, FeatureRuntime, RuntimeConfig } from '@mazi/runtime';
-import { FeatureRuntime as FeatureRuntimeClass, MemoryExperimentStore, MemoryFeatureStore } from '@mazi/runtime';
+import {
+    FeatureRuntime as FeatureRuntimeClass,
+    HarnessRuntime,
+    MemoryExperimentStore,
+    MemoryFeatureStore,
+} from '@mazi/runtime';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ApiError } from '../src/common/api-error.js';
 import type { ApiRuntimeService } from '../src/common/runtime.service.js';
 import { ExperimentsService } from '../src/experiments/experiments.service.js';
-import { HarnessRuntime } from '@mazi/runtime';
 
 function configIn(dir: string): RuntimeConfig {
     return {
@@ -48,17 +52,11 @@ function branchingProvider(requests: LLMRequest[]): LLMProvider {
     };
 }
 
-interface Harness {
-    service: ExperimentsService;
-    store: ExperimentStore;
-    runtime: StubRuntime;
-    requests: LLMRequest[];
-}
-
-/** 只暴露 ExperimentsService 需要的运行时能力；runExclusive 同真实语义（串行执行）。 */
+/** 只暴露 ExperimentsService 需要的运行时能力；runExclusive 同真实语义（串行锁）。 */
 class StubRuntime {
     selectedWorkspaceRoot: string | undefined;
     readonly workspaceCalls: Array<string | undefined> = [];
+    lockBusy = false;
     constructor(
         private readonly harnessInstance: HarnessRuntime,
         private readonly storeInstance: ExperimentStore,
@@ -78,8 +76,16 @@ class StubRuntime {
         return Promise.resolve(this.featureRuntime);
     }
     runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+        if (this.lockBusy) throw new ApiError(409, '已有会话在运行，请稍候');
         return operation();
     }
+}
+
+interface Harness {
+    service: ExperimentsService;
+    store: ExperimentStore;
+    runtime: StubRuntime;
+    requests: LLMRequest[];
 }
 
 const dirs: string[] = [];
@@ -132,50 +138,73 @@ function specOf(workspace?: string): ExperimentSpec {
 }
 
 describe('ExperimentsService', () => {
-    it('create 执行两臂：completed + 对比 + 两臂输出不同；Feature 只影响对应臂', async () => {
+    it('create 只建两臂会话（前台开窗用）：status=created，两臂 pending 且带 rootGoalId，不跑模型', async () => {
         const { service, store, requests } = await harnessWith();
         const view = await service.create(specOf());
-        expect(view.status).toBe('completed');
-        expect(view.arms.map((arm) => arm.status)).toEqual(['completed', 'completed']);
-        expect(view.arms[0]?.metrics?.finalAnswer).toContain('A 答案');
-        expect(view.arms[1]?.metrics?.finalAnswer).toContain('B 答案');
-        expect(view.arms[1]?.metrics?.features).toEqual({ concise: true });
-        expect(view.comparison?.outputs.identical).toBe(false);
-        expect(String(requests[0]?.system)).not.toContain('简洁作答');
-        expect(String(requests[1]?.system)).toContain('简洁作答');
+        expect(view.status).toBe('created');
+        expect(view.arms.map((arm) => arm.status)).toEqual(['pending', 'pending']);
+        expect(view.arms[0]?.rootGoalId).toBeTruthy();
+        expect(view.arms[1]?.rootGoalId).toBeTruthy();
+        expect(requests).toHaveLength(0);
         expect((await store.list()).length).toBe(1);
     });
 
-    it('spec.workspace 只在本次执行生效，结束后恢复宿主选择', async () => {
+    it('execute 前台并行执行两臂：completed + 对比 + 两臂 Feature 各自生效', async () => {
+        const { service, requests } = await harnessWith();
+        const planned = await service.create(specOf());
+        const done = await service.execute(planned.experimentId);
+        expect(done.status).toBe('completed');
+        expect(done.arms.map((arm) => arm.status)).toEqual(['completed', 'completed']);
+        expect(done.arms[0]?.metrics?.finalAnswer).toContain('A 答案');
+        expect(done.arms[1]?.metrics?.finalAnswer).toContain('B 答案');
+        expect(done.arms[1]?.metrics?.features).toEqual({ concise: true });
+        expect(done.comparison?.outputs.identical).toBe(false);
+        expect(requests).toHaveLength(2);
+        expect(String(requests[0]?.system)).not.toContain('简洁作答');
+        expect(String(requests[1]?.system)).toContain('简洁作答');
+    });
+
+    it('execute 幂等：两臂都有指标时直接返回', async () => {
+        const { service, requests } = await harnessWith();
+        const planned = await service.create(specOf());
+        await service.execute(planned.experimentId);
+        const again = await service.execute(planned.experimentId);
+        expect(again.status).toBe('completed');
+        expect(requests).toHaveLength(2);
+    });
+
+    it('工作区：显式选择则切换当前工作区且不回滚（保证事件流订阅同一运行时）', async () => {
         const previous = mkdtempSync(join(tmpdir(), 'mazi-ws-'));
         dirs.push(previous);
         const target = mkdtempSync(join(tmpdir(), 'mazi-ws-target-'));
         dirs.push(target);
         const { service, runtime } = await harnessWith(previous);
         await service.create(specOf(target));
-        expect(runtime.workspaceCalls).toEqual([target, previous]);
-        expect(runtime.selectedWorkspaceRoot).toBe(previous);
+        expect(runtime.workspaceCalls).toEqual([target]);
+        expect(runtime.selectedWorkspaceRoot).toBe(target);
     });
 
-    it('list/detail/review/rerun/remove 闭环；未知 id → 404', async () => {
+    it('list/detail/review/remove 闭环；rerun 复制为新的待执行实验', async () => {
         const { service } = await harnessWith();
-        const view = await service.create(specOf());
+        const planned = await service.create(specOf());
+        await service.execute(planned.experimentId);
         expect((await service.list()).experiments).toHaveLength(1);
-        expect((await service.detail(view.experimentId)).title).toBe('Feature 增益');
+        expect((await service.detail(planned.experimentId)).status).toBe('completed');
 
-        const reviewed = await service.review(view.experimentId, {
+        const reviewed = await service.review(planned.experimentId, {
             note: ' B 更省 ',
             verdict: 'B',
         });
         expect(reviewed.reviews).toEqual([{ note: 'B 更省', verdict: 'B', at: expect.any(Number) }]);
 
-        const rerun = await service.rerun(view.experimentId);
-        expect(rerun.experimentId).not.toBe(view.experimentId);
-        expect(rerun.status).toBe('completed');
+        const rerun = await service.rerun(planned.experimentId);
+        expect(rerun.experimentId).not.toBe(planned.experimentId);
+        expect(rerun.status).toBe('created');
+        expect(rerun.arms.map((arm) => arm.status)).toEqual(['pending', 'pending']);
         expect((await service.list()).experiments).toHaveLength(2);
 
-        expect(await service.remove(view.experimentId)).toEqual({ ok: true, removed: true });
-        await expect(service.detail(view.experimentId)).rejects.toBeInstanceOf(ApiError);
+        expect(await service.remove(planned.experimentId)).toEqual({ ok: true, removed: true });
+        await expect(service.detail(planned.experimentId)).rejects.toBeInstanceOf(ApiError);
         await expect(service.review('01ARZ3NDEKTSV4RRFFQ69G5FAV', { note: 'x' })).rejects.toThrow(
             '实验不存在',
         );
@@ -187,15 +216,14 @@ describe('ExperimentsService', () => {
         await expect(service.create({ ...specOf(), arms: [{ label: 'A' }] })).rejects.toThrow(
             '恰好两个',
         );
-        const view = await service.create(specOf());
-        await expect(service.review(view.experimentId, {})).rejects.toThrow('缺少 note');
+        const planned = await service.create(specOf());
+        await expect(service.review(planned.experimentId, {})).rejects.toThrow('缺少 note');
     });
 
-    it('runExclusive 忙 → 409 透传（不吞错）', async () => {
+    it('串行锁忙 → execute 409 透传（不吞错）', async () => {
         const { service, runtime } = await harnessWith();
-        runtime.runExclusive = async () => {
-            throw new ApiError(409, '已有会话在运行，请稍候');
-        };
-        await expect(service.create(specOf())).rejects.toThrow('已有会话在运行');
+        const planned = await service.create(specOf());
+        runtime.lockBusy = true;
+        await expect(service.execute(planned.experimentId)).rejects.toThrow('已有会话在运行');
     });
 });

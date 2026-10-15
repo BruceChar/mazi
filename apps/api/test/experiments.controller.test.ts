@@ -1,6 +1,7 @@
 /**
  * 对照实验接口（docs/AB测试设计.md §8.2、AB-11）。
- * 用 $MAZI_HOME 内离线 faux 驱动真跑两臂；断言实验日志折叠出的复盘视图。
+ * POST /api/experiments 只建两臂会话；POST /api/experiments/:id/run 前台并行执行。
+ * 测试环境无可用厂商 provider（faux 未注册）：两臂以 driver-error 结束，但事件/审批链路与真实一致。
  */
 
 import 'reflect-metadata';
@@ -67,7 +68,7 @@ describe('对照实验接口', () => {
         expect(badKind.statusCode).toBe(400);
     });
 
-    it('POST 执行两臂 → completed + 指标 + 对比；实验日志落盘', async () => {
+    it('POST 创建（不执行）：两臂 pending + rootGoalId，日志已落盘', async () => {
         const created = await h.fastify.inject({
             method: 'POST',
             url: '/api/experiments',
@@ -75,31 +76,48 @@ describe('对照实验接口', () => {
         });
         expect(created.statusCode).toBe(200);
         const view = created.json();
-        // 本用例只验 HTTP 契约与日志折叠：测试环境无可用厂商 provider，两臂以
-        // driver-error 结束（执行语义由 experiments.service.test.ts 与 runtime 用例覆盖）。
-        expect(view.status).toBe('completed');
-        expect(view.arms).toHaveLength(2);
+        expect(view.status).toBe('created');
         expect(view.arms.map((arm: { status: string }) => arm.status)).toEqual([
-            'failed',
-            'failed',
+            'pending',
+            'pending',
         ]);
+        expect(view.arms[0].rootGoalId).toBeTruthy();
         expect(view.arms[0].rootGoalId).not.toBe(view.arms[1].rootGoalId);
-        // Feature 解析仍然到达运行配置（实验日志记录了臂的有效开关）。
-        expect(view.arms[1].metrics.features).toEqual({ concise: true });
-        expect(view.comparison.metrics.some((m: { key: string }) => m.key === 'costUsd')).toBe(true);
-        expect(view.comparison.execution).toBe('sequential');
 
         const logs = readdirSync(join(h.home, 'experiments')).filter((name) =>
             name.endsWith('.jsonl'),
         );
         expect(logs).toContain(view.experimentId + '.jsonl');
+    });
 
+    it('POST /:id/run 前台执行两臂 → completed + 对比；重复 run 幂等', async () => {
         const list = await h.fastify.inject({ method: 'GET', url: '/api/experiments' });
-        expect(list.json().experiments[0]).toMatchObject({
-            experimentId: view.experimentId,
-            status: 'completed',
+        const experimentId = list.json().experiments[0].experimentId;
+
+        const run = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/experiments/' + experimentId + '/run',
         });
-        expect(list.json().experiments[0].arms).toHaveLength(2);
+        expect(run.statusCode).toBe(200);
+        const done = run.json();
+        expect(done.status).toBe('completed');
+        // 无可用 provider → 两臂以 driver-error 结束；Feature 解析仍到达运行配置。
+        expect(done.arms.map((arm: { status: string }) => arm.status)).toEqual([
+            'failed',
+            'failed',
+        ]);
+        expect(done.arms[1].metrics.features).toEqual({ concise: true });
+        expect(done.comparison.execution).toBe('sequential');
+        expect(done.comparison.metrics.some((m: { key: string }) => m.key === 'costUsd')).toBe(
+            true,
+        );
+
+        const again = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/experiments/' + experimentId + '/run',
+        });
+        expect(again.statusCode).toBe(200);
+        expect(again.json().status).toBe('completed');
     });
 
     it('GET 详情 → 折叠视图；未知 id → 404；非法 id → 404（不触盘）', async () => {
@@ -149,7 +167,7 @@ describe('对照实验接口', () => {
         ]);
     });
 
-    it('rerun 生成新实验；DELETE 物理删除；未知 id 404', async () => {
+    it('rerun 复制为新的待执行实验；DELETE 物理删除；未知 id 404', async () => {
         const list = await h.fastify.inject({ method: 'GET', url: '/api/experiments' });
         const experimentId = list.json().experiments[0].experimentId;
 
@@ -159,7 +177,11 @@ describe('对照实验接口', () => {
         });
         expect(rerun.statusCode).toBe(200);
         expect(rerun.json().experimentId).not.toBe(experimentId);
-        expect(rerun.json().status).toBe('completed');
+        expect(rerun.json().status).toBe('created');
+        expect(rerun.json().arms.map((arm: { status: string }) => arm.status)).toEqual([
+            'pending',
+            'pending',
+        ]);
 
         const afterList = await h.fastify.inject({ method: 'GET', url: '/api/experiments' });
         expect(afterList.json().experiments.length).toBe(2);
