@@ -4,5 +4,6 @@ export * from './cost-ledger.js';
 export * from './iteration.js';
 export * from './ledger.js';
 export * from './question-taxonomy.js';
+export * from './text-diff.js';
 export * from './thinking-chain.js';
 export * from './types.js';
