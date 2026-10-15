@@ -12,6 +12,7 @@ import {
     formatSigned,
     formatTokens,
 } from '../scripts/audit.ts';
+import { buildTraceBoard, filterTraceGroups } from '../scripts/trace.ts';
 import {
     analyzeToc,
     copyThinkingChain,
@@ -40,8 +41,8 @@ const props = defineProps({
     showAllEvents: { type: Boolean, default: false },
     /** buildAuditView() result for the selected Step/Task (docs/web/观测看板设计.md). */
     audit: { type: Object, default: null },
-    /** 整条会话流的步骤行（Context 追踪用，不随选择变化）。 */
-    contextRows: { type: Array, default: () => [] },
+    /** 会话级 AuditView（buildAuditView 无选择时的结果）：Trace 看板的 rows / KPI 来源。 */
+    trace: { type: Object, default: null },
 });
 const emit = defineEmits([
     'update:activeTab',
@@ -205,92 +206,60 @@ function toggleSection(key) {
     next.has(key) ? next.delete(key) : next.add(key);
     openSections.value = next;
 }
-const openContext = ref(new Set());
-function toggleContext(key) {
-    const next = new Set(openContext.value);
-    next.has(key) ? next.delete(key) : next.add(key);
-    openContext.value = next;
-}
+/* ---- Trace 看板（「审计」+「Context」合并，docs/web/观测看板设计.md v3） ---- */
+const TRACE_FILTERS = [
+    { key: 'all', label: '全部' },
+    { key: 'model', label: '模型' },
+    { key: 'tool', label: '工具' },
+    { key: 'error', label: '异常' },
+];
+/** 列表视图：时间瀑布 / Context 增长条。 */
+const traceMode = ref('timeline');
+const traceFilter = ref('all');
+/** 会话级看板（不随 Step/Task 选择变化）。 */
+const traceBoard = computed(() =>
+    buildTraceBoard({
+        rows: props.trace?.rows ?? [],
+        usage: props.trace?.usage ?? null,
+        tasks: props.trace?.tasks ?? [],
+    }),
+);
+const traceSummary = computed(() => traceBoard.value.summary);
+const traceGroups = computed(() => filterTraceGroups(traceBoard.value.groups, traceFilter.value));
+/** 列表渲染项：分组头 + 展平的 span（模型步 depth 0，工具子步 depth 1）。 */
+const traceItems = computed(() => {
+    const items = [];
+    for (const group of traceGroups.value) {
+        items.push({ kind: 'group', key: 'group:' + group.key, group });
+        for (const span of group.spans) {
+            items.push({ kind: 'span', key: span.stepId, span, depth: 0 });
+            for (const child of span.children) {
+                items.push({ kind: 'span', key: child.stepId, span: child, depth: 1 });
+            }
+        }
+    }
+    return items;
+});
+const traceUtilization = computed(() => props.trace?.utilization ?? null);
+const traceWindowTokens = computed(() => props.trace?.contextWindowTokens ?? null);
 
-/* ---- Context 追踪：分段堆叠增长条 ---- */
-const contextRowList = computed(() => props.contextRows || []);
-const contextUtil = computed(() => props.audit?.utilization ?? null);
-/** 对 context 无影响的步骤（工具调用等）：不进图表，折叠成一行一个。 */
-const contextModelRows = computed(() =>
-    contextRowList.value.filter((row) => row.contextTotal != null),
-);
-const contextToolRows = computed(() =>
-    contextRowList.value.filter((row) => row.contextTotal == null),
-);
-const openToolGroups = ref(new Set());
-function toggleToolGroup(key) {
-    const next = new Set(openToolGroups.value);
-    next.has(key) ? next.delete(key) : next.add(key);
-    openToolGroups.value = next;
+/** 缓存命中率：无 input 时显示占位符。 */
+function hitRateLabel(rate) {
+    return rate == null ? '—' : formatPercent(rate);
 }
-/** 单个工具调用 step 的展开态（单击展开/折叠，双击定位会话流）。 */
-const openToolLines = ref(new Set());
-function toggleToolLine(stepId) {
-    const next = new Set(openToolLines.value);
+/** trace 级吞吐（output token / 秒），对齐 Langfuse 的 latency 卡片副标题。 */
+const traceThroughput = computed(() => {
+    const { outputTokens, durationMs } = traceSummary.value;
+    if (!durationMs || durationMs <= 0 || !outputTokens) return null;
+    return (outputTokens / durationMs) * 1000;
+});
+/** span 行展开态：模型步看 context diff，工具步看命令与输出。 */
+const openSpans = ref(new Set());
+function toggleSpan(stepId) {
+    const next = new Set(openSpans.value);
     next.has(stepId) ? next.delete(stepId) : next.add(stepId);
-    openToolLines.value = next;
+    openSpans.value = next;
 }
-const contextPeak = computed(() =>
-    contextModelRows.value.reduce((max, row) => Math.max(max, row.contextTotal || 0), 0),
-);
-const contextLatest = computed(() => {
-    const rows = contextModelRows.value;
-    for (let i = rows.length - 1; i >= 0; i -= 1) {
-        const total = rows[i]?.contextTotal;
-        if (total != null) return total;
-    }
-    return 0;
-});
-const contextLegend = computed(() => {
-    const seen = new Map();
-    for (const row of contextModelRows.value) {
-        for (const seg of row.segments || []) {
-            if (!seen.has(seg.key)) {
-                seen.set(seg.key, { key: seg.key, label: seg.label, colorVar: seg.colorVar });
-            }
-        }
-    }
-    return [...seen.values()];
-});
-/** 按模型轮分组：每个有 context 的 step 一组，其后的工具调用挂在组内（即在对应 thinking 之下）。 */
-const contextGroups = computed(() => {
-    const max = Math.max(1, contextPeak.value);
-    const groups = [];
-    let current = null;
-    for (const row of contextRowList.value) {
-        if (row.contextTotal != null) {
-            current = {
-                key: row.stepId,
-                row: {
-                    ...row,
-                    barWidth: Math.min(100, ((row.contextTotal || 0) / max) * 100),
-                    segs: (row.segments || []).map((seg) => ({
-                        key: seg.key,
-                        label: seg.label,
-                        colorVar: seg.colorVar,
-                        tokens: seg.tokens,
-                        width: row.contextTotal ? (seg.tokens / row.contextTotal) * 100 : 0,
-                    })),
-                },
-                tools: [],
-            };
-            groups.push(current);
-        } else {
-            if (current === null) {
-                current = { key: 'lead:' + groups.length, row: null, tools: [] };
-                groups.push(current);
-            }
-            current.tools.push(row);
-        }
-    }
-    return groups;
-});
-
 /* ---- Output 分段（reasoning / tool-call args / text） ---- */
 const openOutput = ref(false);
 const outputSegments = computed(() => {
@@ -445,8 +414,7 @@ watch(
         <div class="right-panel-inner">
             <div class="drawer-head">
                 <div class="drawer-tabs">
-                    <button :class="{ on: activeTab === 'audit' }" @click="emit('update:activeTab', 'audit')">审计</button>
-                    <button :class="{ on: activeTab === 'context' }" @click="emit('update:activeTab', 'context')">Context</button>
+                    <button :class="{ on: activeTab === 'trace' }" @click="emit('update:activeTab', 'trace')">Trace</button>
                     <button :class="{ on: activeTab === 'iterations' }" @click="emit('update:activeTab', 'iterations')">Iterations</button>
                     <button :class="{ on: activeTab === 'log' }" @click="emit('update:activeTab', 'log')">日志</button>
                     <button :class="{ on: activeTab === 'storage' }" @click="emit('update:activeTab', 'storage')">存储</button>
@@ -458,7 +426,7 @@ watch(
                 </div>
             </div>
 
-            <div v-if="activeTab === 'audit' && audit" class="drawer-body audit-body audit-grid">
+            <div v-if="activeTab === 'trace' && audit" class="drawer-body audit-body trace-body">
                 <div class="audit-head">
                     <div class="audit-head-main">
                         <div class="audit-title">
@@ -483,11 +451,152 @@ watch(
                     </button>
                 </div>
 
-                <div v-if="audit.kind === 'none'" class="empty-hint">
-                    {{ audit.stale ? '目标已失效，请重新选择 Step 或 Task' : '点击对话流中的 Step 或 Task 查看审计' }}
+                <!-- Trace KPI 概览：会话级事实，不随 Step/Task 选择变化 -->
+                <section class="trace-kpi">
+                    <div class="trace-kpi-card">
+                        <span class="trace-kpi-label">步骤</span>
+                        <span class="trace-kpi-value">{{ traceSummary.steps }}</span>
+                        <span class="trace-kpi-sub">{{ traceSummary.modelSteps }} 模型 · {{ traceSummary.toolSteps }} 工具<template v-if="traceSummary.errorSteps"> · {{ traceSummary.errorSteps }} 异常</template></span>
+                    </div>
+                    <div class="trace-kpi-card">
+                        <span class="trace-kpi-label">input</span>
+                        <span class="trace-kpi-value">{{ formatTokens(traceSummary.inputTokens) }}</span>
+                        <span class="trace-kpi-sub">cached {{ formatTokens(traceSummary.cacheReadTokens) }}</span>
+                    </div>
+                    <div class="trace-kpi-card">
+                        <span class="trace-kpi-label">output</span>
+                        <span class="trace-kpi-value">{{ formatTokens(traceSummary.outputTokens) }}</span>
+                        <span class="trace-kpi-sub">缓存命中 {{ hitRateLabel(traceSummary.cacheHitRate) }}</span>
+                    </div>
+                    <div class="trace-kpi-card">
+                        <span class="trace-kpi-label">成本</span>
+                        <span class="trace-kpi-value">{{ formatCost(traceSummary.costUsd) }}</span>
+                        <span class="trace-kpi-sub">vendor 实付</span>
+                    </div>
+                    <div class="trace-kpi-card">
+                        <span class="trace-kpi-label">耗时</span>
+                        <span class="trace-kpi-value">{{ formatDuration(traceSummary.durationMs) || '—' }}</span>
+                        <span class="trace-kpi-sub">{{ traceThroughput != null ? toFixed1(traceThroughput) + ' tok/s' : 'trace' }}</span>
+                    </div>
+                </section>
+
+                <!-- Trace 列表：时间线 / Context 两种视图，单击选中、双击定位 -->
+                <section class="audit-section trace-list">
+                    <div class="audit-section-title">
+                        <span>Trace</span>
+                        <span class="audit-pct">{{ traceGroups.length }} 组 · {{ traceSummary.steps }} span</span>
+                        <span v-if="tocTarget" class="toc-menu">
+                            <button
+                                class="toc-menu-trigger"
+                                :class="{ copied: copiedToc }"
+                                title="TOC"
+                                @click.stop="toggleTocMenu()"
+                            >
+                                <LineIcon name="more" size="14" />
+                            </button>
+                            <span v-if="tocMenuOpen" class="toc-menu-pop">
+                                <button @click.stop="copyFromMenu(tocTarget)">{{ copiedToc ? 'Copied' : 'Copy' }}</button>
+                                <button @click.stop="analyzeFromMenu(tocTarget)">Analyze</button>
+                            </span>
+                        </span>
+                    </div>
+
+                    <div class="trace-toolbar">
+                        <button
+                            v-for="item in TRACE_FILTERS"
+                            :key="item.key"
+                            class="trace-chip"
+                            :class="{ on: traceFilter === item.key }"
+                            @click="traceFilter = item.key"
+                        >{{ item.label }}</button>
+                        <span class="trace-toolbar-gap"></span>
+                        <button class="trace-chip" :class="{ on: traceMode === 'timeline' }" @click="traceMode = 'timeline'">时间线</button>
+                        <button class="trace-chip" :class="{ on: traceMode === 'context' }" @click="traceMode = 'context'">Context</button>
+                    </div>
+
+                    <div v-if="traceMode === 'context'" class="ctx-summary">
+                        <span>峰值 {{ formatTokens(traceBoard.peakContext) }}</span>
+                        <span>最新 {{ formatTokens(traceBoard.latestContext) }}</span>
+                        <span v-if="traceUtilization != null">窗口利用率 {{ formatPercent(traceUtilization) }}<template v-if="traceWindowTokens"> · {{ formatTokens(traceWindowTokens) }} tok</template></span>
+                    </div>
+                    <div v-if="traceMode === 'context'" class="ctx-legend">
+                        <span v-for="seg in traceBoard.legend" :key="seg.key" class="ctx-legend-item">
+                            <span class="seg-dot" :style="{ background: 'var(' + seg.colorVar + ')' }"></span>{{ seg.label }}
+                        </span>
+                    </div>
+
+                    <div class="trace-groups">
+                        <template v-for="item in traceItems" :key="item.key">
+                            <div v-if="item.kind === 'group'" class="trace-group-head">
+                                <span class="trace-group-loc">R#{{ item.group.runIndex }}·T#{{ item.group.taskIndex }}</span>
+                                <span class="trace-group-title">{{ item.group.title || 'Task' }}</span>
+                                <span class="audit-status" :class="statusClass(item.group.status)">{{ item.group.status }}</span>
+                                <span class="trace-group-meta">{{ item.group.stepCount }} 步 · {{ formatDuration(item.group.durationMs) || '—' }}</span>
+                            </div>
+                            <div v-else class="trace-item">
+                                <div
+                                    class="trace-span"
+                                    :class="{ selected: item.span.selected, tool: item.span.isTool, error: item.span.isError, child: item.depth > 0 }"
+                                    title="单击选中 · 双击定位会话流"
+                                    @click="emit('select-step', { stepId: item.span.stepId, taskId: item.span.taskId })"
+                                    @dblclick="emit('locate-step', { stepId: item.span.stepId, taskId: item.span.taskId })"
+                                >
+                                    <span
+                                        class="trace-caret"
+                                        :class="{ open: openSpans.has(item.span.stepId) }"
+                                        :title="openSpans.has(item.span.stepId) ? '折叠' : '展开'"
+                                        @click.stop="toggleSpan(item.span.stepId)"
+                                    >{{ openSpans.has(item.span.stepId) ? '−' : '+' }}</span>
+                                    <span class="trace-loc">{{ item.span.loc }}</span>
+                                    <span class="trace-kind" :class="{ tool: item.span.isTool }">{{ item.span.kindLabel }}</span>
+                                    <span class="trace-bar">
+                                        <template v-if="traceMode === 'timeline'">
+                                            <span
+                                                class="trace-bar-fill"
+                                                :style="{ left: item.span.timeline.left + '%', width: item.span.timeline.width + '%' }"
+                                            ></span>
+                                        </template>
+                                        <template v-else-if="item.span.context.width > 0">
+                                            <span class="ctx-bar-fill" :style="{ width: item.span.context.width + '%' }">
+                                                <span
+                                                    v-for="seg in item.span.segments"
+                                                    :key="seg.key"
+                                                    class="ctx-seg"
+                                                    :style="{ width: seg.width + '%', background: 'var(' + seg.colorVar + ')' }"
+                                                    :title="seg.label + ' · ' + formatTokens(seg.tokens)"
+                                                ></span>
+                                            </span>
+                                        </template>
+                                    </span>
+                                    <span class="trace-tokens">{{ item.span.tokens ? formatTokens(item.span.tokens) : '-' }}</span>
+                                    <span class="trace-delta" :class="diffClass(item.span.contextDelta)">{{ formatSigned(item.span.contextDelta) }}</span>
+                                </div>
+                                <div v-if="openSpans.has(item.span.stepId)" class="ctx-diff" @click.stop @dblclick.stop>
+                                    <template v-if="item.span.isTool">
+                                        <div class="ctx-diff-label">命令 / 参数</div>
+                                        <pre class="seg-content">{{ item.span.toolLine || '(无)' }}</pre>
+                                        <div class="ctx-diff-label">输出</div>
+                                        <pre class="seg-content">{{ item.span.toolOutput || '(空)' }}</pre>
+                                    </template>
+                                    <template v-else>
+                                        <template v-for="part in item.span.diffParts" :key="part.key">
+                                            <div class="ctx-diff-label">{{ part.label }}</div>
+                                            <pre class="seg-content">{{ part.text }}</pre>
+                                        </template>
+                                        <div v-if="!item.span.diffParts.length" class="audit-muted">（本步无新增内容）</div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                        <div v-if="!traceItems.length" class="audit-muted">暂无可追踪的步骤</div>
+                    </div>
+                </section>
+
+                <div v-if="audit.kind === 'none'" class="empty-hint trace-detail">
+                    {{ audit.stale ? '目标已失效，请重新选择 Step 或 Task' : '点击对话流中的 Step 或 Task 查看可观测事实' }}
                 </div>
 
-                <template v-else>
+                <div v-else class="trace-detail">
                     <!-- 工具调用：专用审计 view（命令/参数/输出/耗时），不显示 vendor token -->
                     <section v-if="audit.tool" class="audit-section">
                         <div class="audit-section-title">工具调用 · {{ audit.tool.name }}</div>
@@ -732,53 +841,7 @@ watch(
                         </div>
                     </section>
 
-                    <!-- 步骤明细（会话流全局线 / 单个 Task） -->
-                    <section v-if="audit.rows.length" class="audit-section audit-span">
-                        <div class="audit-section-title">
-                            {{ audit.kind === 'task' ? '步骤' : '会话步骤' }}（{{ audit.rows.length }}）
-                            <span v-if="tocTarget" class="toc-menu">
-                                <button
-                                    class="toc-menu-trigger"
-                                    :class="{ copied: copiedToc }"
-                                    title="TOC"
-                                    @click.stop="toggleTocMenu()"
-                                >
-                                    <LineIcon name="more" size="14" />
-                                </button>
-                                <span v-if="tocMenuOpen" class="toc-menu-pop">
-                                    <button @click.stop="copyFromMenu(tocTarget)">{{ copiedToc ? 'Copied' : 'Copy' }}</button>
-                                    <button @click.stop="analyzeFromMenu(tocTarget)">Analyze</button>
-                                </span>
-                            </span>
-                        </div>
-                        <div class="audit-step-head">
-                            <span class="audit-step-loc">位置</span>
-                            <span class="audit-step-kind">类型</span>
-                            <span class="audit-step-status">状态</span>
-                            <span class="audit-step-start">开始</span>
-                            <span class="audit-step-ctx">上下文</span>
-                            <span class="audit-step-delta">Δ</span>
-                            <span class="audit-step-tokens">tokens</span>
-                            <span class="audit-step-rate">速率</span>
-                        </div>
-                        <button
-                            v-for="row in audit.rows"
-                            :key="row.stepId"
-                            class="audit-step-row"
-                            :class="{ selected: row.selected }"
-                            @click="emit('locate-step', { stepId: row.stepId })"
-                        >
-                            <span class="audit-step-loc">R#{{ row.runIndex }}·T#{{ row.taskIndex }}·S#{{ row.index }}</span>
-                            <span class="audit-step-kind">{{ row.toolName || row.kind }}</span>
-                            <span class="audit-step-status" :class="statusClass(row.status)">{{ row.status }}</span>
-                            <span class="audit-step-start">{{ fmtPrecise(row.startedAt) }}</span>
-                            <span class="audit-step-ctx">{{ row.contextTotal != null ? formatTokens(row.contextTotal) : '-' }}</span>
-                            <span class="audit-step-delta" :class="diffClass(row.contextDelta)">{{ formatSigned(row.contextDelta) }}</span>
-                            <span class="audit-step-tokens">{{ formatTokens(row.tokens) }}</span>
-                            <span class="audit-step-rate">{{ row.tokensPerSecond != null ? toFixed1(row.tokensPerSecond) : '-' }}</span>
-                        </button>
-                    </section>
-                </template>
+                </div>
             </div>
             <div v-else-if="activeTab === 'iterations'" class="drawer-body audit-body iterations-body">
                 <section class="audit-section">
@@ -827,95 +890,6 @@ watch(
                             </div>
                         </div>
                     </div>
-                </section>
-            </div>
-            <div v-else-if="activeTab === 'context'" class="drawer-body audit-body context-body">
-                <section class="audit-section">
-                    <div class="audit-section-title">
-                        Context 追踪
-                        <span class="audit-pct">{{ contextModelRows.length }} 步 · {{ contextToolRows.length }} 工具</span>
-                    </div>
-                    <div class="ctx-summary">
-                        <span>峰值 {{ formatTokens(contextPeak) }}</span>
-                        <span>最新 {{ formatTokens(contextLatest) }}</span>
-                        <span v-if="contextUtil != null">context ratio {{ formatPercent(contextUtil) }}</span>
-                        <span v-if="audit?.contextBytes != null">实际 {{ formatBytes(audit.contextBytes) }}</span>
-                    </div>
-                    <div class="ctx-legend">
-                        <span v-for="seg in contextLegend" :key="seg.key" class="ctx-legend-item">
-                            <span class="seg-dot" :style="{ background: 'var(' + seg.colorVar + ')' }"></span>{{ seg.label }}
-                        </span>
-                    </div>
-                </section>
-
-                <section class="audit-section">
-                    <div v-for="group in contextGroups" :key="group.key" class="ctx-item">
-                        <!-- 单击整行（含 title）折叠/展开 diff；R#T#S# 单击定位主会话流 -->
-                        <div
-                            v-if="group.row"
-                            class="ctx-row"
-                            :class="{ selected: group.row.selected }"
-                            :title="openContext.has(group.row.stepId) ? '单击折叠 diff · 双击定位会话流' : '单击展开 diff · 双击定位会话流'"
-                            @click="toggleContext(group.row.stepId)"
-                            @dblclick="emit('locate-step', { stepId: group.row.stepId, keepTab: true })"
-                        >
-                            <span class="ctx-caret" :class="{ open: openContext.has(group.row.stepId) }">
-                                {{ openContext.has(group.row.stepId) ? '−' : '+' }}
-                            </span>
-                            <span class="ctx-loc">R#{{ group.row.runIndex }}·T#{{ group.row.taskIndex }}·S#{{ group.row.index }}</span>
-                            <span class="ctx-kind">{{ group.row.toolName || group.row.kind }}</span>
-                            <div class="ctx-bar">
-                                <div class="ctx-bar-fill" :style="{ width: group.row.barWidth + '%' }">
-                                    <span
-                                        v-for="seg in group.row.segs"
-                                        :key="seg.key"
-                                        class="ctx-seg"
-                                        :style="{ width: seg.width + '%', background: 'var(' + seg.colorVar + ')' }"
-                                        :title="seg.label + ' · ' + formatTokens(seg.tokens)"
-                                    ></span>
-                                </div>
-                            </div>
-                            <span class="ctx-total">{{ group.row.contextTotal != null ? formatTokens(group.row.contextTotal) : '-' }}</span>
-                            <span class="ctx-delta" :class="diffClass(group.row.contextDelta)">{{ formatSigned(group.row.contextDelta) }}</span>
-                        </div>
-                        <div v-if="group.row && openContext.has(group.row.stepId)" class="ctx-diff">
-                            <template v-for="part in group.row.diffParts" :key="part.key">
-                                <div class="ctx-diff-label">{{ part.label }}</div>
-                                <pre class="seg-content">{{ part.text }}</pre>
-                            </template>
-                            <div v-if="!group.row.diffParts.length" class="audit-muted">（本步无新增内容）</div>
-                        </div>
-                        <!-- 该模型轮产生的工具调用：折叠在对应 thinking 之下（不是独立面板） -->
-                        <div v-if="group.tools.length" class="ctx-tools-inline">
-                            <button class="ctx-tools-toggle" @click="toggleToolGroup(group.key)">
-                                <span class="ctx-tools-caret">{{ openToolGroups.has(group.key) ? '−' : '+' }}</span>
-                                工具调用（{{ group.tools.length }}）
-                            </button>
-                            <div v-if="openToolGroups.has(group.key)">
-                                <div v-for="tool in group.tools" :key="tool.stepId" class="ctx-tool-item">
-                                    <button
-                                        class="ctx-tool-line"
-                                        :class="{ selected: tool.selected }"
-                                        :title="openToolLines.has(tool.stepId) ? '单击折叠 · 双击定位会话流' : '单击展开 · 双击定位会话流'"
-                                        @click="toggleToolLine(tool.stepId)"
-                                        @dblclick="emit('locate-step', { stepId: tool.stepId, keepTab: true })"
-                                    >
-                                        <span class="ctx-tool-caret" :class="{ open: openToolLines.has(tool.stepId) }">{{ openToolLines.has(tool.stepId) ? '−' : '+' }}</span>
-                                        <span class="ctx-loc">R#{{ tool.runIndex }}·T#{{ tool.taskIndex }}·S#{{ tool.index }}</span>
-                                        <span class="ctx-tool-text">{{ tool.toolLine }}</span>
-                                        <span class="ctx-tool-status" :class="{ error: tool.status === 'error' || tool.status === 'failed' }">{{ tool.status }}</span>
-                                    </button>
-                                    <div v-if="openToolLines.has(tool.stepId)" class="ctx-tool-detail">
-                                        <div class="ctx-diff-label">命令 / 参数</div>
-                                        <pre class="seg-content">{{ tool.toolLine || '(无)' }}</pre>
-                                        <div class="ctx-diff-label">输出</div>
-                                        <pre class="seg-content">{{ tool.toolOutput || '(空)' }}</pre>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div v-if="!contextModelRows.length" class="audit-muted">暂无可追踪的步骤</div>
                 </section>
             </div>
             <StoragePanel v-else-if="activeTab === 'storage'" />
@@ -1013,19 +987,31 @@ watch(
     padding-left: 24px;
     padding-right: 24px;
 }
+/*
+ * 最大化 ≥1180px：Trace 看板 = 左 trace 列表 + 右 span 明细；
+ * 概览（scope 标题 + KPI）跨整行。窄栏下退回上下堆叠。
+ */
 @media (min-width: 1180px) {
-    .right-panel.maximized .audit-grid {
+    .right-panel.maximized .trace-body {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        column-gap: 32px;
+        grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+        column-gap: 28px;
         align-content: start;
     }
-    .right-panel.maximized .audit-grid > .audit-section {
-        margin-bottom: 6px;
-    }
-    .right-panel.maximized .audit-grid > .audit-span {
+    .right-panel.maximized .trace-body > .audit-head,
+    .right-panel.maximized .trace-body > .trace-kpi {
         grid-column: 1 / -1;
-        margin-top: 10px;
+    }
+    .right-panel.maximized .trace-body > .trace-list {
+        grid-column: 1;
+        grid-row: 3;
+    }
+    .right-panel.maximized .trace-body > .trace-detail {
+        grid-column: 2;
+        grid-row: 3;
+    }
+    .right-panel.maximized .trace-kpi {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
     }
 }
 .right-panel-handle {
@@ -1356,6 +1342,227 @@ watch(
     flex-direction: column;
     gap: 12px;
 }
+/* ---------- Trace 看板（「审计」+「Context」合并，docs/web/观测看板设计.md v3） ---------- */
+/* 窄栏 3 列（2 行），最大化时限宽后 5 列一行。 */
+.trace-kpi {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+.trace-kpi-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-panel);
+}
+.trace-kpi-label {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--fg-tertiary);
+}
+.trace-kpi-value {
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+}
+.trace-kpi-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.trace-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin: 2px 0 6px;
+}
+.trace-toolbar-gap {
+    flex: 1;
+}
+.trace-chip {
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--fg-secondary);
+    font-size: 11px;
+    cursor: pointer;
+}
+.trace-chip:hover {
+    background: var(--bg-hover);
+}
+.trace-chip.on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+}
+.trace-groups {
+    display: flex;
+    flex-direction: column;
+}
+.trace-group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 2px 3px;
+    border-top: 1px solid var(--border-soft);
+    font-size: 11px;
+}
+.trace-group-head:first-child {
+    border-top: none;
+}
+.trace-group-loc {
+    flex-shrink: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.trace-group-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+    color: var(--fg);
+}
+.trace-group-meta {
+    flex-shrink: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.trace-span {
+    display: grid;
+    grid-template-columns: 14px 66px 46px minmax(0, 1fr) 46px 40px;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 4px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+}
+.trace-span:hover {
+    background: var(--bg-hover);
+}
+.trace-span.selected {
+    background: var(--accent-soft);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+/* 工具子 span：缩进 + 竖向引导线，保持「模型步 → 工具调用」的树形可读性。 */
+.trace-span.child {
+    position: relative;
+    padding-left: 14px;
+}
+.trace-span.child::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 6px;
+    width: 1px;
+    background: var(--border);
+}
+.trace-caret {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--fg-tertiary);
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+.trace-span:hover .trace-caret,
+.trace-caret.open {
+    opacity: 1;
+}
+.trace-caret.open {
+    color: var(--fg-secondary);
+}
+.trace-loc {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    white-space: nowrap;
+}
+.trace-kind {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--thinking);
+}
+.trace-kind.tool {
+    color: var(--tool);
+}
+.trace-span.error .trace-kind {
+    color: var(--error);
+}
+.trace-bar {
+    position: relative;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--bg-code);
+    overflow: hidden;
+}
+.trace-bar-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-radius: 3px;
+    background: var(--thinking);
+}
+.trace-span.tool .trace-bar-fill {
+    background: var(--tool);
+}
+.trace-span.error .trace-bar-fill {
+    background: var(--error);
+}
+.trace-bar .ctx-bar-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+}
+.trace-tokens,
+.trace-delta {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    text-align: right;
+    white-space: nowrap;
+}
+.trace-tokens {
+    color: var(--fg-secondary);
+}
+.trace-delta.up { color: var(--ok); }
+.trace-delta.down { color: var(--warn); }
+.trace-delta.flat { color: var(--fg-tertiary); }
+/* 窄栏下 trace 列表限高，避免长 trace 把明细推到屏幕之外。 */
+.right-panel:not(.maximized) .trace-groups {
+    max-height: 40vh;
+    overflow: auto;
+}
+.trace-item .ctx-diff {
+    padding-left: 22px;
+}
+.trace-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
 .audit-head {
     display: flex;
     align-items: flex-start;
@@ -1542,21 +1749,7 @@ watch(
     text-align: right;
 }
 
-/* Step detail rows (click to re-select) */
-.audit-step-head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 6px;
-    font-size: 10px;
-    color: var(--fg-tertiary);
-    border-bottom: 1px solid var(--border-soft);
-    margin-bottom: 2px;
-}
-.audit-step-head .audit-step-loc {
-    background: transparent;
-    color: var(--fg-tertiary);
-}
+/* 位置标签：任务状态与 trace 列表共用 */
 .audit-step-loc {
     font-family: ui-monospace, monospace;
     font-weight: 700;
@@ -1566,65 +1759,6 @@ watch(
     padding: 0 4px;
     flex-shrink: 0;
     white-space: nowrap;
-}
-.audit-step-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 4px 6px;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--fg-secondary);
-    font-size: 11px;
-    text-align: left;
-    cursor: pointer;
-}
-.audit-step-row:hover {
-    background: var(--bg-hover);
-    color: var(--fg-secondary);
-}
-.audit-step-row.selected {
-    background: var(--accent-soft);
-}
-.audit-step-tag {
-    font-family: ui-monospace, monospace;
-    font-weight: 700;
-    color: var(--fg-tertiary);
-    background: var(--bg-code);
-    border-radius: 3px;
-    padding: 0 4px;
-    width: 32px;
-    text-align: center;
-    flex-shrink: 0;
-}
-.audit-run-tag {
-    font-family: ui-monospace, monospace;
-    font-size: 10px;
-    color: var(--fg-tertiary);
-    background: var(--bg-hover);
-    border-radius: 3px;
-    padding: 0 3px;
-    flex-shrink: 0;
-}
-.audit-step-task {
-    font-family: ui-monospace, monospace;
-    font-weight: 700;
-    color: var(--fg-tertiary);
-    background: var(--bg-code);
-    border-radius: 3px;
-    padding: 0 4px;
-    width: 32px;
-    text-align: center;
-    flex-shrink: 0;
-}
-.audit-step-kind {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--fg);
 }
 /* Task/Step 状态徽标（审计面板） */
 .audit-status {
@@ -1660,21 +1794,6 @@ watch(
     background: var(--accent-soft);
     color: var(--accent);
 }
-.audit-step-status {
-    flex-shrink: 0;
-    min-width: 56px;
-    font-family: ui-monospace, monospace;
-    font-size: 10px;
-    text-align: center;
-    border-radius: 3px;
-    padding: 0 4px;
-    background: var(--bg-hover);
-    color: var(--fg-tertiary);
-}
-.audit-step-status.ok { color: var(--ok); }
-.audit-step-status.bad { color: #ef4444; }
-.audit-step-status.warn { color: #f59e0b; }
-.audit-step-status.run { color: var(--accent); }
 .audit-task-row {
     display: flex;
     align-items: center;
@@ -1698,35 +1817,6 @@ watch(
     flex-shrink: 0;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
-}
-.audit-step-ctx,
-.audit-step-delta,
-.audit-step-tokens,
-.audit-step-start,
-.audit-step-rate {
-    font-family: ui-monospace, monospace;
-    flex-shrink: 0;
-}
-.audit-step-start {
-    color: var(--fg-tertiary);
-    min-width: 54px;
-}
-.audit-step-rate {
-    color: var(--fg-tertiary);
-    min-width: 38px;
-    text-align: right;
-}
-.audit-step-delta {
-    min-width: 44px;
-    text-align: right;
-}
-.audit-step-delta.up { color: var(--ok); }
-.audit-step-delta.down { color: var(--warn); }
-.audit-step-delta.flat { color: var(--fg-tertiary); }
-.audit-step-tokens {
-    min-width: 48px;
-    text-align: right;
-    color: var(--fg-tertiary);
 }
 .audit-text {
     margin: 0;
@@ -1863,81 +1953,6 @@ watch(
     align-items: center;
     gap: 4px;
 }
-/* Context 面板：步骤列表贴近边框（缩小外层与区块左内边距）。 */
-.context-body {
-    padding: 8px 4px 8px 6px;
-    gap: 8px;
-}
-.context-body .audit-section {
-    padding: 6px 4px;
-}
-.context-body .ctx-tools-inline {
-    padding-left: 24px;
-}
-.ctx-item {
-    margin-bottom: 2px;
-}
-.ctx-row {
-    display: grid;
-    grid-template-columns: 16px minmax(96px, 122px) minmax(52px, 84px) 1fr 52px 44px;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 4px;
-    border-radius: 4px;
-    font-size: 11px;
-    cursor: pointer;
-}
-.ctx-row:hover,
-.ctx-row.selected {
-    background: var(--bg-hover);
-}
-/* 折叠标识：与 title 同排、垂直居中；hover 或展开时可见（整行可点）。 */
-.ctx-caret {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    font-weight: 700;
-    line-height: 1;
-    color: var(--fg-tertiary);
-    opacity: 0;
-    transition: opacity 0.1s ease;
-}
-.ctx-row:hover .ctx-caret,
-.ctx-caret.open {
-    opacity: 1;
-}
-.ctx-caret.open {
-    color: var(--fg-secondary);
-}
-.ctx-loc {
-    font-family: ui-monospace, monospace;
-    font-size: 10px;
-    color: var(--fg-tertiary);
-    white-space: nowrap;
-    cursor: pointer;
-}
-.ctx-loc:hover {
-    color: var(--fg);
-}
-/* 工具调用缩进到模型步内容之下（不可比 thinking 更靠左）。 */
-.ctx-tools-inline {
-    padding-left: 24px;
-}
-.ctx-kind {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--fg);
-}
-.ctx-bar {
-    height: 12px;
-    border-radius: 3px;
-    background: var(--bg-code);
-    overflow: hidden;
-    cursor: default;
-}
 .ctx-bar-fill {
     display: flex;
     height: 100%;
@@ -1949,17 +1964,6 @@ watch(
     display: block;
     height: 100%;
 }
-.ctx-total,
-.ctx-delta {
-    font-family: ui-monospace, monospace;
-    text-align: right;
-}
-.ctx-total {
-    color: var(--fg-secondary);
-}
-.ctx-delta.up { color: var(--ok); }
-.ctx-delta.down { color: var(--warn); }
-.ctx-delta.flat { color: var(--fg-tertiary); }
 .ctx-diff {
     padding: 2px 0 6px 6px;
 }
@@ -1969,89 +1973,6 @@ watch(
     font-weight: 600;
     color: var(--fg-secondary);
     font-family: ui-monospace, monospace;
-}
-.ctx-tools-toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 4px 6px;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--fg-tertiary);
-    font-size: 11px;
-    text-align: left;
-    cursor: pointer;
-}
-.ctx-tools-toggle:hover {
-    background: var(--bg-hover);
-}
-.ctx-tools-caret {
-    font-weight: 700;
-    opacity: 0;
-    transition: opacity 0.1s ease;
-}
-.ctx-tools-toggle:hover .ctx-tools-caret {
-    opacity: 1;
-}
-.ctx-tool-line {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 3px 6px;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--fg-secondary);
-    font-size: 11px;
-    text-align: left;
-    cursor: pointer;
-}
-.ctx-tool-line:hover,
-.ctx-tool-line.selected {
-    background: var(--bg-hover);
-}
-.ctx-tool-text {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: ui-monospace, monospace;
-    color: var(--fg-secondary);
-}
-/* 单个工具调用：折叠标识 / 状态 / 展开详情（与工具行同缩进）。 */
-.ctx-tool-item {
-    margin-top: 1px;
-}
-.ctx-tool-caret {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    font-weight: 700;
-    line-height: 1;
-    color: var(--fg-tertiary);
-    opacity: 0;
-    transition: opacity 0.1s ease;
-}
-.ctx-tool-line:hover .ctx-tool-caret,
-.ctx-tool-caret.open {
-    opacity: 1;
-}
-.ctx-tool-status {
-    flex-shrink: 0;
-    font-size: 10px;
-    color: var(--fg-tertiary);
-}
-.ctx-tool-status.error {
-    color: var(--warn);
-}
-.ctx-tool-detail {
-    padding: 2px 0 6px 20px;
 }
 .audit-section-sub {
     margin: 8px 0 4px;

@@ -83,7 +83,7 @@ import {
 
 const prompt = ref('');
 const q = ref('');
-const drawerTab = ref('audit');
+const drawerTab = ref('trace');
 const rightWidth = ref(440);
 const MIN_PANEL_W = 280;
 const MAX_PANEL_W = 960;
@@ -378,10 +378,10 @@ async function refreshPricingNow(vendor) {
 function onSelectStep(target) {
     if (!target?.stepId) return;
     selectStep(target.stepId, target.taskId);
-    drawerTab.value = 'audit';
+    drawerTab.value = 'trace';
 }
 
-/** 右侧面板（审计/Context）点击 step：选中并滚动主对话流到该 step。 */
+/** Trace 看板点击 span：选中并滚动主对话流到该 step（不切换页签）。 */
 function scrollToStep(stepId) {
     if (typeof document === 'undefined') return;
     const el = document.querySelector('[data-step-id="' + stepId + '"]');
@@ -393,8 +393,6 @@ function scrollToStep(stepId) {
 async function onLocateStep(target) {
     if (!target?.stepId) return;
     selectStep(target.stepId, target.taskId);
-    // Context 面板内定位时停留在 Context（keepTab），审计/步骤明细则切到审计。
-    if (!target.keepTab) drawerTab.value = 'audit';
     await nextTick();
     scrollToStep(target.stepId);
 }
@@ -402,13 +400,13 @@ async function onLocateStep(target) {
 function onSelectTask(taskId) {
     if (!taskId) return;
     selectTask(taskId);
-    drawerTab.value = 'audit';
+    drawerTab.value = 'trace';
 }
 
 /** 「会话汇总」：清空 Step/Task 选择，展示整条 Conversation（与点击会话列表一致）。 */
 function onSelectConversation() {
     clearAuditSelection();
-    drawerTab.value = 'audit';
+    drawerTab.value = 'trace';
 }
 
 /** Whether the right panel is maximized over the workspace. */
@@ -987,7 +985,7 @@ onBeforeUnmount(() => {
             :active-event-type="ui.eventTypes"
             :show-all-events="showAllEvents"
             :audit="auditView"
-            :context-rows="conversationAudit.rows"
+            :trace="conversationAudit"
             @select-step="onSelectStep"
             @locate-step="onLocateStep"
             @select-conversation="onSelectConversation"

@@ -70,7 +70,7 @@
 | 账本 | 花费账本（Cost） | `GET /api/catalog/usage`（provider/model/日期过滤；**小时粒度**聚合；**搜索之上卡片式总预览**） | 可用（无调用即空态） |
 | 用户设置 | 个人设置 | localStorage 偏好 | 可用（复用 UserPreferencesPage） |
 
-> 画像/行为链是**用户级、跨会话**资产，因此入口在个人中心而非系统设置，也不作为右侧栏会话级 tab（右侧栏 审计/Context/Iterations/日志/存储 均随会话切换）。
+> 画像/行为链是**用户级、跨会话**资产，因此入口在个人中心而非系统设置，也不作为右侧栏会话级 tab（右侧栏 Trace/Iterations/日志/存储 均随会话切换）。
 
 ### 3.3 左侧边栏（Sidebar）
 
@@ -317,7 +317,7 @@
 
 - 背景：`#f9fafb` 或 `#f3f4f6`，与主内容区区分
 - 文字：`#6b7280` 次要文字，等宽数字
-- 点击指标可展开详细趋势图（Sparkline）或跳转到审计面板
+- 点击指标可展开详细趋势图（Sparkline）或跳转到 Trace 看板
 - 实时更新：SSE 推送 `session.aggregate.updated` 事件
 
 ---
@@ -344,18 +344,19 @@
 - 树形结构：一个 Conversation 内按顺序列出 Session #N；Session 可折叠
 - Session 内部按子任务列出 Turn，Turn 可折叠
 - Turn 内部的实际执行单元 Step 为叶子节点
-- 点击 Step 展开右侧抽屉显示详细审计信息
+- 点击 Step 展开右侧抽屉（Trace 看板）显示详细审计信息
 
 ---
 
-### 3.8 审计抽屉/面板（Audit Panel）
+### 3.8 Trace 看板（Trace Board，原审计抽屉）
 
-固定右侧边栏的「审计」页（与「日志」「事件」并列），点击主对话区的 Step 或 Task 时切换并展示
-该 Step / Task 的 token 用量（Vendor + Runtime）、成本、Context 装填与逐步骤 Context Diff。
+固定右侧边栏的「Trace」页（与「Iterations」「日志」「存储」并列），上半部是会话级 KPI 概览与
+trace 瀑布（时间线 / Context 两种视图，即原「审计」+「Context」两页的合并），下半部展示
+所选 Step / Task 的 token 用量（Vendor + Runtime）、成本、Context 装填与逐步骤 Context Diff。
 完整数据契约、面板结构、计算规则与降级策略见 docs/web/观测看板设计.md。
 
 ```
-┌─ Audit Drawer (右侧滑出) ─────────────────────────────────┐
+┌─ Trace Board (右侧滑出) ─────────────────────────────────┐
 │  Step #2 · tool_call: job_output                          │
 ├───────────────────────────────────────────────────────────┤
 │  [声明] [授权] [实际] [Diff]                              │
@@ -531,7 +532,7 @@ General 只保留用户偏好；**命令审批规则（Auth）独立成 tab**；
 | `Ctrl/Cmd + Shift + N` | 从模板新建                               |
 | `Ctrl/Cmd + F`         | 搜索会话/工作区                          |
 | `Ctrl/Cmd + B`         | 折叠/展开 Sidebar                        |
-| `Ctrl/Cmd + D`         | 打开/关闭 Audit Drawer                   |
+| `Ctrl/Cmd + D`         | 打开/关闭 Trace 看板                     |
 | `Ctrl/Cmd + T`         | 切换 对话/轨迹 Tab                       |
 | `Esc`                  | 关闭弹窗/抽屉/取消运行                   |
 | `Enter`                | 发送消息（输入框聚焦且非输入法组合态时） |
@@ -580,7 +581,7 @@ General 只保留用户偏好；**命令审批规则（Auth）独立成 tab**；
 | 断点            | 布局调整                                                      |
 | --------------- | ------------------------------------------------------------- |
 | `≥1440px`    | 完整三栏，Sidebar 240px 固定                                  |
-| `1024-1439px` | Audit Drawer 默认关闭，点击展开                               |
+| `1024-1439px` | Trace 看板默认关闭，点击展开                                 |
 | `768-1023px`  | Sidebar 变为抽屉（汉堡菜单触发），主内容全宽                  |
 | `<768px`      | 移动端：单栏，底部 Tab 切换（对话 / 轨迹 / 状态），输入框简化 |
 
@@ -593,7 +594,7 @@ General 只保留用户偏好；**命令审批规则（Auth）独立成 tab**；
 | 1  | 主题切换   | 支持浅色/深色/跟随系统，切换无闪烁，CSS 变量驱动                    |
 | 2  | 实时指标   | 底部状态栏延迟 < 2s，SSE 推送，数字等宽显示                         |
 | 3  | 消息嵌套   | 思考→代码→工具调用 层级清晰，支持折叠展开                         |
-| 4  | 三方记录   | 点击任意 Step 2 次内打开 Audit Drawer 显示 Contract/Capacity/Trace  |
+| 4  | 三方记录   | 点击任意 Step 2 次内打开 Trace 看板显示 Contract/Capacity/Trace  |
 | 5  | 反馈嵌入   | 每条消息底部有 👍/👎，记录到`UserInteractionRecord`               |
 | 6  | 审批上下文 | 弹窗显示预算影响、副作用、参数预览                                  |
 | 7  | 工作区管理 | 支持折叠/展开、新建、搜索、相对时间显示                             |
