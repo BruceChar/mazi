@@ -237,6 +237,7 @@ $MAZI_HOME/experiments/<experimentId>.jsonl     # append-only，一次实验一�
 
 - **单一真相源**：实验状态完全由日志折叠（`foldExperiment(events)`）得出，不维护索引文件；`list()` 扫描目录逐文件折叠，本地单用户规模下成本可忽略。
 - **与 harness 事件日志分离**：`events/<rootGoalId>.jsonl` 记录「模型看到了什么、harness 做了什么」；`experiments/<id>.jsonl` 记录「实验设计、自变量、指标、结论」。两者以 `rootGoalId` 互相引用，回放时拼接，不复制事实。
+- **Goal 树独立存储**：实验的 Goal/Task/Step 落在 `$MAZI_HOME/experiments/mazi.db`，与主会话 `$MAZI_HOME/mazi.db` 完全分开；事件落在 `$MAZI_HOME/experiments/events/`。主会话端点按 rootGoalId 查不到实验 run，反之亦然；实验**不接目录账本**，因此实验花费不进主会话的花费账本。
 - **删除**：`DELETE /api/experiments/:id` 物理删除该实验日志（实验是方法记录，不是审计事实；级联不删除 Goal 存储，Trace 仍可按 rootGoalId 查看）。
 - **不设 update 事件**：复盘备注是 append-only 的 `reviewed` 事件；不提供改写历史实验的接口。
 
@@ -249,7 +250,7 @@ $MAZI_HOME/experiments/<experimentId>.jsonl     # append-only，一次实验一�
 experiment.created
    → 臂 A: createGoalSession(input, baseline + A delta) → arm.planned(label, rootGoalId)
    → 臂 B: 同上 → arm.planned(label, rootGoalId)
-        ↓  前端拿到两个 rootGoalId，立刻为左右两窗订阅 /api/events/:id?follow=1
+        ↓  前端拿到两个 rootGoalId，立刻为左右两窗订阅 /api/experiments/:id/arms/:label/events?follow=1
 ② 前台执行（POST /api/experiments/:id/run，请求保持到两臂结束）
 experiment.started → arm.started(A) / arm.started(B)
    → 并行：executeGoalTree(A) ‖ executeGoalTree(B)
@@ -258,9 +259,10 @@ experiment.started → arm.started(A) / arm.started(B)
 compareArms → experiment.completed（幂等：已完成的臂不重跑）
 ```
 
+- **独立运行单元（不是后台任务，也不是 OS 子进程）**：实验跑在专用 HarnessRuntime 上——独立 Goal 库、独立事件目录、独立串行锁（`runExperimentExclusive`）、独立审批 broker。因此**实验在跑时主会话仍可跑任务**（两把锁互不影响），实验的 Goal 树在 `/api/sessions/:id` 查不到（存储分开）。审批仍在同一进程内，所以能现场应答；**OS 级子进程隔离**（崩溃/资源完全隔离）列为后续（§11），代价是审批要跨进程桥接。
 - **前台执行，不是后台任务**：UI 先建会话（拿到 Trace 指针）再发起执行请求，两个窗口同时订阅事件流；执行请求本身就是「前台」的那次请求（与主对话 `POST /api/sessions/:id/run` 同形），因此**审批可以现场应答**——不会出现「跑在后台、审批无人应答而卡死」。
 - **并行执行**：两臂在同一个 `runExclusive` 持有期内 `Promise.all` 并发（同一运行时实例）。并发安全依赖既有事实：Goal 运行登记、待执行覆盖、上下文与记忆都按 `rootGoalId` 隔离；估算缓存命中率按 `conversationId ?? rootGoalId` 分键；Goal/Step 落库为同一 SQLite 连接（JS 单线程天然串行）。代价：两臂共用同一 Provider 配额，耗时/限流会互相影响——对比结果的 `execution` 字段保留并在 UI 标注。
-- **同一工作区**：实验表单选定的工作区在**创建时**即切换为当前工作区（与主对话「选项目后在该工作区跑」一致），执行与 SSE 订阅因此落在同一运行时实例；**执行后不回滚工作区选择**（回滚会让已开的事件流订阅落到另一个运行时实例，丢失实时事件）。
+- **工作区冻结**：实验**不切换**主会话的当前工作区；创建时把生效工作区（表单选择，缺省取当前选择）冻结进 `spec.workspace`——既可复现，也让建会话 / 执行 / SSE 订阅解析到同一个实验运行时实例（按工作区缓存）。
 - **基线快照**：`baseline` 在实验定义时冻结（permissionCeiling / reasoningLevel / 挂载技能快照 `skillIds`），运行时不再重读全局——保证可复现。
 - **失败语义**：单臂失败不阻断另一臂（对照实验要拿到两边的数据）；两臂都失败 → `experiment.completed` 仍写入（comparison 标注失败），整体流程只在「日志写入失败 / 执行期异常」时落 `experiment.failed`。
 - **重跑 / 继续**：`rerun` 只复制为新的**待执行**实验（`status=created`），执行统一走前台 `:id/run`；页面刷新后可用「继续运行」把未跑完的臂接着跑（execute 对已完成臂幂等）。
@@ -289,10 +291,12 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 | `/api/experiments/:id/run` | POST | **前台执行**尚未完成的臂（并行，请求保持到两臂结束）→ 完成后的实验视图；已有会话在跑 → 409；两臂都完成 → 幂等返回 |
 | `/api/experiments/:id` | GET | 详情：折叠后的实验视图 + 两臂 metrics + comparison + reviews |
 | `/api/experiments/:id/rerun` | POST | 复制为新的**待执行**实验（新 `experimentId`，不覆盖原记录）→ 用于方差观察 |
+| `/api/experiments/:id/arms/:label/timeline` | GET | 该臂 Goal 树快照（**实验独立库**；主会话 `/api/sessions/:id` 查不到） |
+| `/api/experiments/:id/arms/:label/events` | GET | 该臂事件流：`?follow=1` → SSE（与主会话同一实现，总线不同），否则 JSON 回放 |
 | `/api/experiments/:id/reviews` | POST | 追加复盘：`{ note, verdict }` |
 | `/api/experiments/:id` | DELETE | 删除实验日志 |
 
-两臂 Trace 复用既有端点：`GET /api/sessions/:rootGoalId/timeline`（快照）与 `GET /api/events/:rootGoalId?follow=1`（SSE 实时事件流，与主对话完全相同）；审批复用 `POST /api/approvals/:id`。
+两臂 Trace 走**实验独立端点**（`…/arms/:label/timeline|events`），实现与主会话共用一份 SSE/回放代码（`apps/api/src/events/sse.ts`），但总线、存储、锁都是实验自己的；审批复用 `POST /api/approvals/:id`（跨运行时结算）。
 
 **错误契约**：沿用 `{ error }` + 400/404/409/500；非法自变量（如 kind 不在闭集、arms 不是 2 个）→ 400；执行时已有会话在跑 → 409（复用主对话串行锁）。
 
@@ -330,7 +334,7 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 
 - **复用主内容区（同一窗口）**：AB 实验室替换主区，顶部栏显示名称，**页内不再重复标题、不设返回按钮**；左侧会话列表常驻，点击任一会话 / 「新会话」/ Esc 即切回对话视图（导航动作统一回到 `ui.view='chat'`）。
 - **配置项一律选择、不手输**：自变量取值从既有资产里选（Feature 列表 / 已发现 Skill 多选（左右各一栏，两臂独立）/ 模型目录 / 权限档位 / 推理档）；工作区从「跟随当前工作区 / 已有项目工作区 / 随心聊默认」里选，并显示本次实际使用的路径名称。
-- **左右两窗同时前台执行**：点「运行对照实验」→ 先建两臂会话 → 立即为两窗各开一条 `EventSource` → 再发前台执行请求。每窗实时显示：流式正文（reasoning + text）、步骤列表（思考 / 工具 / 观察与状态）、错误；结束后自动刷新为终态视图（指标 / Trace / diff / 对比）。
+- **左右两窗同时前台执行**：点「运行对照实验」→ 先建两臂会话 → 立即为两窗各开一条 `EventSource`（`/api/experiments/:id/arms/:label/events?follow=1`）→ 再发前台执行请求。每窗实时显示：流式正文（reasoning + text）、步骤列表（思考 / 工具 / 观察与状态）、错误；结束后自动刷新为终态视图（指标 / Trace / diff / 对比）。
 - **审批不卡后台**：两窗内联展示 `approval.requested`（工具名 + 摘要 + 允许一次 / 本会话允许 / 拒绝），直接调 `POST /api/approvals/:id`；因此涉及写权限/命令审批的实验可以当场放行或拒绝，而不是把运行挂在无人应答的后台。
 - 历史实验点选即载入日志折叠视图（可随时回看）；`status=created` 的实验显示「继续运行（N 臂待跑）」，刷新页面后也能接着跑；
 - Trace 对比 = 同一张表的两列（同一指标口径），而不是把两个 Trace 看板并排塞进右抽屉；
@@ -363,7 +367,8 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 - **不做**：LLM-as-judge 自动打分、多臂（>2）实验、显著性检验/统计推断、跨用户实验分桶（`bucketRange` 那份旧 flag 求值器不复活）；
 - **不做**：把 Feature 变成插件/MCP（注册工具、放宽权限、私有存储）——那属于另一套设计；
 - **不做**：实验并发执行（受进程内串行锁与厂商配额约束，顺序执行并标注）；
-- **不做**：实验结果的自动回流训练（治理回路二另立项）。
+- **不做**：实验结果的自动回流训练（治理回路二另立项）；
+- **不做（本期）**：OS 级子进程隔离（fork worker）。实验已是**独立运行单元**（独立 Goal 库 / 事件目录 / 串行锁 / 审批 broker），主会话与实验互不阻塞；再往下做进程隔离需要把审批与事件流跨进程桥接（IPC 或文件轮询），属于后续独立设计。
 
 ---
 
@@ -382,7 +387,9 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 | `packages/runtime/src/paths.ts` | `featuresFile` / `experimentsDir` |
 | `packages/libs/src/text-diff.ts` | 行级 diff（LCS）纯函数 |
 | `apps/api/src/features/` | §8.1 端点 |
-| `apps/api/src/experiments/` | §8.2 端点 |
+| `apps/api/src/experiments/` | §8.2 端点（含实验独立 timeline/events） |
+| `apps/api/src/events/sse.ts` | 回放 + SSE 共享实现（主会话与实验独立事件流共用） |
+| `apps/api/src/common/runtime.service.ts` | `experimentHarness()` 实验专用运行时 + `runExperimentExclusive()` 独立串行锁 |
 | `apps/webui/src/components/FeaturesPanel.vue` | 设置页开关管理 |
 | `apps/webui/src/scripts/arm-live.ts` | 单臂实时投影纯函数（SSE 事件 → 流式正文 / 步骤 / 审批） |
 | `apps/webui/src/components/ExperimentsPage.vue` | AB 实验室（双窗前台执行 + 实时渲染 + 行内审批 + 对比 + 复盘） |
@@ -436,11 +443,14 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 | `c3a2109` | runtime：实验拆分「建会话 + 前台并行执行」两步（arm.planned / 幂等） |
 | `ee26d8d` | api：实验执行拆为 create + `/:id/run`（前台并行，审批可现场应答） |
 | `f124f58` | webui：AB 实验室左右两窗前台实时执行（SSE 流式 + 行内审批） |
+| `2091352` | runtime/api：实验独立存储（experiments/mazi.db + events）与独立执行单元/锁 |
+| `8959f80` | api：实验接口改用独立运行时，新增实验独立 timeline/events 端点 |
+| `f50b6c7` | webui：AB 实验室改用实验独立 Trace/事件端点 |
 
 验证（本次交付末次运行）：
 
 - `pnpm build`：6/6 成功（core / provider / libs / runtime / api / webui）；
-- `pnpm test`：139 个测试文件、827 个用例全绿（新增：Feature 解析 10、Experiment 契约 7、Feature 运行时 10、运行级覆盖 6、diff 5、实验存储 8、spec 6、指标 3、前台/并行执行器 7、Feature 接口 6、实验接口 6、实验服务 7、单臂实时投影 5、AB 实验室投影 14）；
+- `pnpm test`：139 个测试文件、828 个用例全绿（关键新增：Feature 解析 10、Experiment 契约 7、Feature 运行时 10、运行级覆盖 6、diff 5、实验存储 8、spec 6、指标 3、前台/并行执行器 7、Feature 接口 6、实验接口 7（含存储隔离）、实验服务 7（含双锁互不阻塞）、单臂实时投影 5、AB 实验室投影 14、路径契约 7）；
 - `biome check`：本次新增/修改的源文件无 error（仓库既有文件存在历史 lint 诊断，未在本特性范围内改动）。
 
-已知边界（与 §11 一致）：不做 LLM judge、多臂、显著性检验；两臂并行但共用 Provider 配额（耗时仅作参考）；实验执行不写 Conversation。
+已知边界（与 §11 一致）：不做 LLM judge、多臂、显著性检验；两臂并行但共用 Provider 配额（耗时仅作参考）；实验执行不写 Conversation；实验与主会话是**同一 API 进程内的独立运行单元**（独立存储/事件/锁/审批），不是 OS 级子进程。
