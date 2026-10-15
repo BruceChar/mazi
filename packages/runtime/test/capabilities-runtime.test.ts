@@ -167,6 +167,24 @@ describe('CP-2 工具面：物化 / 校验 / 模板', () => {
         expect(await runtime.memoryOf('alpha')?.list('entries')).toEqual([]);
     });
 
+    it('使用情况：调用 / 校验失败计数与汇总（CP-10）', async () => {
+        const root = makeRoot();
+        const runtime = await runtimeWith(root, ['alpha']);
+        await runtime.mount('alpha');
+        expect(runtime.usageOf('alpha')).toEqual({ invocations: 0, validationFailures: 0 });
+        await invoke(runtime, 'alpha.append', { value: 'x' });
+        await invoke(runtime, 'alpha.append', { value: '   ' });
+        expect(runtime.usageOf('alpha').invocations).toBe(2);
+        expect(runtime.usageOf('alpha').validationFailures).toBe(1);
+        expect(runtime.usageSummary()).toEqual({
+            discovered: 1,
+            mounted: 1,
+            invocations: 2,
+            validationFailures: 1,
+        });
+        expect(runtime.list()[0]?.usage.invocations).toBe(2);
+    });
+
     it('模板：{{var}} 替换、未知占位保留、未声明模板抛错', async () => {
         const root = makeRoot();
         const runtime = await runtimeWith(root, ['alpha']);

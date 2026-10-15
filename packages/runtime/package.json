@@ -12,7 +12,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "builtin-skills"
   ],
   "scripts": {
     "build": "tsc -b tsconfig.json",

@@ -86,6 +86,24 @@ export interface SkillView {
     toolNames: readonly string[];
     mounted: boolean;
     mountedAt?: number;
+    /** 运行期使用情况（进程内累计，重启清零）。 */
+    usage: SkillUsage;
+}
+
+/** 使用情况：调用 / 校验失败 / 最近调用时间（进程内事实）。 */
+export interface SkillUsage {
+    invocations: number;
+    validationFailures: number;
+    lastInvokedAt?: number;
+    lastFailureAt?: number;
+}
+
+/** 面板头部汇总：发现 / 挂载 / 使用。 */
+export interface SkillUsageSummary {
+    discovered: number;
+    mounted: number;
+    invocations: number;
+    validationFailures: number;
 }
 
 /** 详情视图：manifest 全量 + 工具 / 记忆 schema / 模板 / 校验器 / 事件。 */
@@ -165,6 +183,7 @@ export class SkillRuntime implements SkillProvider {
     private readonly onAudit?: (entry: SkillAuditEntry) => void;
     private readonly mountedIds = new Set<string>();
     private readonly mountedAt = new Map<string, number>();
+    private readonly usageById = new Map<string, SkillUsage>();
     private readonly modules = new Map<string, LoadedSkillModules>();
     private readonly loading = new Map<string, Promise<void>>();
 
@@ -341,7 +360,44 @@ export class SkillRuntime implements SkillProvider {
             toolNames: snapshot.tools.map((tool) => tool.name),
             mounted: this.mountedIds.has(manifest.id),
             ...(mountedAt !== undefined ? { mountedAt } : {}),
+            usage: this.usageOf(manifest.id),
         };
+    }
+
+    /** 使用情况（拷贝，避免调用方改写内部计数）。 */
+    usageOf(id: string): SkillUsage {
+        const usage = this.usageById.get(id);
+        return usage === undefined ? { invocations: 0, validationFailures: 0 } : { ...usage };
+    }
+
+    /** 面板头部汇总（发现 / 挂载 / 调用 / 校验失败）。 */
+    usageSummary(): SkillUsageSummary {
+        let invocations = 0;
+        let validationFailures = 0;
+        for (const usage of this.usageById.values()) {
+            invocations += usage.invocations;
+            validationFailures += usage.validationFailures;
+        }
+        return {
+            discovered: this.registry.list().length,
+            mounted: this.mountedIds.size,
+            invocations,
+            validationFailures,
+        };
+    }
+
+    private recordInvocation(id: string): void {
+        const usage = this.usageById.get(id) ?? { invocations: 0, validationFailures: 0 };
+        usage.invocations += 1;
+        usage.lastInvokedAt = this.now();
+        this.usageById.set(id, usage);
+    }
+
+    private recordValidationFailure(id: string): void {
+        const usage = this.usageById.get(id) ?? { invocations: 0, validationFailures: 0 };
+        usage.validationFailures += 1;
+        usage.lastFailureAt = this.now();
+        this.usageById.set(id, usage);
     }
 
     private ensureLoaded(snapshot: SkillSnapshot): Promise<void> {
@@ -411,10 +467,12 @@ export class SkillRuntime implements SkillProvider {
         context: SkillRunContext,
     ): Promise<ToolCallResult> {
         const skillId = snapshot.manifest.id;
+        this.recordInvocation(skillId);
         const loaded = this.modules.get(skillId);
         const verdict = this.runValidators(snapshot, loaded, toolName, args);
         if (!verdict.ok) {
             const reason = verdict.reason ?? '校验失败';
+            this.recordValidationFailure(skillId);
             this.emitValidationFailure(snapshot, toolName, reason, context);
             return { ok: false, error: reason };
         }

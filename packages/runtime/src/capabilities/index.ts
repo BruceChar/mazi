@@ -8,5 +8,6 @@ export * from './memory.js';
 export * from './permission.js';
 export * from './registry.js';
 export * from './runtime.js';
+export * from './scaffold.js';
 export * from './source.js';
 export * from './template.js';

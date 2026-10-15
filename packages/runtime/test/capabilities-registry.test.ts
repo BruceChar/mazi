@@ -7,7 +7,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { asSkillRoot, CapabilityRegistry } from '../src/capabilities/index.js';
+import {
+    asSkillRoot,
+    CapabilityRegistry,
+    defaultBuiltinSkillsRoot,
+    scaffoldSkill,
+} from '../src/capabilities/index.js';
 import { defaultManifest, defaultTool, writeSkillPackage } from './helpers/skill-package.js';
 
 const dirs: string[] = [];
@@ -80,6 +85,27 @@ describe('能力注册表：扫描 / 查询 / 快照', () => {
         expect(registry.list().map((snapshot) => snapshot.manifest.id)).toEqual(['alpha', 'beta']);
     });
 
+    it('三级优先：project > user > builtin（内置最低且只读）', () => {
+        const project = makeRoot();
+        const user = makeRoot();
+        const builtin = makeRoot();
+        writePackage(builtin, 'alpha', { ...personal(), version: '0.0.1' });
+        writePackage(user, 'alpha', { ...personal(), version: '0.1.0' });
+        writePackage(project, 'alpha', { ...personal(), version: '0.2.0' });
+        writePackage(builtin, 'only-builtin', personal('only-builtin'));
+        const registry = CapabilityRegistry.open({
+            roots: [
+                asSkillRoot(project, 'project'),
+                asSkillRoot(user, 'user'),
+                asSkillRoot(builtin, 'builtin'),
+            ],
+        });
+        expect(registry.get('alpha')?.scope).toBe('project');
+        expect(registry.get('alpha')?.manifest.version).toBe('0.2.0');
+        expect(registry.get('only-builtin')?.scope).toBe('builtin');
+        expect(registry.shadowed().map((entry) => entry.scope)).toEqual(['user', 'builtin']);
+    });
+
     it('项目级优先：同名 id 以 project 覆盖 user，覆盖来源记入 shadowed()', () => {
         const project = makeRoot();
         const user = makeRoot();
@@ -101,6 +127,39 @@ describe('能力注册表：扫描 / 查询 / 快照', () => {
                 shadowedBy: join(project, 'alpha'),
             },
         ]);
+    });
+});
+
+describe('CP-11 新建技能脚手架', () => {
+    it('生成合法技能包（安全默认）并可被注册表加载', () => {
+        const root = makeRoot();
+        const skillRoot = asSkillRoot(root, 'user');
+        const created = scaffoldSkill(skillRoot, {
+            id: 'my-skill',
+            name: '我的技能',
+            description: '测试用技能',
+        });
+        expect(created.manifest.permissionCeiling).toBe('read-only');
+        expect(created.manifest.tools).toEqual([]);
+        const registry = CapabilityRegistry.open({ roots: [skillRoot] });
+        expect(registry.errors()).toEqual([]);
+        expect(registry.get('my-skill')?.manifest.name).toBe('我的技能');
+    });
+
+    it('非法 id / 已存在目录 / 内置只读根 → 拒绝', () => {
+        const root = makeRoot();
+        const skillRoot = asSkillRoot(root, 'user');
+        scaffoldSkill(skillRoot, { id: 'my-skill', name: '我的技能' });
+        expect(() => scaffoldSkill(skillRoot, { id: 'my-skill', name: '重复' })).toThrow();
+        expect(() => scaffoldSkill(skillRoot, { id: 'Bad_Id', name: 'x' })).toThrow();
+        expect(() => scaffoldSkill(skillRoot, { id: 'ok-id', name: '  ' })).toThrow();
+        expect(() =>
+            scaffoldSkill(asSkillRoot(root, 'builtin'), { id: 'ok-id', name: 'x' }),
+        ).toThrow();
+    });
+
+    it('内置根默认落点为 runtime 包内的 builtin-skills', () => {
+        expect(defaultBuiltinSkillsRoot()).toMatch(/builtin-skills$/);
     });
 });
 
