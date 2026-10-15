@@ -16,11 +16,10 @@ describe('user-center（用户中心 tab IA）', () => {
         ]);
     });
 
-    it('每个 tab 都有文案、图标与说明', () => {
+    it('每个 tab 都有文案与图标', () => {
         for (const tab of USER_CENTER_TABS) {
             expect(tab.label.length).toBeGreaterThan(0);
             expect(tab.icon.length).toBeGreaterThan(0);
-            expect(tab.hint.length).toBeGreaterThan(0);
         }
     });
 

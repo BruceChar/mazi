@@ -10,16 +10,14 @@ export interface UserCenterTab {
     id: UserCenterTabId;
     label: string;
     icon: string;
-    /** 页头副标题与 tooltip：这个 tab 在看什么。 */
-    hint: string;
 }
 
 export const USER_CENTER_TABS: readonly UserCenterTab[] = [
-    { id: 'profile', label: '画像', icon: 'user', hint: '本机行为流统计出的机械特征' },
-    { id: 'questions', label: '问题', icon: 'search', hint: '历史提问与标签分类' },
-    { id: 'behavior', label: '行为链', icon: 'observation', hint: '授权 / 反馈 / 决策等用户行为' },
-    { id: 'ledger', label: '账本', icon: 'info', hint: 'vendor 口径的花费记录' },
-    { id: 'preferences', label: '用户设置', icon: 'settings', hint: '称呼、偏好与回答风格' },
+    { id: 'profile', label: '画像', icon: 'user' },
+    { id: 'questions', label: '问题', icon: 'search' },
+    { id: 'behavior', label: '行为链', icon: 'observation' },
+    { id: 'ledger', label: '账本', icon: 'info' },
+    { id: 'preferences', label: '用户设置', icon: 'settings' },
 ];
 
 export const DEFAULT_USER_CENTER_TAB: UserCenterTabId = 'profile';

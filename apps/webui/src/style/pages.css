@@ -14,17 +14,6 @@
     padding: 16px 18px;
 }
 
-.page-heading {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 12px;
-}
-
-.page-heading h1 {
-    margin: 0;
-}
-
 .page-actions {
     display: flex;
     justify-content: flex-end;
@@ -38,17 +27,17 @@
     border-color: transparent;
 }
 
-/* 用户中心内嵌面板：外壳与页头由 UserCenterPage 承载，标题降为小节标题。 */
+/* 用户中心内嵌面板：tab 已承载标题，这里只留计数等小节计量。 */
 .uc-panel {
     min-width: 0;
 }
-.uc-panel .page-heading {
+.uc-meta {
+    display: flex;
+    justify-content: flex-end;
     margin-bottom: 10px;
 }
-.uc-panel .page-heading h1 {
-    font-size: 15px;
-}
 .uc-saved {
+    margin-right: auto;
     padding: 1px 8px;
     border-radius: 999px;
     background: var(--ok-soft);

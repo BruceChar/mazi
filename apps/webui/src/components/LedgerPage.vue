@@ -76,8 +76,7 @@ onMounted(reload);
 
 <template>
     <div class="uc-panel">
-        <div class="page-heading">
-            <h1>花费账本</h1>
+        <div class="uc-meta">
             <span class="ledger-badge">{{ buckets.length }} 个时段</span>
         </div>
 

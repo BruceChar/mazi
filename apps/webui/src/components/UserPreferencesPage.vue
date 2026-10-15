@@ -32,10 +32,6 @@ function reset() {
 
 <template>
     <div class="uc-panel">
-        <div class="page-heading">
-            <h1>用户设置</h1>
-            <span v-if="saved" class="uc-saved">已保存</span>
-        </div>
         <div class="field-row">
             <label>用户名</label>
             <input v-model="preferences.displayName" />
@@ -53,6 +49,7 @@ function reset() {
             <textarea v-model="preferences.responseStyle" rows="3" />
         </div>
         <div class="page-actions">
+            <span v-if="saved" class="uc-saved">已保存</span>
             <button class="ghost" @click="reset">取消</button>
             <button class="primary" @click="save">保存</button>
         </div>

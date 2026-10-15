@@ -62,14 +62,9 @@ onMounted(async () => {
 
 <template>
     <div class="uc-panel">
-        <div class="page-heading">
-            <h1>用户画像</h1>
+        <div class="uc-meta">
             <span class="profile-badge">{{ summary.total }} 条行为 · {{ sampleState }}</span>
         </div>
-        <p class="profile-note">
-            机械特征（本机用户行为流，简单统计）；审批请求由系统（harness）发起、不计入用户行为，用户行为是授权。
-            认知 / 性情 / 价值观等 LLM 维度待独立分析器生成。
-        </p>
         <div v-if="error" class="empty-hint">{{ error }}</div>
         <div v-else-if="loading" class="empty-hint">加载中…</div>
         <div v-else class="profile-grid">
@@ -127,12 +122,6 @@ onMounted(async () => {
     margin-left: auto;
     font-size: 12px;
     color: var(--fg-tertiary);
-}
-.profile-note {
-    margin: 4px 0 16px;
-    font-size: 13px;
-    line-height: 1.6;
-    color: var(--fg-secondary);
 }
 .profile-grid {
     display: grid;

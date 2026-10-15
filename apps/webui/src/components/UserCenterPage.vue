@@ -22,9 +22,6 @@ const props = defineProps({
 const emit = defineEmits(['update:tab', 'close']);
 
 const activeTab = computed(() => userCenterTabOf(props.tab));
-const activeHint = computed(
-    () => USER_CENTER_TABS.find((tab) => tab.id === activeTab.value)?.hint ?? '',
-);
 const displayName = computed(() => userPreferences.displayName?.trim() || '本机用户');
 </script>
 
@@ -34,7 +31,6 @@ const displayName = computed(() => userPreferences.displayName?.trim() || '本�
             <div class="uc-head-main">
                 <h1>用户中心</h1>
                 <span class="uc-identity" title="在「用户设置」里修改">{{ displayName }}</span>
-                <span class="uc-hint">{{ activeHint }}</span>
             </div>
             <button class="uc-back" title="返回对话（Esc）" @click="emit('close')">
                 <LineIcon name="chevronLeft" size="14" />
@@ -48,7 +44,6 @@ const displayName = computed(() => userPreferences.displayName?.trim() || '本�
                 :key="item.id"
                 class="uc-tab"
                 :class="{ on: activeTab === item.id }"
-                :title="item.hint"
                 @click="emit('update:tab', item.id)"
             >
                 <LineIcon :name="item.icon" size="14" />
@@ -101,13 +96,6 @@ const displayName = computed(() => userPreferences.displayName?.trim() || '本�
     font-size: 11px;
     font-weight: 600;
     line-height: 18px;
-}
-.uc-hint {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 11px;
-    color: var(--fg-tertiary);
 }
 .uc-back {
     flex-shrink: 0;

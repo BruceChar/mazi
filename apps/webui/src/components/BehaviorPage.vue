@@ -74,8 +74,7 @@ onMounted(async () => {
 
 <template>
     <div class="uc-panel">
-        <div class="page-heading">
-            <h1>行为链</h1>
+        <div class="uc-meta">
             <span class="behavior-badge">{{ visible.length }} 条</span>
         </div>
         <div v-if="error" class="empty-hint">{{ error }}</div>

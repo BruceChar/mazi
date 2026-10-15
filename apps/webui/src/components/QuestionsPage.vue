@@ -84,8 +84,7 @@ async function saveLabel(question) {
 
 <template>
     <div class="uc-panel">
-        <div class="page-heading">
-            <h1>问题</h1>
+        <div class="uc-meta">
             <span class="question-badge">{{ questions.length }} 条</span>
         </div>
 
