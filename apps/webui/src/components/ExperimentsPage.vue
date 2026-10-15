@@ -212,7 +212,7 @@ function kpis(arm) {
         <header class="page-head">
             <div class="page-title">
                 <LineIcon name="hammer" size="16" />
-                <span>实验台</span>
+                <span>AB实验室</span>
                 <span class="page-sub">同一输入 · 两臂对照 · 输出与 Trace 并排 · 独立日志可复盘</span>
             </div>
             <button class="btn" @click="emit('back')">

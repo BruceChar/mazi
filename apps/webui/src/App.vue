@@ -236,7 +236,7 @@ const activeConversation = computed(() =>
 
 /** 顶部栏会话名称：最多 12 个字符，超出以省略号截断。 */
 const headerTitle = computed(() => {
-    if (ui.view === 'experiments') return '实验台';
+    if (ui.view === 'experiments') return 'AB实验室';
     const title = conversationTitle(activeConversation.value) || '';
     return title.length > 12 ? title.slice(0, 12) + '…' : title;
 });

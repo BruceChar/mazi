@@ -136,6 +136,12 @@ function latencyText() {
             新会话
         </button>
     </div>
+    <div class="sidebar-lab">
+        <button class="lab-btn" title="AB 对照实验台：同一输入分臂运行，对比输出与 Trace" @click="emit('open-experiments')">
+            <LineIcon name="hammer" size="15" />
+            AB实验室
+        </button>
+    </div>
     <div class="workspace-head">
         <template v-if="searchOpen">
             <input v-model="q" class="search-input" placeholder="搜索会话…" autofocus />
@@ -253,10 +259,6 @@ function latencyText() {
         </div>
     </div>
     <div class="sidebar-settings">
-        <button class="settings-btn" title="AB 对照实验台" @click="emit('open-experiments')">
-            <LineIcon name="hammer" size="15" />
-            实验台
-        </button>
         <button class="settings-btn" @click="emit('open-settings')">
             <LineIcon name="settings" size="15" />
             系统设置
@@ -306,6 +308,28 @@ function latencyText() {
 <style scoped>
 .sidebar-new {
     padding: 8px 12px 10px;
+}
+/* AB 实验室：独立一行（不与「系统设置」并列），紧贴「新会话」下方 */
+.sidebar-lab {
+    padding: 0 12px 10px;
+}
+.lab-btn {
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--fg-secondary);
+    font-size: 13px;
+    cursor: pointer;
+}
+.lab-btn:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
 }
 .new-session {
     width: auto;
