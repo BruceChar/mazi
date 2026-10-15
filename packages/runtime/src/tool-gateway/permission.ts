@@ -105,21 +105,11 @@ export function grantForPermissionLevel(level: PermissionLevel): authz.Grant {
     return { caps };
 }
 
-/**
- * Dispatch capability for a runtime tool.
- *
- * 副作用优先级（能力包工具按 SideEffectScope 声明，docs/能力包规范.md §6.1）：
- * pay > external-api > net > db > process > fs；高危副作用先命中，避免 db/pay 写操作
- * 被降级成只读能力而绕过审批。
- */
+/** Dispatch capability for a runtime tool. */
 export function capabilityForTool(tool: ToolConfig): string {
     if (tool.name === 'shell.run') return 'fs.exec';
     const effects = new Set(tool.sideEffects ?? []);
-    if (effects.has('pay')) return 'pay';
-    if (effects.has('external-api')) return 'net.send';
     if (effects.has('net')) return tool.irreversible === true ? 'net.send' : 'net.fetch';
-    if (effects.has('db')) return 'db.write';
-    if (effects.has('process')) return 'fs.exec';
     if (effects.has('fs')) return 'fs.write.workspace';
     return 'fs.read.workspace';
 }

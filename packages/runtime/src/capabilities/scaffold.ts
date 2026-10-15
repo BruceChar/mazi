@@ -1,31 +1,28 @@
 /**
- * capabilities/scaffold.ts —— 新建技能：写入最小可校验的 manifest 脚手架
- * （docs/能力包规范.md §4/§10/CP-11）。
+ * capabilities/scaffold.ts —— 新建 Skill：写一个最小可用的 SKILL.md（docs/能力包规范.md §3/§6）。
  *
- * 新建让「发现 → 挂载」在 UI 里闭环：脚手架只写 manifest.json + README.md，
- * 保持零工具、零记忆、read-only 上限（安全默认）；工具/模板/校验器由作者按 §4 追加。
+ * 面板「新建」只需 id + 名称 + 描述：生成 frontmatter（name/description）与正文骨架，
+ * 作者随后在正文里写清「何时使用 / 步骤 / 输出」即可被模型按需加载。
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { PermissionLevel, SkillIntents, SkillManifest } from '@mazi/core';
+import { SKILL_FILE } from '@mazi/core';
 import type { SkillRoot, WritableSkillRootScope } from './source.js';
 
 export const SKILL_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-export const MANIFEST_FILE = 'manifest.json';
-export const SKILL_README_FILE = 'README.md';
 
 export interface SkillScaffoldInput {
     id: string;
     name: string;
     description?: string;
-    intents?: Partial<SkillIntents>;
-    permissionCeiling?: PermissionLevel;
+    license?: string;
 }
 
 export interface SkillScaffoldResult {
     dir: string;
-    manifest: SkillManifest;
+    path: string;
+    content: string;
 }
 
 /** 某作用域对应的可写根（builtin 只读 → undefined）。 */
@@ -36,43 +33,43 @@ export function scaffoldRootOf(
     return roots.find((root) => root.scope === scope);
 }
 
-function readmeOf(manifest: SkillManifest): string {
+function skillMdOf(input: SkillScaffoldInput, id: string, name: string): string {
+    const description =
+        input.description?.trim() || '待完善：' + name + '（写清楚做什么 + 什么时候用）';
     return [
-        '# ' + manifest.name + '（' + manifest.id + '）',
+        '---',
+        'name: ' + name,
+        'description: ' + description,
+        ...(input.license !== undefined && input.license.trim().length > 0
+            ? ['license: ' + input.license.trim()]
+            : []),
+        '---',
         '',
-        '> 由 mazi 技能面板生成的脚手架；规范见 docs/能力包规范.md。',
+        '# ' + name,
         '',
-        '## 领域边界',
+        '## 何时使用',
         '',
-        '- **做**：' + manifest.description,
-        '- **不做**：（补充：本技能明确不负责的事情）',
+        '（写清触发场景与典型请求；description 与这里决定模型会不会加载本 Skill。）',
         '',
-        '## 工具',
+        '## 步骤',
         '',
-        '当前还没有工具。新增步骤：',
+        '1. …',
+        '2. …',
         '',
-        '1. 在 `tools/<tool>.json` 声明工具（复用 ToolConfig 契约 + `handler: { module, export }`）；',
-        '2. 在 `handlers/` 实现 handler（导出函数，接收 args 与 ctx，ctx.memory 写本包命名空间）；',
-        '3. 在 `manifest.json` 的 `tools` 中加入工具名。',
-        '4. 需要校验时写 `validators/<name>.ts`（默认导出纯函数），并在工具声明里引用。',
+        '## 输出',
         '',
-        '## 数据语义（memory）',
+        '- …',
         '',
-        '当前没有集合。集合 schema 放 `memory/schemas.json`，并在 manifest.memory.collections 声明敏感度；',
-        '`sensitive` 默认不注入 LLM 上下文，`secret` 只写不读回。',
+        '## 随包文件',
         '',
-        '## 提醒规则示例',
+        '需要参考资料或脚本时放在本目录下（如 references/、scripts/），在正文里用相对路径引用。',
         '',
-        '领域事件命名遵循 `skill.' + manifest.id + '.<name>`；调度与投递属平台职责（CP-D）。',
-        '',
-        '## 版本与迁移',
-        '',
-        '- 当前版本 ' + manifest.version + '；记忆 schema 演进时递增 minor 并在此声明迁移策略。',
+        '<!-- scaffold: ' + id + ' -->',
         '',
     ].join('\n');
 }
 
-/** 在指定根下创建技能目录；目录已存在 / id 非法 / 名称为空 → 抛错（不覆盖用户资产）。 */
+/** 在指定根下创建 Skill 目录与 SKILL.md；目录已存在 / id 非法 / 名称为空 → 抛错。 */
 export function scaffoldSkill(root: SkillRoot, input: SkillScaffoldInput): SkillScaffoldResult {
     if (root.scope === 'builtin') throw new Error('内置技能根只读，不支持新建');
     const id = input.id.trim();
@@ -83,25 +80,8 @@ export function scaffoldSkill(root: SkillRoot, input: SkillScaffoldInput): Skill
     if (name.length === 0) throw new Error('技能名称不能为空');
     const dir = join(root.dir, id);
     if (existsSync(dir)) throw new Error('技能目录已存在：' + dir);
-    const manifest: SkillManifest = {
-        id,
-        version: '0.1.0',
-        name,
-        description: input.description?.trim() || name,
-        intents: {
-            domains: input.intents?.domains ?? [],
-            categories: input.intents?.categories ?? [],
-            keywords: input.intents?.keywords ?? [],
-        },
-        permissionCeiling: input.permissionCeiling ?? 'read-only',
-        tools: [],
-        memory: { collections: [] },
-        templates: [],
-        validators: [],
-        events: { emits: [], subscribes: [] },
-    };
+    const content = skillMdOf(input, id, name);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, MANIFEST_FILE), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
-    writeFileSync(join(dir, SKILL_README_FILE), readmeOf(manifest), 'utf8');
-    return { dir, manifest };
+    writeFileSync(join(dir, SKILL_FILE), content, 'utf8');
+    return { dir, path: join(dir, SKILL_FILE), content };
 }

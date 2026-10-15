@@ -1,17 +1,14 @@
 /**
- * capabilities/source.ts —— skills 根装配、声明文件读取与模块加载。
+ * capabilities/source.ts —— 三级 skills 根装配与文件读取（docs/能力包规范.md §4）。
  *
- * 三级 skills 根（docs/能力包规范.md §1/§4/§7.1），优先级降序：
- * - 项目级：`<workspace>/skills/`（用户/项目资产，可写）
- * - 用户级：`$MAZI_HOME/skills/`（用户资产，可写；UI「新建技能」默认落点）
- * - 内置级：`<runtime>/builtin-skills/`（随应用分发、只读；MAZI_BUILTIN_SKILLS_DIR 可覆盖）
- * 同名 id 只保留最高优先级那份。能力包一律声明式优先；handler/validator 通过
- * **相对 skill 目录**的 specifier 按需 import()，不预打包进核心（AGENT.md 核心最小原则）。
+ * 优先级降序：项目级 workspace/skills（可写）> 用户级 MAZI_HOME/skills（可写）
+ * > 内置级 runtime/builtin-skills（随应用分发、只读；MAZI_BUILTIN_SKILLS_DIR 可覆盖）。
+ * 同名 id 只保留最高优先级那份；扫描单位是 skill 目录下的 SKILL.md。
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export type SkillRootScope = 'project' | 'user' | 'builtin';
 
@@ -37,11 +34,11 @@ export function asSkillRoot(dir: string, scope: SkillRootScope = 'user'): SkillR
     return { dir: resolve(dir), scope };
 }
 
-/** 内置技能落点：随 runtime 分发（可被 MAZI_BUILTIN_SKILLS_DIR 覆盖）。 */
+/** 内置 Skill 落点：随 runtime 分发（可被 MAZI_BUILTIN_SKILLS_DIR 覆盖）。 */
 export function defaultBuiltinSkillsRoot(): string {
     const override = process.env.MAZI_BUILTIN_SKILLS_DIR;
     if (override !== undefined && override.trim().length > 0) return resolve(override);
-    // src/capabilities/source.ts 与 dist/capabilities/source.js 均上溯两级到 runtime 包根。
+    // 源码与产物目录均上溯两级到 runtime 包根。
     return fileURLToPath(new URL('../../builtin-skills', import.meta.url));
 }
 
@@ -72,62 +69,30 @@ export function listSkillDirNames(root: string): string[] {
         .sort();
 }
 
-export type ReadJsonResult =
-    | { ok: true; value: unknown }
-    | { ok: false; missing: boolean; error: string };
-
-export function readJsonFile(path: string): ReadJsonResult {
-    let raw: string;
-    try {
-        raw = readFileSync(path, 'utf8');
-    } catch (error) {
-        return { ok: false, missing: true, error: String(error) };
-    }
-    try {
-        return { ok: true, value: JSON.parse(raw) as unknown };
-    } catch (error) {
-        return { ok: false, missing: false, error: String(error) };
-    }
-}
-
 export function readTextFile(path: string): string {
     return readFileSync(path, 'utf8');
 }
 
-export function listFileNames(dir: string, extensions: readonly string[]): string[] {
-    if (!existsSync(dir)) return [];
-    return readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isFile() && extensions.some((ext) => entry.name.endsWith(ext)))
-        .map((entry) => entry.name)
-        .sort();
+export function fileExists(path: string): boolean {
+    return existsSync(path);
 }
 
-/** 去掉扩展名（validators/entry.ts → entry）。 */
-export function stripExtension(fileName: string): string {
-    const dot = fileName.lastIndexOf('.');
-    return dot <= 0 ? fileName : fileName.slice(0, dot);
+/** Skill 目录内的随包文件（相对路径，排除 SKILL.md，排序）。 */
+export function listResourceFiles(dir: string, skillFileName: string): string[] {
+    const found: string[] = [];
+    const walk = (current: string): void => {
+        for (const entry of readdirSync(current, { withFileTypes: true })) {
+            const full = join(current, entry.name);
+            if (entry.isDirectory()) {
+                walk(full);
+                continue;
+            }
+            if (!entry.isFile()) continue;
+            const rel = relative(dir, full);
+            if (rel === skillFileName) continue;
+            found.push(rel);
+        }
+    };
+    if (existsSync(dir)) walk(dir);
+    return found.sort();
 }
-
-/** 模块引用：相对 specifier 按 skill 目录解析。 */
-export interface SkillModuleRef {
-    skillId: string;
-    skillDir: string;
-    module: string;
-    export?: string;
-}
-
-export type SkillModuleLoader = (ref: SkillModuleRef) => Promise<unknown>;
-
-/** 默认加载器：'./x.ts' 相对 skill 目录；裸 specifier 交给 Node 解析。 */
-export const fileModuleLoader: SkillModuleLoader = async (ref) => {
-    const specifier = ref.module.startsWith('.')
-        ? pathToFileURL(resolve(ref.skillDir, ref.module)).href
-        : ref.module;
-    const loaded = (await import(specifier)) as Record<string, unknown>;
-    const exportName = ref.export ?? 'default';
-    const value = loaded[exportName];
-    if (value === undefined) {
-        throw new Error(`能力包 ${ref.skillId} 的模块 ${ref.module} 未导出 ${exportName}`);
-    }
-    return value;
-};

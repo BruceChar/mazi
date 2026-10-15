@@ -407,7 +407,7 @@ export class HarnessRuntime {
                     store: this.goalStoreDb,
                     requestRound: (ctx) =>
                         this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel, sessionId),
-                    systemPrompt: this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT,
+                    systemPrompt: this.systemPromptWithSkills(rootGoalId, goalId),
                     tools: exec.tools,
                     invoker: exec.invoker,
                     allowedTools: exec.allowedTools,
@@ -671,28 +671,11 @@ export class HarnessRuntime {
                 merged.push(tool);
             }
         }
-        // 已挂载技能包：工具并入同一工具面；生效档位按包 permissionCeiling 收敛（§9.1）
-        const skillTools =
-            this.skillProvider?.toolConfigs({
-                rootGoalId,
-                goalId,
-                taskId: goalId,
-                emit: (event) => this.bus.emit(event),
-            }) ?? [];
-        for (const tool of skillTools) {
-            const idx = merged.findIndex((t) => t.name === tool.name);
-            if (idx >= 0) {
-                merged[idx] = tool;
-            } else {
-                merged.push(tool);
-            }
-        }
-        const effectiveLevel = this.skillProvider?.effectivePermissionLevel(level) ?? level;
         const gateway = new RuntimeToolGateway({
             rootGoalId,
             goalId,
             taskId: goalId,
-            level: effectiveLevel,
+            level,
             tools: merged,
             execute: (tool, args) => this.executeToolConfig(tool, args),
             ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
@@ -723,7 +706,27 @@ export class HarnessRuntime {
         return { tools, invoker: { invoke }, allowedTools: names };
     }
 
-    /** 技能包运行边界事件：携 harness.skill_id（CP-8 可按 skillId 回放）。 */
+    /**
+     * 基础系统提示 + 已挂载 Skill 的 L1 目录（渐进披露第 1 层：name/description/path）。
+     * 正文（L2）与随包文件（L3）由模型用已有工具按需读取，不预先注入。
+     */
+    private systemPromptWithSkills(rootGoalId: string, goalId: string): string {
+        const base = this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT;
+        const entries = this.skillProvider?.catalog({ rootGoalId, goalId }) ?? [];
+        if (entries.length === 0) return base;
+        const catalog = entries
+            .map((entry) => '- ' + entry.name + '：' + entry.description + '（' + entry.path + '）')
+            .join('\n');
+        return (
+            base +
+            '\n\n## 可用技能（Skill）\n' +
+            catalog +
+            '\n\n当请求与某个技能描述相关时，先用 fs.read 读取该技能的 SKILL.md 并按其中步骤执行；' +
+            '正文提到的随包文件按相对路径继续读取。'
+        );
+    }
+
+    /** Skill 运行边界事件：携 harness.skill_id（可回放"本次运行带上了哪些技能"）。 */
     private emitSkillEvent(
         type: 'capability.activated' | 'capability.deactivated',
         skillId: string,
