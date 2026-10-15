@@ -56,6 +56,22 @@ export interface ExperimentArmSpec {
     reasoningLevel?: string;
 }
 
+/** 实验定义（experiment.created 事件冻结的输入）：两臂 + 控制变量。 */
+export interface ExperimentSpec {
+    title: string;
+    hypothesis?: string;
+    /** 同一输入，两臂完全一致。 */
+    input: string;
+    /** 同一工作区（可选；缺省用宿主当前工作区）。 */
+    workspace?: string;
+    /** 控制变量：两臂共用。 */
+    baseline: ExperimentBaseline;
+    /** 自变量声明（至少一项）。 */
+    variables: ExperimentVariable[];
+    /** 两臂（恰好两个）。 */
+    arms: ExperimentArmSpec[];
+}
+
 export type ExperimentArmStatus = 'pending' | 'running' | 'completed' | 'failed' | 'aborted';
 
 export type ExperimentStatus = 'created' | 'running' | 'completed' | 'failed' | 'aborted';
@@ -99,6 +115,30 @@ export interface ExperimentArmState {
 }
 
 export type ExperimentVerdict = 'A' | 'B' | 'tie' | 'inconclusive';
+
+/**
+ * 折叠后的实验视图（复盘 / 接口返回）。
+ * 由实验日志（experiments/<id>.jsonl）重放得出，不设独立真相源。
+ */
+export interface ExperimentView {
+    experimentId: string;
+    title: string;
+    hypothesis?: string;
+    input: string;
+    workspace?: string;
+    baseline: ExperimentBaseline;
+    variables: ExperimentVariable[];
+    arms: ExperimentArmState[];
+    status: ExperimentStatus;
+    createdAt: number;
+    startedAt?: number;
+    endedAt?: number;
+    comparison?: ExperimentComparison;
+    /** 整体失败原因（experiment.failed）。 */
+    error?: string;
+    /** 复盘备注（append-only）。 */
+    reviews: ExperimentReview[];
+}
 
 /** 复盘备注（append-only）。 */
 export interface ExperimentReview {

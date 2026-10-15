@@ -108,6 +108,8 @@ export {
 // 观测层（事件总线；apps 直接消费）
 export type { EventBusOptions, NewEventInput } from './events/event-bus.js';
 export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './events/event-bus.js';
+// 对照实验（Experiment）：日志 / 折叠复盘 / 指标 / 执行器（docs/AB测试设计.md §5-§7）
+export * from './experiment/index.js';
 // 特性开关（Feature）：定义持久化 + 运行期解析（docs/AB测试设计.md §3）
 export * from './features/index.js';
 export type {
