@@ -5,6 +5,7 @@ import {
     snapshotSections,
     wikiEmptyText,
     wikiUpdatedLabel,
+    wikiWorkspaceFor,
 } from '../src/scripts/wiki.ts';
 
 describe('wiki 视图纯函数（docs/项目wiki设计.md §11）', () => {
@@ -33,5 +34,13 @@ describe('wiki 视图纯函数（docs/项目wiki设计.md §11）', () => {
         expect(wikiUpdatedLabel('2026-10-16T02:13:40+08:00')).toBe('2026-10-16 02:13:40 +08:00');
         expect(wikiEmptyText('  ')).toContain('请先选择工作区');
         expect(wikiEmptyText('/tmp/x')).toContain('会自动记录');
+    });
+
+    it('wikiWorkspaceFor：项目路径优先，缺省回退当前会话工作区', () => {
+        expect(wikiWorkspaceFor('/Users/bruce/nodejs/whoami/', '/tmp/other')).toBe(
+            '/Users/bruce/nodejs/whoami/',
+        );
+        expect(wikiWorkspaceFor(undefined, '/tmp/other')).toBe('/tmp/other');
+        expect(wikiWorkspaceFor('   ', '  ')).toBe('');
     });
 });

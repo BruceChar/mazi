@@ -142,10 +142,6 @@ function latencyText() {
             <LineIcon name="hammer" size="15" />
             AB实验室
         </button>
-        <button class="lab-btn" title="项目 Wiki：查看项目状态快照与最近变更（时间 | 改动）" @click="emit('open-wiki')">
-            <LineIcon name="observation" size="15" />
-            项目Wiki
-        </button>
     </div>
     <div class="workspace-head">
         <template v-if="searchOpen">
@@ -290,6 +286,9 @@ function latencyText() {
                 </button>
                 <button @click="emit('start-project-conversation', menuTarget.item); closeMenu()">
                     <LineIcon name="plus" size="13" />添加新会话
+                </button>
+                <button title="项目状态快照与最近变更" @click="emit('open-wiki', menuTarget.item); closeMenu()">
+                    <LineIcon name="observation" size="13" />项目 Wiki
                 </button>
                 <button class="danger" @click="emit('remove-project', menuTarget.item); closeMenu()">
                     <LineIcon name="trash" size="13" />删除项目

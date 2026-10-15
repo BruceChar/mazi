@@ -57,6 +57,14 @@ export function recentEntries(
     return limit > 0 ? list.slice(-limit) : list;
 }
 
+/**
+ * 从项目「…」菜单打开 wiki 时的目标工作区：项目路径优先，缺省回退当前会话工作区。
+ */
+export function wikiWorkspaceFor(projectPath: string | undefined, headerWorkspace: string): string {
+    const project = (projectPath ?? '').trim();
+    return project.length > 0 ? project : headerWorkspace.trim();
+}
+
 export function entryCountLabel(count: number): string {
     return count > 0 ? count + ' 条变更' : '暂无变更';
 }

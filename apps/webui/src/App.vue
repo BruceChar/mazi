@@ -18,6 +18,7 @@ import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
 import { SETTINGS_TABS } from './scripts/settings-tabs.ts';
 import { DEFAULT_USER_CENTER_TAB, userCenterTabOf } from './scripts/user-center.ts';
+import { wikiWorkspaceFor } from './scripts/wiki.ts';
 import { buildAuditView } from './scripts/audit.ts';
 import { API_BASE } from './api.js';
 import {
@@ -557,6 +558,14 @@ function backToChat() {
     ui.view = 'chat';
 }
 
+/** 项目「…」菜单打开的项目 wiki：锁定该项目工作区（缺省跟随当前会话工作区）。 */
+const wikiWorkspace = ref('');
+
+function openProjectWiki(project) {
+    wikiWorkspace.value = wikiWorkspaceFor(project?.path, headerWorkspace.value);
+    ui.view = 'wiki';
+}
+
 /** 用户中心内按 Esc 一键返回对话。 */
 function onKeydown(event) {
     if (event.key !== 'Escape') return;
@@ -889,7 +898,7 @@ onBeforeUnmount(() => {
                 @remove-conversation="removeConversation"
                 @open-settings="openSettings"
                 @open-experiments="ui.view = 'experiments'"
-                @open-wiki="ui.view = 'wiki'"
+                @open-wiki="openProjectWiki"
             />
             </template>
         </aside>
@@ -976,7 +985,11 @@ onBeforeUnmount(() => {
 
             <ExperimentsPage v-else-if="ui.view === 'experiments'" />
 
-            <WikiPage v-else-if="ui.view === 'wiki'" :workspace="headerWorkspace" @close="backToChat" />
+            <WikiPage
+                v-else-if="ui.view === 'wiki'"
+                :workspace="wikiWorkspace"
+                @close="backToChat"
+            />
 
             <UserCenterPage
                 v-else-if="ui.view === 'user-center'"

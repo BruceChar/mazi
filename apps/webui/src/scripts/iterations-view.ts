@@ -233,7 +233,8 @@ function toTocRow(
     }));
     const adopted = analyses.some((row) => row.record !== null);
     const latestAt = analyses.reduce<number | null>(
-        (max, row) => (max === null ? row.analysis.createdAt : Math.max(max, row.analysis.createdAt)),
+        (max, row) =>
+            max === null ? row.analysis.createdAt : Math.max(max, row.analysis.createdAt),
         null,
     );
     const shortId = shortIdOf(item.toc.tocId);
@@ -241,7 +242,9 @@ function toTocRow(
         tocId: item.toc.tocId,
         shortId,
         title: firstLineOf(item.toc.userInput) || `TOC ${shortId}`,
-        subtitle: [shortIdOf(item.toc.taskId), modelLabelOf(item.toc.model)].filter(Boolean).join(' · '),
+        subtitle: [shortIdOf(item.toc.taskId), modelLabelOf(item.toc.model)]
+            .filter(Boolean)
+            .join(' · '),
         modelLabel: modelLabelOf(item.toc.model),
         createdAt: item.toc.createdAt,
         status: tocStatusOf(item.analyses),

@@ -194,7 +194,7 @@ $MAZI_HOME/wiki/
   - 头部：项目名、工作区、最近更新时间、wiki 绝对路径；
   - 主体：状态快照（markdown 渲染，沿用项目内现有渲染方式）+ 变更日志时间线；
   - 空态：暂无 wiki，并提示「本会话产生写入后将自动生成」。
-- 入口：侧边栏（Sidebar）在项目会话下显示「Wiki」；数据来自 `GET /api/wiki`，客户端状态加到 `apps/webui/src/api.ts` 与 `types.ts`。
+- 入口：**项目行的「…」菜单 →「项目 Wiki」**（wiki 属于项目，不占全局侧边栏）；打开时用 `wikiWorkspaceFor()` 锁定该项目工作区，缺省回退当前会话工作区。数据来自 `GET /api/wiki`，客户端纯函数与类型在 `apps/webui/src/scripts/wiki.ts`。
 - 不做编辑（本期只读）。
 
 ### 11.1 技能模板（用户级，非内置）
