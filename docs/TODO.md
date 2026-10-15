@@ -30,3 +30,4 @@
 - prompt模板
 - 网页模板
 - 输出结构模板
+\n### 项目 Wiki（后续）\n\n- 模型摘要 provider：配置 ，接 （当前默认确定性模板）；\n- graph-wiki 类插件：图谱 sidecar  + 新工具面（按插件/MCP 设计）；\n- 跨项目检索 / wiki 历史版本链与回滚。\n

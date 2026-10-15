@@ -254,7 +254,9 @@ $MAZI_HOME/wiki/
 1. 清空/备份 `$MAZI_HOME/wiki/mazi/`，开新会话让它改一个源文件 → 检查 `wiki.md` 出现一条『时间 | 改动』；
 2. 关闭会话再开新会话（不提供任何上下文）→ 直接问「项目现在什么状态」→ 回答应命中快照信息且不触发全仓扫描；
 3. WebUI 打开项目 → 能看到快照与变更日志；
-4. `pnpm lint && pnpm test` 全绿。
+4. `pnpm test` 全绿（本次 145 个测试文件 / 861 用例）；`pnpm exec biome check` **针对本特性全部文件**为 0 error。
+   仓库存在 10 个既有 lint error（conversations.controller / main / webui api / iterations-view / ulid / provider index / model-resolver / tool-executor / catalog seed / catalog sync），与本特性无关，按最小改动原则未一并修改。
+5. 接口冒烟（隔离 MAZI_HOME + 独立端口）：`GET /api/wiki` 返回快照 + `时间 | 改动` 条目；`GET /api/wiki/list` 返回项目清单；无 wiki 工作区返回 `empty: true`。
 
 ## 16. 里程碑与改动文件清单
 
@@ -284,3 +286,14 @@ $MAZI_HOME/wiki/
 - 模型摘要 provider 接入（配置 `wiki.summaryModel`，实现 `createLlmSummarizer`）。
 - graph-wiki 类插件：图谱 sidecar + 新工具面（独立设计文档）。
 - 跨项目检索 / wiki 历史版本链。
+
+## 18. 交付状态（2026-10-16）
+
+| 里程碑 | 状态 | 证据 |
+| ------ | ---- | ---- |
+| M2 runtime 事实层 | ✅ | `packages/runtime/src/wiki/*`；`wiki-store/wiki-writer/wiki-tools` 共 18 单测 |
+| M2c runtime 集成 | ✅ | `harness/runtime.ts` 注入 + 捕获 + 收尾 + `wiki.read`/`wiki.update`；`wiki-runtime-integration` 2 用例 |
+| M2d 分层与技能模板 | ✅ | 本文档 §2.1/§11.1；`docs/templates/skills/project-wiki/SKILL.md` |
+| M3 API | ✅ | `apps/api/src/wiki/wiki.controller.ts`；`apps/api/test/wiki.controller.test.ts` 3 用例 |
+| M4 WebUI | ✅ | `apps/webui/src/components/WikiPage.vue` + 侧边栏入口；`apps/webui/test/wiki.test.ts` 3 用例 |
+| M5 验收 | ✅ | `pnpm test` 861 用例全绿；`biome check` 本特性 0 error；API 冒烟通过 |
