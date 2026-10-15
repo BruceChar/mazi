@@ -19,6 +19,7 @@ import {
     AUTH_COMMAND_POLICY_SCHEMA,
     apiKeyStatus,
     builtinModelsFor,
+    CapabilityRegistry,
     CatalogService,
     COMMAND_POLICY_DOC,
     configOverview,
@@ -30,6 +31,7 @@ import {
     discoverModels,
     ensureMaziDirs,
     FileCatalogStore,
+    FileSkillMountStore,
     HarnessRuntime,
     htmlToText,
     loadCommandPolicy,
@@ -46,8 +48,10 @@ import {
     resolveScopedPermission,
     resolveVendorPricingSource,
     type SecretsFile,
+    SkillRuntime,
     saveProviderApiKey,
     saveRuntimeSettings,
+    skillRoots,
     toRuntimeConfig,
     validateCommandPolicy,
     withProviderSecrets,
@@ -273,6 +277,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     /** 每个运行时一个审批 broker（人审 seam 注入点）。 */
     private readonly approvalBrokers = new Map<HarnessRuntime, ApprovalBroker>();
     private runtime: HarnessRuntime | undefined;
+    private skillRuntime: SkillRuntime | undefined;
+    private skillRootsSignature = '';
     private catalogInstance: CatalogService | undefined;
     private catalogOpening: Promise<CatalogService> | undefined;
     private running = false;
@@ -326,6 +332,10 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         // 启动即做一次在线校准：官网价目（可能内含权威模型清单）→ 按需端点模型发现。
         void this.syncModelsAndPricing('boot').catch((error) =>
             this.logger.warn(`online sync on boot failed: ${String(error)}`),
+        );
+        // 技能发现（skills 根 + 挂载状态）：启动即就绪，Goal 执行直接并入已挂载包的工具面。
+        void this.skills().catch((error) =>
+            this.logger.warn(`skills discovery on boot failed: ${String(error)}`),
         );
         // 价格与模型目录定时校准（默认 5 分钟；MAZI_PRICE_SYNC_MS 可覆盖）。
         const priceSyncMs = Number(process.env.MAZI_PRICE_SYNC_MS ?? 5 * 60 * 1000);
@@ -519,6 +529,54 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return this.running;
     }
 
+    /**
+     * 技能运行时：扫描 `$MAZI_HOME/skills`（用户级）与 `<workspace>/skills`（项目级），
+     * 挂载状态持久化在 `$MAZI_HOME/skills.json`；工作区变化时重建并重新接入所有运行时。
+     */
+    async skills(): Promise<SkillRuntime> {
+        const roots = skillRoots({
+            home: this.paths.home,
+            workspace: this.workspaceRoot ?? this.freeChatWorkspaceValue,
+        });
+        const signature = roots.map((root) => root.scope + ':' + root.dir).join('|');
+        if (this.skillRuntime === undefined || signature !== this.skillRootsSignature) {
+            const runtime = new SkillRuntime({
+                registry: CapabilityRegistry.open({ roots }),
+                state: new FileSkillMountStore(this.paths.skillStateFile),
+                onAudit: (entry) =>
+                    this.logger.log(`skill ${entry.action} ${entry.skillId} @${entry.at}`),
+            });
+            await runtime.init();
+            this.skillRuntime = runtime;
+            this.skillRootsSignature = signature;
+            for (const harness of [this.runtime, ...this.workspaces.values()]) {
+                harness?.setSkillProvider(runtime);
+            }
+            this.logger.debug(
+                `skills: roots=[${roots.map((root) => root.dir).join(', ')}] mounted=${runtime.mounted().join(',')}`,
+            );
+        }
+        return this.skillRuntime;
+    }
+
+    /** 重新扫描 skills 根（新增/修改包目录后无需重启进程）。 */
+    async reloadSkills(): Promise<SkillRuntime> {
+        this.skillRuntime = undefined;
+        this.skillRootsSignature = '';
+        return this.skills();
+    }
+
+    /** 把技能工具面接入某运行时（构造时注入；未就绪则异步补齐）。 */
+    private attachSkills(runtime: HarnessRuntime): void {
+        if (this.skillRuntime !== undefined) {
+            runtime.setSkillProvider(this.skillRuntime);
+            return;
+        }
+        void this.skills()
+            .then((skills) => runtime.setSkillProvider(skills))
+            .catch((error) => this.logger.warn(`attachSkills failed: ${String(error)}`));
+    }
+
     /** 按当前工作区惰性装配运行时；未绑定工作区时复用默认运行时 */
     harness(): HarnessRuntime {
         if (!this.workspaceRoot) {
@@ -529,6 +587,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 });
                 this.attachCatalog(this.runtime);
                 this.attachApprovals(this.runtime);
+                this.attachSkills(this.runtime);
                 this.logger.debug(
                     `harness: default runtime assembled root=${this.freeChatWorkspaceValue}`,
                 );
@@ -541,6 +600,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             });
             this.attachCatalog(workspaceRuntime);
             this.attachApprovals(workspaceRuntime);
+            this.attachSkills(workspaceRuntime);
             this.workspaces.set(this.workspaceRoot, workspaceRuntime);
             this.logger.debug(`harness: workspace runtime assembled root=${this.workspaceRoot}`);
         }
