@@ -1,5 +1,5 @@
 import type { StepKind } from './gts.js';
-import type { ApprovalScope, PermissionLevel } from './permissions.js';
+import type { ApprovalScope, PermissionLevel } from './authz/permissions.js';
 
 /** Task-level tag (open string; expressed on the gts task model) */
 type TaskTag = string & {};

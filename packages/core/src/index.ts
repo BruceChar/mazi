@@ -10,7 +10,7 @@ export * as authz from './authz/index.js';
 export type * from './gts.js';
 export { ULID, ulid } from './ulid.js';
 export type * from './observability.js';
-export type * from './permissions.js';
+export type * from './authz/permissions.js';
 export type * from './provider.js';
 export { ProviderError } from './provider.js';
 export type * from './usage.js';
