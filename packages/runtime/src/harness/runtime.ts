@@ -7,6 +7,7 @@ import { IterationTracker } from '../analysis/iteration-tracker.js';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
 import { loadCommandPolicy } from '../auth/command-policy.js';
+import type { SkillProvider } from '../capabilities/runtime.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
@@ -120,6 +121,8 @@ export class HarnessRuntime {
     private behaviorMigration?: Promise<BehaviorMigrationResult>;
     /** 接入后的目录账本（花费回填等一次性遍历用）。 */
     private catalogService?: CatalogService;
+    /** 已挂载技能包的工具面（apps/api 注入；缺省 = 无技能）。 */
+    private skillProvider?: SkillProvider;
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
@@ -192,6 +195,11 @@ export class HarnessRuntime {
     setCatalog(service: CatalogService): void {
         this.catalogService = service;
         this.roundRunner.setCatalog(service);
+    }
+
+    /** 接入已挂载技能包：工具并入每次 Goal 的执行工具面，档位按包 ceiling 收敛。 */
+    setSkillProvider(provider?: SkillProvider): void {
+        this.skillProvider = provider;
     }
 
     /**
@@ -378,12 +386,18 @@ export class HarnessRuntime {
         const sessionId = this.pendingSessionId.get(rootGoalId);
         this.pendingSessionId.delete(rootGoalId);
         const rootGoal = goals.find((goal) => goal.goalId === rootGoalId) ?? goals[0];
+        const goalId = rootGoal?.goalId ?? rootGoalId;
         const exec = this.goalExecutionConfig(
             rootGoalId,
-            rootGoal?.goalId ?? rootGoalId,
+            goalId,
             rootGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
             sessionId,
         );
+        // 挂载是用户级开关；每次运行在边界发能力事件，审计锚定本次 run
+        const skillIds = this.skillProvider?.mounted() ?? [];
+        for (const skillId of skillIds) {
+            this.emitSkillEvent('capability.activated', skillId, rootGoalId, goalId);
+        }
         const controller = new AbortController();
         this.running.set(rootGoalId, controller);
         let result: GoalRunResult;
@@ -410,6 +424,9 @@ export class HarnessRuntime {
             );
         } finally {
             this.running.delete(rootGoalId);
+            for (const skillId of skillIds) {
+                this.emitSkillEvent('capability.deactivated', skillId, rootGoalId, goalId);
+            }
         }
         const aborted = result.tasks.some((outcome) => outcome.reason === 'aborted');
         // Settle the Goal entities so the persisted tree/snapshot no longer reports
@@ -654,11 +671,28 @@ export class HarnessRuntime {
                 merged.push(tool);
             }
         }
+        // 已挂载技能包：工具并入同一工具面；生效档位按包 permissionCeiling 收敛（§9.1）
+        const skillTools =
+            this.skillProvider?.toolConfigs({
+                rootGoalId,
+                goalId,
+                taskId: goalId,
+                emit: (event) => this.bus.emit(event),
+            }) ?? [];
+        for (const tool of skillTools) {
+            const idx = merged.findIndex((t) => t.name === tool.name);
+            if (idx >= 0) {
+                merged[idx] = tool;
+            } else {
+                merged.push(tool);
+            }
+        }
+        const effectiveLevel = this.skillProvider?.effectivePermissionLevel(level) ?? level;
         const gateway = new RuntimeToolGateway({
             rootGoalId,
             goalId,
             taskId: goalId,
-            level,
+            level: effectiveLevel,
             tools: merged,
             execute: (tool, args) => this.executeToolConfig(tool, args),
             ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
@@ -687,6 +721,24 @@ export class HarnessRuntime {
                 : { ok: false, content: '', error: result.error ?? 'tool failed' };
         };
         return { tools, invoker: { invoke }, allowedTools: names };
+    }
+
+    /** 技能包运行边界事件：携 harness.skill_id（CP-8 可按 skillId 回放）。 */
+    private emitSkillEvent(
+        type: 'capability.activated' | 'capability.deactivated',
+        skillId: string,
+        rootGoalId: string,
+        goalId: string,
+    ): void {
+        this.bus.emit(
+            newHarnessEvent({
+                type,
+                rootGoalId,
+                goalId,
+                attributes: { 'harness.skill_id': skillId, 'harness.level': 'info' },
+                payload: { skillId },
+            }),
+        );
     }
 
     /** 工具配置执行：fs.read / shell.run / CLI command / impl（经网关判权后调用）。 */

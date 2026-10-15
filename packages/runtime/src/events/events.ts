@@ -24,6 +24,8 @@ export const RUNTIME_EVENT_TYPES = [
     'run.aborted',
     /** 从已落库 Step 重放后继续执行 */
     'run.resumed',
+    /** 能力包工具前置校验失败（docs/能力包规范.md §6.4；携 harness.skill_id） */
+    'capability.validation.failed',
 ] as const;
 
 export type RuntimeEventType = (typeof RUNTIME_EVENT_TYPES)[number];

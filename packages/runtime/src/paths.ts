@@ -29,6 +29,10 @@ export const HOME_AUTH_DIR = 'config/auth';
 /** 问题标签分类法注册表（config/question-taxonomy.json；缺省用内置默认）。 */
 export const HOME_QUESTION_TAXONOMY_FILE = 'config/question-taxonomy.json';
 export const AUTH_COMMAND_POLICY_FILE = 'commands.json';
+/** 用户级技能目录（skills 资产，不进代码仓库）。 */
+export const HOME_SKILLS_DIR = 'skills';
+/** 技能挂载状态文件（用户级开关）。 */
+export const HOME_SKILLS_STATE_FILE = 'skills.json';
 
 export interface MaziPaths {
     home: string;
@@ -47,6 +51,10 @@ export interface MaziPaths {
     authConfigDir: string;
     /** 命令分类规则文件（默认 commands.json）。 */
     authCommandPolicyFile: string;
+    /** 用户级技能目录（$MAZI_HOME/skills）。 */
+    skillsDir: string;
+    /** 技能挂载状态文件（$MAZI_HOME/skills.json）。 */
+    skillStateFile: string;
 }
 
 export function maziPaths(home = maziHome()): MaziPaths {
@@ -68,6 +76,8 @@ export function maziPaths(home = maziHome()): MaziPaths {
         questionTaxonomyFile: join(home, HOME_QUESTION_TAXONOMY_FILE),
         authConfigDir,
         authCommandPolicyFile: join(authConfigDir, AUTH_COMMAND_POLICY_FILE),
+        skillsDir: join(home, HOME_SKILLS_DIR),
+        skillStateFile: join(home, HOME_SKILLS_STATE_FILE),
     };
 }
 
@@ -78,6 +88,7 @@ export function ensureMaziDirs(home = maziHome()): MaziPaths {
     mkdirSync(paths.eventDir, { recursive: true });
     mkdirSync(paths.behaviorDir, { recursive: true });
     mkdirSync(paths.authConfigDir, { recursive: true });
+    mkdirSync(paths.skillsDir, { recursive: true });
     return paths;
 }
 
