@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import type { ExperimentSpec, ExperimentView } from '@mazi/core';
-import type { ExperimentSummary } from '@mazi/runtime';
+import type { DefaultEventBus, ExperimentSummary, GoalTreeSnapshot } from '@mazi/runtime';
 import {
     appendExperimentReview,
     ExperimentRunner,
@@ -27,13 +27,15 @@ function verdictOf(value: unknown): 'A' | 'B' | 'tie' | 'inconclusive' {
 }
 
 /**
- * ExperimentsService —— 对照实验编排（docs/AB测试设计.md §7/§8.2）。
+ * ExperimentsService —— AB 实验室编排（docs/AB测试设计.md §7/§8.2）。
+ *
+ * **独立性**：实验跑在专用运行时上（`ApiRuntimeService.experimentHarness`）——
+ * 独立 Goal 库（`$MAZI_HOME/experiments/mazi.db`）、独立事件目录、独立串行锁；
+ * 因此实验与主会话互不阻塞，Goal 树也互不可见（主会话 `/api/sessions/:id` 查不到实验 run）。
  *
  * 前台执行（不是后台任务）：
  *   POST /api/experiments          只建两臂 Goal 会话（arm.planned 携 rootGoalId），立即返回；
- *   POST /api/experiments/:id/run  在同一个进程内串行锁持有期内**并行**跑完两臂并返回。
- * 前端据此立刻打开两个窗口并订阅 /api/events/:rootGoalId，实时渲染并在需要时应答审批 ——
- * 执行面与主对话完全一致（createGoalSession / executeGoalTree / 事件总线 / 审批 seam）。
+ *   POST /api/experiments/:id/run  前台并行跑完两臂（审批可经 /api/approvals/:id 现场应答）。
  */
 @Injectable()
 export class ExperimentsService {
@@ -56,22 +58,21 @@ export class ExperimentsService {
 
     /** POST /api/experiments：创建实验（两臂会话就绪，不执行）。 */
     async create(body: unknown): Promise<ExperimentView> {
-        const spec = this.validate(body);
-        this.bindWorkspace(spec);
-        return (await this.runner()).create(spec);
+        const spec = this.freezeWorkspace(this.validate(body));
+        return (await this.runner(spec.workspace)).create(spec);
     }
 
     /**
      * POST /api/experiments/:id/run：前台执行尚未完成的臂（并行）。
-     * 已有会话在跑 → 409（复用主对话的进程内串行锁）；两臂都已完成 → 幂等返回。
+     * 已有实验在跑 → 409（实验专用锁）；两臂都已完成 → 幂等返回。
+     * 主会话的串行锁不受影响 —— 实验在跑时主会话仍可跑任务。
      */
     async execute(experimentId: string): Promise<ExperimentView> {
         const view = await this.detail(experimentId);
         if (view.arms.every((arm) => arm.metrics !== undefined)) return view;
-        this.bindWorkspace(specOfExperiment(view));
-        const runner = await this.runner();
+        const runner = await this.runner(view.workspace);
         const started = Date.now();
-        const done = await this.runtime.runExclusive(() => runner.execute(experimentId));
+        const done = await this.runtime.runExperimentExclusive(() => runner.execute(experimentId));
         this.logger.log(
             `experiment ${done.experimentId} ${done.status} arms=${done.arms
                 .map((arm) => arm.status)
@@ -82,10 +83,30 @@ export class ExperimentsService {
 
     /** POST /api/experiments/:id/rerun：复制为新的**待执行**实验（执行由前端前台触发）。 */
     async rerun(experimentId: string): Promise<ExperimentView> {
-        const previous = await this.detail(experimentId);
-        const spec = specOfExperiment(previous);
-        this.bindWorkspace(spec);
-        return (await this.runner()).create(spec);
+        const spec = this.freezeWorkspace(specOfExperiment(await this.detail(experimentId)));
+        return (await this.runner(spec.workspace)).create(spec);
+    }
+
+    /** GET /api/experiments/:id/arms/:label/timeline：该臂 Goal 树快照（实验独立库，与主会话分开）。 */
+    async armTimeline(experimentId: string, label: string): Promise<GoalTreeSnapshot> {
+        const arm = await this.armOf(experimentId, label);
+        const snapshot = await this.runtime
+            .experimentHarness(arm.workspace)
+            .goalSnapshot(arm.rootGoalId);
+        if (snapshot.goals.length === 0) {
+            throw new ApiError(404, '该臂尚无 Goal 事实（可能还没执行）');
+        }
+        return snapshot;
+    }
+
+    /** 该臂的事件总线 + rootGoalId（SSE 回放 / 实时订阅用）。 */
+    async armBus(
+        experimentId: string,
+        label: string,
+    ): Promise<{ bus: DefaultEventBus; rootGoalId: string }> {
+        const arm = await this.armOf(experimentId, label);
+        const harness = this.runtime.experimentHarness(arm.workspace);
+        return { bus: harness.eventBus as DefaultEventBus, rootGoalId: arm.rootGoalId };
     }
 
     /** POST /api/experiments/:id/reviews：追加复盘备注（append-only）。 */
@@ -105,7 +126,7 @@ export class ExperimentsService {
         return updated;
     }
 
-    /** DELETE /api/experiments/:id：删除实验日志（Goal/Trace 事实不级联删除）。 */
+    /** DELETE /api/experiments/:id：删除实验日志（实验 Goal 存储与主会话都不级联删除）。 */
     async remove(experimentId: string): Promise<{ ok: boolean; removed: boolean }> {
         const removed = await this.runtime.experiments().remove(experimentId);
         if (!removed) throw new ApiError(404, '实验不存在：' + experimentId);
@@ -121,20 +142,36 @@ export class ExperimentsService {
         }
     }
 
-    private async runner(): Promise<ExperimentRunner> {
+    private async runner(workspace?: string): Promise<ExperimentRunner> {
         const features = await this.runtime.features();
         return new ExperimentRunner({
-            harness: this.runtime.harness(),
+            harness: this.runtime.experimentHarness(workspace),
             store: this.runtime.experiments(),
             featureResolver: (overrides) => features.resolve(overrides),
         });
     }
 
+    private async armOf(
+        experimentId: string,
+        label: string,
+    ): Promise<{ rootGoalId: string; workspace?: string }> {
+        const view = await this.detail(experimentId);
+        const arm = view.arms.find((candidate) => candidate.label === label);
+        if (arm === undefined) throw new ApiError(404, '实验臂不存在：' + label);
+        if (arm.rootGoalId === undefined) throw new ApiError(400, '该臂尚未创建 Goal 会话');
+        return {
+            rootGoalId: arm.rootGoalId,
+            ...(view.workspace !== undefined ? { workspace: view.workspace } : {}),
+        };
+    }
+
     /**
-     * 生效工作区：实验表单显式选择则切换「当前工作区」（与主对话一致 —— 选了就在该工作区跑），
-     * 不指定则沿用当前选择。**不做执行后回滚**：回滚会让已开的 SSE 订阅落到另一个运行时实例。
+     * 冻结生效工作区进 spec：显式选择优先，否则取当前选择（随心聊默认兜底）。
+     * 冻结后实验可复现，且建会话 / 执行 / SSE 订阅解析到同一个实验运行时实例。
      */
-    private bindWorkspace(spec: ExperimentSpec): void {
-        if (spec.workspace !== undefined) this.runtime.setWorkspaceRoot(spec.workspace);
+    private freezeWorkspace(spec: ExperimentSpec): ExperimentSpec {
+        if (spec.workspace !== undefined) return spec;
+        const current = this.runtime.selectedWorkspaceRoot ?? this.runtime.freeChatWorkspace;
+        return { ...spec, workspace: current };
     }
 }

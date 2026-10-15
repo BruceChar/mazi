@@ -1,11 +1,13 @@
 import 'reflect-metadata';
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Res } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
+import { replayEvents, streamEvents } from '../events/sse.js';
 import { ExperimentsService } from './experiments.service.js';
 
 /**
- * 对照实验接口（docs/AB测试设计.md §8.2）。
- * POST 创建即执行（复用 PostStatus200Interceptor：POST 201 → 200）。
- * 两臂 Trace 复用既有端点：GET /api/sessions/:rootGoalId/timeline 与 /api/events/:rootGoalId。
+ * AB 实验室接口（docs/AB测试设计.md §8.2）。
+ * POST 创建即建好两臂会话（不执行）；POST :id/run 前台并行执行（审批可现场应答）；
+ * 两臂 Trace 走实验独立存储：:`id/arms/:label/timeline|events`（不经过主会话端点）。
  */
 @Controller('experiments')
 export class ExperimentsController {
@@ -30,6 +32,29 @@ export class ExperimentsController {
     @Post(':id/run')
     run(@Param('id') experimentId: string) {
         return this.experiments.execute(experimentId);
+    }
+
+    /** 该臂 Goal 树快照（实验独立库）。 */
+    @Get(':id/arms/:label/timeline')
+    armTimeline(@Param('id') experimentId: string, @Param('label') label: string) {
+        return this.experiments.armTimeline(experimentId, label);
+    }
+
+    /** 该臂事件流：follow != 1 回放 JSON；follow = 1 SSE（与主会话同一实现）。 */
+    @Get(':id/arms/:label/events')
+    async armEvents(
+        @Param('id') experimentId: string,
+        @Param('label') label: string,
+        @Query('follow') follow?: string,
+        @Res() reply?: FastifyReply,
+    ): Promise<void> {
+        const { bus, rootGoalId } = await this.experiments.armBus(experimentId, label);
+        if (follow !== '1') {
+            void reply?.send(replayEvents(bus, rootGoalId));
+            return;
+        }
+        if (!reply) return;
+        streamEvents(bus, rootGoalId, reply);
     }
 
     @Post(':id/rerun')

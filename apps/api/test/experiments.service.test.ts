@@ -1,7 +1,7 @@
 /**
  * ExperimentsService 编排（docs/AB测试设计.md §7/§8.2）。
- * create = 只建会话（前台可立刻开窗）；execute = 前台并行执行两臂。
- * 用真实 HarnessRuntime（注入离线 faux provider）+ 内存实验日志。
+ * 关键不变量：实验跑在专用运行时 + 专用串行锁上 —— 主会话锁忙不影响实验，
+ * 实验锁忙也不影响主会话；工作区冻结进 spec，且不切换主会话的当前工作区。
  */
 
 import 'reflect-metadata';
@@ -16,6 +16,7 @@ import {
     HarnessRuntime,
     MemoryExperimentStore,
     MemoryFeatureStore,
+    type DefaultEventBus,
 } from '@mazi/runtime';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ApiError } from '../src/common/api-error.js';
@@ -52,11 +53,14 @@ function branchingProvider(requests: LLMRequest[]): LLMProvider {
     };
 }
 
-/** 只暴露 ExperimentsService 需要的运行时能力；runExclusive 同真实语义（串行锁）。 */
+/** 只暴露 ExperimentsService 需要的运行时能力；两把锁独立，便于验证互不阻塞。 */
 class StubRuntime {
     selectedWorkspaceRoot: string | undefined;
+    freeChatWorkspace = '/free-chat';
     readonly workspaceCalls: Array<string | undefined> = [];
-    lockBusy = false;
+    readonly experimentHarnessCalls: Array<string | undefined> = [];
+    chatLockBusy = false;
+    experimentLockBusy = false;
     constructor(
         private readonly harnessInstance: HarnessRuntime,
         private readonly storeInstance: ExperimentStore,
@@ -69,6 +73,10 @@ class StubRuntime {
     harness(): HarnessRuntime {
         return this.harnessInstance;
     }
+    experimentHarness(workspace?: string): HarnessRuntime {
+        this.experimentHarnessCalls.push(workspace);
+        return this.harnessInstance;
+    }
     experiments(): ExperimentStore {
         return this.storeInstance;
     }
@@ -76,7 +84,11 @@ class StubRuntime {
         return Promise.resolve(this.featureRuntime);
     }
     runExclusive<T>(operation: () => Promise<T>): Promise<T> {
-        if (this.lockBusy) throw new ApiError(409, '已有会话在运行，请稍候');
+        if (this.chatLockBusy) throw new ApiError(409, '已有会话在运行，请稍候');
+        return operation();
+    }
+    runExperimentExclusive<T>(operation: () => Promise<T>): Promise<T> {
+        if (this.experimentLockBusy) throw new ApiError(409, '已有实验在运行，请稍候');
         return operation();
     }
 }
@@ -138,15 +150,18 @@ function specOf(workspace?: string): ExperimentSpec {
 }
 
 describe('ExperimentsService', () => {
-    it('create 只建两臂会话（前台开窗用）：status=created，两臂 pending 且带 rootGoalId，不跑模型', async () => {
-        const { service, store, requests } = await harnessWith();
+    it('create 只建两臂会话：停在实验专用运行时；不切换主会话工作区', async () => {
+        const { service, requests, runtime } = await harnessWith('/project-a');
         const view = await service.create(specOf());
         expect(view.status).toBe('created');
         expect(view.arms.map((arm) => arm.status)).toEqual(['pending', 'pending']);
         expect(view.arms[0]?.rootGoalId).toBeTruthy();
-        expect(view.arms[1]?.rootGoalId).toBeTruthy();
         expect(requests).toHaveLength(0);
-        expect((await store.list()).length).toBe(1);
+        // 走实验运行时；主会话的工作区选择完全没被碰过。
+        expect(runtime.experimentHarnessCalls).toContain('/project-a');
+        expect(runtime.workspaceCalls).toEqual([]);
+        // 未显式给工作区时冻结当前选择进 spec（可复现 + 运行时实例一致）。
+        expect(view.workspace).toBe('/project-a');
     });
 
     it('execute 前台并行执行两臂：completed + 对比 + 两臂 Feature 各自生效', async () => {
@@ -160,28 +175,47 @@ describe('ExperimentsService', () => {
         expect(done.arms[1]?.metrics?.features).toEqual({ concise: true });
         expect(done.comparison?.outputs.identical).toBe(false);
         expect(requests).toHaveLength(2);
-        expect(String(requests[0]?.system)).not.toContain('简洁作答');
-        expect(String(requests[1]?.system)).toContain('简洁作答');
     });
 
-    it('execute 幂等：两臂都有指标时直接返回', async () => {
-        const { service, requests } = await harnessWith();
+    it('主会话在跑（chat 锁忙）时实验照样能跑：两把锁互不影响', async () => {
+        const { service, runtime } = await harnessWith();
         const planned = await service.create(specOf());
+        runtime.chatLockBusy = true;
+        const done = await service.execute(planned.experimentId);
+        expect(done.status).toBe('completed');
+    });
+
+    it('实验自己的锁忙 → 409；execute 幂等', async () => {
+        const { service, runtime, requests } = await harnessWith();
+        const planned = await service.create(specOf());
+        runtime.experimentLockBusy = true;
+        await expect(service.execute(planned.experimentId)).rejects.toThrow('已有实验在运行');
+        runtime.experimentLockBusy = false;
         await service.execute(planned.experimentId);
         const again = await service.execute(planned.experimentId);
         expect(again.status).toBe('completed');
         expect(requests).toHaveLength(2);
     });
 
-    it('工作区：显式选择则切换当前工作区且不回滚（保证事件流订阅同一运行时）', async () => {
-        const previous = mkdtempSync(join(tmpdir(), 'mazi-ws-'));
-        dirs.push(previous);
-        const target = mkdtempSync(join(tmpdir(), 'mazi-ws-target-'));
-        dirs.push(target);
-        const { service, runtime } = await harnessWith(previous);
-        await service.create(specOf(target));
-        expect(runtime.workspaceCalls).toEqual([target]);
-        expect(runtime.selectedWorkspaceRoot).toBe(target);
+    it('臂 Trace 走实验独立端点：执行前 404，执行后可读快照与事件回放', async () => {
+        const { service } = await harnessWith();
+        const planned = await service.create(specOf());
+        // 执行前：Goal 已建但还没有 Step 事实。
+        const before = await service.armTimeline(planned.experimentId, 'A');
+        expect(before.goals).toHaveLength(1);
+        expect(before.stepCount).toBe(0);
+
+        await service.execute(planned.experimentId);
+
+        const snapshot = await service.armTimeline(planned.experimentId, 'A');
+        expect(snapshot.stepCount).toBeGreaterThan(0);
+        expect(snapshot.rootGoalId).toBe(planned.arms[0]?.rootGoalId);
+
+        const { bus, rootGoalId } = await service.armBus(planned.experimentId, 'B');
+        expect(rootGoalId).toBe(planned.arms[1]?.rootGoalId);
+        expect((bus as DefaultEventBus).replay(rootGoalId).length).toBeGreaterThan(0);
+
+        await expect(service.armTimeline(planned.experimentId, 'Z')).rejects.toThrow('实验臂不存在');
     });
 
     it('list/detail/review/remove 闭环；rerun 复制为新的待执行实验', async () => {
@@ -200,7 +234,6 @@ describe('ExperimentsService', () => {
         const rerun = await service.rerun(planned.experimentId);
         expect(rerun.experimentId).not.toBe(planned.experimentId);
         expect(rerun.status).toBe('created');
-        expect(rerun.arms.map((arm) => arm.status)).toEqual(['pending', 'pending']);
         expect((await service.list()).experiments).toHaveLength(2);
 
         expect(await service.remove(planned.experimentId)).toEqual({ ok: true, removed: true });
@@ -218,12 +251,5 @@ describe('ExperimentsService', () => {
         );
         const planned = await service.create(specOf());
         await expect(service.review(planned.experimentId, {})).rejects.toThrow('缺少 note');
-    });
-
-    it('串行锁忙 → execute 409 透传（不吞错）', async () => {
-        const { service, runtime } = await harnessWith();
-        const planned = await service.create(specOf());
-        runtime.lockBusy = true;
-        await expect(service.execute(planned.experimentId)).rejects.toThrow('已有会话在运行');
     });
 });

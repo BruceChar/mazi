@@ -5,7 +5,7 @@
  */
 
 import 'reflect-metadata';
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, type TestAppHandle } from '../src/testing/test-app.js';
@@ -118,6 +118,54 @@ describe('对照实验接口', () => {
         });
         expect(again.statusCode).toBe(200);
         expect(again.json().status).toBe('completed');
+    });
+
+    it('存储隔离：实验 Goal 树在 experiments/mazi.db，主会话看不到它；主会话自身照常工作', async () => {
+        const list = await h.fastify.inject({ method: 'GET', url: '/api/experiments' });
+        const experimentId = list.json().experiments[0].experimentId;
+        const rootGoalId = list.json().experiments[0].arms[0].rootGoalId;
+
+        // 实验独立存储：Goal 库与事件目录都在 $MAZI_HOME/experiments 下。
+        expect(existsSync(join(h.home, 'experiments', 'mazi.db'))).toBe(true);
+        expect(existsSync(join(h.home, 'experiments', 'events', rootGoalId + '.jsonl'))).toBe(true);
+
+        // 主会话端点按 rootGoalId 查不到实验 run（Goal 树确实分开了）。
+        const viaMainSession = await h.fastify.inject({
+            method: 'GET',
+            url: '/api/sessions/' + rootGoalId + '/timeline',
+        });
+        expect(viaMainSession.statusCode).toBe(404);
+
+        // 实验专用端点能读到该臂的 Goal 树与事件流。
+        const timeline = await h.fastify.inject({
+            method: 'GET',
+            url: '/api/experiments/' + experimentId + '/arms/A/timeline',
+        });
+        expect(timeline.statusCode).toBe(200);
+        expect(timeline.json().rootGoalId).toBe(rootGoalId);
+        expect(Array.isArray(timeline.json().goals)).toBe(true);
+
+        const events = await h.fastify.inject({
+            method: 'GET',
+            url: '/api/experiments/' + experimentId + '/arms/A/events',
+        });
+        expect(events.statusCode).toBe(200);
+        expect(Array.isArray(events.json())).toBe(true);
+
+        // 主会话照常创建/执行（与实验各自独立，互不阻塞）。
+        const session = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            payload: { input: '读取 README.md 并汇报' },
+        });
+        const sessionId = session.json().sessionId;
+        expect(session.statusCode).toBe(200);
+        const mainTimeline = await h.fastify.inject({
+            method: 'GET',
+            url: '/api/sessions/' + sessionId + '/timeline',
+        });
+        expect(mainTimeline.statusCode).toBe(200);
+        expect(mainTimeline.json().rootGoalId).toBe(sessionId);
     });
 
     it('GET 详情 → 折叠视图；未知 id → 404；非法 id → 404（不触盘）', async () => {
