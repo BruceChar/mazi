@@ -150,6 +150,8 @@ export interface RunOptions {
 4. **审计**：运行边界发 `flag.evaluated`，attributes 携 `harness.flag_overrides` 与 `harness.skill_id` 同级的 `harness.feature_ids`，payload 携 `trace`——**「这次运行带了哪些开关」可回放**。
 
 > 关闭 feature 等于不追加片段、不调整技能/工具，与改动前完全一致；因此 Feature 系统的引入不改变任何既有会话的行为。
+>
+> **普通会话按全局默认开关运行，实验台用运行期 override 覆盖单个臂**；两条路径共用同一解析函数 `resolveFeatures`（只是 override 来源不同），因此「实验里测出来的增益」与「开关打开后普通对话的真实行为」是同一份代码。
 
 ---
 
@@ -258,7 +260,7 @@ compareArms → experiment.completed
 - **同一工作区**：实验定义固定 `workspace`；运行期由 API 层 `setWorkspaceRoot` 后执行，两臂一致。
 - **基线快照**：`baseline` 在实验定义时冻结（permissionCeiling / reasoningLevel / 挂载技能快照 `skillIds`），运行时不再重读全局——保证可复现。
 - **失败语义**：单臂失败不阻断另一臂（对照实验要拿到两边的数据）；两臂都失败 → `experiment.completed` 仍写入（comparison 标注失败），整体流程只在「日志写入失败 / 创建会话失败」时落 `experiment.failed`。
-- **中止**：运行期间可对某臂发 stop；`status='aborted'` 计入指标，实验状态标 `aborted`。
+- **中止（本期边界）**：实验在单次 POST 内同步完成两臂，不提供运行中停止（进程内串行锁已阻止并发实验；如需中止，等待当前臂结束或在实验台删除该实验日志）。若未来开放并发，再补 stop 语义，届时 `status='aborted'` 计入指标、实验状态标 `aborted`。
 - **局部失败隔离**：任何一臂抛错都被捕获并记录为该臂的 `error`，不污染进程状态。
 
 ---
@@ -321,7 +323,7 @@ compareArms → experiment.completed
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-- 「两个窗口」= 左右并排的两个臂面板（App 主区内容，非弹窗）；运行中按 `arm.started/ended` 轮询刷新；
+- 「两个窗口」= 左右并排的两个臂面板（App 主区内容，非弹窗）。执行为同步 POST：提交后按钮置「运行中…」并禁用重复提交，两臂跑完一次性渲染；历史实验点选即载入日志折叠视图（可随时回看）；
 - Trace 对比 = 同一张表的两列（同一指标口径），而不是把两个 Trace 看板并排塞进右抽屉；
 - 历史复盘 = 点列表任一条 → 载入该实验视图（日志折叠结果），可继续写复盘备注。
 
@@ -377,18 +379,18 @@ compareArms → experiment.completed
 
 ### 12.1 提交拆分（原子提交）
 
-1. `docs: AB 测试与 Feature 开关设计`
-2. `feat(core): Feature 契约与解析纯函数`
-3. `feat(runtime): Feature 存储与运行时`
+1. `docs: AB 测试与 Feature 开关设计（v1.0）`
+2. `feat(core): Feature 契约与解析纯函数 + Experiment 契约与确定性对比`
+3. `feat(runtime): Feature 定义存储与运行时（features.json + 解析）`
 4. `feat(runtime): 运行级提示/技能/工具覆盖与 flag.evaluated 审计`
-5. `feat(libs): 行级文本 diff`
-6. `feat(core): Experiment 契约与对比纯函数`
-7. `feat(runtime): 实验日志存储与折叠`
-8. `feat(runtime): 对照实验执行器`
-9. `feat(api): Feature 与 Experiment 接口`
-10. `feat(webui): Feature 设置面板`
-11. `feat(webui): 实验台（双窗对比与复盘）`
-12. `docs: 更新设计文档地图与 README`
+5. `feat(libs): 行级文本 diff 纯函数（实验输出并排对比）`
+6. `feat(runtime): 实验日志存储/折叠复盘 + 指标采集 + 对照执行器`
+7. `feat(api): Feature 与 Experiment 接口（开关 CRUD/解析 + 对照实验创建/复盘/重跑）`
+8. `feat(webui): 实验台（A/B 双窗 + 输出/Trace 对比 + 复盘）与 Feature 设置面板`
+9. `feat(webui): 输出并排 diff 显示相似度与增删行数`
+10. `docs: 更新设计文档地图与 README`
+
+> 注：Feature 设置面板与实验台同属一条 UI 交付，合并为第 8 条提交（store 中两段状态耦合在同一文件）。
 
 ---
 
@@ -405,3 +407,27 @@ compareArms → experiment.completed
 ---
 
 *设计先于代码：本文件是验收唯一依据；实现与本文冲突时以本文为准，变更先改文档。*
+---
+
+## 14. 实现状态（2026-10-16）
+
+| 提交 | 内容 |
+| --- | --- |
+| `556dcca` | 设计文档 |
+| `e35b52d` | core：Feature 契约 + `resolveFeatures`；Experiment 契约 + `compareArms` |
+| `525d5af` | runtime：`features.json` 存储 + `FeatureRuntime` |
+| `c3ccb4e` | runtime：运行级 promptFragment / skillIds / allowedTools + `flag.evaluated` |
+| `dbd56fc` | libs：`diffText` 行级 diff |
+| `ae0bd07` | runtime：实验 JSONL 存储 + 折叠复盘 + 指标 + 执行器 |
+| `c9c6b20` | api：`/api/features` + `/api/experiments` |
+| `2f575b9` | webui：实验台 + Feature 设置面板 |
+| `9973c1e` | webui：输出 diff 相似度 |
+| `2ceeeef` | runtime/api：普通会话按全局 Feature 开关运行，恢复同样携带运行级覆盖 |
+
+验证（本次交付末次运行）：
+
+- `pnpm build`：6/6 成功（core / provider / libs / runtime / api / webui）；
+- `pnpm test`：138 个测试文件、815 个用例全绿（新增：Feature 解析 10、Experiment 契约 7、Feature 运行时 10、运行级覆盖 6、diff 5、实验存储 8、spec 6、指标 3、执行器 3、Feature 接口 6、实验接口 5、实验服务 5、实验台投影 14）；
+- `biome check`：本次新增/修改的源文件无 error（仓库既有文件存在历史 lint 诊断，未在本特性范围内改动）。
+
+已知边界（与 §11 一致）：不做 LLM judge、多臂、显著性检验；实验串行执行；实验执行不写 Conversation。
