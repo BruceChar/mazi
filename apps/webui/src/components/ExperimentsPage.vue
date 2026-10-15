@@ -166,12 +166,19 @@ onBeforeUnmount(closeAllArms);
 
 /* ---- 实时：每臂一个 SSE 订阅（前台可见，审批可应答） ---- */
 
-function watchArm(arm) {
+function watchArm(experimentId, arm) {
     if (!arm.rootGoalId) return;
     closeArm(arm.label);
     live[arm.label] = initialArmLive('running');
     if (typeof EventSource === 'undefined') return;
-    const url = API_BASE + '/api/events/' + encodeURIComponent(arm.rootGoalId) + '?follow=1';
+    // 实验独立事件流（不是主会话的 /api/events/:rootGoalId）。
+    const url =
+        API_BASE +
+        '/api/experiments/' +
+        encodeURIComponent(experimentId) +
+        '/arms/' +
+        encodeURIComponent(arm.label) +
+        '/events?follow=1';
     const source = new EventSource(url);
     const consume = (raw) => {
         try {
@@ -212,16 +219,16 @@ async function loadTraces() {
     if (!view) return;
     await Promise.all(
         view.arms
-            .filter((arm) => arm.rootGoalId)
+            .filter((arm) => arm.rootGoalId && arm.status !== 'pending')
             .map(async (arm) => {
-                traces[arm.label] = await fetchArmTrace(arm.rootGoalId);
+                traces[arm.label] = await fetchArmTrace(view.experimentId, arm.label);
             }),
     );
 }
 
 /** 开窗订阅两臂事件流，然后前台执行（请求保持到两臂结束）。 */
 async function startRun(experimentId, arms) {
-    for (const arm of arms) watchArm(arm);
+    for (const arm of arms) watchArm(experimentId, arm);
     await executeExperiment(experimentId);
 }
 

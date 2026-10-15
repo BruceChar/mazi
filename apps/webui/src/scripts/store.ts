@@ -1386,11 +1386,14 @@ export async function deleteExperiment(experimentId: string): Promise<void> {
     await loadExperiments();
 }
 
-/** 取某臂的 Goal 树快照（复用会话时间线端点；Trace 对比用）。 */
-export async function fetchArmTrace(rootGoalId: string): Promise<GoalTreeSnapshot | null> {
+/** 取某臂的 Goal 树快照（实验独立存储；不经主会话端点，与主会话 Goal 树分开）。 */
+export async function fetchArmTrace(
+    experimentId: string,
+    label: string,
+): Promise<GoalTreeSnapshot | null> {
     try {
         return (await api(
-            `/api/sessions/${encodeURIComponent(rootGoalId)}/timeline`,
+            `/api/experiments/${encodeURIComponent(experimentId)}/arms/${encodeURIComponent(label)}/timeline`,
         )) as GoalTreeSnapshot;
     } catch {
         return null;
