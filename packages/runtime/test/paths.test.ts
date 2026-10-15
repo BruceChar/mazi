@@ -38,6 +38,10 @@ describe('~/.mazi 用户目录路径（设计文档 §1 / U1 U2）', () => {
         expect(p.flagsFile).toBe(join(home, 'flags.json'));
         expect(p.dbPath).toBe(join(home, 'mazi.db'));
         expect(p.eventDir).toBe(join(home, 'events'));
+        // AB 实验室独立存储：Goal 库与事件目录都在 experiments 子目录。
+        expect(p.experimentsDir).toBe(join(home, 'experiments'));
+        expect(p.experimentsDbFile).toBe(join(home, 'experiments', 'mazi.db'));
+        expect(p.experimentsEventDir).toBe(join(home, 'experiments', 'events'));
     });
 
     it('MAZI_HOME 覆盖默认目录', () => {
@@ -60,6 +64,7 @@ describe('~/.mazi 用户目录路径（设计文档 §1 / U1 U2）', () => {
         const { existsSync } = require('node:fs') as typeof import('node:fs');
         expect(existsSync(p.home)).toBe(true);
         expect(existsSync(p.eventDir)).toBe(true);
+        expect(existsSync(p.experimentsEventDir)).toBe(true);
     });
 });
 

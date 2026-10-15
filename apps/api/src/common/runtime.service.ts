@@ -291,6 +291,12 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private featureRuntimeInstance: FeatureRuntime | undefined;
     /** 实验日志存储（$MAZI_HOME/experiments；append-only）。 */
     private experimentStoreInstance: ExperimentStore | undefined;
+    /**
+     * 实验专用运行时（按工作区缓存）：独立 Goal 库 + 独立事件目录 + 独立串行锁，
+     * 与主会话完全分开 —— 实验在跑时主会话仍可跑任务。
+     */
+    private readonly experimentRuntimes = new Map<string, HarnessRuntime>();
+    private experimentRunning = false;
     private catalogInstance: CatalogService | undefined;
     private catalogOpening: Promise<CatalogService> | undefined;
     private running = false;
@@ -493,9 +499,14 @@ export class ApiRuntimeService implements OnApplicationShutdown {
 
     /** 丢弃并重建运行时（不重启进程）：下次 harness() 按最新配置装配。 */
     async restartRuntimes(): Promise<{ restarted: number }> {
-        const stale = [this.runtime, ...this.workspaces.values()];
+        const stale = [
+            this.runtime,
+            ...this.workspaces.values(),
+            ...this.experimentRuntimes.values(),
+        ];
         this.runtime = undefined;
         this.workspaces.clear();
+        this.experimentRuntimes.clear();
         this.approvalBrokers.clear();
         for (const runtime of stale) {
             if (runtime) await runtime.close();
@@ -693,6 +704,47 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return this.workspaces.get(this.workspaceRoot) as HarnessRuntime;
     }
 
+    /**
+     * AB 实验室专用运行时 —— 与主会话**存储与锁都分离**：
+     * - 独立 Goal 树：`$MAZI_HOME/experiments/mazi.db`（主会话为 `$MAZI_HOME/mazi.db`）；
+     * - 独立事件日志：`$MAZI_HOME/experiments/events/`（主会话为 `$MAZI_HOME/events/`）；
+     * - 独立串行锁：`runExperimentExclusive`（与 `runExclusive` 互不影响）；
+     * - 不接目录账本：实验花费不进主会话的花费账本；技能目录只读接入；审批接入同一结算面。
+     * 按工作区缓存：同一实验的建会话 / 执行 / SSE 订阅都落在同一实例上。
+     */
+    experimentHarness(workspace?: string): HarnessRuntime {
+        const key = workspace ?? this.workspaceRoot ?? this.freeChatWorkspaceValue;
+        const existing = this.experimentRuntimes.get(key);
+        if (existing !== undefined) return existing;
+        const runtime = new HarnessRuntime(
+            {
+                ...this.config,
+                dbPath: this.paths.experimentsDbFile,
+                eventDir: this.paths.experimentsEventDir,
+            },
+            { workspaceRoot: key },
+        );
+        this.attachApprovals(runtime);
+        this.attachSkills(runtime);
+        this.attachModelRecovery(runtime);
+        this.experimentRuntimes.set(key, runtime);
+        this.logger.debug(`experiment runtime assembled workspace=${key}`);
+        return runtime;
+    }
+
+    /** 实验专用串行锁：与主会话锁互不影响（实验在跑，主会话仍可跑任务）。 */
+    async runExperimentExclusive<T>(operation: () => Promise<T>): Promise<T> {
+        if (this.experimentRunning) {
+            throw new ApiError(409, '已有实验在运行，请稍候');
+        }
+        this.experimentRunning = true;
+        try {
+            return await operation();
+        } finally {
+            this.experimentRunning = false;
+        }
+    }
+
     /** 接入人审审批 broker：gated 调用经 UI 审批，超时 fail-closed。 */
     private attachApprovals(runtime: HarnessRuntime): void {
         const broker = new ApprovalBroker({
@@ -729,7 +781,11 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 }
             })
             .catch((error) => this.logger.warn(`attachCatalog failed: ${String(error)}`));
-        // 模型被厂商拒绝 → 重同步端点模型并换模重试（llm.error 自愈路径）。
+        this.attachModelRecovery(runtime);
+    }
+
+    /** 接入模型恢复：模型名被厂商拒绝时重同步并换模重试一次（llm.error 自愈路径）。 */
+    private attachModelRecovery(runtime: HarnessRuntime): void {
         runtime.setModelRecovery(async (request) => {
             const recovered = await this.recoverModels(request.providerId);
             if (recovered !== undefined) {
@@ -1243,6 +1299,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         if (this.priceSyncTimer) clearInterval(this.priceSyncTimer);
         for (const broker of this.approvalBrokers.values()) broker.cancelAll();
         this.approvalBrokers.clear();
+        for (const runtime of this.experimentRuntimes.values()) await runtime.close();
+        this.experimentRuntimes.clear();
         await this.runtime?.close();
     }
 }
