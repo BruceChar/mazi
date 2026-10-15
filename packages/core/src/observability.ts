@@ -133,6 +133,8 @@ export interface HarnessEvent extends TraceIdentifiers {
         'harness.approval_scope'?: ApprovalScope;
         'harness.approval_effect_class'?: string;
         'harness.flag_overrides'?: Record<string, unknown>;
+        /** 本次运行开启的 Feature id（与 flag_overrides 互为明细/开关视图）。 */
+        'harness.feature_ids'?: string[];
         'user.record_id'?: string;
         'user.feedback_type'?: string;
         [k: string]: unknown;
