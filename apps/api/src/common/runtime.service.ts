@@ -49,11 +49,15 @@ import {
     resolveVendorPricingSource,
     type SecretsFile,
     SkillRuntime,
+    type SkillView,
     saveProviderApiKey,
     saveRuntimeSettings,
+    scaffoldRootOf,
+    scaffoldSkill,
     skillRoots,
     toRuntimeConfig,
     validateCommandPolicy,
+    type WritableSkillRootScope,
     withProviderSecrets,
     writeDefaultCommandPolicy,
 } from '@mazi/runtime';
@@ -564,6 +568,42 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.skillRuntime = undefined;
         this.skillRootsSignature = '';
         return this.skills();
+    }
+
+    /**
+     * 新建技能：在 user/project 根写 manifest 脚手架并立即重新发现（CP-11）。
+     * 内置根只读；同名技能已存在（任意根）→ 409，避免无声覆盖用户资产。
+     */
+    async createSkill(input: {
+        id: string;
+        name: string;
+        description?: string;
+        scope: WritableSkillRootScope;
+        permissionCeiling?: string;
+    }): Promise<SkillView> {
+        const before = await this.skills();
+        if (before.detail(input.id) !== undefined) {
+            throw new ApiError(409, '同名技能已存在：' + input.id);
+        }
+        const root = scaffoldRootOf(before.registry.roots, input.scope);
+        if (root === undefined) throw new ApiError(400, '未找到可写的 skills 根：' + input.scope);
+        try {
+            scaffoldSkill(root, {
+                id: input.id,
+                name: input.name,
+                ...(input.description !== undefined ? { description: input.description } : {}),
+                ...(input.permissionCeiling !== undefined
+                    ? { permissionCeiling: input.permissionCeiling }
+                    : {}),
+            });
+        } catch (error) {
+            throw new ApiError(400, error instanceof Error ? error.message : String(error));
+        }
+        const reloaded = await this.reloadSkills();
+        const view = reloaded.list().find((skill) => skill.id === input.id);
+        if (view === undefined) throw new ApiError(400, '新建技能未通过校验：' + input.id);
+        this.logger.log('skill create ' + view.id + ' @' + view.dir);
+        return view;
     }
 
     /** 把技能工具面接入某运行时（构造时注入；未就绪则异步补齐）。 */

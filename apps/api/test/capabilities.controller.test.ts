@@ -49,10 +49,14 @@ describe('技能发现与挂载/卸载（§10 / CP-10）', () => {
     beforeAll(async () => {
         h = await createTestApp();
         writeMinimalSkill(join(h.home, 'skills'), 'demo');
+        // 内置根：随应用分发、只读（本用例用临时目录替代发行目录）
+        process.env.MAZI_BUILTIN_SKILLS_DIR = join(h.home, 'builtin-skills');
+        writeMinimalSkill(join(h.home, 'builtin-skills'), 'builtin-demo');
     });
 
     afterAll(async () => {
         await h.close();
+        delete process.env.MAZI_BUILTIN_SKILLS_DIR;
     });
 
     it('POST /api/capabilities/reload → 列表可见（user 作用域 / 未挂载 / 无装载错误）', async () => {
@@ -65,6 +69,21 @@ describe('技能发现与挂载/卸载（§10 / CP-10）', () => {
         expect(demo?.scope).toBe('user');
         expect(demo?.mounted).toBe(false);
         expect(demo?.permissionCeiling).toBe('draft');
+        // 使用情况字段（发现 / 挂载 / 调用 / 校验失败）
+        expect(body.usage).toEqual({
+            discovered: 2,
+            mounted: 0,
+            invocations: 0,
+            validationFailures: 0,
+        });
+        expect(demo?.usage).toEqual({ invocations: 0, validationFailures: 0 });
+    });
+
+    it('内置根技能可见且 scope=builtin（随应用分发、只读）', async () => {
+        const res = await h.fastify.inject({ method: 'GET', url: '/api/capabilities' });
+        const builtin = skillIn(res.json(), 'builtin-demo');
+        expect(builtin?.scope).toBe('builtin');
+        expect((res.json().roots as Array<Record<string, unknown>>).at(-1)?.scope).toBe('builtin');
     });
 
     it('挂载 → mounted=true 且落 skills.json；卸载 → mounted=false（幂等）', async () => {
@@ -109,6 +128,44 @@ describe('技能发现与挂载/卸载（§10 / CP-10）', () => {
             url: '/api/capabilities/ghost/mount',
         });
         expect(ghostMount.statusCode).toBe(404);
+    });
+
+    it('POST /api/capabilities 新建技能 → 立即发现且落在 user 根；重名 409、builtin 400', async () => {
+        const created = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/capabilities',
+            payload: { id: 'made-skill', name: '新建技能', description: '面板创建', scope: 'user' },
+        });
+        expect(created.statusCode).toBe(200);
+        expect(created.json().id).toBe('made-skill');
+        expect(created.json().scope).toBe('user');
+        expect(readFileSync(join(h.home, 'skills', 'made-skill', 'manifest.json'), 'utf8')).toContain(
+            'made-skill',
+        );
+
+        const list = await h.fastify.inject({ method: 'GET', url: '/api/capabilities' });
+        expect(skillIn(list.json(), 'made-skill')?.mounted).toBe(false);
+
+        const duplicate = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/capabilities',
+            payload: { id: 'made-skill', name: '重复' },
+        });
+        expect(duplicate.statusCode).toBe(409);
+
+        const builtinCreate = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/capabilities',
+            payload: { id: 'nope', name: 'x', scope: 'builtin' },
+        });
+        expect(builtinCreate.statusCode).toBe(400);
+
+        const badId = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/capabilities',
+            payload: { id: 'Bad_Id', name: 'x' },
+        });
+        expect(badId.statusCode).toBe(400);
     });
 
     it('非法 manifest 只进 errors()，不进入可挂载列表', async () => {

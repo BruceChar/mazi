@@ -1,16 +1,53 @@
 import 'reflect-metadata';
-import type { SkillDetailView, SkillRuntime, SkillView } from '@mazi/runtime';
-import { Controller, Get, Param, Post } from '@nestjs/common';
+import type {
+    SkillDetailView,
+    SkillRuntime,
+    SkillView,
+    WritableSkillRootScope,
+} from '@mazi/runtime';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 
-/** 发现面：根（scope + dir）+ 技能列表 + 装载错误 + 被覆盖来源。 */
+/** 发现面：根（scope + dir）+ 技能列表（含挂载与使用情况）+ 装载错误 + 被覆盖来源 + 汇总。 */
 async function discoveryOf(skills: SkillRuntime): Promise<Record<string, unknown>> {
     return {
         roots: skills.registry.roots,
         skills: skills.list(),
         errors: skills.errors(),
         shadowed: skills.shadowed(),
+        usage: skills.usageSummary(),
+    };
+}
+
+/** 新建技能入参（scope 缺省 user；builtin 只读）。 */
+function createSkillInputOf(body: unknown): {
+    id: string;
+    name: string;
+    description?: string;
+    scope: WritableSkillRootScope;
+    permissionCeiling?: string;
+} {
+    if (typeof body !== 'object' || body === null) throw new ApiError(400, '缺少请求体');
+    const record = body as Record<string, unknown>;
+    const id = typeof record.id === 'string' ? record.id.trim() : '';
+    const name = typeof record.name === 'string' ? record.name.trim() : '';
+    if (id.length === 0) throw new ApiError(400, 'id 必填（kebab-case）');
+    if (name.length === 0) throw new ApiError(400, 'name 必填');
+    const scope = record.scope === undefined ? 'user' : record.scope;
+    if (scope !== 'user' && scope !== 'project') {
+        throw new ApiError(400, 'scope 只支持 user | project（builtin 只读）');
+    }
+    return {
+        id,
+        name,
+        ...(typeof record.description === 'string' && record.description.trim().length > 0
+            ? { description: record.description.trim() }
+            : {}),
+        ...(typeof record.permissionCeiling === 'string'
+            ? { permissionCeiling: record.permissionCeiling }
+            : {}),
+        scope,
     };
 }
 
@@ -27,6 +64,12 @@ export class CapabilitiesController {
     @Get()
     async list(): Promise<Record<string, unknown>> {
         return discoveryOf(await this.runtime.skills());
+    }
+
+    /** POST /api/capabilities：新建技能（写 manifest 脚手架 + 立即发现）；重名 → 409。 */
+    @Post()
+    async create(@Body() body: unknown): Promise<SkillView> {
+        return this.runtime.createSkill(createSkillInputOf(body));
     }
 
     /** POST /api/capabilities/reload：重新扫描 skills 根（新增/修改包目录后调用）。 */
