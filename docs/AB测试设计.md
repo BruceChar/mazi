@@ -266,7 +266,7 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 - **基线快照**：`baseline` 在实验定义时冻结（permissionCeiling / reasoningLevel / 挂载技能快照 `skillIds`），运行时不再重读全局——保证可复现。
 - **失败语义**：单臂失败不阻断另一臂（对照实验要拿到两边的数据）；两臂都失败 → `experiment.completed` 仍写入（comparison 标注失败），整体流程只在「日志写入失败 / 执行期异常」时落 `experiment.failed`。
 - **重跑 / 继续**：`rerun` 只复制为新的**待执行**实验（`status=created`），执行统一走前台 `:id/run`；页面刷新后可用「继续运行」把未跑完的臂接着跑（execute 对已完成臂幂等）。
-- **中止（本期边界）**：不提供运行中停止（进程内串行锁仍保证同一时刻只有一次执行）；如需中止，等待当前实验结束或在 AB 实验室删除该实验日志。
+- **随时终止**：`POST /api/experiments/:id/stop`（`body.label` 指定单臂，缺省两臂全停）**不进串行锁**、立即可调：运行中的臂在 Step 边界协作式停止（abort 信号透传到模型调用），尚未开始的臂直接落 `aborted`（之后 `execute` 不再拉起）；空闲 / 已结束调用幂等返回 `stopping: []`。终止后实验状态为 `aborted`，并**仍然写出 comparison** —— 对照数据不会因为终止而缺一半。
 - **局部失败隔离**：任何一臂抛错都被捕获并记录为该臂的 `error`，不污染进程状态。
 
 ---
@@ -293,6 +293,7 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 | `/api/experiments/:id/rerun` | POST | 复制为新的**待执行**实验（新 `experimentId`，不覆盖原记录）→ 用于方差观察 |
 | `/api/experiments/:id/arms/:label/timeline` | GET | 该臂 Goal 树快照（**实验独立库**；主会话 `/api/sessions/:id` 查不到） |
 | `/api/experiments/:id/arms/:label/events` | GET | 该臂事件流：`?follow=1` → SSE（与主会话同一实现，总线不同），否则 JSON 回放 |
+| `/api/experiments/:id/stop` | POST | **随时终止**：`{ label? }` —— 指定单臂或两臂全停；运行中的臂协作式停止，未开始的臂直接 `aborted`；空闲幂等（`stopping: []`） |
 | `/api/experiments/:id/reviews` | POST | 追加复盘：`{ note, verdict }` |
 | `/api/experiments/:id` | DELETE | 删除实验日志 |
 
@@ -335,6 +336,7 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 - **复用主内容区（同一窗口）**：AB 实验室替换主区，顶部栏显示名称，**页内不再重复标题、不设返回按钮**；左侧会话列表常驻，点击任一会话 / 「新会话」/ Esc 即切回对话视图（导航动作统一回到 `ui.view='chat'`）。
 - **配置项一律选择、不手输**：自变量取值从既有资产里选（Feature 列表 / 已发现 Skill 多选（左右各一栏，两臂独立）/ 模型目录 / 权限档位 / 推理档）；工作区从「跟随当前工作区 / 已有项目工作区 / 随心聊默认」里选，并显示本次实际使用的路径名称。
 - **左右两窗同时前台执行**：点「运行对照实验」→ 先建两臂会话 → 立即为两窗各开一条 `EventSource`（`/api/experiments/:id/arms/:label/events?follow=1`）→ 再发前台执行请求。每窗实时显示：流式正文（reasoning + text）、步骤列表（思考 / 工具 / 观察与状态）、错误；结束后自动刷新为终态视图（指标 / Trace / diff / 对比）。
+- **随时终止**：详情页有「终止实验」（两臂全停）与每臂的「终止本臂」；点击即发停止信号，窗口状态转「中止」，实验落 `aborted`，对比表照常生成。
 - **审批不卡后台**：两窗内联展示 `approval.requested`（工具名 + 摘要 + 允许一次 / 本会话允许 / 拒绝），直接调 `POST /api/approvals/:id`；因此涉及写权限/命令审批的实验可以当场放行或拒绝，而不是把运行挂在无人应答的后台。
 - 历史实验点选即载入日志折叠视图（可随时回看）；`status=created` 的实验显示「继续运行（N 臂待跑）」，刷新页面后也能接着跑；
 - Trace 对比 = 同一张表的两列（同一指标口径），而不是把两个 Trace 看板并排塞进右抽屉；
@@ -358,6 +360,7 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 | AB-10 | 复盘 | `reviewed` append-only；重跑生成新实验不覆盖原记录；列表倒序可查历史 |
 | AB-11 | 接口 | §8 端点全绿；非法入参 400、缺失 404、重复 409 |
 | AB-12 | 面板闭环 | UI 可开关 Feature、可发起实验、可并排看输出与 Trace、可写复盘 |
+| AB-14 | 随时终止 | 运行中的臂在 Step 边界停止并落 `aborted`；未开始的臂直接 `aborted`，之后 `execute` 不再拉起；空闲 `stop` 幂等；两臂 / 单臂均可终止 |
 | AB-13 | 回归 | `pnpm build`、`pnpm test`、`biome check` 全绿；未改动的既有能力行为不变 |
 
 ---
@@ -446,11 +449,14 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 | `2091352` | runtime/api：实验独立存储（experiments/mazi.db + events）与独立执行单元/锁 |
 | `8959f80` | api：实验接口改用独立运行时，新增实验独立 timeline/events 端点 |
 | `f50b6c7` | webui：AB 实验室改用实验独立 Trace/事件端点 |
+| `a6051ca` | runtime：实验随时可终止（cancel / 未开始臂直接 aborted） |
+| `982e003` | api：`POST /api/experiments/:id/stop`（单臂或两臂，空闲幂等） |
+| `3d45da1` | webui：AB 实验室「终止实验 / 终止本臂」 |
 
 验证（本次交付末次运行）：
 
 - `pnpm build`：6/6 成功（core / provider / libs / runtime / api / webui）；
-- `pnpm test`：139 个测试文件、828 个用例全绿（关键新增：Feature 解析 10、Experiment 契约 7、Feature 运行时 10、运行级覆盖 6、diff 5、实验存储 8、spec 6、指标 3、前台/并行执行器 7、Feature 接口 6、实验接口 7（含存储隔离）、实验服务 7（含双锁互不阻塞）、单臂实时投影 5、AB 实验室投影 14、路径契约 7）；
+- `pnpm test`：139 个测试文件、835 个用例全绿（关键新增：Feature 解析 10、Experiment 契约 7、Feature 运行时 10、运行级覆盖 6、diff 5、实验存储 8、spec 6、指标 3、前台/并行执行器 + 终止 10、Feature 接口 6、实验接口 8（含存储隔离/终止）、实验服务 10（含双锁互不阻塞/随时终止）、单臂实时投影 5、AB 实验室投影 14、路径契约 7）；
 - `biome check`：本次新增/修改的源文件无 error（仓库既有文件存在历史 lint 诊断，未在本特性范围内改动）。
 
 已知边界（与 §11 一致）：不做 LLM judge、多臂、显著性检验；两臂并行但共用 Provider 配额（耗时仅作参考）；实验执行不写 Conversation；实验与主会话是**同一 API 进程内的独立运行单元**（独立存储/事件/锁/审批），不是 OS 级子进程。
