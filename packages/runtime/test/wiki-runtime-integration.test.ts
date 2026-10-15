@@ -124,13 +124,15 @@ describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
         }
     });
 
-    it('无写入的会话不产生条目', async () => {
+    it('无写入的只读会话：仍注入并落地项目概览（首次会话不再空白）', async () => {
         const home = tempDir('mazi-wikihome-');
         process.env.MAZI_HOME = home;
         const workspace = tempDir('mazi-wikiws-');
+        mkdirSync(join(workspace, 'packages', 'core'), { recursive: true });
+        writeFileSync(join(workspace, 'package.json'), JSON.stringify({ name: 'whoami' }), 'utf8');
         const store = new WikiStore({ home, workspace });
-        await store.writeSnapshot('## 项目概览\n只读会话');
 
+        const systems: string[] = [];
         const provider: LLMProvider = {
             id: 'faux',
             name: 'faux',
@@ -139,7 +141,8 @@ describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
             async ask() {
                 throw new Error('ask unused');
             },
-            async *askStream(): AsyncIterable<StreamCompletionEvent> {
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                systems.push(systemText(request));
                 yield { type: 'start', model: 'faux-model' };
                 yield { type: 'text_delta', text: '只是回答问题' };
                 yield { type: 'finish', finishReason: 'stop' };
@@ -160,7 +163,14 @@ describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
         try {
             const created = await runtime.createGoalSession('项目现在什么状态？');
             await runtime.executeGoalTree(created.rootGoalId);
-            expect(store.read()?.entries).toHaveLength(0);
+            const doc = store.read();
+            expect(doc?.entries).toHaveLength(0);
+            // 首次会话即落地确定性项目概览（无模型、无写入也要有状态可读）
+            expect(doc?.snapshot).toContain('## 项目概览');
+            expect(doc?.snapshot).toContain('packages/core');
+            // 且当轮 system prompt 已注入该快照
+            expect(systems[0]).toContain('## 项目 wiki');
+            expect(systems[0]).toContain('packages/core');
         } finally {
             await runtime.close();
         }

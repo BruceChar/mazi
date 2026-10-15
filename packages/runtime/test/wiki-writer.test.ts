@@ -57,7 +57,7 @@ function setup(options: { snapshotThreshold?: number } = {}) {
 describe('wiki writer', () => {
     it('写工具 pending + 回合末落一条『时间 | 改动』', async () => {
         const { store, writer, summarizer } = setup();
-        writer.beginRun();
+        await writer.beginRun();
         writer.record('fs.write', ['src/a.ts']);
         const result = await writer.flushRun({ sessionId: 's1', userRequest: '实现 A' });
 
@@ -73,18 +73,35 @@ describe('wiki writer', () => {
         expect(doc?.sessionId).toBe('s1');
     });
 
-    it('无改动 → 不调用摘要、不落条目', async () => {
-        const { writer, summarizer } = setup();
-        writer.beginRun();
+    it('无改动 → 不调用摘要、不落条目，但仍落地项目概览快照', async () => {
+        const { store, writer, summarizer } = setup();
+        await writer.beginRun();
         const result = await writer.flushRun();
         expect(result.entries).toHaveLength(0);
         expect(summarizer.calls).toHaveLength(0);
+        expect(store.read()?.snapshot).toContain('## 项目概览');
+    });
+
+    it('会话开始落地确定性项目概览，且不覆盖已有快照', async () => {
+        const { workspace, store, writer } = setup();
+        mkdirSync(join(workspace, 'packages', 'core'), { recursive: true });
+        writeFileSync(join(workspace, 'package.json'), JSON.stringify({ name: 'demo' }), 'utf8');
+
+        await writer.beginRun();
+        const bootstrapped = store.read()?.snapshot ?? '';
+        expect(bootstrapped).toContain('## 项目概览');
+        expect(bootstrapped).toContain('## 结构与模块');
+        expect(bootstrapped).toContain('packages/core');
+
+        await store.writeSnapshot('## 项目概览\n人工快照');
+        await writer.beginRun();
+        expect(store.read()?.snapshot).toContain('人工快照');
     });
 
     it('兜底 diff 捕获 bash 等间接写入', async () => {
         const { workspace, writer, summarizer } = setup();
         mkdirSync(join(workspace, 'src'), { recursive: true });
-        writer.beginRun();
+        await writer.beginRun();
         writeFileSync(join(workspace, 'src', 'b.ts'), 'export const b = 1;\n', 'utf8');
         const result = await writer.flushRun();
         expect(result.entries).toHaveLength(1);
@@ -94,7 +111,7 @@ describe('wiki writer', () => {
     it('忽略 node_modules 等目录', async () => {
         const { workspace, writer, summarizer } = setup();
         mkdirSync(join(workspace, 'node_modules', 'dep'), { recursive: true });
-        writer.beginRun();
+        await writer.beginRun();
         writeFileSync(join(workspace, 'node_modules', 'dep', 'index.js'), 'module.exports = 1;\n');
         const result = await writer.flushRun();
         expect(result.entries).toHaveLength(0);
@@ -103,7 +120,7 @@ describe('wiki writer', () => {
 
     it('累计变更达到阈值 → 刷新状态快照', async () => {
         const { store, writer, summarizer } = setup({ snapshotThreshold: 1 });
-        writer.beginRun();
+        await writer.beginRun();
         writer.record('fs.write', ['src/a.ts']);
         const result = await writer.flushRun();
         expect(result.snapshotRefreshed).toBe(true);

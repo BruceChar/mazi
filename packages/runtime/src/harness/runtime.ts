@@ -439,9 +439,9 @@ export class HarnessRuntime {
             sessionId,
             allowedToolsOverride,
         );
-        // 项目 wiki：本次运行读一次快照用于注入，并建立兜底 diff 基线。
+        // 项目 wiki：先建兜底 diff 基线并确保项目概览快照存在，再读一次用于注入。
+        await this.wiki.beginRun();
         const wikiFragment = this.wiki.promptFragment();
-        this.wiki.beginRun();
         // 挂载是用户级开关；每次运行在边界发能力事件，审计锚定本次 run。
         // 运行级 skillIds 覆盖（实验臂）优先于全局挂载状态。
         const skillIds = requestedSkills ?? this.skillProvider?.mounted() ?? [];

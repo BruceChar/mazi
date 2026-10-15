@@ -23,7 +23,7 @@
 | 5 | 捕获范围 | **写工具逐次记录 + 回合末兜底**（把 bash/sd/git 等间接写入补上） |
 | 6 | 新会话读取 | **自动注入快照**（token 受限）+ **`wiki.read` 工具**按需读全文 |
 | 7 | 事件格式 | `- <时间> \| <功能级改动>`，**不下沉到文件**（如「新增项目 wiki 读取与上下文注入」） |
-| 8 | 快照刷新 | **阈值 + 会话结束**：变更累计 ≥ 10 条 或 会话结束 → 刷新状态快照；变更日志只追加 |
+| 8 | 快照刷新 | **首次落地 + 阈值 + 会话结束**：会话开始时若无快照 → 落地确定性项目概览；变更累计 ≥ 10 条 或 会话结束 → 刷新快照；变更日志只追加 |
 | 9 | 交付范围 | **runtime + API + WebUI** 三层 |
 | 10 | 架构分层 | **runtime 事实/契约层 + 技能策略层 + 插件扩展层**（见 §2.1） |
 | 11 | 技能交付 | **用户级技能模板**（`docs/templates/skills/project-wiki/`，经 `/api/capabilities` 创建；不违反 能力包规范 §8 SK-5） |
@@ -157,6 +157,7 @@ $MAZI_HOME/wiki/
 - 条目文本由 **`WikiSummarizer` 策略插槽**生成：默认 `TemplateSummarizer`（确定性、零模型调用、保证必有记录）；需要更好文风时注入 `createLlmSummarizer(complete)`（模型输出 JSON 数组，解析失败自动降级模板）。
 - 降级：摘要调用超时/失败/输出不合规 → 用确定性模板兜底（`更新了 N 个模块：runtime、API`），保证记录不丢。
 - 技能层不重复记账：runtime 已保证事实记录，`project-wiki` 技能的职责是**快照口径**；只有发现 runtime 漏记时才用 `wiki.update` 追加条目。
+- 首次快照（bootstrap）：会话开始时若无快照，直接用 `bootstrapSnapshot()` 落地**确定性项目概览**（顶层结构、apps/packages 模块、技术栈、约定文档），零模型调用；之后由阈值刷新或技能 `wiki.update` 覆盖。
 - 变更日志保留上限：默认 500 条，超出时把最旧的 N 条折叠为一行汇总（`—— 更早 M 条变更已折叠 ——` 之上汇总为 1 行），避免文件无限膨胀。
 
 ## 8. 新会话读取与注入
@@ -164,7 +165,8 @@ $MAZI_HOME/wiki/
 - 时机：`executeGoalTree` 开始（每个 Goal 树会话一次），读取 `wiki.md` 快照区 + 最近 10 条变更。
 - 位置：追加到 system prompt 尾部（`systemPromptWithSkills` 之后），标题 `## 项目 wiki（<项目名>，更新于 …）`，并附一句读取指引：「需要更完整历史时调用 `wiki.read`」。
 - 预算：默认 ≤ 1500 token（约 6000 字符）；超限按 概览 > 进行中的工作 > 最近变更 顺序截断，并标注「（已截断，完整内容见 wiki.read）」。
-- 首次会话（wiki 不存在）：不注入空片段，改为注入一句「本项目尚无 wiki；如有结构性改动请在收尾时刷新 `wiki.update`」。
+- 首次会话（wiki 不存在/快照为空）：会话开始时先落地 `bootstrapSnapshot()`（确定性、零模型），再注入该概览——**新项目的第一个会话就能读到项目状态**，不再出现「暂无 wiki」的空窗。
+- 仅在 wiki 被禁用或工作区不可用时，才注入一句「本项目尚无 wiki」的提示。
 - 注入内容视为**项目事实**，但属于模型可写来源 → 注入面治理（脱敏、长度上限）沿用 ContextManager 既有 hook 管线。
 - 片段拼接顺序：基础 system prompt → Skill 目录 → Feature 片段 → **项目 wiki 快照**（wiki 最后，靠近决策点）；wiki 缺失时只注入一句提示。
 
@@ -239,7 +241,8 @@ $MAZI_HOME/wiki/
 - `wiki-writer.test.ts`：写工具成功 → pending 一条；同回合重复路径去重；无写入不触发摘要调用；bash 间接写入被兜底 diff 捕获；摘要失败走模板降级；阈值触发快照刷新；会话结束触发刷新。
 - `wiki-inject.test.ts`：新会话 system prompt 含快照与「最近变更」；超预算截断标记；wiki 缺失时不注入、给出提示句；`enabled=false` 不注入。
 - `wiki-tools.test.ts`：`wiki.read` 分区读取；`wiki.update` 快照替换 + 条目追加 + 权限映射。
-- `wiki-runtime-integration.test.ts`：新会话 system prompt 含 wiki 快照；模型调用 `fs.write` 后回合收尾落一条『时间 | 改动』；无写入的会话不产生条目。
+- `wiki-runtime-integration.test.ts`：新会话 system prompt 含 wiki 快照；模型调用 `fs.write` 后回合收尾落一条『时间 | 改动』；**无写入的只读会话也注入并落地项目概览**（首次会话不再空白）。
+- `wiki-writer.test.ts` 覆盖：会话开始落地确定性概览、已有快照不被覆盖、无改动不调用摘要、阈值触发刷新。
 
 **API（`apps/api/test/`）**
 
@@ -297,3 +300,11 @@ $MAZI_HOME/wiki/
 | M3 API | ✅ | `apps/api/src/wiki/wiki.controller.ts`；`apps/api/test/wiki.controller.test.ts` 3 用例 |
 | M4 WebUI | ✅ | `apps/webui/src/components/WikiPage.vue` + 侧边栏入口；`apps/webui/test/wiki.test.ts` 3 用例 |
 | M5 验收 | ✅ | `pnpm test` 861 用例全绿；`biome check` 本特性 0 error；API 冒烟通过 |
+
+### 18.1 缺陷修复（2026-10-16，whoami 项目无 wiki）
+
+- 现象：新项目 whoami 会话结束后 `$MAZI_HOME/wiki/` 为空，WebUI/接口显示 `empty: true`。
+- 根因 1：首次快照只在变更累计 ≥ 10 条时生成，纯只读会话（`wiki.read`/`git log`/`rg`/`fs.read`）永不落地任何文件。
+- 根因 2：设计写的是「阈值 **+ 会话结束**」，实现漏了「会话结束时若尚无快照就落地」这一半。
+- 修复：新增 `bootstrapSnapshot()`；`beginRun()`（会话开始）与 `flushRun()`（回合收尾）都会在快照缺失时落地确定性项目概览；运行时先 `await beginRun()` 再生成注入片段。
+- 验证：`wiki-writer`/`wiki-runtime-integration` 新增 3 个用例（21 个 wiki 用例全绿），覆盖「只读会话也注入并落地概览」。

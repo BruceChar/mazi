@@ -1,6 +1,18 @@
 import { createHash } from 'node:crypto';
 import { basename, join, resolve } from 'node:path';
 
+/** 变更扫描忽略的目录名（node_modules/.git 等；设计 §7.1）。 */
+export const DEFAULT_IGNORED_DIRS = [
+    'node_modules',
+    '.git',
+    'dist',
+    '.turbo',
+    '.next',
+    'coverage',
+    '.pnpm-store',
+    '.pnpm-local-store',
+];
+
 /** wiki 根目录名（相对 MAZI_HOME）：$MAZI_HOME/wiki（设计 §4.1）。 */
 export const WIKI_DIR_NAME = 'wiki';
 /** 单文件 wiki 名（设计 §4.2）。 */

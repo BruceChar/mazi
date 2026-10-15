@@ -5,14 +5,10 @@ import {
     DEFAULT_RECENT_ENTRIES,
     renderWikiSection,
 } from './injector.js';
+import { DEFAULT_IGNORED_DIRS } from './naming.js';
 import { type WikiDoc, type WikiEntry, WikiStore } from './store.js';
 import { TemplateSummarizer, type WikiSummarizer } from './summarizer.js';
-import {
-    DEFAULT_IGNORED_DIRS,
-    DEFAULT_SNAPSHOT_THRESHOLD,
-    type WikiFlushContext,
-    WikiWriter,
-} from './writer.js';
+import { DEFAULT_SNAPSHOT_THRESHOLD, type WikiFlushContext, WikiWriter } from './writer.js';
 
 export * from './injector.js';
 export * from './naming.js';
@@ -169,9 +165,14 @@ export class WikiService {
         }
     }
 
-    /** 会话/回合开始：建立兜底 diff 基线。 */
-    beginRun(): void {
-        this.writer?.beginRun();
+    /** 会话/回合开始：建立兜底 diff 基线；无快照时先落地确定性项目概览（设计 §8）。 */
+    async beginRun(): Promise<void> {
+        if (this.writer === undefined) return;
+        try {
+            await this.writer.beginRun();
+        } catch (error) {
+            this.warn('项目概览 bootstrap 失败：' + describeError(error));
+        }
     }
 
     /** Step 观测：写工具成功 → 记 pending（设计 §7.1）。 */

@@ -54,7 +54,7 @@ describe('WikiService', () => {
     it('observeStep 记 pending，flushRun 落功能级条目', async () => {
         const home = tempDir('mazi-home-');
         const service = new WikiService({ home, workspace: tempDir('mazi-ws-') });
-        service.beginRun();
+        await service.beginRun();
         service.observeStep(invocationStep('fs.write', { path: 'src/a.ts' }));
         service.observeStep(invocationStep('rg', { args: ['foo'] }));
         const entries = await service.flushRun({ sessionId: 's1' });

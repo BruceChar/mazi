@@ -1,19 +1,9 @@
 import { type Dirent, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
+import { DEFAULT_IGNORED_DIRS } from './naming.js';
 import { formatLocalTimestamp, type WikiEntry, type WikiStore } from './store.js';
-import { changedModules, type WikiSummarizer } from './summarizer.js';
+import { bootstrapSnapshot, changedModules, type WikiSummarizer } from './summarizer.js';
 
-/** 变更扫描忽略的目录名（node_modules/.git 等；设计 §7.1）。 */
-export const DEFAULT_IGNORED_DIRS = [
-    'node_modules',
-    '.git',
-    'dist',
-    '.turbo',
-    '.next',
-    'coverage',
-    '.pnpm-store',
-    '.pnpm-local-store',
-];
 export const MAX_SCAN_ENTRIES = 20000;
 /** 累计变更达到该条数即刷新状态快照（设计 §12）。 */
 export const DEFAULT_SNAPSHOT_THRESHOLD = 10;
@@ -152,9 +142,10 @@ export class WikiWriter {
         return this.pending.length;
     }
 
-    /** 会话/回合开始：建立兜底 diff 基线。 */
-    beginRun(): void {
+    /** 会话/回合开始：建立兜底 diff 基线；无快照时先落地确定性项目概览（设计 §8）。 */
+    async beginRun(): Promise<void> {
         this.baseline = this.scan();
+        await this.ensureSnapshot();
     }
 
     /** 写工具成功后记录一条 pending。 */
@@ -188,6 +179,8 @@ export class WikiWriter {
             )
             .sort();
         if (changedPaths.length === 0) {
+            // 无改动也要保证项目概览存在（首次会话即落地；设计 §8）
+            await this.ensureSnapshot();
             return { entries: [], snapshotRefreshed: false };
         }
         const tools = [...new Set(pending.map((item) => item.tool))].sort();
@@ -209,15 +202,25 @@ export class WikiWriter {
         });
         this.sinceSnapshot += entries.length;
         let snapshotRefreshed = false;
-        if (this.sinceSnapshot >= this.snapshotThreshold) {
-            const current = this.store.read();
-            const snapshot = await this.summarizer.refreshSnapshot({
-                project: this.store.project,
-                workspace: this.workspace,
-                currentSnapshot: current?.snapshot ?? '',
-                recentEntries: (current?.entries ?? []).slice(-10),
-                changedPaths,
-            });
+        const current = this.store.read();
+        const hasSnapshot = (current?.snapshot ?? '').trim().length > 0;
+        // 会话结束：无快照 → 落地确定性项目概览；累计变更达阈值 → 刷新（设计 §2 决策 8）
+        if (!hasSnapshot || this.sinceSnapshot >= this.snapshotThreshold) {
+            let snapshot: string | undefined;
+            if (!hasSnapshot) {
+                snapshot = bootstrapSnapshot(this.workspace, this.store.project);
+            } else {
+                snapshot = await this.summarizer.refreshSnapshot({
+                    project: this.store.project,
+                    workspace: this.workspace,
+                    currentSnapshot: current?.snapshot ?? '',
+                    recentEntries: (current?.entries ?? []).slice(-10),
+                    changedPaths,
+                });
+                if (snapshot === undefined || snapshot.trim().length === 0) {
+                    snapshot = bootstrapSnapshot(this.workspace, this.store.project);
+                }
+            }
             if (snapshot !== undefined && snapshot.trim().length > 0) {
                 await this.store.writeSnapshot(snapshot, {
                     ...(context.sessionId !== undefined ? { sessionId: context.sessionId } : {}),
@@ -227,6 +230,17 @@ export class WikiWriter {
             }
         }
         return { entries, snapshotRefreshed };
+    }
+
+    /** 无快照时落地确定性项目概览（首次会话/无改动会话也可见项目状态）。 */
+    private async ensureSnapshot(): Promise<void> {
+        try {
+            const current = this.store.read();
+            if ((current?.snapshot ?? '').trim().length > 0) return;
+            await this.store.writeSnapshot(bootstrapSnapshot(this.workspace, this.store.project));
+        } catch {
+            // 快照 bootstrap 失败不阻断会话
+        }
     }
 
     /** 当前待刷新变更模块（调用方日志/测试用）。 */

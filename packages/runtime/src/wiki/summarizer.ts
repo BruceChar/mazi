@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { DEFAULT_IGNORED_DIRS } from './naming.js';
 import { WIKI_LOG_HEADING, type WikiEntry } from './store.js';
 
 export interface WikiChangeFacts {
@@ -37,6 +40,108 @@ export function changedModules(paths: readonly string[]): string[] {
     const modules = new Set<string>();
     for (const path of paths) modules.add(moduleOfPath(path));
     return [...modules].sort();
+}
+
+/** 模块目录分组（bootstrap 概览用）。 */
+const SNAPSHOT_GROUPS = ['apps', 'packages', 'services', 'libs', 'modules'];
+/** 项目约定文档（存在则在快照里点出）。 */
+const CONVENTION_FILES = ['AGENT.md', 'AGENTS.md', 'CLAUDE.md'];
+
+function safeReadJson(file: string): Record<string, unknown> | undefined {
+    try {
+        const parsed = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+        return parsed !== null && typeof parsed === 'object'
+            ? (parsed as Record<string, unknown>)
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function isFile(file: string): boolean {
+    try {
+        return statSync(file).isFile();
+    } catch {
+        return false;
+    }
+}
+
+function directoryNames(dir: string): string[] {
+    try {
+        return readdirSync(dir, { withFileTypes: true })
+            .filter(
+                (entry) =>
+                    entry.isDirectory() &&
+                    !entry.name.startsWith('.') &&
+                    !DEFAULT_IGNORED_DIRS.includes(entry.name),
+            )
+            .map((entry) => entry.name)
+            .sort();
+    } catch {
+        return [];
+    }
+}
+
+function detectStack(workspace: string): string[] {
+    const stack: string[] = [];
+    const pkg = safeReadJson(join(workspace, 'package.json'));
+    if (pkg !== undefined) {
+        if (typeof pkg.packageManager === 'string' && pkg.packageManager.length > 0) {
+            stack.push(pkg.packageManager);
+        }
+        stack.push('Node.js');
+    }
+    if (isFile(join(workspace, 'pnpm-workspace.yaml')) || isFile(join(workspace, 'turbo.json'))) {
+        stack.push('monorepo');
+    }
+    if (isFile(join(workspace, 'Cargo.toml'))) stack.push('Rust/Cargo');
+    if (isFile(join(workspace, 'pyproject.toml')) || isFile(join(workspace, 'requirements.txt'))) {
+        stack.push('Python');
+    }
+    if (isFile(join(workspace, 'go.mod'))) stack.push('Go');
+    return [...new Set(stack)];
+}
+
+/**
+ * 确定性项目概览快照：首次会话/无模型时的兜底（设计 §8）。
+ * 只读工作区结构与技术栈，不含模型判断；可被 wiki.update 或 project-wiki 技能覆盖。
+ */
+export function bootstrapSnapshot(workspace: string, project: string): string {
+    const directories = directoryNames(workspace);
+    const modules: string[] = [];
+    for (const group of SNAPSHOT_GROUPS) {
+        if (!directories.includes(group)) continue;
+        for (const child of directoryNames(join(workspace, group))) {
+            modules.push(group + '/' + child);
+        }
+    }
+    const others = directories.filter((name) => !SNAPSHOT_GROUPS.includes(name)).slice(0, 10);
+    const stack = detectStack(workspace);
+    const conventions = CONVENTION_FILES.filter((name) => isFile(join(workspace, name)));
+    return [
+        '## 项目概览',
+        '- 项目：' + project + '（工作区 ' + workspace + '）',
+        '- 技术栈：' + (stack.length > 0 ? stack.join('、') : '（未识别）'),
+        '- 顶层目录：' + (directories.length > 0 ? directories.slice(0, 20).join('、') : '（空）'),
+        '- 快照来源：runtime 自动生成（可被 wiki.update 或 project-wiki 技能刷新）',
+        '',
+        '## 结构与模块',
+        ...(modules.length > 0
+            ? modules.map((module) => '- ' + module)
+            : ['- （未发现 apps/packages 等模块目录）']),
+        ...others.map((name) => '- ' + name + '/'),
+        '',
+        '## 模块职责',
+        '- （待补充：由会话或 project-wiki 技能按实际职责刷新）',
+        '',
+        '## 进行中的工作',
+        '- （暂无记录；后续改动会追加到变更日志）',
+        '',
+        '## 约定与注意',
+        ...(conventions.length > 0
+            ? conventions.map((name) => '- 项目约定文档：' + name + '（按其约定执行）')
+            : ['- （未发现 AGENT.md/AGENTS.md/CLAUDE.md）']),
+    ].join('\n');
 }
 
 /** 确定性摘要（无模型/模型失败时的降级；保证记录不丢，设计 §7.3）。 */
