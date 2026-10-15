@@ -227,8 +227,9 @@ $MAZI_HOME/experiments/<experimentId>.jsonl     # append-only，一次实验一�
 | type | 何时 | payload |
 | --- | --- | --- |
 | `experiment.created` | 定义实验 | 完整 spec（input/workspace/baseline/variables/arms） |
+| `arm.planned` | 建会话（不执行） | `{ label, rootGoalId, spec }`（rootGoalId 是 Trace 指针，立即回给前端开窗） |
 | `experiment.started` | 开始执行 | — |
-| `arm.started` | 某臂 Goal 创建后 | `{ label, rootGoalId, spec }`（rootGoalId 是 Trace 指针） |
+| `arm.started` | 某臂开始执行 | `{ label }` |
 | `arm.ended` | 某臂执行结束 | `{ label, status, metrics, error? }` |
 | `experiment.completed` | 两臂结束 | `{ comparison }` |
 | `experiment.failed` | 整体失败（如锁冲突/创建失败） | `{ error, failedArm }` |
@@ -244,23 +245,26 @@ $MAZI_HOME/experiments/<experimentId>.jsonl     # append-only，一次实验一�
 ## 7. 执行器语义（ExperimentRunner）
 
 ```
-定义 → experiment.created
-   ↓
-experiment.started
-   ↓  串行（A 完成后 B 开始）
-arm A: createGoalSession(input, baseline + A delta) → arm.started(rootGoalId)
-       executeGoalTree → goalSnapshot → metrics → arm.ended
-   ↓
-arm B: 同上
-   ↓
-compareArms → experiment.completed
+① 建会话（POST /api/experiments，立刻返回）
+experiment.created
+   → 臂 A: createGoalSession(input, baseline + A delta) → arm.planned(label, rootGoalId)
+   → 臂 B: 同上 → arm.planned(label, rootGoalId)
+        ↓  前端拿到两个 rootGoalId，立刻为左右两窗订阅 /api/events/:id?follow=1
+② 前台执行（POST /api/experiments/:id/run，请求保持到两臂结束）
+experiment.started → arm.started(A) / arm.started(B)
+   → 并行：executeGoalTree(A) ‖ executeGoalTree(B)
+            （各自 goalSnapshot → metrics → arm.ended）
+        ↓  期间 SSE 实时可见 thinking/工具/观察；审批经 /api/approvals/:id 现场应答
+compareArms → experiment.completed（幂等：已完成的臂不重跑）
 ```
 
-- **顺序执行**：两臂共享同一 Provider 配额与进程内执行锁（`ApiRuntimeService.runExclusive` 已保证同一时刻只有一个 run），并发跑会互相抢速率限制、污染耗时指标。耗时对比因此标注「顺序执行，非并发」。
-- **同一工作区**：实验定义固定 `workspace`；运行期由 API 层 `setWorkspaceRoot` 后执行，两臂一致。
+- **前台执行，不是后台任务**：UI 先建会话（拿到 Trace 指针）再发起执行请求，两个窗口同时订阅事件流；执行请求本身就是「前台」的那次请求（与主对话 `POST /api/sessions/:id/run` 同形），因此**审批可以现场应答**——不会出现「跑在后台、审批无人应答而卡死」。
+- **并行执行**：两臂在同一个 `runExclusive` 持有期内 `Promise.all` 并发（同一运行时实例）。并发安全依赖既有事实：Goal 运行登记、待执行覆盖、上下文与记忆都按 `rootGoalId` 隔离；估算缓存命中率按 `conversationId ?? rootGoalId` 分键；Goal/Step 落库为同一 SQLite 连接（JS 单线程天然串行）。代价：两臂共用同一 Provider 配额，耗时/限流会互相影响——对比结果的 `execution` 字段保留并在 UI 标注。
+- **同一工作区**：实验表单选定的工作区在**创建时**即切换为当前工作区（与主对话「选项目后在该工作区跑」一致），执行与 SSE 订阅因此落在同一运行时实例；**执行后不回滚工作区选择**（回滚会让已开的事件流订阅落到另一个运行时实例，丢失实时事件）。
 - **基线快照**：`baseline` 在实验定义时冻结（permissionCeiling / reasoningLevel / 挂载技能快照 `skillIds`），运行时不再重读全局——保证可复现。
-- **失败语义**：单臂失败不阻断另一臂（对照实验要拿到两边的数据）；两臂都失败 → `experiment.completed` 仍写入（comparison 标注失败），整体流程只在「日志写入失败 / 创建会话失败」时落 `experiment.failed`。
-- **中止（本期边界）**：实验在单次 POST 内同步完成两臂，不提供运行中停止（进程内串行锁已阻止并发实验；如需中止，等待当前臂结束或在AB 实验室删除该实验日志）。若未来开放并发，再补 stop 语义，届时 `status='aborted'` 计入指标、实验状态标 `aborted`。
+- **失败语义**：单臂失败不阻断另一臂（对照实验要拿到两边的数据）；两臂都失败 → `experiment.completed` 仍写入（comparison 标注失败），整体流程只在「日志写入失败 / 执行期异常」时落 `experiment.failed`。
+- **重跑 / 继续**：`rerun` 只复制为新的**待执行**实验（`status=created`），执行统一走前台 `:id/run`；页面刷新后可用「继续运行」把未跑完的臂接着跑（execute 对已完成臂幂等）。
+- **中止（本期边界）**：不提供运行中停止（进程内串行锁仍保证同一时刻只有一次执行）；如需中止，等待当前实验结束或在 AB 实验室删除该实验日志。
 - **局部失败隔离**：任何一臂抛错都被捕获并记录为该臂的 `error`，不污染进程状态。
 
 ---
@@ -281,15 +285,16 @@ compareArms → experiment.completed
 | 端点 | 方法 | 说明 |
 | --- | --- | --- |
 | `/api/experiments` | GET | 列表（按 createdAt 倒序，轻量投影：status / title / variables / 两臂指标摘要） |
-| `/api/experiments` | POST | 创建并执行：`{ title, hypothesis?, input, workspace?, variables, arms, baseline? }` → 实验视图（含 comparison） |
+| `/api/experiments` | POST | **创建（不执行）**：`{ title, hypothesis?, input, workspace?, variables, arms, baseline? }` → `status=created` + 两臂 `rootGoalId`（前端据此立刻开窗订阅事件流） |
+| `/api/experiments/:id/run` | POST | **前台执行**尚未完成的臂（并行，请求保持到两臂结束）→ 完成后的实验视图；已有会话在跑 → 409；两臂都完成 → 幂等返回 |
 | `/api/experiments/:id` | GET | 详情：折叠后的实验视图 + 两臂 metrics + comparison + reviews |
-| `/api/experiments/:id/rerun` | POST | 用同一 spec 再跑一次（新 `experimentId`，不覆盖原记录）→ 用于方差观察 |
+| `/api/experiments/:id/rerun` | POST | 复制为新的**待执行**实验（新 `experimentId`，不覆盖原记录）→ 用于方差观察 |
 | `/api/experiments/:id/reviews` | POST | 追加复盘：`{ note, verdict }` |
 | `/api/experiments/:id` | DELETE | 删除实验日志 |
 
-两臂 Trace 复用既有端点：`GET /api/sessions/:rootGoalId/timeline`（快照）与 `GET /api/events/:rootGoalId`（事件流）。
+两臂 Trace 复用既有端点：`GET /api/sessions/:rootGoalId/timeline`（快照）与 `GET /api/events/:rootGoalId?follow=1`（SSE 实时事件流，与主对话完全相同）；审批复用 `POST /api/approvals/:id`。
 
-**错误契约**：沿用 `{ error }` + 400/404/409/500；非法自变量（如 kind 不在闭集、arms 不是 2 个）→ 400；运行中再次提交实验 → 409（复用串行锁）。
+**错误契约**：沿用 `{ error }` + 400/404/409/500；非法自变量（如 kind 不在闭集、arms 不是 2 个）→ 400；执行时已有会话在跑 → 409（复用主对话串行锁）。
 
 ---
 
@@ -325,7 +330,9 @@ compareArms → experiment.completed
 
 - **复用主内容区（同一窗口）**：AB 实验室替换主区，顶部栏显示名称，**页内不再重复标题、不设返回按钮**；左侧会话列表常驻，点击任一会话 / 「新会话」/ Esc 即切回对话视图（导航动作统一回到 `ui.view='chat'`）。
 - **配置项一律选择、不手输**：自变量取值从既有资产里选（Feature 列表 / 已发现 Skill 多选（左右各一栏，两臂独立）/ 模型目录 / 权限档位 / 推理档）；工作区从「跟随当前工作区 / 已有项目工作区 / 随心聊默认」里选，并显示本次实际使用的路径名称。
-- 「两个窗口」= 左右并排的两个臂面板（App 主区内容，非弹窗）。执行为同步 POST：提交后按钮置「运行中…」并禁用重复提交，两臂跑完一次性渲染；历史实验点选即载入日志折叠视图（可随时回看）；
+- **左右两窗同时前台执行**：点「运行对照实验」→ 先建两臂会话 → 立即为两窗各开一条 `EventSource` → 再发前台执行请求。每窗实时显示：流式正文（reasoning + text）、步骤列表（思考 / 工具 / 观察与状态）、错误；结束后自动刷新为终态视图（指标 / Trace / diff / 对比）。
+- **审批不卡后台**：两窗内联展示 `approval.requested`（工具名 + 摘要 + 允许一次 / 本会话允许 / 拒绝），直接调 `POST /api/approvals/:id`；因此涉及写权限/命令审批的实验可以当场放行或拒绝，而不是把运行挂在无人应答的后台。
+- 历史实验点选即载入日志折叠视图（可随时回看）；`status=created` 的实验显示「继续运行（N 臂待跑）」，刷新页面后也能接着跑；
 - Trace 对比 = 同一张表的两列（同一指标口径），而不是把两个 Trace 看板并排塞进右抽屉；
 - 历史复盘 = 点列表任一条 → 载入该实验视图（日志折叠结果），可继续写复盘备注。
 
@@ -377,7 +384,8 @@ compareArms → experiment.completed
 | `apps/api/src/features/` | §8.1 端点 |
 | `apps/api/src/experiments/` | §8.2 端点 |
 | `apps/webui/src/components/FeaturesPanel.vue` | 设置页开关管理 |
-| `apps/webui/src/components/ExperimentsPage.vue` | AB 实验室（双窗 + 对比 + 复盘） |
+| `apps/webui/src/scripts/arm-live.ts` | 单臂实时投影纯函数（SSE 事件 → 流式正文 / 步骤 / 审批） |
+| `apps/webui/src/components/ExperimentsPage.vue` | AB 实验室（双窗前台执行 + 实时渲染 + 行内审批 + 对比 + 复盘） |
 
 ### 12.1 提交拆分（原子提交）
 
@@ -425,11 +433,14 @@ compareArms → experiment.completed
 | `2f575b9` | webui：AB 实验室 + Feature 设置面板 |
 | `9973c1e` | webui：输出 diff 相似度 |
 | `2ceeeef` | runtime/api：普通会话按全局 Feature 开关运行，恢复同样携带运行级覆盖 |
+| `c3a2109` | runtime：实验拆分「建会话 + 前台并行执行」两步（arm.planned / 幂等） |
+| `ee26d8d` | api：实验执行拆为 create + `/:id/run`（前台并行，审批可现场应答） |
+| `f124f58` | webui：AB 实验室左右两窗前台实时执行（SSE 流式 + 行内审批） |
 
 验证（本次交付末次运行）：
 
 - `pnpm build`：6/6 成功（core / provider / libs / runtime / api / webui）；
-- `pnpm test`：138 个测试文件、815 个用例全绿（新增：Feature 解析 10、Experiment 契约 7、Feature 运行时 10、运行级覆盖 6、diff 5、实验存储 8、spec 6、指标 3、执行器 3、Feature 接口 6、实验接口 5、实验服务 5、AB 实验室投影 14）；
+- `pnpm test`：139 个测试文件、827 个用例全绿（新增：Feature 解析 10、Experiment 契约 7、Feature 运行时 10、运行级覆盖 6、diff 5、实验存储 8、spec 6、指标 3、前台/并行执行器 7、Feature 接口 6、实验接口 6、实验服务 7、单臂实时投影 5、AB 实验室投影 14）；
 - `biome check`：本次新增/修改的源文件无 error（仓库既有文件存在历史 lint 诊断，未在本特性范围内改动）。
 
-已知边界（与 §11 一致）：不做 LLM judge、多臂、显著性检验；实验串行执行；实验执行不写 Conversation。
+已知边界（与 §11 一致）：不做 LLM judge、多臂、显著性检验；两臂并行但共用 Provider 配额（耗时仅作参考）；实验执行不写 Conversation。
