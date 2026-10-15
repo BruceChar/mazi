@@ -42,8 +42,6 @@ import {
     runExperiment,
 } from '../scripts/store.js';
 
-const emit = defineEmits(['back']);
-
 const selectedId = ref('');
 const traces = reactive({});
 const error = ref('');
@@ -209,17 +207,6 @@ function kpis(arm) {
 
 <template>
     <div class="experiments-page">
-        <header class="page-head">
-            <div class="page-title">
-                <LineIcon name="hammer" size="16" />
-                <span>AB实验室</span>
-                <span class="page-sub">同一输入 · 两臂对照 · 输出与 Trace 并排 · 独立日志可复盘</span>
-            </div>
-            <button class="btn" @click="emit('back')">
-                <LineIcon name="chevronLeft" size="13" />返回对话
-            </button>
-        </header>
-
         <div class="layout">
             <!-- 历史实验 -->
             <aside class="history">
@@ -495,24 +482,6 @@ function kpis(arm) {
     padding: 12px 16px 16px;
     gap: 10px;
     overflow: hidden;
-}
-.page-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-.page-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--fg);
-}
-.page-sub {
-    font-size: 12px;
-    font-weight: 400;
-    color: var(--fg-tertiary);
 }
 .layout {
     flex: 1;

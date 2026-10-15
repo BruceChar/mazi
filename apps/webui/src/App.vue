@@ -437,6 +437,7 @@ function resetConversation() {
  * so the next conversation starts workspace-less ("随心聊").
  */
 async function startTopConversation() {
+    backToChat();
     try {
         await selectWorkspace('');
     } catch (error) {
@@ -450,6 +451,7 @@ async function startTopConversation() {
  * open the blank screen. The run is created on submit with that workspace.
  */
 async function startProjectConversation(project) {
+    backToChat();
     try {
         await selectWorkspace(project.path);
     } catch (error) {
@@ -588,6 +590,7 @@ async function switchProject(path) {
 }
 
 async function openConversation(conversation) {
+    backToChat();
     currentConversation.value = conversation.conversationId;
     const run = latestRun(conversation);
     if (run) {
@@ -961,10 +964,7 @@ onBeforeUnmount(() => {
                 />
             </template>
 
-            <ExperimentsPage
-                v-else-if="ui.view === 'experiments'"
-                @back="backToChat"
-            />
+            <ExperimentsPage v-else-if="ui.view === 'experiments'" />
 
             <UserCenterPage
                 v-else-if="ui.view === 'user-center'"
