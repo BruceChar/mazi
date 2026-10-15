@@ -1400,6 +1400,24 @@ export async function fetchArmTrace(
     }
 }
 
+/**
+ * 协作式终止运行中的实验（`label` 缺省 = 两臂全停）：不阻塞、可随时调用；
+ * 返回实际收到停止信号的臂（空闲/已结束 → 空数组，幂等）。
+ */
+export async function stopExperiment(
+    experimentId: string,
+    label?: string,
+): Promise<{ stopping: string[] }> {
+    const data = (await api(`/api/experiments/${encodeURIComponent(experimentId)}/stop`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(label ? { label } : {}),
+    })) as { stopping?: string[]; view?: ExperimentView };
+    if (data?.view) experimentViews[data.view.experimentId] = data.view;
+    await loadExperiments();
+    return { stopping: Array.isArray(data?.stopping) ? data.stopping : [] };
+}
+
 /* ---- Skill 目录（GET /api/capabilities；AB 实验室用 id 选择技能） ---- */
 
 export interface SkillOption {

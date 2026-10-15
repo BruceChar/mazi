@@ -56,6 +56,7 @@ import {
     respondApproval,
     reviewExperiment,
     skillOptions,
+    stopExperiment,
     workspaceRoot,
 } from '../scripts/store.js';
 
@@ -288,6 +289,38 @@ async function rerun() {
     }
 }
 
+/** 终止整场实验（两臂全停）：随时可点，空闲时幂等。 */
+async function stopAll() {
+    const view = selected.value;
+    if (!view) return;
+    error.value = '';
+    try {
+        const { stopping: labels } = await stopExperiment(view.experimentId);
+        notice.value = labels.length
+            ? '已请求终止：臂 ' + labels.join('、') + '（Step 边界停止）'
+            : '没有正在运行的臂（已停止/幂等）';
+        await loadExperimentDetail(view.experimentId);
+    } catch (err) {
+        error.value = String(err);
+    }
+}
+
+/** 终止单臂（另一臂继续跑）。 */
+async function stopArm(arm) {
+    const view = selected.value;
+    if (!view) return;
+    error.value = '';
+    try {
+        const { stopping: labels } = await stopExperiment(view.experimentId, arm.label);
+        notice.value = labels.length
+            ? '已请求终止臂 ' + arm.label
+            : '臂 ' + arm.label + ' 未在运行';
+        await loadExperimentDetail(view.experimentId);
+    } catch (err) {
+        error.value = String(err);
+    }
+}
+
 /** 行内应答审批（允许一次 / 本会话 / 拒绝）。 */
 async function decide(approval, decision, scope) {
     try {
@@ -515,6 +548,9 @@ function isLive(label) {
                                 <span class="mono">{{ selected.experimentId }}</span>
                             </div>
                             <div class="actions">
+                                <button v-if="experimentRunning" class="btn danger" @click="stopAll">
+                                    <LineIcon name="stop" size="13" />终止实验
+                                </button>
                                 <button
                                     v-if="pendingArms.length && !experimentRunning"
                                     class="btn primary"
@@ -561,8 +597,15 @@ function isLive(label) {
                             <div v-if="isLive(arm.label)" class="live">
                                 <div class="block-head">
                                     实时执行
-                                    <span class="badge" :class="live[arm.label].status">
-                                        {{ armStatusLabel(live[arm.label].status) }}
+                                    <span class="live-actions">
+                                        <span class="badge" :class="live[arm.label].status">
+                                            {{ armStatusLabel(live[arm.label].status) }}
+                                        </span>
+                                        <button
+                                            v-if="live[arm.label].status === 'running'"
+                                            class="link-btn danger"
+                                            @click="stopArm(arm)"
+                                        >终止本臂</button>
                                     </span>
                                 </div>
                                 <pre v-if="armStreamText(live[arm.label])" class="stream">{{ armStreamText(live[arm.label]) }}</pre>
@@ -966,6 +1009,14 @@ input:disabled {
     color: var(--fg-secondary);
 }
 /* 实时执行区：流式正文 + 步骤 + 行内审批 */
+.live-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.link-btn.danger {
+    color: var(--error);
+}
 .live {
     margin-top: 10px;
     padding: 8px;
