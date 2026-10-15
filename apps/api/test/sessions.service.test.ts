@@ -2,6 +2,22 @@ import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { SessionsService } from '../src/sessions/sessions.service.js';
 
+/** FeatureRuntime 空替身：无开关 = 无运行级覆盖（SessionsService 现在也读全局 Feature）。 */
+const noFeatures = {
+    features: async () => ({
+        resolve: () => ({
+            values: {},
+            trace: [],
+            enabledIds: [],
+            promptFragment: '',
+            skillIds: [],
+            skillMode: 'inherit',
+        }),
+    }),
+    skills: async () => ({ mounted: () => [] }),
+};
+
+
 /** 直接单测 conversationHistory：run 列表 → user/assistant 消息（不依赖真实 provider）。 */
 describe('SessionsService.conversationHistory（Conversation 共享上下文组装）', () => {
     function serviceWith(
@@ -12,6 +28,7 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
             runs: () => runs,
         };
         const runtime = {
+            ...noFeatures,
             harness: () => ({
                 goalSnapshot: async (rootGoalId: string) => ({
                     goals: [
@@ -60,6 +77,7 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
             runs: () => [{ rootGoalId: 'r1', input: 'ls', createdAt: 1 }],
         };
         const runtime = {
+            ...noFeatures,
             harness: () => ({
                 goalSnapshot: async () => ({
                     goals: [
@@ -105,6 +123,7 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
             appendRun: () => {},
         };
         const runtime = {
+            ...noFeatures,
             selectedWorkspaceRoot: undefined,
             setWorkspaceRoot: () => {},
             resolvePermission: () => 'workspace-write',
@@ -138,6 +157,7 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
 
     it('taskThinkingChain：导出该 Task 的 thinking 链（renderThinkingChain）', async () => {
         const runtime = {
+            ...noFeatures,
             harness: () => ({
                 goalSnapshot: async () => ({
                     goals: [
@@ -180,6 +200,7 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
 
     it('taskThinkingChain：未知 task → 404', async () => {
         const runtime = {
+            ...noFeatures,
             harness: () => ({ goalSnapshot: async () => ({ goals: [] }) }),
         };
         const service = new SessionsService(runtime as never, {} as never);

@@ -557,13 +557,37 @@ export class HarnessRuntime {
      */
     async resumeGoalTree(
         rootGoalId: string,
-        options: { reasoningLevel?: string; modelId?: string } = {},
+        options: {
+            reasoningLevel?: string;
+            modelId?: string;
+            promptFragment?: string;
+            skillIds?: readonly string[];
+            allowedTools?: readonly string[];
+            flagOverrides?: Readonly<Record<string, boolean>>;
+            flagTrace?: readonly { id: string; enabled: boolean; source: string }[];
+        } = {},
     ): Promise<GoalRunResult> {
         if (options.reasoningLevel !== undefined) {
             this.pendingReasoning.set(rootGoalId, options.reasoningLevel);
         }
         if (options.modelId !== undefined) {
             this.pendingModel.set(rootGoalId, options.modelId);
+        }
+        // 恢复同样携带运行级覆盖（Feature / 技能 / 工具），保证中断前后条件一致。
+        if (options.promptFragment !== undefined && options.promptFragment.length > 0) {
+            this.pendingPromptFragment.set(rootGoalId, options.promptFragment);
+        }
+        if (options.skillIds !== undefined) {
+            this.pendingSkills.set(rootGoalId, options.skillIds);
+        }
+        if (options.allowedTools !== undefined) {
+            this.pendingAllowedTools.set(rootGoalId, options.allowedTools);
+        }
+        if (options.flagOverrides !== undefined) {
+            this.pendingFlags.set(rootGoalId, {
+                values: { ...options.flagOverrides },
+                trace: (options.flagTrace ?? []).map((step) => ({ ...step })),
+            });
         }
         this.bus.emit(newHarnessEvent({ type: 'run.resumed', rootGoalId, payload: {} }));
         await this.bus.flush();

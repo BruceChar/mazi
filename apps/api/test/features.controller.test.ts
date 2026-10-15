@@ -125,4 +125,38 @@ describe('Feature 开关接口', () => {
             await reloaded.close();
         }
     });
+
+    it('全局开启的 Feature 作用于普通会话：运行边界发 flag.evaluated（AB-5）', async () => {
+        // 上一条用例已重建 concise（默认关闭）：这里显式开启。
+        const enabled = await h.fastify.inject({
+            method: 'PATCH',
+            url: '/api/features/concise',
+            payload: { enabled: true },
+        });
+        expect(enabled.json().enabled).toBe(true);
+
+        const created = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            payload: { input: '读取 README.md 并汇报' },
+        });
+        const sessionId = created.json().sessionId;
+        // 测试环境无可用厂商 provider（faux 未注册）：执行以 driver-error 结束，
+        // 但运行边界事件已落盘，足以验证开关进入了本次运行。
+        await h.fastify.inject({
+            method: 'POST',
+            url: `/api/sessions/${sessionId}/run`,
+            payload: {},
+        });
+
+        const replay = await h.fastify.inject({ method: 'GET', url: `/api/events/${sessionId}` });
+        const events = replay.json() as Array<Record<string, unknown>>;
+        const flagEvent = events.find((event) => event.type === 'flag.evaluated');
+        expect(flagEvent).toBeDefined();
+        expect(flagEvent?.attributes['harness.feature_ids']).toEqual(['concise']);
+        expect(flagEvent?.payload).toMatchObject({
+            values: { concise: true },
+            trace: [{ id: 'concise', enabled: true, source: 'default' }],
+        });
+    });
 });

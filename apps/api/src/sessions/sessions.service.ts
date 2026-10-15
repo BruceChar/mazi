@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { ulid } from '@mazi/core';
+import { type EffectiveFeatures, ulid } from '@mazi/core';
 import { renderThinkingChain } from '@mazi/libs';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
@@ -89,6 +89,8 @@ export class SessionsService {
         const history = conversationId ? await this.conversationHistory(conversationId) : [];
         // 新会话也先确定 id，使 session 作用域审批在后续续聊中可匹配。
         const sessionConversationId = conversationId ?? ulid();
+        // 普通会话按全局 Feature 开关运行（实验台改用运行期 override 走 ExperimentRunner）。
+        const featureOptions = await this.featureRunOptions(reasoningLevel);
         const created = await this.runtime.harness().createGoalSession(input, {
             userId,
             conversationId: sessionConversationId,
@@ -96,6 +98,7 @@ export class SessionsService {
             ...(history.length > 0 ? { history } : {}),
             ...(reasoningLevel ? { reasoningLevel } : {}),
             ...(modelId ? { modelId } : {}),
+            ...featureOptions,
         });
         this.logger.log(
             `createSession ${created.rootGoalId} input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'} workspace=${workspace ?? '-'}`,
@@ -182,6 +185,45 @@ export class SessionsService {
         }
     }
 
+    /**
+     * 全局 Feature 开关 → 本次运行的覆盖（提示片段 / 技能集合 / 工具收窄 / 推理默认值）。
+     * 普通会话按 features.json 的默认开关运行；显式选择的推理强度优先于开关默认。
+     */
+    private async featureRunOptions(reasoningLevel?: string): Promise<{
+        promptFragment?: string;
+        skillIds?: string[];
+        allowedTools?: string[];
+        reasoningLevel?: string;
+        flagOverrides?: Record<string, boolean>;
+        flagTrace?: EffectiveFeatures['trace'];
+    }> {
+        const effective = (await this.runtime.features()).resolve();
+        const skillIds = await this.featureSkillIds(effective);
+        return {
+            ...(effective.promptFragment.length > 0
+                ? { promptFragment: effective.promptFragment }
+                : {}),
+            ...(skillIds !== undefined ? { skillIds } : {}),
+            ...(effective.allowedTools !== undefined
+                ? { allowedTools: effective.allowedTools }
+                : {}),
+            ...(effective.reasoningLevel !== undefined && reasoningLevel === undefined
+                ? { reasoningLevel: effective.reasoningLevel }
+                : {}),
+            ...(Object.keys(effective.values).length > 0
+                ? { flagOverrides: effective.values, flagTrace: effective.trace }
+                : {}),
+        };
+    }
+
+    /** 技能集合：only 独占；add 叠加到已挂载；inherit 不干预。 */
+    private async featureSkillIds(effective: EffectiveFeatures): Promise<string[] | undefined> {
+        if (effective.skillMode === 'only') return [...effective.skillIds];
+        if (effective.skillIds.length === 0) return undefined;
+        const mounted = (await this.runtime.skills()).mounted();
+        return [...new Set([...mounted, ...effective.skillIds])].sort();
+    }
+
     /** 取一次 Goal run 的最终回答（最后一个 deliberation step 的正文）。 */
     private async finalAnswerOf(rootGoalId: string): Promise<string> {
         try {
@@ -260,10 +302,12 @@ export class SessionsService {
                   : undefined;
         this.logger.log(`resumeSession ${sessionId}`);
         const started = Date.now();
+        const featureOptions = await this.featureRunOptions(reasoningLevel);
         const result = await this.runtime.runExclusive(() =>
             this.runtime.harness().resumeGoalTree(sessionId, {
                 ...(reasoningLevel ? { reasoningLevel } : {}),
                 ...(modelId ? { modelId } : {}),
+                ...featureOptions,
             }),
         );
         const last = result.tasks[result.tasks.length - 1];

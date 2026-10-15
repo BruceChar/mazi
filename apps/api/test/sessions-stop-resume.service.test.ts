@@ -2,10 +2,27 @@ import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { SessionsService } from '../src/sessions/sessions.service.js';
 
+/** FeatureRuntime 空替身：无开关 = 无运行级覆盖（SessionsService 现在也读全局 Feature）。 */
+const noFeatures = {
+    features: async () => ({
+        resolve: () => ({
+            values: {},
+            trace: [],
+            enabledIds: [],
+            promptFragment: '',
+            skillIds: [],
+            skillMode: 'inherit',
+        }),
+    }),
+    skills: async () => ({ mounted: () => [] }),
+};
+
+
 describe('SessionsService 中断/恢复（IR-E）', () => {
     it('stopSession：命中在跑运行 -> stopping；空闲 -> idle', () => {
         let running = true;
         const runtime = {
+            ...noFeatures,
             harness: () => ({ stopGoalTree: () => running }),
         };
         const service = new SessionsService(runtime as never, {} as never);
@@ -17,6 +34,7 @@ describe('SessionsService 中断/恢复（IR-E）', () => {
     it('resumeSession：透传 model/reasoning，经串行锁调用 resumeGoalTree', async () => {
         const calls: Array<{ id: string; options: Record<string, unknown> }> = [];
         const runtime = {
+            ...noFeatures,
             runExclusive: async (operation: () => Promise<unknown>) => operation(),
             harness: () => ({
                 resumeGoalTree: async (id: string, options: Record<string, unknown>) => {
@@ -36,6 +54,7 @@ describe('SessionsService 中断/恢复（IR-E）', () => {
     it('resumeSession：无 goal 覆盖时不传 model/reasoning', async () => {
         const calls: Array<Record<string, unknown>> = [];
         const runtime = {
+            ...noFeatures,
             runExclusive: async (operation: () => Promise<unknown>) => operation(),
             harness: () => ({
                 resumeGoalTree: async (_id: string, options: Record<string, unknown>) => {
