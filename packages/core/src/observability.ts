@@ -1,5 +1,5 @@
-import type { StepKind } from './gts.js';
 import type { ApprovalScope, PermissionLevel } from './authz/permissions.js';
+import type { StepKind } from './gts.js';
 
 /** Task-level tag (open string; expressed on the gts task model) */
 type TaskTag = string & {};
@@ -75,7 +75,10 @@ export type CoreEventType =
     | 'flag.evaluated'
     | 'user.input.recorded'
     | 'user.feedback.captured'
-    | 'user.interaction.updated';
+    | 'user.interaction.updated'
+    /** 能力包（Skill）生命周期：挂载 / 卸载（docs/能力包规范.md §7.2，skillId 走 harness.skill_id） */
+    | 'capability.activated'
+    | 'capability.deactivated';
 
 /**
  * 事件类型 —— 核心契约面 + 宿主扩展。
