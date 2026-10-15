@@ -23,7 +23,16 @@ const expanded = ref('');
 const details = ref({});
 const createOpen = ref(false);
 const creating = ref(false);
-const form = reactive({ id: '', name: '', description: '', scope: 'user' });
+const form = reactive({
+    id: '',
+    name: '',
+    description: '',
+    scope: 'user',
+    whenToUse: '',
+    steps: '',
+    output: '',
+    notes: '',
+});
 
 const SCOPE_LABELS = { project: '项目', user: '用户', builtin: '内置' };
 
@@ -72,12 +81,20 @@ async function create() {
                 name: form.name,
                 description: form.description,
                 scope: form.scope,
+                whenToUse: form.whenToUse,
+                steps: form.steps,
+                output: form.output,
+                notes: form.notes,
             }),
         });
         message.value = '已创建 ' + created.id + '（' + created.path + '）';
         form.id = '';
         form.name = '';
         form.description = '';
+        form.whenToUse = '';
+        form.steps = '';
+        form.output = '';
+        form.notes = '';
         createOpen.value = false;
         await load(false);
     } catch (e) {
@@ -157,15 +174,54 @@ onMounted(() => load(false));
                 </select>
                 <button
                     class="skills-btn primary"
-                    :disabled="creating || !form.id.trim() || !form.name.trim()"
+                    :disabled="creating || !form.id.trim() || !form.name.trim() || !form.description.trim()"
                     @click="create"
                 >
                     {{ creating ? '创建中…' : '创建' }}
                 </button>
             </div>
-            <input v-model="form.description" class="skills-input" placeholder="description：做什么 + 什么时候用（模型据此判断是否加载）" />
+            <input v-model="form.description" class="skills-input" placeholder="description（必填）：做什么 + 什么时候用 —— 模型据此判断是否加载本 Skill" />
+            <div class="skills-form-grid">
+                <label class="skills-field">
+                    <span class="skills-field-label">何时使用（trigger）</span>
+                    <textarea
+                        v-model="form.whenToUse"
+                        class="skills-textarea"
+                        rows="3"
+                        placeholder="写清触发场景与典型请求，例如：用户说「今天做到了什么」「帮我复盘这周」时使用。多行会转为列表。"
+                    ></textarea>
+                </label>
+                <label class="skills-field">
+                    <span class="skills-field-label">步骤（每行一步）</span>
+                    <textarea
+                        v-model="form.steps"
+                        class="skills-textarea"
+                        rows="4"
+                        placeholder="先读 references/format.md 确认结构&#10;向用户追问事实—感受—下一步&#10;写入用户指定文件"
+                    ></textarea>
+                </label>
+                <label class="skills-field">
+                    <span class="skills-field-label">输出（每行一条）</span>
+                    <textarea
+                        v-model="form.output"
+                        class="skills-textarea"
+                        rows="3"
+                        placeholder="三段式：事实 / 感受 / 下一步&#10;不编造用户未提供的事实"
+                    ></textarea>
+                </label>
+                <label class="skills-field">
+                    <span class="skills-field-label">注意事项（可选，每行一条）</span>
+                    <textarea
+                        v-model="form.notes"
+                        class="skills-textarea"
+                        rows="3"
+                        placeholder="敏感内容不写入公开文件&#10;单日最多 3 条"
+                    ></textarea>
+                </label>
+            </div>
             <p class="skills-hint">
-                将写入 <code>&lt;skills 根&gt;/&lt;id&gt;/SKILL.md</code>：frontmatter（name/description）+ 正文骨架。
+                将写入 <code>&lt;skills 根&gt;/&lt;id&gt;/SKILL.md</code>：frontmatter（name/description）+ 上述分栏组成的正文；
+                全部留空则落一份带占位提示的骨架。
             </p>
         </div>
 
@@ -312,6 +368,33 @@ onMounted(() => load(false));
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+}
+.skills-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+}
+.skills-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.skills-field-label {
+    font-size: 11px;
+    color: var(--fg-tertiary);
+}
+.skills-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+    font-family: inherit;
 }
 .skills-input {
     flex: 1;
