@@ -34,6 +34,12 @@ export class ExperimentsController {
         return this.experiments.execute(experimentId);
     }
 
+    /** 协作式终止：body.label 指定单臂，缺省两臂全停（空闲/已结束 → stopping 为空，幂等）。 */
+    @Post(':id/stop')
+    stop(@Param('id') experimentId: string, @Body() body: unknown) {
+        return this.experiments.stop(experimentId, body);
+    }
+
     /** 该臂 Goal 树快照（实验独立库）。 */
     @Get(':id/arms/:label/timeline')
     armTimeline(@Param('id') experimentId: string, @Param('label') label: string) {

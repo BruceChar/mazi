@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ExperimentSpec, LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
-import { resolveFeatures } from '@mazi/core';
+import { ProviderError, resolveFeatures } from '@mazi/core';
 import type { ExperimentStore, FeatureRuntime, RuntimeConfig } from '@mazi/runtime';
 import {
     FeatureRuntime as FeatureRuntimeClass,
@@ -53,6 +53,41 @@ function branchingProvider(requests: LLMRequest[]): LLMProvider {
     };
 }
 
+/** 阻塞到被 abort 的 provider（两臂会一直"运行中"，用于验证随时终止）。 */
+function blockingProvider(): LLMProvider {
+    const waitForAbort = (signal?: AbortSignal): Promise<void> =>
+        new Promise<void>((resolve) => {
+            if (signal?.aborted === true) {
+                resolve();
+                return;
+            }
+            signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+    return {
+        id: 'default',
+        name: 'default',
+        defaultModel: 'default',
+        models: [],
+        async ask() {
+            throw new Error('ask unused');
+        },
+        async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+            yield { type: 'start', model: request.model ?? 'default' };
+            await waitForAbort(request.signal);
+            throw new ProviderError('aborted', 'caller aborted');
+        },
+    };
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (predicate()) return;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error('等待条件超时');
+}
+
 /** 只暴露 ExperimentsService 需要的运行时能力；两把锁独立，便于验证互不阻塞。 */
 class StubRuntime {
     selectedWorkspaceRoot: string | undefined;
@@ -71,6 +106,10 @@ class StubRuntime {
         this.selectedWorkspaceRoot = root;
     }
     harness(): HarnessRuntime {
+        return this.harnessInstance;
+    }
+    /** 测试观察用：拿到真实 HarnessRuntime（判断某 rootGoal 是否在跑）。 */
+    rawHarness(): HarnessRuntime {
         return this.harnessInstance;
     }
     experimentHarness(workspace?: string): HarnessRuntime {
@@ -105,12 +144,17 @@ afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-async function harnessWith(initialWorkspace?: string): Promise<Harness> {
+async function harnessWith(
+    initialWorkspace?: string,
+    options: { blocking?: boolean } = {},
+): Promise<Harness> {
     const dir = mkdtempSync(join(tmpdir(), 'mazi-exp-svc-'));
     dirs.push(dir);
     const requests: LLMRequest[] = [];
     const harnessRuntime = new HarnessRuntime(configIn(dir), {
-        llmProviders: { default: branchingProvider(requests) },
+        llmProviders: {
+            default: options.blocking ? blockingProvider() : branchingProvider(requests),
+        },
     });
     const store = new MemoryExperimentStore();
     const features = new FeatureRuntimeClass({
@@ -251,5 +295,50 @@ describe('ExperimentsService', () => {
         );
         const planned = await service.create(specOf());
         await expect(service.review(planned.experimentId, {})).rejects.toThrow('缺少 note');
+    });
+
+    it('stop 随时终止：计划中的实验直接落 aborted，之后 execute 不会拉起', async () => {
+        const { service, requests } = await harnessWith();
+        const planned = await service.create(specOf());
+        const stopped = await service.stop(planned.experimentId, {});
+        expect(stopped.stopping).toEqual([]);
+        expect(stopped.view.status).toBe('aborted');
+        expect(stopped.view.arms.map((arm) => arm.status)).toEqual(['aborted', 'aborted']);
+        expect(stopped.view.arms[0]?.metrics?.finalAnswer).toBe('用户终止');
+
+        const run = await service.execute(planned.experimentId);
+        expect(run.status).toBe('aborted');
+        expect(requests).toHaveLength(0);
+    });
+
+    it('stop 终止正在运行的两臂：协作式停止，实验落 aborted 且带对比', async () => {
+        const { service, runtime } = await harnessWith(undefined, { blocking: true });
+        const planned = await service.create(specOf());
+        const rootA = planned.arms[0]?.rootGoalId as string;
+        const rootB = planned.arms[1]?.rootGoalId as string;
+        const running = service.execute(planned.experimentId);
+        await waitFor(
+            () => runtime.rawHarness().isGoalRunning(rootA) && runtime.rawHarness().isGoalRunning(rootB),
+        );
+
+        const stopped = await service.stop(planned.experimentId, {});
+        expect([...stopped.stopping].sort()).toEqual(['A', 'B']);
+
+        const done = await running;
+        expect(done.status).toBe('aborted');
+        expect(done.arms.map((arm) => arm.status)).toEqual(['aborted', 'aborted']);
+        expect(done.comparison).toBeDefined();
+    });
+
+    it('stop 支持单臂：只停指定 label，另一臂继续', async () => {
+        const { service } = await harnessWith();
+        const planned = await service.create(specOf());
+        const stopped = await service.stop(planned.experimentId, { label: 'A' });
+        expect(stopped.stopping).toEqual([]);
+        expect(stopped.view.arms.map((arm) => arm.status)).toEqual(['aborted', 'pending']);
+
+        const done = await service.execute(planned.experimentId);
+        expect(done.arms[1]?.status).toBe('completed');
+        expect(done.arms[0]?.status).toBe('aborted');
     });
 });

@@ -251,4 +251,44 @@ describe('对照实验接口', () => {
         });
         expect(unknown.statusCode).toBe(404);
     });
+
+    it('POST /:id/stop 随时终止：计划中的臂直接落 aborted；stop 幂等且之后 run 不再拉起', async () => {
+        const created = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/experiments',
+            payload: { ...SPEC, title: '待终止实验' },
+        });
+        const experimentId = created.json().experimentId;
+
+        const stopped = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/experiments/' + experimentId + '/stop',
+            payload: {},
+        });
+        expect(stopped.statusCode).toBe(200);
+        expect(stopped.json().stopping).toEqual([]);
+        expect(stopped.json().view.status).toBe('aborted');
+        expect(stopped.json().view.arms.map((arm: { status: string }) => arm.status)).toEqual([
+            'aborted',
+            'aborted',
+        ]);
+        expect(stopped.json().view.arms[0].metrics.finalAnswer).toBe('用户终止');
+
+        // 幂等：再停一次仍 200。
+        const again = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/experiments/' + experimentId + '/stop',
+            payload: {},
+        });
+        expect(again.statusCode).toBe(200);
+        expect(again.json().stopping).toEqual([]);
+
+        // 已终止的实验再 run 不会被拉起。
+        const run = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/experiments/' + experimentId + '/run',
+        });
+        expect(run.statusCode).toBe(200);
+        expect(run.json().status).toBe('aborted');
+    });
 });

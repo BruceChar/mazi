@@ -109,6 +109,28 @@ export class ExperimentsService {
         return { bus: harness.eventBus as DefaultEventBus, rootGoalId: arm.rootGoalId };
     }
 
+    /**
+     * POST /api/experiments/:id/stop：协作式终止（随时可停，`label` 缺省 = 两臂全停）。
+     * 与主会话 stop 同语义：**不进串行锁**，运行中的臂在 Step 边界停止；
+     * 尚未开始的臂直接记 aborted（之后不会再被 execute 拉起）。
+     */
+    async stop(
+        experimentId: string,
+        body: unknown,
+    ): Promise<{ experimentId: string; stopping: string[]; view: ExperimentView }> {
+        const label = asRecord(body).label;
+        const view = await this.detail(experimentId);
+        const runner = await this.runner(view.workspace);
+        const stopping = await runner.cancel(
+            experimentId,
+            typeof label === 'string' && label.length > 0 ? label : undefined,
+        );
+        this.logger.log(
+            `stop ${experimentId}${typeof label === 'string' ? ' arm=' + label : ''} stopping=${stopping.join(',') || '-'}`,
+        );
+        return { experimentId, stopping, view: await this.detail(experimentId) };
+    }
+
     /** POST /api/experiments/:id/reviews：追加复盘备注（append-only）。 */
     async review(experimentId: string, body: unknown): Promise<ExperimentView> {
         const note = asRecord(body).note;
