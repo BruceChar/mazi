@@ -1,13 +1,21 @@
-import { type Dirent, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import {
+    type Dirent,
+    existsSync,
+    mkdirSync,
+    readdirSync,
+    readFileSync,
+    renameSync,
+    writeFileSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
 import {
     normalizeWorkspace,
     projectNameFor,
+    type WikiProjectIndex,
     wikiDirFor,
     wikiFileFor,
     wikiIndexFile,
     wikiRoot,
-    type WikiProjectIndex,
 } from './naming.js';
 
 /** 变更日志区标题（append-only 分界；设计 §4.2）。 */
@@ -320,7 +328,10 @@ export class WikiStore {
     }
 
     /** 追加变更日志条目（只动日志区）。 */
-    appendEntries(entries: readonly WikiEntry[], meta: { sessionId?: string } = {}): Promise<WikiDoc> {
+    appendEntries(
+        entries: readonly WikiEntry[],
+        meta: { sessionId?: string } = {},
+    ): Promise<WikiDoc> {
         return this.mutate((current) => {
             const base = current ?? this.emptyDoc(meta.sessionId);
             return {

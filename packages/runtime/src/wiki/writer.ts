@@ -1,7 +1,7 @@
 import { type Dirent, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
-import { changedModules, type WikiSummarizer } from './summarizer.js';
 import { formatLocalTimestamp, type WikiEntry, type WikiStore } from './store.js';
+import { changedModules, type WikiSummarizer } from './summarizer.js';
 
 /** 变更扫描忽略的目录名（node_modules/.git 等；设计 §7.1）。 */
 export const DEFAULT_IGNORED_DIRS = [
@@ -30,7 +30,10 @@ export interface ScanOptions {
     maxEntries?: number;
 }
 
-export function isIgnoredPath(path: string, ignore: readonly string[] = DEFAULT_IGNORED_DIRS): boolean {
+export function isIgnoredPath(
+    path: string,
+    ignore: readonly string[] = DEFAULT_IGNORED_DIRS,
+): boolean {
     return path.split(/[\\/]+/).some((segment) => ignore.includes(segment));
 }
 
@@ -179,7 +182,10 @@ export class WikiWriter {
         }
         for (const path of [...diff.added, ...diff.modified, ...diff.deleted]) paths.add(path);
         const changedPaths = [...paths]
-            .filter((path) => path.length > 0 && !path.startsWith('..') && !isIgnoredPath(path, this.ignore))
+            .filter(
+                (path) =>
+                    path.length > 0 && !path.startsWith('..') && !isIgnoredPath(path, this.ignore),
+            )
             .sort();
         if (changedPaths.length === 0) {
             return { entries: [], snapshotRefreshed: false };

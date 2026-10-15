@@ -3,31 +3,6 @@
  */
 
 export type { ProviderModelInfo, ProviderModelPricing } from '@mazi/core';
-// 项目 wiki（runtime 事实/契约层；设计见 docs/项目wiki设计.md §2.1/§6）
-export {
-    buildWikiInjection,
-    createLlmSummarizer,
-    DEFAULT_INJECT_BUDGET_TOKENS,
-    DEFAULT_LOG_LIMIT,
-    DEFAULT_SNAPSHOT_THRESHOLD,
-    formatLocalTimestamp,
-    listProjectWikis,
-    parseChangeLines,
-    parseWikiMarkdown,
-    renderWikiMarkdown,
-    renderWikiSection,
-    TemplateSummarizer,
-    type WikiChangeFacts,
-    type WikiDoc,
-    type WikiEntry,
-    type WikiFlushContext,
-    type WikiProjectSummary,
-    type WikiRuntimeOptions,
-    WikiService,
-    type WikiSnapshotInput,
-    type WikiStoreOptions,
-    type WikiSummarizer,
-} from './wiki/index.js';
 // Goal/Task/Step 坐标投影（审计/API/WebUI 消费；类型已上移到 @mazi/libs，此处 re-export 保持兼容）
 export type {
     GoalNodeView,
@@ -249,3 +224,28 @@ export type {
 export { ApprovalBroker, DEFAULT_APPROVAL_TTL_MS } from './tool-gateway/approval.js';
 export { RuntimeToolGateway } from './tool-gateway/permission.js';
 export { RuntimePolicyAuditSink } from './tool-gateway/policy-audit.js';
+// 项目 wiki（runtime 事实/契约层；设计见 docs/项目wiki设计.md §2.1/§6）
+export {
+    buildWikiInjection,
+    createLlmSummarizer,
+    DEFAULT_INJECT_BUDGET_TOKENS,
+    DEFAULT_LOG_LIMIT,
+    DEFAULT_SNAPSHOT_THRESHOLD,
+    formatLocalTimestamp,
+    listProjectWikis,
+    parseChangeLines,
+    parseWikiMarkdown,
+    renderWikiMarkdown,
+    renderWikiSection,
+    TemplateSummarizer,
+    type WikiChangeFacts,
+    type WikiDoc,
+    type WikiEntry,
+    type WikiFlushContext,
+    type WikiProjectSummary,
+    type WikiRuntimeOptions,
+    WikiService,
+    type WikiSnapshotInput,
+    type WikiStoreOptions,
+    type WikiSummarizer,
+} from './wiki/index.js';

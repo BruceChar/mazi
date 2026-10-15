@@ -1,11 +1,11 @@
 import 'reflect-metadata';
-import { Controller, Get, Query } from '@nestjs/common';
 import {
     listProjectWikis,
     type WikiEntry,
     type WikiProjectSummary,
     WikiService,
 } from '@mazi/runtime';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 
 export interface WikiView {

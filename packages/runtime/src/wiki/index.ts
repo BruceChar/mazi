@@ -5,13 +5,13 @@ import {
     DEFAULT_RECENT_ENTRIES,
     renderWikiSection,
 } from './injector.js';
-import { TemplateSummarizer, type WikiSummarizer } from './summarizer.js';
 import { type WikiDoc, type WikiEntry, WikiStore } from './store.js';
+import { TemplateSummarizer, type WikiSummarizer } from './summarizer.js';
 import {
     DEFAULT_IGNORED_DIRS,
     DEFAULT_SNAPSHOT_THRESHOLD,
-    WikiWriter,
     type WikiFlushContext,
+    WikiWriter,
 } from './writer.js';
 
 export * from './injector.js';

@@ -5,7 +5,13 @@ export const DEFAULT_INJECT_BUDGET_TOKENS = 1500;
 export const DEFAULT_RECENT_ENTRIES = 10;
 
 /** 快照区分区的注入优先级（设计 §8）。 */
-export const SECTION_PRIORITY = ['项目概览', '进行中的工作', '结构与模块', '模块职责', '约定与注意'];
+export const SECTION_PRIORITY = [
+    '项目概览',
+    '进行中的工作',
+    '结构与模块',
+    '模块职责',
+    '约定与注意',
+];
 
 export interface WikiInjectionOptions {
     budgetTokens?: number;
@@ -54,7 +60,10 @@ export function wikiMissingHint(): string {
 }
 
 /** 生成注入片段：快照分区按优先级截断 + 最近 N 条变更；超预算标注截断。 */
-export function buildWikiInjection(doc: WikiDoc | undefined, options: WikiInjectionOptions = {}): string {
+export function buildWikiInjection(
+    doc: WikiDoc | undefined,
+    options: WikiInjectionOptions = {},
+): string {
     if (doc === undefined) return wikiMissingHint();
     const budget = options.budgetTokens ?? DEFAULT_INJECT_BUDGET_TOKENS;
     const recent = options.recentEntries ?? DEFAULT_RECENT_ENTRIES;
@@ -109,12 +118,7 @@ export function renderWikiSection(
     const entries = limit !== undefined && limit > 0 ? doc.entries.slice(-limit) : doc.entries;
     const log = entries.map((entry) => '- ' + entry.ts + ' | ' + entry.change).join('\n');
     if (section === 'log') return log.length > 0 ? log : '（暂无变更记录）';
-    return [
-        '# ' + doc.project + ' 项目 wiki',
-        '',
-        doc.snapshot,
-        '',
-        WIKI_LOG_HEADING,
-        log,
-    ].join('\n');
+    return ['# ' + doc.project + ' 项目 wiki', '', doc.snapshot, '', WIKI_LOG_HEADING, log].join(
+        '\n',
+    );
 }

@@ -1022,4 +1022,3 @@ function wikiToolConfigs(wiki: WikiService): ToolConfig[] {
         },
     ];
 }
-
