@@ -9,6 +9,7 @@ describe('settings-tabs（系统设置 IA）', () => {
             'providers',
             'auth',
             'storage',
+            'skills',
             'about',
         ]);
     });
