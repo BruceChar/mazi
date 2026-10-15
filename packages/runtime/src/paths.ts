@@ -37,6 +37,8 @@ export const HOME_SKILLS_STATE_FILE = 'skills.json';
 export const HOME_FEATURES_FILE = 'features.json';
 /** 对照实验日志目录（一次实验一个 JSONL；见 docs/AB测试设计.md §6）。 */
 export const HOME_EXPERIMENTS_DIR = 'experiments';
+/** 项目 wiki 根目录（项目级状态快照 + 变更日志；见 docs/项目wiki设计.md §4）。 */
+export const HOME_WIKI_DIR = 'wiki';
 /** 实验独立 Goal 库文件名（相对于 experiments 目录；与主会话 mazi.db 分离）。 */
 export const HOME_EXPERIMENTS_DB_FILE = 'mazi.db';
 /** 实验独立事件目录名（相对于 experiments 目录；与主会话 events 分离）。 */
@@ -71,6 +73,8 @@ export interface MaziPaths {
     experimentsDbFile: string;
     /** 实验独立事件目录（$MAZI_HOME/experiments/events）。 */
     experimentsEventDir: string;
+    /** 项目 wiki 根目录（$MAZI_HOME/wiki；键为项目名）。 */
+    wikiDir: string;
 }
 
 export function maziPaths(home = maziHome()): MaziPaths {
@@ -98,6 +102,7 @@ export function maziPaths(home = maziHome()): MaziPaths {
         experimentsDir: join(home, HOME_EXPERIMENTS_DIR),
         experimentsDbFile: join(home, HOME_EXPERIMENTS_DIR, HOME_EXPERIMENTS_DB_FILE),
         experimentsEventDir: join(home, HOME_EXPERIMENTS_DIR, HOME_EXPERIMENTS_EVENT_DIR),
+        wikiDir: join(home, HOME_WIKI_DIR),
     };
 }
 
@@ -111,6 +116,7 @@ export function ensureMaziDirs(home = maziHome()): MaziPaths {
     mkdirSync(paths.skillsDir, { recursive: true });
     mkdirSync(paths.experimentsDir, { recursive: true });
     mkdirSync(paths.experimentsEventDir, { recursive: true });
+    mkdirSync(paths.wikiDir, { recursive: true });
     return paths;
 }
 
