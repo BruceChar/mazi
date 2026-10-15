@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { type Dirent, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
     normalizeWorkspace,
@@ -6,6 +6,7 @@ import {
     wikiDirFor,
     wikiFileFor,
     wikiIndexFile,
+    wikiRoot,
     type WikiProjectIndex,
 } from './naming.js';
 
@@ -136,9 +137,11 @@ export function parseWikiMarkdown(project: string, workspace: string, raw: strin
     }
     const updatedAt = metaValue(meta, '最近更新');
     const sessionId = metaValue(meta, '会话');
+    // 调用方未提供工作区时（如 /list 目录扫描）回落到文件头部记录的工作区
+    const resolvedWorkspace = workspace.length > 0 ? workspace : (metaValue(meta, '工作区') ?? '');
     return {
         project,
-        workspace,
+        workspace: resolvedWorkspace,
         ...(updatedAt !== undefined ? { updatedAt } : {}),
         ...(sessionId !== undefined ? { sessionId } : {}),
         snapshot: snapshotLines.join('\n').trim(),
@@ -209,6 +212,58 @@ function withFileLock<T>(key: string, task: () => T | Promise<T>): Promise<T> {
         ),
     );
     return next;
+}
+
+export interface WikiProjectSummary {
+    project: string;
+    workspace: string;
+    updatedAt?: string;
+    entries: number;
+}
+
+/** 列出 $MAZI_HOME/wiki 下的项目（索引 + 目录扫描；API /api/wiki/list 用）。 */
+export function listProjectWikis(home: string): WikiProjectSummary[] {
+    const summaries = new Map<string, WikiProjectSummary>();
+    for (const [project, entry] of Object.entries(readWikiIndex(home))) {
+        summaries.set(project, {
+            project,
+            workspace: entry.workspace,
+            ...(entry.updatedAt !== undefined ? { updatedAt: entry.updatedAt } : {}),
+            entries: 0,
+        });
+    }
+    let projects: Dirent[];
+    try {
+        projects = readdirSync(wikiRoot(home), { withFileTypes: true });
+    } catch {
+        return sortSummaries(summaries);
+    }
+    for (const project of projects) {
+        if (!project.isDirectory()) continue;
+        let raw: string;
+        try {
+            raw = readFileSync(wikiFileFor(home, project.name), 'utf8');
+        } catch {
+            continue;
+        }
+        const known = summaries.get(project.name);
+        const doc = parseWikiMarkdown(project.name, known?.workspace ?? '', raw);
+        summaries.set(project.name, {
+            project: project.name,
+            workspace: doc.workspace,
+            ...(doc.updatedAt !== undefined ? { updatedAt: doc.updatedAt } : {}),
+            entries: doc.entries.length,
+        });
+    }
+    return sortSummaries(summaries);
+}
+
+function sortSummaries(summaries: Map<string, WikiProjectSummary>): WikiProjectSummary[] {
+    return [...summaries.values()].sort(
+        (left, right) =>
+            (right.updatedAt ?? '').localeCompare(left.updatedAt ?? '') ||
+            left.project.localeCompare(right.project),
+    );
 }
 
 export interface WikiStoreOptions {

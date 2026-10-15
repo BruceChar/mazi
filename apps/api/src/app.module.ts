@@ -31,6 +31,7 @@ import { SystemController } from './system/system.controller.js';
 import { SystemService } from './system/system.service.js';
 import { UsersController } from './users/users.controller.js';
 import { UsersService } from './users/users.service.js';
+import { WikiController } from './wiki/wiki.controller.js';
 import { WorkspacesController } from './workspaces/workspaces.controller.js';
 
 /** 根模块：全局错误过滤（{error} 契约）+ 各 feature 控制器 */
@@ -55,6 +56,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         LedgerController,
         QuestionsController,
         SystemController,
+        WikiController,
     ],
     providers: [
         { provide: APP_FILTER, useClass: ApiExceptionsFilter },
