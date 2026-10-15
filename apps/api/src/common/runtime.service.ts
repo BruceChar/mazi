@@ -28,8 +28,12 @@ import {
     DEEPSEEK_PRICING_VERSION,
     deepseekTierOf,
     discoverModels,
+    type ExperimentStore,
     ensureMaziDirs,
+    FeatureRuntime,
     FileCatalogStore,
+    FileExperimentStore,
+    FileFeatureStore,
     FileSkillMountStore,
     HarnessRuntime,
     htmlToText,
@@ -283,6 +287,10 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private runtime: HarnessRuntime | undefined;
     private skillRuntime: SkillRuntime | undefined;
     private skillRootsSignature = '';
+    /** 特性开关运行时（$MAZI_HOME/features.json；运行期每次解析）。 */
+    private featureRuntimeInstance: FeatureRuntime | undefined;
+    /** 实验日志存储（$MAZI_HOME/experiments；append-only）。 */
+    private experimentStoreInstance: ExperimentStore | undefined;
     private catalogInstance: CatalogService | undefined;
     private catalogOpening: Promise<CatalogService> | undefined;
     private running = false;
@@ -568,6 +576,39 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.skillRuntime = undefined;
         this.skillRootsSignature = '';
         return this.skills();
+    }
+
+    /**
+     * 特性开关运行时：定义落 $MAZI_HOME/features.json（用户资产），
+     * 运行期 resolve 出 EffectiveFeatures（提示片段 / 技能集合 / 工具收窄）。
+     * 与旧执行模型的 flags.json 无关。
+     */
+    async features(): Promise<FeatureRuntime> {
+        if (this.featureRuntimeInstance === undefined) {
+            const runtime = new FeatureRuntime({
+                store: new FileFeatureStore(this.paths.featuresFile, (message) =>
+                    this.logger.warn(message),
+                ),
+                onWarning: (message) => this.logger.warn(message),
+            });
+            await runtime.init();
+            this.featureRuntimeInstance = runtime;
+            this.logger.debug(
+                `features: defined=${runtime.summary().total} enabled=${runtime.summary().enabled}`,
+            );
+        }
+        return this.featureRuntimeInstance;
+    }
+
+    /** 实验日志存储（$MAZI_HOME/experiments；一次实验一个 JSONL，append-only）。 */
+    experiments(): ExperimentStore {
+        if (this.experimentStoreInstance === undefined) {
+            this.experimentStoreInstance = new FileExperimentStore(
+                this.paths.experimentsDir,
+                (message) => this.logger.warn(message),
+            );
+        }
+        return this.experimentStoreInstance;
     }
 
     /**

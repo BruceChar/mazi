@@ -99,7 +99,7 @@ export class ExperimentRunner {
     async rerun(experimentId: string): Promise<ExperimentView | undefined> {
         const previous = await loadExperiment(this.store, experimentId);
         if (previous === undefined) return undefined;
-        return this.run(specOf(previous));
+        return this.run(specOfExperiment(previous));
     }
 
     /** 实验历史（createdAt 倒序）。 */
@@ -232,7 +232,7 @@ export function armStatusOf(metrics: ExperimentMetrics): 'completed' | 'failed' 
 }
 
 /** 视图 → 可重跑的 spec（id/时间不进 spec）。 */
-function specOf(view: ExperimentView): ExperimentSpec {
+export function specOfExperiment(view: ExperimentView): ExperimentSpec {
     return {
         title: view.title,
         input: view.input,

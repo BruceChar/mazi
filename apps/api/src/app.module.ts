@@ -10,6 +10,9 @@ import { RuntimeModule } from './common/runtime.module.js';
 import { ConversationsController } from './conversations/conversations.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
 import { EventsController } from './events/events.controller.js';
+import { ExperimentsController } from './experiments/experiments.controller.js';
+import { ExperimentsService } from './experiments/experiments.service.js';
+import { FeaturesController } from './features/features.controller.js';
 import { GoalsController } from './goals/goals.controller.js';
 import { GoalsService } from './goals/goals.service.js';
 import { HealthController } from './health/health.controller.js';
@@ -37,6 +40,8 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         HealthController,
         CatalogController,
         CapabilitiesController,
+        FeaturesController,
+        ExperimentsController,
         RunsController,
         SessionsController,
         GoalsController,
@@ -62,6 +67,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         UsersService,
         LedgerService,
         QuestionsService,
+        ExperimentsService,
         // SystemService 构造器接受可注入 options（默认走真实 git/fs）；缺省参数不适配 Nest DI，显式工厂装配。
         { provide: SystemService, useFactory: () => new SystemService() },
     ],
