@@ -87,11 +87,13 @@ const modelOptions = computed(() => {
     );
 });
 
-const diffRows = computed(() => {
+const diffSummary = computed(() => {
     const comparison = selected.value?.comparison;
-    if (!comparison) return [];
-    return diffText(comparison.outputs.a, comparison.outputs.b).rows;
+    if (!comparison) return null;
+    return diffText(comparison.outputs.a, comparison.outputs.b);
 });
+
+const diffRows = computed(() => diffSummary.value?.rows ?? []);
 
 const kindOptions = Object.entries(EXPERIMENT_KIND_LABELS);
 
@@ -443,6 +445,9 @@ function kpis(arm) {
                         <div class="block-head">
                             输出并排 diff
                             <span v-if="selected.comparison.outputs.identical" class="muted">两臂输出逐字符相同</span>
+                            <span v-else-if="diffSummary" class="muted">
+                                相似度 {{ (diffSummary.similarity * 100).toFixed(1) }}% · 新增 {{ diffSummary.added }} 行 · 删除 {{ diffSummary.removed }} 行
+                            </span>
                         </div>
                         <div v-if="!selected.comparison.outputs.identical" class="diff">
                             <div v-for="(row, index) in diffRows" :key="index" class="diff-row" :class="row.op">
