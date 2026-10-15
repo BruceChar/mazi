@@ -15,5 +15,6 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
     { id: 'auth', label: 'Auth', icon: 'shield' },
     { id: 'storage', label: 'Storage', icon: 'folder' },
     { id: 'skills', label: 'Skills', icon: 'box' },
+    { id: 'features', label: 'Features', icon: 'lightbulb' },
     { id: 'about', label: 'About', icon: 'info' },
 ];

@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { LOOP_MODES, PERMISSION_LEVELS, PERMISSION_META } from '../scripts/goal-contract.ts';
 import { runSettings, saveRunSettings } from '../scripts/run-settings.ts';
 import { backfillUserBehaviors, exportUserBehaviors } from '../scripts/store.ts';
+import FeaturesPanel from './FeaturesPanel.vue';
 import SkillsPanel from './SkillsPanel.vue';
 
 /** Update one run-default field and persist it. */
@@ -570,6 +571,13 @@ watch(
         <!-- About -->
         <template v-else-if="activeTab === 'skills'">
             <SkillsPanel />
+        </template>
+
+        <template v-else-if="activeTab === 'features'">
+            <h1 class="settings-title">Features</h1>
+            <div class="settings-group">
+                <FeaturesPanel />
+            </div>
         </template>
 
         <template v-else-if="activeTab === 'about'">

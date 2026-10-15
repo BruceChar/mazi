@@ -35,6 +35,7 @@ const emit = defineEmits([
     'archive-conversation',
     'remove-conversation',
     'open-settings',
+    'open-experiments',
 ]);
 
 /* Internal UI state */
@@ -252,6 +253,10 @@ function latencyText() {
         </div>
     </div>
     <div class="sidebar-settings">
+        <button class="settings-btn" title="AB 对照实验台" @click="emit('open-experiments')">
+            <LineIcon name="hammer" size="15" />
+            实验台
+        </button>
         <button class="settings-btn" @click="emit('open-settings')">
             <LineIcon name="settings" size="15" />
             系统设置

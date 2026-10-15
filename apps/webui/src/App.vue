@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './assets/LineIcon.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
+import ExperimentsPage from './components/ExperimentsPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
@@ -235,6 +236,7 @@ const activeConversation = computed(() =>
 
 /** 顶部栏会话名称：最多 12 个字符，超出以省略号截断。 */
 const headerTitle = computed(() => {
+    if (ui.view === 'experiments') return '实验台';
     const title = conversationTitle(activeConversation.value) || '';
     return title.length > 12 ? title.slice(0, 12) + '…' : title;
 });
@@ -554,7 +556,7 @@ function backToChat() {
 /** 用户中心内按 Esc 一键返回对话。 */
 function onKeydown(event) {
     if (event.key !== 'Escape') return;
-    if (ui.view === 'user-center' || ui.view === 'system-settings') backToChat();
+    if (ui.view === 'user-center' || ui.view === 'system-settings' || ui.view === 'experiments') backToChat();
 }
 
 /** 进入用户中心整页（docs/webui.md §3.2）：可选直达某个 tab，默认画像。 */
@@ -874,6 +876,7 @@ onBeforeUnmount(() => {
                 @archive-conversation="archiveConversation"
                 @remove-conversation="removeConversation"
                 @open-settings="openSettings"
+                @open-experiments="ui.view = 'experiments'"
             />
             </template>
         </aside>
@@ -957,6 +960,11 @@ onBeforeUnmount(() => {
                     @refresh-pricing="refreshPricingNow"
                 />
             </template>
+
+            <ExperimentsPage
+                v-else-if="ui.view === 'experiments'"
+                @back="backToChat"
+            />
 
             <UserCenterPage
                 v-else-if="ui.view === 'user-center'"

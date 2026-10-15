@@ -10,6 +10,7 @@ describe('settings-tabs（系统设置 IA）', () => {
             'auth',
             'storage',
             'skills',
+            'features',
             'about',
         ]);
     });

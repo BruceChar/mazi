@@ -24,6 +24,7 @@ import type {
     UserPreferences,
     UserProfileView,
 } from '../types.js';
+import type { ExperimentSummaryView, ExperimentView } from './experiments.js';
 import { isAbortedReason, snapshotResumable } from './run-control.js';
 import { activeStream, applyStreamEvent, type LiveStream, type LiveStreamMap } from './stream.js';
 
@@ -87,8 +88,8 @@ export function setTheme(value: 'dark' | 'light' | 'system'): void {
 applyTheme(theme.value);
 
 export interface UiState {
-    /** 主区视图：对话 / 系统设置 / 用户中心整页（用户中心的 tab 归 UserCenterPage）。 */
-    view: 'chat' | 'system-settings' | 'user-center';
+    /** 主区视图：对话 / 系统设置 / 用户中心整页 / 实验台。 */
+    view: 'chat' | 'system-settings' | 'user-center' | 'experiments';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;
@@ -1274,4 +1275,179 @@ export async function fetchLedger(
         entries?: FailureLedgerView[];
     };
     return Array.isArray(data?.entries) ? data.entries : [];
+}
+
+/* ---- Feature（特性开关；docs/AB测试设计.md §3/§8.1） ---- */
+
+/** Feature 定义（GET /api/features；用户资产，落 $MAZI_HOME/features.json）。 */
+export interface FeatureView {
+    id: string;
+    name: string;
+    description: string;
+    enabled: boolean;
+    promptFragment?: string;
+    skills?: string[];
+    skillMode?: 'add' | 'only';
+    allowedTools?: string[];
+    reasoningLevel?: string;
+}
+
+export const features = ref<FeatureView[]>([]);
+export const featuresSummary = ref<{ total: number; enabled: number; ids: string[] }>({
+    total: 0,
+    enabled: 0,
+    ids: [],
+});
+
+/** 拉取 Feature 定义与汇总（面板与实验台共用）。 */
+export async function loadFeatures(): Promise<void> {
+    try {
+        const data = (await api('/api/features')) as {
+            features?: FeatureView[];
+            summary?: { total: number; enabled: number; ids: string[] };
+        };
+        features.value = Array.isArray(data?.features) ? data.features : [];
+        featuresSummary.value = data?.summary ?? { total: 0, enabled: 0, ids: [] };
+        ui.err = null;
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
+/** 新建 Feature（重名 → 后端 409）。 */
+export async function createFeature(input: Record<string, unknown>): Promise<FeatureView> {
+    const created = (await api('/api/features', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+    })) as FeatureView;
+    await loadFeatures();
+    return created;
+}
+
+/** 局部更新（开关 / 字段；null 清空可空字段）。 */
+export async function updateFeature(
+    id: string,
+    patch: Record<string, unknown>,
+): Promise<FeatureView> {
+    const updated = (await api(`/api/features/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+    })) as FeatureView;
+    await loadFeatures();
+    return updated;
+}
+
+/** 删除 Feature。 */
+export async function deleteFeature(id: string): Promise<void> {
+    await api(`/api/features/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await loadFeatures();
+}
+
+/* ---- Experiment（对照实验；docs/AB测试设计.md §8/§9.2） ---- */
+
+/** 实验历史（轻量投影，createdAt 倒序）。 */
+export const experiments = ref<ExperimentSummaryView[]>([]);
+/** 当前打开的完整实验视图（折叠结果；key = experimentId）。 */
+export const experimentViews = reactive<Record<string, ExperimentView>>({});
+/** 是否有实验正在执行（POST 同步执行，期间禁用重复提交）。 */
+export const experimentRunning = ref(false);
+
+export async function loadExperiments(): Promise<void> {
+    try {
+        const data = (await api('/api/experiments')) as { experiments?: ExperimentSummaryView[] };
+        experiments.value = Array.isArray(data?.experiments) ? data.experiments : [];
+        ui.err = null;
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
+/** 读取单个实验（折叠复盘视图），并写入缓存。 */
+export async function loadExperimentDetail(experimentId: string): Promise<ExperimentView | null> {
+    try {
+        const view = (await api(
+            `/api/experiments/${encodeURIComponent(experimentId)}`,
+        )) as ExperimentView;
+        experimentViews[experimentId] = view;
+        ui.err = null;
+        return view;
+    } catch (error) {
+        ui.err = String(error);
+        return null;
+    }
+}
+
+/** 定义并执行一次对照实验（同步等待两臂跑完）。 */
+export async function runExperiment(spec: Record<string, unknown>): Promise<ExperimentView> {
+    experimentRunning.value = true;
+    ui.err = null;
+    try {
+        const view = (await api('/api/experiments', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(spec),
+        })) as ExperimentView;
+        experimentViews[view.experimentId] = view;
+        await loadExperiments();
+        return view;
+    } catch (error) {
+        ui.err = String(error);
+        throw error;
+    } finally {
+        experimentRunning.value = false;
+    }
+}
+
+/** 同一 spec 再跑一次（新实验；用于观察方差）。 */
+export async function rerunExperiment(experimentId: string): Promise<ExperimentView> {
+    experimentRunning.value = true;
+    ui.err = null;
+    try {
+        const view = (await api(`/api/experiments/${encodeURIComponent(experimentId)}/rerun`, {
+            method: 'POST',
+        })) as ExperimentView;
+        experimentViews[view.experimentId] = view;
+        await loadExperiments();
+        return view;
+    } catch (error) {
+        ui.err = String(error);
+        throw error;
+    } finally {
+        experimentRunning.value = false;
+    }
+}
+
+/** 追加复盘备注（append-only）。 */
+export async function reviewExperiment(
+    experimentId: string,
+    note: string,
+    verdict: string,
+): Promise<ExperimentView> {
+    const view = (await api(`/api/experiments/${encodeURIComponent(experimentId)}/reviews`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ note, verdict }),
+    })) as ExperimentView;
+    experimentViews[view.experimentId] = view;
+    return view;
+}
+
+/** 删除实验日志（Goal/Trace 事实不级联删除）。 */
+export async function deleteExperiment(experimentId: string): Promise<void> {
+    await api(`/api/experiments/${encodeURIComponent(experimentId)}`, { method: 'DELETE' });
+    delete experimentViews[experimentId];
+    await loadExperiments();
+}
+
+/** 取某臂的 Goal 树快照（复用会话时间线端点；Trace 对比用）。 */
+export async function fetchArmTrace(rootGoalId: string): Promise<GoalTreeSnapshot | null> {
+    try {
+        return (await api(
+            `/api/sessions/${encodeURIComponent(rootGoalId)}/timeline`,
+        )) as GoalTreeSnapshot;
+    } catch {
+        return null;
+    }
 }
