@@ -33,6 +33,10 @@ export const AUTH_COMMAND_POLICY_FILE = 'commands.json';
 export const HOME_SKILLS_DIR = 'skills';
 /** 技能挂载状态文件（用户级开关）。 */
 export const HOME_SKILLS_STATE_FILE = 'skills.json';
+/** 特性开关定义文件（用户资产；见 docs/AB测试设计.md §3）。 */
+export const HOME_FEATURES_FILE = 'features.json';
+/** 对照实验日志目录（一次实验一个 JSONL；见 docs/AB测试设计.md §6）。 */
+export const HOME_EXPERIMENTS_DIR = 'experiments';
 
 export interface MaziPaths {
     home: string;
@@ -55,6 +59,10 @@ export interface MaziPaths {
     skillsDir: string;
     /** 技能挂载状态文件（$MAZI_HOME/skills.json）。 */
     skillStateFile: string;
+    /** 特性开关定义文件（$MAZI_HOME/features.json）。 */
+    featuresFile: string;
+    /** 对照实验日志目录（$MAZI_HOME/experiments）。 */
+    experimentsDir: string;
 }
 
 export function maziPaths(home = maziHome()): MaziPaths {
@@ -78,6 +86,8 @@ export function maziPaths(home = maziHome()): MaziPaths {
         authCommandPolicyFile: join(authConfigDir, AUTH_COMMAND_POLICY_FILE),
         skillsDir: join(home, HOME_SKILLS_DIR),
         skillStateFile: join(home, HOME_SKILLS_STATE_FILE),
+        featuresFile: join(home, HOME_FEATURES_FILE),
+        experimentsDir: join(home, HOME_EXPERIMENTS_DIR),
     };
 }
 
@@ -89,6 +99,7 @@ export function ensureMaziDirs(home = maziHome()): MaziPaths {
     mkdirSync(paths.behaviorDir, { recursive: true });
     mkdirSync(paths.authConfigDir, { recursive: true });
     mkdirSync(paths.skillsDir, { recursive: true });
+    mkdirSync(paths.experimentsDir, { recursive: true });
     return paths;
 }
 
