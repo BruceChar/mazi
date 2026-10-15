@@ -283,24 +283,13 @@ export interface ExperimentFormState {
     modelA: string;
     modelB: string;
     featureId: string;
-    skillA: string;
-    skillB: string;
+    /** 两臂技能集合（从已发现 Skill 多选；空数组 = 该臂不带技能）。 */
+    skillsA: string[];
+    skillsB: string[];
     reasoningA: string;
     reasoningB: string;
     permissionA: string;
     permissionB: string;
-}
-
-/** 逗号 / 换行分隔的文本 → 去重列表。 */
-export function splitList(text: string): string[] {
-    return [
-        ...new Set(
-            text
-                .split(/[,，\n]/)
-                .map((item) => item.trim())
-                .filter((item) => item.length > 0),
-        ),
-    ];
 }
 
 export interface ExperimentSpecDraft {
@@ -337,8 +326,8 @@ export function buildExperimentSpec(form: ExperimentFormState): ExperimentSpecDr
         armA.features = { [form.featureId]: false };
         armB.features = { [form.featureId]: true };
     } else if (form.kind === 'skill') {
-        const skillsA = splitList(form.skillA);
-        const skillsB = splitList(form.skillB);
+        const skillsA = [...new Set(form.skillsA)].sort();
+        const skillsB = [...new Set(form.skillsB)].sort();
         if (skillsA.length === 0 && skillsB.length === 0) return { error: '至少给一臂一个 Skill' };
         baseline = skillsA;
         treatment = skillsB;

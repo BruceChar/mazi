@@ -148,8 +148,8 @@ function form(partial: Partial<import('../src/scripts/experiments.ts').Experimen
         modelA: '',
         modelB: '',
         featureId: 'concise',
-        skillA: '',
-        skillB: '',
+        skillsA: [],
+        skillsB: [],
         reasoningA: '',
         reasoningB: '',
         permissionA: '',
@@ -190,7 +190,7 @@ describe('buildExperimentSpec（表单 → 实验定义）', () => {
 
     it('skill 自变量：逗号/换行分隔并去重；两臂可为空集合', () => {
         const { spec } = buildExperimentSpec(
-            form({ kind: 'skill', skillA: 'a, b\nb', skillB: '' }),
+            form({ kind: 'skill', skillsA: ['a', 'b', 'b'], skillsB: [] }),
         );
         expect(spec?.arms).toEqual([
             { label: 'A', skills: ['a', 'b'] },
@@ -204,7 +204,7 @@ describe('buildExperimentSpec（表单 → 实验定义）', () => {
         expect(buildExperimentSpec(form({ featureId: '' })).error).toBe('请选择要对照的 Feature');
         expect(buildExperimentSpec(form({ kind: 'model', modelA: 'm1' })).error).toBe('请选择两臂模型');
         expect(
-            buildExperimentSpec(form({ kind: 'skill', skillA: '', skillB: '' })).error,
+            buildExperimentSpec(form({ kind: 'skill', skillsA: [], skillsB: [] })).error,
         ).toBe('至少给一臂一个 Skill');
         expect(
             buildExperimentSpec(form({ kind: 'reasoning', reasoningA: 'low' })).error,

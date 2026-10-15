@@ -33,13 +33,19 @@ import {
     experimentViews,
     fetchArmTrace,
     features,
+    freeChatWorkspace,
     loadConfig,
     loadExperimentDetail,
     loadExperiments,
     loadFeatures,
+    loadSkillOptions,
+    loadWorkspace,
+    projects,
     rerunExperiment,
     reviewExperiment,
     runExperiment,
+    skillOptions,
+    workspaceRoot,
 } from '../scripts/store.js';
 
 const selectedId = ref('');
@@ -62,8 +68,8 @@ const form = reactive({
     modelA: '',
     modelB: '',
     featureId: '',
-    skillA: '',
-    skillB: '',
+    skillsA: [],
+    skillsB: [],
     reasoningA: 'low',
     reasoningB: 'high',
     permissionA: 'read-only',
@@ -85,6 +91,36 @@ const modelOptions = computed(() => {
     );
 });
 
+/** 当前生效工作区（已选中优先，否则随心聊默认）。 */
+const currentWorkspacePath = computed(() => workspaceRoot.value || freeChatWorkspace.value);
+
+/** 工作区选择项：跟随当前 + 已有项目工作区 + 随心聊默认（按路径去重，展示路径名称）。 */
+const workspaceOptions = computed(() => {
+    const current = currentWorkspacePath.value;
+    const options = [
+        { value: '', label: current ? '跟随当前工作区（' + current + '）' : '跟随当前工作区' },
+    ];
+    const seen = new Set(['']);
+    for (const project of projects.value) {
+        if (!project?.path || project.path === current || seen.has(project.path)) continue;
+        seen.add(project.path);
+        options.push({ value: project.path, label: project.title + '（' + project.path + '）' });
+    }
+    if (freeChatWorkspace.value && !seen.has(freeChatWorkspace.value)) {
+        seen.add(freeChatWorkspace.value);
+        options.push({
+            value: freeChatWorkspace.value,
+            label: '随心聊默认（' + freeChatWorkspace.value + '）',
+        });
+    }
+    return options;
+});
+
+/** 本次实验实际使用的工作区路径。 */
+const resolvedWorkspace = computed(
+    () => form.workspace || currentWorkspacePath.value || '（未指定，跟随后端当前工作区）',
+);
+
 const diffSummary = computed(() => {
     const comparison = selected.value?.comparison;
     if (!comparison) return null;
@@ -97,7 +133,7 @@ const kindOptions = Object.entries(EXPERIMENT_KIND_LABELS);
 
 onMounted(async () => {
     if (!cfg.value) await loadConfig();
-    await Promise.all([loadExperiments(), loadFeatures()]);
+    await Promise.all([loadExperiments(), loadFeatures(), loadWorkspace(), loadSkillOptions()]);
     form.featureId = features.value[0]?.id || '';
     form.modelA = modelOptions.value[0]?.id || '';
     form.modelB = modelOptions.value[1]?.id || modelOptions.value[0]?.id || '';
@@ -244,13 +280,51 @@ function kpis(arm) {
                     <label class="full">两臂共用的输入
                         <textarea v-model="form.input" rows="3" placeholder="同一个任务描述，两臂收到完全相同的输入" />
                     </label>
-                    <div class="grid three">
+                    <div class="grid two">
                         <label>自变量
                             <select v-model="form.kind">
                                 <option v-for="[kind, label] in kindOptions" :key="kind" :value="kind">{{ label }}</option>
                             </select>
                         </label>
-                        <label v-if="form.kind === 'feature'">Feature
+                        <label>工作区
+                            <select v-model="form.workspace">
+                                <option v-for="option in workspaceOptions" :key="option.value" :value="option.value">
+                                    {{ option.label }}
+                                </option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="hint workspace-hint">本次实验工作区：{{ resolvedWorkspace }}</div>
+
+                    <!-- Skill 自变量：从已发现列表多选（两臂独立，不用手输） -->
+                    <div v-if="form.kind === 'skill'" class="skill-picker">
+                        <div class="skill-col">
+                            <div class="skill-col-head">基线 A 技能</div>
+                            <label v-for="skill in skillOptions" :key="'a-' + skill.id" class="skill-item">
+                                <input v-model="form.skillsA" type="checkbox" :value="skill.id" />
+                                <span class="skill-name">{{ skill.name }}</span>
+                                <code>{{ skill.id }}</code>
+                                <span class="skill-tag">{{ skill.mounted ? '已挂载' : skill.scope }}</span>
+                            </label>
+                            <div v-if="!skillOptions.length" class="muted">未发现 Skill（设置 → Skills 可新建）</div>
+                        </div>
+                        <div class="skill-col">
+                            <div class="skill-col-head">处理 B 技能</div>
+                            <label v-for="skill in skillOptions" :key="'b-' + skill.id" class="skill-item">
+                                <input v-model="form.skillsB" type="checkbox" :value="skill.id" />
+                                <span class="skill-name">{{ skill.name }}</span>
+                                <code>{{ skill.id }}</code>
+                                <span class="skill-tag">{{ skill.mounted ? '已挂载' : skill.scope }}</span>
+                            </label>
+                            <div v-if="!skillOptions.length" class="muted">—</div>
+                        </div>
+                    </div>
+                    <div v-if="form.kind === 'skill'" class="hint">
+                        两臂技能集合互相独立，并覆盖该臂的全局挂载；两臂都空选 = 都不带技能。
+                    </div>
+
+                    <div v-else-if="form.kind === 'feature'" class="grid two">
+                        <label>对照 Feature
                             <select v-model="form.featureId">
                                 <option value="">（选择特性）</option>
                                 <option v-for="feature in features" :key="feature.id" :value="feature.id">
@@ -258,49 +332,47 @@ function kpis(arm) {
                                 </option>
                             </select>
                         </label>
-                        <label v-else-if="form.kind === 'model'">基线 A 模型
+                        <label>取值
+                            <input :value="'A = 关闭 · B = 开启'" disabled />
+                        </label>
+                    </div>
+
+                    <div v-else-if="form.kind === 'model'" class="grid two">
+                        <label>基线 A 模型
                             <select v-model="form.modelA">
                                 <option v-for="option in modelOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
                             </select>
                         </label>
-                        <label v-else-if="form.kind === 'skill'">基线 A 技能（逗号分隔）
-                            <input v-model="form.skillA" placeholder="（留空 = 不带技能）" />
-                        </label>
-                        <label v-else-if="form.kind === 'reasoning'">基线 A 推理强度
-                            <select v-model="form.reasoningA">
-                                <option v-for="level in REASONING_LEVELS" :key="level" :value="level">{{ level }}</option>
-                            </select>
-                        </label>
-                        <label v-else>基线 A 权限档位
-                            <select v-model="form.permissionA">
-                                <option v-for="level in PERMISSION_LEVELS" :key="level" :value="level">{{ level }}</option>
-                            </select>
-                        </label>
-
-                        <label v-if="form.kind === 'model'">处理 B 模型
+                        <label>处理 B 模型
                             <select v-model="form.modelB">
                                 <option v-for="option in modelOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
                             </select>
                         </label>
-                        <label v-else-if="form.kind === 'skill'">处理 B 技能（逗号分隔）
-                            <input v-model="form.skillB" placeholder="（留空 = 不带技能）" />
+                    </div>
+
+                    <div v-else-if="form.kind === 'reasoning'" class="grid two">
+                        <label>基线 A 推理强度
+                            <select v-model="form.reasoningA">
+                                <option v-for="level in REASONING_LEVELS" :key="level" :value="level">{{ level }}</option>
+                            </select>
                         </label>
-                        <label v-else-if="form.kind === 'reasoning'">处理 B 推理强度
+                        <label>处理 B 推理强度
                             <select v-model="form.reasoningB">
                                 <option v-for="level in REASONING_LEVELS" :key="level" :value="level">{{ level }}</option>
                             </select>
                         </label>
-                        <label v-else-if="form.kind === 'permission'">处理 B 权限档位
-                            <select v-model="form.permissionB">
+                    </div>
+
+                    <div v-else class="grid two">
+                        <label>基线 A 权限档位
+                            <select v-model="form.permissionA">
                                 <option v-for="level in PERMISSION_LEVELS" :key="level" :value="level">{{ level }}</option>
                             </select>
                         </label>
-                        <label v-else>开关取值
-                            <input :value="'B = 开启（A 关闭）'" disabled />
-                        </label>
-
-                        <label>工作区（可选）
-                            <input v-model="form.workspace" placeholder="留空 = 当前工作区" />
+                        <label>处理 B 权限档位
+                            <select v-model="form.permissionB">
+                                <option v-for="level in PERMISSION_LEVELS" :key="level" :value="level">{{ level }}</option>
+                            </select>
                         </label>
                     </div>
                     <div class="create-actions">
@@ -896,6 +968,64 @@ input:disabled {
     background: var(--error-soft);
     color: var(--error);
 }
+.workspace-hint {
+    margin-top: -2px;
+}
+/* Skill 自变量：双栏多选（从已发现列表选择，不用手输） */
+.skill-picker {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+}
+.skill-col {
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    max-height: 190px;
+    overflow-y: auto;
+}
+.skill-col-head {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg-secondary);
+    margin-bottom: 4px;
+}
+.skill-col .skill-item {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 12px;
+    color: var(--fg);
+    cursor: pointer;
+}
+.skill-col .skill-item input {
+    padding: 0;
+    width: auto;
+    margin: 0;
+}
+.skill-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.skill-item code {
+    font-size: 11px;
+    color: var(--fg-tertiary);
+}
+.skill-tag {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 0 5px;
+    flex-shrink: 0;
+}
+
 .review-form {
     display: grid;
     grid-template-columns: 120px 1fr auto;

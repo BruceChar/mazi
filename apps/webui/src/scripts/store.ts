@@ -1451,3 +1451,35 @@ export async function fetchArmTrace(rootGoalId: string): Promise<GoalTreeSnapsho
         return null;
     }
 }
+
+/* ---- Skill 目录（GET /api/capabilities；AB 实验室用 id 选择技能） ---- */
+
+export interface SkillOption {
+    id: string;
+    name: string;
+    description: string;
+    scope: string;
+    mounted: boolean;
+}
+
+export const skillOptions = ref<SkillOption[]>([]);
+
+/** 拉取已发现 Skill（用户/项目/内置三级根；不改变挂载状态）。 */
+export async function loadSkillOptions(): Promise<void> {
+    try {
+        const data = (await api('/api/capabilities')) as { skills?: Array<Partial<SkillOption>> };
+        skillOptions.value = Array.isArray(data?.skills)
+            ? data.skills
+                  .filter((skill) => typeof skill?.id === 'string')
+                  .map((skill) => ({
+                      id: String(skill.id),
+                      name: typeof skill.name === 'string' ? skill.name : String(skill.id),
+                      description: typeof skill.description === 'string' ? skill.description : '',
+                      scope: typeof skill.scope === 'string' ? skill.scope : '',
+                      mounted: skill.mounted === true,
+                  }))
+            : [];
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
