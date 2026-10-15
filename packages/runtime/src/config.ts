@@ -1,5 +1,6 @@
 import type { PermissionLevel, SideEffectScope } from '@mazi/core';
 import type { PricingSchedule } from './provider/index.js';
+import type { WikiRuntimeOptions } from './wiki/index.js';
 
 /** 工具实现结果（goal 路径执行器消费；与 core ToolExecutionResult 解耦） */
 export interface ToolCallResult {
@@ -103,4 +104,6 @@ export interface RuntimeConfig {
     /** token 估算编码（js-tiktoken，缺省 o200k_base；仅近似厂商 tokenizer） */
     tokenizerEncoding?: string;
     consoleEnabled?: boolean;
+    /** 项目 wiki 开关与参数（settings.json 的 wiki 段；见 docs/项目wiki设计.md §12）。 */
+    wiki?: WikiRuntimeOptions;
 }

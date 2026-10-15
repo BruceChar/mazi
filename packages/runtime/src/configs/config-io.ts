@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { PermissionLevel } from '@mazi/core';
+import type { WikiRuntimeOptions } from '../wiki/index.js';
 import type { ProviderOverview, ProviderPricingView } from '@mazi/libs';
 import { builtinModelsFor } from '@mazi/provider';
 import type { ProviderConfig, RuntimeConfig, ToolConfig } from '../config.js';
@@ -39,6 +40,8 @@ export interface RuntimeSettingsFile {
         sourceUrl?: string;
         vendors?: Record<string, VendorPricingSource>;
     };
+    /** 项目 wiki 开关与参数（见 docs/项目wiki设计.md §12）。 */
+    wiki?: WikiRuntimeOptions;
 }
 
 /**
@@ -62,6 +65,7 @@ export interface FileRuntimeConfig {
     providers: ProviderConfig[];
     tools: ToolConfig[];
     goal?: RuntimeSettingsFile['goal'];
+    wiki?: RuntimeSettingsFile['wiki'];
 }
 
 function readJson(file: string): unknown {
@@ -88,6 +92,7 @@ export function loadRuntimeConfig(configDir?: string): FileRuntimeConfig {
         providers: providersJson?.providers ?? [],
         tools: toolsJson?.tools ?? [],
         ...(settingsJson?.goal ? { goal: settingsJson.goal } : {}),
+        ...(settingsJson?.wiki ? { wiki: settingsJson.wiki } : {}),
     };
 }
 

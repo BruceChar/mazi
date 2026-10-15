@@ -39,6 +39,10 @@ export interface WikiServiceOptions extends WikiRuntimeOptions {
     now?: () => Date;
 }
 
+function describeError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
 export interface WikiToolResult {
     ok: boolean;
     content?: string;
@@ -154,10 +158,15 @@ export class WikiService {
     /** 新会话注入片段；禁用时返回空串（设计 §8）。 */
     promptFragment(): string {
         if (this.store === undefined) return '';
-        return buildWikiInjection(this.store.read(), {
-            budgetTokens: this.budgetTokens,
-            recentEntries: this.recentEntries,
-        });
+        try {
+            return buildWikiInjection(this.store.read(), {
+                budgetTokens: this.budgetTokens,
+                recentEntries: this.recentEntries,
+            });
+        } catch (error) {
+            this.warn('注入片段生成失败：' + describeError(error));
+            return '';
+        }
     }
 
     /** 会话/回合开始：建立兜底 diff 基线。 */
@@ -173,14 +182,28 @@ export class WikiService {
         if (step.status !== 'succeeded') return;
         const toolName = step.payload.toolName;
         if (!isWriteTool(toolName)) return;
-        this.writer.record(toolName, extractWritePaths(step.payload.arguments ?? {}));
+        try {
+            this.writer.record(toolName, extractWritePaths(step.payload.arguments ?? {}));
+        } catch (error) {
+            this.warn('写事件捕获失败：' + describeError(error));
+        }
     }
 
     /** 回合/会话收尾：合并 pending + 兜底 diff → 追加『时间 | 改动』条目。 */
     async flushRun(context: WikiFlushContext = {}): Promise<WikiEntry[]> {
         if (this.writer === undefined) return [];
-        const result = await this.writer.flushRun(context);
-        return result.entries;
+        try {
+            const result = await this.writer.flushRun(context);
+            return result.entries;
+        } catch (error) {
+            // MAZI_HOME 不可写 / 摘要失败等：记 warn，不阻断会话（设计 §14）
+            this.warn('收尾写入失败：' + describeError(error));
+            return [];
+        }
+    }
+
+    private warn(message: string): void {
+        process.stderr.write('[wiki] ' + message + '\n');
     }
 
     /** wiki.read 工具（只读，免审批）。 */

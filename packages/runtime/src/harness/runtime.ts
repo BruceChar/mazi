@@ -34,7 +34,7 @@ import {
     SqliteQuestionStore,
 } from '../memory/question-store.js';
 import { BehaviorRecorder } from '../observability/behavior-recorder.js';
-import { maziPaths } from '../paths.js';
+import { maziHome, maziPaths } from '../paths.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
@@ -46,6 +46,7 @@ import { configureTokenizer } from '../token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
 import { RuntimeToolGateway } from '../tool-gateway/permission.js';
 import { RuntimePolicyAuditSink } from '../tool-gateway/policy-audit.js';
+import { WikiService } from '../wiki/index.js';
 import type { FeedbackInput, RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
@@ -81,6 +82,8 @@ export class HarnessRuntime {
     private readonly resolver: ModelResolver;
     private readonly stepEvents: StepEventEmitter;
     private readonly roundRunner: RoundRunner;
+    /** 项目 wiki 事实层：写工具捕获 + 回合末条目 + 新会话注入（docs/项目wiki设计.md）。 */
+    private readonly wiki: WikiService;
     /** TOC/Iterations 独立存储与编排（不进 Goal 坐标系） */
     private readonly tocStore: TocStore;
     private readonly tocAnalysis: TocAnalyst;
@@ -181,6 +184,11 @@ export class HarnessRuntime {
         this.goalStoreDb = new SqliteGoalStore(config.dbPath ?? ':memory:');
         this.resolver = new ModelResolver(config, buildLlmProviders(config, options));
         this.stepEvents = new StepEventEmitter(this.bus);
+        this.wiki = new WikiService({
+            home: maziHome(),
+            ...(options.workspaceRoot !== undefined ? { workspace: options.workspaceRoot } : {}),
+            ...(config.wiki ?? {}),
+        });
         this.roundRunner = new RoundRunner({
             bus: this.bus,
             executor: new RoundExecutor(),
@@ -431,6 +439,9 @@ export class HarnessRuntime {
             sessionId,
             allowedToolsOverride,
         );
+        // 项目 wiki：本次运行读一次快照用于注入，并建立兜底 diff 基线。
+        const wikiFragment = this.wiki.promptFragment();
+        this.wiki.beginRun();
         // 挂载是用户级开关；每次运行在边界发能力事件，审计锚定本次 run。
         // 运行级 skillIds 覆盖（实验臂）优先于全局挂载状态。
         const skillIds = requestedSkills ?? this.skillProvider?.mounted() ?? [];
@@ -453,7 +464,7 @@ export class HarnessRuntime {
                         rootGoalId,
                         goalId,
                         requestedSkills,
-                        promptFragment,
+                        combinePromptFragments(promptFragment, wikiFragment),
                     ),
                     tools: exec.tools,
                     invoker: exec.invoker,
@@ -465,7 +476,10 @@ export class HarnessRuntime {
                         : {}),
                     ...(resume ? { resume: true } : {}),
                     signal: controller.signal,
-                    onStep: (step) => this.stepEvents.emitStep(rootGoalId, step),
+                    onStep: (step) => {
+                        this.stepEvents.emitStep(rootGoalId, step);
+                        this.wiki.observeStep(step);
+                    },
                 },
                 goals,
             );
@@ -534,6 +548,13 @@ export class HarnessRuntime {
                 }),
             );
         }
+        // 回合收尾：把本次运行的改动写成『时间 | 功能级改动』条目（无改动零成本）。
+        await this.wiki.flushRun({
+            ...(sessionId !== undefined ? { sessionId } : {}),
+            ...(rootGoal?.statement !== undefined && rootGoal.statement.length > 0
+                ? { userRequest: rootGoal.statement }
+                : {}),
+        });
         await this.bus.flush();
         return result;
     }
@@ -743,6 +764,10 @@ export class HarnessRuntime {
                 merged.push(tool);
             }
         }
+        // 项目 wiki 内置工具（wiki.read 只读免审批；wiki.update 归写能力，走既有判权）。
+        if (this.wiki.enabled) {
+            merged.push(...wikiToolConfigs(this.wiki));
+        }
         const gateway = new RuntimeToolGateway({
             rootGoalId,
             goalId,
@@ -901,3 +926,100 @@ export class HarnessRuntime {
             : { ok: false, error: res.error ?? 'tool failed' };
     }
 }
+/**
+ * 合并 system prompt 片段：Feature 片段在前，项目 wiki 快照在后（只增文本，不改工具面）。
+ */
+function combinePromptFragments(
+    featureFragment: string | undefined,
+    wikiFragment: string | undefined,
+): string | undefined {
+    const parts = [featureFragment?.trim() ?? '', wikiFragment?.trim() ?? ''].filter(
+        (part) => part.length > 0,
+    );
+    return parts.length > 0 ? parts.join('\n\n') : undefined;
+}
+
+/**
+ * 项目 wiki 的内置工具面（设计 §9）：
+ * - wiki.read：读快照/变更日志（只读，免审批）；
+ * - wiki.update：替换快照 / 追加条目（写能力，走既有判权与审批）。
+ */
+function wikiToolConfigs(wiki: WikiService): ToolConfig[] {
+    return [
+        {
+            name: 'wiki.read',
+            description:
+                'Read the project wiki (state snapshot + change log). Prefer this over re-scanning the repository when you need the latest project status.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    section: {
+                        type: 'string',
+                        enum: ['snapshot', 'log', 'all'],
+                        description:
+                            'snapshot = project state (default); log = change entries; all = both',
+                    },
+                    limit: {
+                        type: 'number',
+                        description: 'Max change-log entries to return (default: all)',
+                    },
+                },
+            },
+            minPermission: 'read-only',
+            sideEffects: [],
+            impl: async (args) => {
+                const section = args.section;
+                const result = wiki.readForTool({
+                    ...(section === 'snapshot' || section === 'log' || section === 'all'
+                        ? { section }
+                        : {}),
+                    ...(typeof args.limit === 'number' ? { limit: args.limit } : {}),
+                });
+                return result.ok
+                    ? { ok: true, content: result.content ?? '' }
+                    : { ok: false, error: result.error ?? 'wiki.read failed' };
+            },
+        },
+        {
+            name: 'wiki.update',
+            description:
+                'Update the project wiki: replace the state snapshot and/or append functional-level change entries (one short line each, no file names). Use at the end of a session that changed the project.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    snapshot: {
+                        type: 'string',
+                        description:
+                            'Full markdown snapshot; must contain at least one "## " section (概览/结构与模块/模块职责/进行中的工作/约定与注意)',
+                    },
+                    entries: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description:
+                            'Functional-level change descriptions, e.g. "新增项目 wiki 的读取与上下文注入"',
+                    },
+                },
+            },
+            minPermission: 'draft',
+            sideEffects: ['fs'],
+            impl: async (args) => {
+                const result = await wiki.updateForTool({
+                    ...(typeof args.snapshot === 'string' ? { snapshot: args.snapshot } : {}),
+                    ...(typeof args.entries === 'string'
+                        ? { entries: args.entries }
+                        : Array.isArray(args.entries)
+                          ? {
+                                entries: args.entries.filter(
+                                    (item): item is string => typeof item === 'string',
+                                ),
+                            }
+                          : {}),
+                });
+                return result.ok
+                    ? { ok: true, content: result.content ?? '' }
+                    : { ok: false, error: result.error ?? 'wiki.update failed' };
+            },
+        },
+    ];
+}
+
