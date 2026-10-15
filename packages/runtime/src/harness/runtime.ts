@@ -115,6 +115,20 @@ export class HarnessRuntime {
     private readonly pendingReasoning = new Map<string, string>();
     /** 待执行 Session 的模型 id（create → execute 之间传递） */
     private readonly pendingModel = new Map<string, string>();
+    /** 待执行 Session 的系统提示片段（Feature 解析结果，create → execute 之间传递） */
+    private readonly pendingPromptFragment = new Map<string, string>();
+    /** 待执行 Session 的技能集合覆盖（显式给出则覆盖全局挂载） */
+    private readonly pendingSkills = new Map<string, readonly string[]>();
+    /** 待执行 Session 的工具白名单收窄（与配置白名单取交集） */
+    private readonly pendingAllowedTools = new Map<string, readonly string[]>();
+    /** 待执行 Session 的开关审计（flag.evaluated：值 + 求值痕迹） */
+    private readonly pendingFlags = new Map<
+        string,
+        {
+            values: Record<string, boolean>;
+            trace: Array<{ id: string; enabled: boolean; source: string }>;
+        }
+    >();
     /** 运行中的 Goal 树 → 协作式停止控制器（stop 生效、进程内互斥）。 */
     private readonly running = new Map<string, AbortController>();
     /** JSONL→DB 迁移单飞（构造器与显式调用共享同一 Promise）。 */
@@ -318,6 +332,21 @@ export class HarnessRuntime {
         if (opts.modelId) {
             this.pendingModel.set(rootGoalId, opts.modelId);
         }
+        if (opts.promptFragment !== undefined && opts.promptFragment.length > 0) {
+            this.pendingPromptFragment.set(rootGoalId, opts.promptFragment);
+        }
+        if (opts.skillIds !== undefined) {
+            this.pendingSkills.set(rootGoalId, opts.skillIds);
+        }
+        if (opts.allowedTools !== undefined) {
+            this.pendingAllowedTools.set(rootGoalId, opts.allowedTools);
+        }
+        if (opts.flagOverrides !== undefined) {
+            this.pendingFlags.set(rootGoalId, {
+                values: { ...opts.flagOverrides },
+                trace: (opts.flagTrace ?? []).map((step) => ({ ...step })),
+            });
+        }
         const ceiling =
             opts.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only';
         const goal: Goal = {
@@ -382,6 +411,14 @@ export class HarnessRuntime {
         this.pendingReasoning.delete(rootGoalId);
         const modelId = this.pendingModel.get(rootGoalId);
         this.pendingModel.delete(rootGoalId);
+        const promptFragment = this.pendingPromptFragment.get(rootGoalId);
+        this.pendingPromptFragment.delete(rootGoalId);
+        const requestedSkills = this.pendingSkills.get(rootGoalId);
+        this.pendingSkills.delete(rootGoalId);
+        const allowedToolsOverride = this.pendingAllowedTools.get(rootGoalId);
+        this.pendingAllowedTools.delete(rootGoalId);
+        const flags = this.pendingFlags.get(rootGoalId);
+        this.pendingFlags.delete(rootGoalId);
         const model = this.resolver.resolveModelChoice(modelId);
         const sessionId = this.pendingSessionId.get(rootGoalId);
         this.pendingSessionId.delete(rootGoalId);
@@ -392,11 +429,16 @@ export class HarnessRuntime {
             goalId,
             rootGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
             sessionId,
+            allowedToolsOverride,
         );
-        // 挂载是用户级开关；每次运行在边界发能力事件，审计锚定本次 run
-        const skillIds = this.skillProvider?.mounted() ?? [];
+        // 挂载是用户级开关；每次运行在边界发能力事件，审计锚定本次 run。
+        // 运行级 skillIds 覆盖（实验臂）优先于全局挂载状态。
+        const skillIds = requestedSkills ?? this.skillProvider?.mounted() ?? [];
         for (const skillId of skillIds) {
             this.emitSkillEvent('capability.activated', skillId, rootGoalId, goalId);
+        }
+        if (flags !== undefined && Object.keys(flags.values).length > 0) {
+            this.emitFlagEvent(rootGoalId, goalId, flags.values, flags.trace);
         }
         const controller = new AbortController();
         this.running.set(rootGoalId, controller);
@@ -407,7 +449,12 @@ export class HarnessRuntime {
                     store: this.goalStoreDb,
                     requestRound: (ctx) =>
                         this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel, sessionId),
-                    systemPrompt: this.systemPromptWithSkills(rootGoalId, goalId),
+                    systemPrompt: this.systemPromptWithSkills(
+                        rootGoalId,
+                        goalId,
+                        requestedSkills,
+                        promptFragment,
+                    ),
                     tools: exec.tools,
                     invoker: exec.invoker,
                     allowedTools: exec.allowedTools,
@@ -656,6 +703,7 @@ export class HarnessRuntime {
         goalId: string,
         level: PermissionLevel,
         sessionId?: string,
+        allowedToolsOverride?: readonly string[],
     ): {
         tools: ToolSchema[];
         invoker: GoalToolInvoker;
@@ -687,9 +735,13 @@ export class HarnessRuntime {
         });
         const visible = new Set(gateway.visibleToolNames());
         const configured = this.config.goal?.allowedTools;
-        const names = (configured === undefined ? merged.map((t) => t.name) : configured).filter(
-            (name) => visible.has(name),
-        );
+        const visibleNames = configured === undefined ? merged.map((t) => t.name) : configured;
+        // 运行级白名单只收窄：与配置白名单取交集（显式空数组 = 本次不暴露任何工具）。
+        const names = (
+            allowedToolsOverride === undefined
+                ? visibleNames
+                : visibleNames.filter((name) => allowedToolsOverride.includes(name))
+        ).filter((name) => visible.has(name));
         const tools: ToolSchema[] = merged
             .filter((t) => names.includes(t.name))
             .map((t) => ({
@@ -710,19 +762,65 @@ export class HarnessRuntime {
      * 基础系统提示 + 已挂载 Skill 的 L1 目录（渐进披露第 1 层：name/description/path）。
      * 正文（L2）与随包文件（L3）由模型用已有工具按需读取，不预先注入。
      */
-    private systemPromptWithSkills(rootGoalId: string, goalId: string): string {
+    private systemPromptWithSkills(
+        rootGoalId: string,
+        goalId: string,
+        skillIds?: readonly string[],
+        promptFragment?: string,
+    ): string {
         const base = this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT;
-        const entries = this.skillProvider?.catalog({ rootGoalId, goalId }) ?? [];
-        if (entries.length === 0) return base;
-        const catalog = entries
-            .map((entry) => '- ' + entry.name + '：' + entry.description + '（' + entry.path + '）')
-            .join('\n');
-        return (
-            base +
-            '\n\n## 可用技能（Skill）\n' +
-            catalog +
-            '\n\n当请求与某个技能描述相关时，先用 fs.read 读取该技能的 SKILL.md 并按其中步骤执行；' +
-            '正文提到的随包文件按相对路径继续读取。'
+        const context = { rootGoalId, goalId };
+        const entries =
+            skillIds === undefined
+                ? (this.skillProvider?.catalog(context) ?? [])
+                : (this.skillProvider?.catalogFor?.(skillIds, context) ??
+                  (this.skillProvider?.catalog(context) ?? []).filter((entry) =>
+                      skillIds.includes(entry.id),
+                  ));
+        const parts = [base];
+        if (entries.length > 0) {
+            const catalog = entries
+                .map(
+                    (entry) =>
+                        '- ' + entry.name + '：' + entry.description + '（' + entry.path + '）',
+                )
+                .join('\n');
+            parts.push(
+                '## 可用技能（Skill）\n' +
+                    catalog +
+                    '\n\n当请求与某个技能描述相关时，先用 fs.read 读取该技能的 SKILL.md 并按其中步骤执行；' +
+                    '正文提到的随包文件按相对路径继续读取。',
+            );
+        }
+        // Feature 开关的提示片段：追加在最后（只增文本，不改工具面与权限）。
+        if (promptFragment !== undefined && promptFragment.trim().length > 0) {
+            parts.push(promptFragment.trim());
+        }
+        return parts.join('\n\n');
+    }
+
+    /** 运行边界开关审计：本次运行带了哪些 Feature、值从哪来（flag.evaluated）。 */
+    private emitFlagEvent(
+        rootGoalId: string,
+        goalId: string,
+        values: Record<string, boolean>,
+        trace: Array<{ id: string; enabled: boolean; source: string }>,
+    ): void {
+        const enabledIds = Object.entries(values)
+            .filter(([, enabled]) => enabled)
+            .map(([id]) => id)
+            .sort();
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'flag.evaluated',
+                rootGoalId,
+                goalId,
+                attributes: {
+                    'harness.flag_overrides': { ...values },
+                    'harness.feature_ids': enabledIds,
+                },
+                payload: { values: { ...values }, trace: trace.map((step) => ({ ...step })) },
+            }),
         );
     }
 

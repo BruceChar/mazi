@@ -30,6 +30,16 @@ export interface RunOptions {
     reasoningLevel?: string;
     /** 指定模型 id（provider 内 model id；缺省用 provider 默认模型） */
     modelId?: string;
+    /** 系统提示追加片段（Feature 开关的 promptFragment 解析结果；只增文本）。 */
+    promptFragment?: string;
+    /** 本次运行的技能集合（显式给出则覆盖全局挂载；[] = 本次不带任何技能）。 */
+    skillIds?: readonly string[];
+    /** 本次运行的工具白名单收窄（与配置白名单取交集，永不放宽）。 */
+    allowedTools?: readonly string[];
+    /** 本次运行的开关值（Feature 解析结果；写入 flag.evaluated 审计）。 */
+    flagOverrides?: Readonly<Record<string, boolean>>;
+    /** 开关求值痕迹（复盘：值从默认来还是从运行期覆盖来）。 */
+    flagTrace?: readonly { id: string; enabled: boolean; source: string }[];
 }
 
 /** ConversationTurn[] → LLMMessage[]（user/assistant 文本消息）。 */

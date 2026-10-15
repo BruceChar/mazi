@@ -106,6 +106,11 @@ export interface SkillRunContext {
 export interface SkillProvider {
     catalog(context: SkillRunContext): readonly SkillCatalogEntry[];
     mounted(): readonly string[];
+    /**
+     * 运行级技能目录：只返回 ids 内的技能（实验臂覆盖全局挂载）。
+     * 可选：未实现时 HarnessRuntime 回退为 catalog() 后按 id 过滤。
+     */
+    catalogFor?(ids: readonly string[], context: SkillRunContext): readonly SkillCatalogEntry[];
 }
 
 export interface SkillAuditEntry {
@@ -226,10 +231,25 @@ export class SkillRuntime implements SkillProvider {
 
     /** L1 目录：已挂载 Skill 的 name/description/path；同一 run 只计一次注入。 */
     catalog(context: SkillRunContext): readonly SkillCatalogEntry[] {
+        return this.entriesFor(this.mountedIds, context);
+    }
+
+    /**
+     * 运行级目录：只取 ids 内的技能（实验臂可显式指定，不必先全局挂载）。
+     * 未发现的 id 自然缺席；注入计数与 catalog 同口径。
+     */
+    catalogFor(ids: readonly string[], context: SkillRunContext): readonly SkillCatalogEntry[] {
+        return this.entriesFor(new Set(ids), context);
+    }
+
+    private entriesFor(
+        ids: ReadonlySet<string>,
+        context: SkillRunContext,
+    ): readonly SkillCatalogEntry[] {
         const entries: SkillCatalogEntry[] = [];
         for (const snapshot of this.registry.list()) {
             const document = snapshot.document;
-            if (!this.mountedIds.has(document.id)) continue;
+            if (!ids.has(document.id)) continue;
             entries.push({
                 id: document.id,
                 name: document.name,
