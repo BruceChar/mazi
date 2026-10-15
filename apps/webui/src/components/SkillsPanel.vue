@@ -1,11 +1,11 @@
 <script setup>
 /**
- * SkillsPanel — 设置 → Skills：技能（能力包）发现 / 新建 / 挂载 / 卸载 / 使用情况。
+ * SkillsPanel — 设置 → Skills：Skill（SKILL.md）发现 / 新建 / 挂载 / 卸载 / 使用情况。
  *
- * 三级根：项目级 <workspace>/skills（可写）> 用户级 $MAZI_HOME/skills（可写）
- * > 内置级 builtin-skills（随应用分发、只读）。挂载状态由后端持久化；
- * 使用情况（调用/校验失败/最近调用）为进程内事实，重启清零。
- * 契约见 docs/能力包规范.md §10。
+ * 一个 Skill = 一个目录 + SKILL.md（frontmatter name/description + 正文指令）。
+ * 挂载只决定「是否把该 Skill 的 name/description/路径放进每次运行的目录（渐进披露 L1）」；
+ * 正文由模型按需用已有工具读取，Skill 不注册工具、不改变权限。
+ * 契约见 docs/能力包规范.md §3–§6。
  */
 import { onMounted, reactive, ref } from 'vue';
 import { api } from '../api.js';
@@ -14,7 +14,7 @@ const skills = ref([]);
 const roots = ref([]);
 const loadErrors = ref([]);
 const shadowed = ref([]);
-const summary = ref({ discovered: 0, mounted: 0, invocations: 0, validationFailures: 0 });
+const summary = ref({ discovered: 0, mounted: 0, injections: 0 });
 const busy = ref('');
 const message = ref('');
 const error = ref('');
@@ -25,24 +25,16 @@ const createOpen = ref(false);
 const creating = ref(false);
 const form = reactive({ id: '', name: '', description: '', scope: 'user' });
 
-const CEILING_LABELS = {
-    text: '仅文本',
-    'read-only': '只读',
-    'workspace-write': '工作区写',
-    draft: '草稿',
-    approved: '需审批',
-    autonomous: '自治',
-};
 const SCOPE_LABELS = { project: '项目', user: '用户', builtin: '内置' };
 
-function ceilingLabel(level) {
-    return CEILING_LABELS[level] || level;
-}
 function scopeLabel(scope) {
     return SCOPE_LABELS[scope] || scope;
 }
 function timeOf(ts) {
     return ts ? new Date(ts).toLocaleString() : '';
+}
+function sizeOf(bytes) {
+    return bytes >= 1024 ? (bytes / 1024).toFixed(1) + ' KB' : bytes + ' B';
 }
 
 function apply(data) {
@@ -82,7 +74,7 @@ async function create() {
                 scope: form.scope,
             }),
         });
-        message.value = '已创建 ' + created.id + '（' + created.dir + '）';
+        message.value = '已创建 ' + created.id + '（' + created.path + '）';
         form.id = '';
         form.name = '';
         form.description = '';
@@ -138,8 +130,8 @@ onMounted(() => load(false));
             <div>
                 <h3>技能（Skills）</h3>
                 <p class="skills-hint">
-                    技能包放在项目或用户目录的 <code>skills/</code> 下（内置技能随应用分发、只读）；
-                    挂载后其工具并入会话执行面，卸载立即失效。
+                    一个 Skill 就是一个含 <code>SKILL.md</code> 的目录（frontmatter + 指令正文）。
+                    挂载后其名称与描述会进入会话目录，模型按需读取正文；Skill 不注册工具、不改动权限。
                 </p>
             </div>
             <div class="skills-head-actions">
@@ -152,8 +144,7 @@ onMounted(() => load(false));
 
         <div class="skills-summary">
             <span>已挂载 <strong>{{ summary.mounted }}</strong> / {{ summary.discovered }}</span>
-            <span>本进程调用 {{ summary.invocations }} 次</span>
-            <span>校验失败 {{ summary.validationFailures }} 次</span>
+            <span>目录注入 {{ summary.injections }} 次</span>
         </div>
 
         <div v-if="createOpen" class="skills-create">
@@ -172,10 +163,9 @@ onMounted(() => load(false));
                     {{ creating ? '创建中…' : '创建' }}
                 </button>
             </div>
-            <input v-model="form.description" class="skills-input" placeholder="描述（可选）" />
+            <input v-model="form.description" class="skills-input" placeholder="description：做什么 + 什么时候用（模型据此判断是否加载）" />
             <p class="skills-hint">
-                将写入 <code>manifest.json</code> + <code>README.md</code> 脚手架（零工具、只读上限），
-                随后按规范补 <code>tools/</code>、<code>handlers/</code> 等。
+                将写入 <code>&lt;skills 根&gt;/&lt;id&gt;/SKILL.md</code>：frontmatter（name/description）+ 正文骨架。
             </p>
         </div>
 
@@ -192,7 +182,7 @@ onMounted(() => load(false));
         <div v-if="loadErrors.length" class="skills-errors">
             <div class="skills-errors-title">装载错误（{{ loadErrors.length }}）</div>
             <div v-for="entry in loadErrors" :key="entry.skillId + entry.dir" class="skills-error-row">
-                <strong>{{ entry.skillId || '(根)' }}</strong>
+                <strong>{{ entry.skillId }}</strong>
                 <span class="skills-error-dir">{{ scopeLabel(entry.scope) }} · {{ entry.dir }}</span>
                 <span v-for="issue in entry.issues" :key="issue.path + issue.code" class="skills-issue">
                     {{ issue.code }} @ {{ issue.path }}：{{ issue.message }}
@@ -209,7 +199,7 @@ onMounted(() => load(false));
 
         <div v-if="loading" class="skills-empty">加载中…</div>
         <div v-else-if="skills.length === 0" class="skills-empty">
-            尚未发现技能。点「新建技能」生成脚手架，或把 &lt;id&gt;/manifest.json 放进 skills 目录后点「重新扫描」。
+            尚未发现 Skill。点「新建技能」生成 SKILL.md，或把 &lt;id&gt;/SKILL.md 放进 skills 目录后点「重新扫描」。
         </div>
 
         <div v-else class="skills-list">
@@ -222,12 +212,11 @@ onMounted(() => load(false));
                 <div class="skills-row">
                     <button class="skills-name" @click="toggleDetail(skill)">
                         {{ skill.name }}
-                        <span class="skills-id">{{ skill.id }} · v{{ skill.version }}</span>
+                        <span class="skills-id">{{ skill.id }} · {{ sizeOf(skill.bytes) }}</span>
                     </button>
                     <span v-if="skill.mounted" class="skills-badge">已挂载</span>
                     <span class="skills-scope">{{ scopeLabel(skill.scope) }}</span>
-                    <span class="skills-ceiling">上限 {{ ceilingLabel(skill.permissionCeiling) }}</span>
-                    <span class="skills-tools">{{ skill.toolNames.length }} 工具</span>
+                    <span v-if="skill.resourceCount" class="skills-tools">{{ skill.resourceCount }} 随包文件</span>
                     <button
                         class="skills-btn"
                         :class="{ mounted: skill.mounted }"
@@ -237,44 +226,34 @@ onMounted(() => load(false));
                         {{ skill.mounted ? '卸载' : '挂载' }}
                     </button>
                 </div>
-                <div v-if="skill.description" class="skills-desc">{{ skill.description }}</div>
+                <div class="skills-desc">{{ skill.description }}</div>
                 <div class="skills-usage">
-                    <span>调用 {{ skill.usage.invocations }}</span>
-                    <span>校验失败 {{ skill.usage.validationFailures }}</span>
-                    <span v-if="skill.usage.lastInvokedAt">最近调用 {{ timeOf(skill.usage.lastInvokedAt) }}</span>
+                    <span>目录注入 {{ skill.usage.injections }} 次</span>
+                    <span v-if="skill.usage.lastInjectedAt">最近 {{ timeOf(skill.usage.lastInjectedAt) }}</span>
                     <span v-if="skill.mounted && skill.mountedAt">挂载于 {{ timeOf(skill.mountedAt) }}</span>
+                    <span v-if="skill.allowedTools.length">allowed-tools: {{ skill.allowedTools.join(' ') }}</span>
                 </div>
                 <div v-if="expanded === skill.id" class="skills-detail">
                     <template v-if="details[skill.id]">
                         <div class="skills-detail-block">
-                            <span class="skills-detail-label">工具</span>
-                            <span v-if="details[skill.id].tools.length === 0">（无）</span>
-                            <code v-for="tool in details[skill.id].tools" :key="tool.name">
-                                {{ tool.name }} · {{ tool.minPermission }} ·
-                                {{ (tool.sideEffects || []).join('/') || 'no-effect' }}
+                            <span class="skills-detail-label">路径</span>
+                            <code>{{ details[skill.id].path }}</code>
+                        </div>
+                        <div v-if="details[skill.id].frontmatter.whenToUse" class="skills-detail-block">
+                            <span class="skills-detail-label">when_to_use</span>
+                            <span>{{ details[skill.id].frontmatter.whenToUse }}</span>
+                        </div>
+                        <div v-if="details[skill.id].frontmatter.license" class="skills-detail-block">
+                            <span class="skills-detail-label">license</span>
+                            <span>{{ details[skill.id].frontmatter.license }}</span>
+                        </div>
+                        <div v-if="details[skill.id].resources.length" class="skills-detail-block">
+                            <span class="skills-detail-label">随包文件</span>
+                            <code v-for="resource in details[skill.id].resources" :key="resource">
+                                {{ resource }}
                             </code>
                         </div>
-                        <div class="skills-detail-block">
-                            <span class="skills-detail-label">记忆</span>
-                            <span v-if="details[skill.id].memory.collections.length === 0">（无）</span>
-                            <code v-for="collection in details[skill.id].memory.collections" :key="collection.name">
-                                {{ collection.name }} · {{ collection.sensitivity || 'normal' }}
-                            </code>
-                        </div>
-                        <div class="skills-detail-block">
-                            <span class="skills-detail-label">模板 / 校验器</span>
-                            <code>{{ details[skill.id].templates.join(', ') || '（无）' }}</code>
-                            <code>{{ details[skill.id].validators.join(', ') || '（无）' }}</code>
-                        </div>
-                        <div class="skills-detail-block">
-                            <span class="skills-detail-label">事件</span>
-                            <code>emits: {{ details[skill.id].events.emits.join(', ') || '（无）' }}</code>
-                            <code>subscribes: {{ details[skill.id].events.subscribes.join(', ') || '（无）' }}</code>
-                        </div>
-                        <div class="skills-detail-block">
-                            <span class="skills-detail-label">目录</span>
-                            <code>{{ details[skill.id].dir }}</code>
-                        </div>
+                        <pre class="skills-body">{{ details[skill.id].body }}</pre>
                     </template>
                     <span v-else>加载中…</span>
                 </div>
@@ -448,7 +427,6 @@ onMounted(() => load(false));
     font-size: 11px;
     color: var(--fg-tertiary);
 }
-.skills-ceiling,
 .skills-tools {
     flex-shrink: 0;
     font-size: 11px;
@@ -512,7 +490,20 @@ onMounted(() => load(false));
 }
 .skills-detail-label {
     flex-shrink: 0;
-    width: 72px;
+    width: 84px;
     color: var(--fg-tertiary);
+}
+.skills-body {
+    margin: 4px 0 0;
+    padding: 8px;
+    max-height: 320px;
+    overflow: auto;
+    background: var(--bg);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    color: var(--fg);
 }
 </style>
