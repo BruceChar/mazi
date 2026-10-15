@@ -7,6 +7,7 @@ import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
 import UserCenterPage from './components/UserCenterPage.vue';
+import WikiPage from './components/WikiPage.vue';
 import Sidebar from './components/Sidebar.vue';
 import ChatMain from './components/ChatMain.vue';
 import TopBar from './components/TopBar.vue';
@@ -237,6 +238,7 @@ const activeConversation = computed(() =>
 /** 顶部栏会话名称：最多 12 个字符，超出以省略号截断。 */
 const headerTitle = computed(() => {
     if (ui.view === 'experiments') return 'AB实验室';
+    if (ui.view === 'wiki') return '项目 Wiki';
     const title = conversationTitle(activeConversation.value) || '';
     return title.length > 12 ? title.slice(0, 12) + '…' : title;
 });
@@ -558,7 +560,14 @@ function backToChat() {
 /** 用户中心内按 Esc 一键返回对话。 */
 function onKeydown(event) {
     if (event.key !== 'Escape') return;
-    if (ui.view === 'user-center' || ui.view === 'system-settings' || ui.view === 'experiments') backToChat();
+    if (
+        ui.view === 'user-center' ||
+        ui.view === 'system-settings' ||
+        ui.view === 'experiments' ||
+        ui.view === 'wiki'
+    ) {
+        backToChat();
+    }
 }
 
 /** 进入用户中心整页（docs/webui.md §3.2）：可选直达某个 tab，默认画像。 */
@@ -880,6 +889,7 @@ onBeforeUnmount(() => {
                 @remove-conversation="removeConversation"
                 @open-settings="openSettings"
                 @open-experiments="ui.view = 'experiments'"
+                @open-wiki="ui.view = 'wiki'"
             />
             </template>
         </aside>
@@ -965,6 +975,8 @@ onBeforeUnmount(() => {
             </template>
 
             <ExperimentsPage v-else-if="ui.view === 'experiments'" />
+
+            <WikiPage v-else-if="ui.view === 'wiki'" :workspace="headerWorkspace" @close="backToChat" />
 
             <UserCenterPage
                 v-else-if="ui.view === 'user-center'"

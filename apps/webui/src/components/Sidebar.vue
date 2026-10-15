@@ -36,6 +36,7 @@ const emit = defineEmits([
     'remove-conversation',
     'open-settings',
     'open-experiments',
+    'open-wiki',
 ]);
 
 /* Internal UI state */
@@ -140,6 +141,10 @@ function latencyText() {
         <button class="lab-btn" title="AB 对照实验台：同一输入分臂运行，对比输出与 Trace" @click="emit('open-experiments')">
             <LineIcon name="hammer" size="15" />
             AB实验室
+        </button>
+        <button class="lab-btn" title="项目 Wiki：查看项目状态快照与最近变更（时间 | 改动）" @click="emit('open-wiki')">
+            <LineIcon name="observation" size="15" />
+            项目Wiki
         </button>
     </div>
     <div class="workspace-head">

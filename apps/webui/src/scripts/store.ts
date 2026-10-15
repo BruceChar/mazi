@@ -93,7 +93,7 @@ applyTheme(theme.value);
 
 export interface UiState {
     /** 主区视图：对话 / 系统设置 / 用户中心整页 / 实验台。 */
-    view: 'chat' | 'system-settings' | 'user-center' | 'experiments';
+    view: 'chat' | 'system-settings' | 'user-center' | 'experiments' | 'wiki';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;
