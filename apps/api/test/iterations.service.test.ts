@@ -1,10 +1,24 @@
 import 'reflect-metadata';
+import type { SystemVersionRef } from '@mazi/libs';
 import { describe, expect, it } from 'vitest';
 import { IterationsService } from '../src/iterations/iterations.service.js';
+import type { SystemService } from '../src/system/system.service.js';
 
-function serviceWith(tocAnalyst: Record<string, unknown>): IterationsService {
-    const runtime = { harness: () => ({ tocAnalyst }) };
-    return new IterationsService(runtime as never);
+const VERSION: SystemVersionRef = {
+    version: 'v1.0.0',
+    commit: 'abc1234',
+    branch: 'main',
+    dirty: false,
+};
+
+function serviceWith(
+    tocAnalyst: Record<string, unknown>,
+    iterationTracker: Record<string, unknown> = {},
+    version: SystemVersionRef = VERSION,
+): IterationsService {
+    const runtime = { harness: () => ({ tocAnalyst, iterationTracker }) };
+    const system = { readVersion: () => version } as unknown as SystemService;
+    return new IterationsService(runtime as never, system);
 }
 
 describe('IterationsService', () => {
@@ -45,6 +59,125 @@ describe('IterationsService', () => {
         await expect(service.addFeedback('a1', {})).rejects.toThrow('content');
         expect(await service.addFeedback('a1', { content: 'nice', rating: 4 })).toEqual({
             feedback: { feedbackId: 'f1' },
+        });
+    });
+
+    it('listRecords 返回倒序记录', async () => {
+        const records = [{ iterationId: 'it1' }, { iterationId: 'it2' }];
+        const service = serviceWith({}, { list: async () => records });
+        expect(await service.listRecords()).toEqual({ records });
+    });
+
+    it('createRecord 校验 title 必填与长度', async () => {
+        const service = serviceWith({}, { create: async () => ({ iterationId: 'it1' }) });
+        await expect(service.createRecord({})).rejects.toThrow('缺少 title');
+        await expect(service.createRecord({ title: '   ' })).rejects.toThrow('缺少 title');
+        await expect(service.createRecord({ title: 'x'.repeat(201) })).rejects.toThrow('title 过长');
+    });
+
+    it('createRecord trim 标题并注入当前版本快照', async () => {
+        const calls: unknown[] = [];
+        const service = serviceWith(
+            {},
+            {
+                create: async (input: unknown) => {
+                    calls.push(input);
+                    return { iterationId: 'it1', ...(input as Record<string, unknown>) };
+                },
+            },
+        );
+        const result = await service.createRecord({
+            title: '  收敛 TOC 提示词 ',
+            intent: ' 减少冗余输出 ',
+            analyzeId: 'a1',
+            tocId: 't1',
+        });
+        expect(calls[0]).toEqual({
+            title: '收敛 TOC 提示词',
+            intent: '减少冗余输出',
+            analyzeId: 'a1',
+            tocId: 't1',
+            base: VERSION,
+        });
+        expect(result.record.iterationId).toBe('it1');
+    });
+
+    it('createRecord 缺省可选字段时不写入', async () => {
+        const calls: unknown[] = [];
+        const service = serviceWith(
+            {},
+            {
+                create: async (input: unknown) => {
+                    calls.push(input);
+                    return { iterationId: 'it1' };
+                },
+            },
+        );
+        await service.createRecord({ title: 't' });
+        expect(calls[0]).toEqual({ title: 't', base: VERSION });
+    });
+
+    it('updateRecord 拒绝非法状态', async () => {
+        const service = serviceWith({}, { update: async () => ({ iterationId: 'it1' }) });
+        await expect(service.updateRecord('it1', { status: 'bogus' })).rejects.toThrow('无效状态');
+    });
+
+    it('updateRecord applied 状态注入当前版本快照', async () => {
+        const calls: unknown[] = [];
+        const service = serviceWith(
+            {},
+            {
+                update: async (_id: string, patch: unknown) => {
+                    calls.push(patch);
+                    return { iterationId: 'it1', status: 'applied' };
+                },
+            },
+        );
+        await service.updateRecord('it1', { status: 'applied' });
+        expect(calls[0]).toEqual({ status: 'applied', applied: VERSION });
+    });
+
+    it('updateRecord 透传 title/intent/notes（notes 可清空）', async () => {
+        const calls: unknown[] = [];
+        const service = serviceWith(
+            {},
+            {
+                update: async (_id: string, patch: unknown) => {
+                    calls.push(patch);
+                    return { iterationId: 'it1' };
+                },
+            },
+        );
+        await service.updateRecord('it1', { title: ' 新标题 ', intent: '新意图', notes: '' });
+        expect(calls[0]).toEqual({ title: '新标题', intent: '新意图', notes: '' });
+    });
+
+    it('updateRecord 未知 id → 404，非法迁移 → 400', async () => {
+        const missing = serviceWith(
+            {},
+            {
+                update: async () => {
+                    throw new Error('iteration not found: it9');
+                },
+            },
+        );
+        await expect(missing.updateRecord('it9', { notes: 'x' })).rejects.toMatchObject({
+            statusCode: 404,
+        });
+
+        const illegal = serviceWith(
+            {},
+            {
+                update: async () => {
+                    throw new Error('invalid transition: proposed -> applied');
+                },
+            },
+        );
+        await expect(
+            illegal.updateRecord('it1', { status: 'applied' }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'invalid transition: proposed -> applied',
         });
     });
 });

@@ -2,6 +2,8 @@ import type { EventBus, Goal, PermissionLevel, Step, Task, ToolSchema } from '@m
 import { authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
 import { buildQuestionView } from '@mazi/libs';
+import { type IterationStore, SqliteIterationStore } from '../analysis/iteration-store.js';
+import { IterationTracker } from '../analysis/iteration-tracker.js';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
 import { loadCommandPolicy } from '../auth/command-policy.js';
@@ -81,6 +83,9 @@ export class HarnessRuntime {
     /** TOC/Iterations 独立存储与编排（不进 Goal 坐标系） */
     private readonly tocStore: TocStore;
     private readonly tocAnalysis: TocAnalyst;
+    /** 系统迭代记录存储与状态机（分析报告 → 系统改动闭环）。 */
+    private readonly iterationStore: IterationStore;
+    private readonly iterationTrackerImpl: IterationTracker;
     private readonly config: RuntimeConfig;
     private readonly workspaceRoot?: string;
     /** Human-in-the-loop approval seam; absent → runtime gateway uses the standing ceiling approval. */
@@ -172,6 +177,8 @@ export class HarnessRuntime {
                 this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel),
             resolveModelChoice: (modelId) => this.resolver.resolveModelChoice(modelId),
         });
+        this.iterationStore = new SqliteIterationStore(config.dbPath ?? ':memory:');
+        this.iterationTrackerImpl = new IterationTracker({ store: this.iterationStore });
         if (config.consoleEnabled ?? false) {
             this.bus.subscribe({}, new ConsoleSink());
         }
@@ -267,6 +274,11 @@ export class HarnessRuntime {
         return this.tocAnalysis;
     }
 
+    /** 系统迭代记录（分析报告 → 系统改动闭环；版本快照由 API 层注入）。 */
+    get iterationTracker(): IterationTracker {
+        return this.iterationTrackerImpl;
+    }
+
     get currentWorkspaceRoot(): string | undefined {
         return this.workspaceRoot;
     }
@@ -274,6 +286,7 @@ export class HarnessRuntime {
     async close(): Promise<void> {
         this.goalStoreDb.close();
         this.tocStore.close();
+        this.iterationStore.close();
         this.behaviorRecorder.close();
         this.questionStore.close();
         this.failureLedger.close();

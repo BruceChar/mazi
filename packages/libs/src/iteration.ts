@@ -56,3 +56,67 @@ export interface TocIterationView {
     toc: TocRecordView;
     analyses: TocAnalysisView[];
 }
+
+/** 迭代记录钉住的系统版本快照（轻量、随记录落库）。 */
+export interface SystemVersionRef {
+    /** `git describe --tags --always`；无 git 时回落 package.json version */
+    version: string;
+    /** 提交短号；无 git 时为 '' */
+    commit: string;
+    branch: string;
+    /** 读取时工作区是否有未提交改动 */
+    dirty: boolean;
+}
+
+/** GET /api/system/info：面板「系统」页展示的完整版本与构建信息。 */
+export interface SystemVersionView extends SystemVersionRef {
+    commitSubject: string;
+    commitDate: string;
+    packageVersion: string;
+    node: string;
+    platform: string;
+    readAt: number;
+}
+
+export type IterationStatus = 'proposed' | 'in_progress' | 'applied' | 'reverted' | 'rejected';
+
+/** 一条系统迭代记录（分析报告 → 系统改动）的完整视图。 */
+export interface IterationRecordView {
+    iterationId: string;
+    analyzeId?: string;
+    tocId?: string;
+    title: string;
+    intent: string;
+    status: IterationStatus;
+    base: SystemVersionRef;
+    applied?: SystemVersionRef;
+    notes: string;
+    createdAt: number;
+    updatedAt: number;
+}
+
+/** 迭代记录的状态展示顺序（过滤 chips / 计数）。 */
+export const ITERATION_STATUSES: readonly IterationStatus[] = [
+    'proposed',
+    'in_progress',
+    'applied',
+    'reverted',
+    'rejected',
+];
+
+/**
+ * 唯一合法迁移表（前后端共用，见 docs/web/迭代面板设计.md §2.3）：
+ * 服务端据此校验 PATCH，前端据此决定展示哪些动作按钮，避免两处状态机漂移。
+ */
+export const ITERATION_TRANSITIONS: Record<IterationStatus, readonly IterationStatus[]> = {
+    proposed: ['in_progress', 'rejected'],
+    in_progress: ['applied', 'rejected'],
+    applied: ['reverted'],
+    reverted: ['in_progress'],
+    rejected: ['proposed'],
+};
+
+/** from → to 是否为设计允许的迁移（同状态视为合法空操作）。 */
+export function canTransition(from: IterationStatus, to: IterationStatus): boolean {
+    return from === to || ITERATION_TRANSITIONS[from].includes(to);
+}

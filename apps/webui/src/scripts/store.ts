@@ -12,9 +12,12 @@ import type {
     EventItem,
     FailureLedgerView,
     GoalTreeSnapshot,
+    IterationRecordView,
+    IterationStatus,
     Project,
     RunOutcome,
     StepUsage,
+    SystemVersionView,
     TocIterationView,
     UserBehaviorExportView,
     UserBehaviorView,
@@ -815,7 +818,7 @@ export async function copyThinkingChain(rootGoalId: string, taskId: string): Pro
 }
 
 /** 写剪贴板：优先 async clipboard API，回退 execCommand（老浏览器 / 非安全上下文）。 */
-async function writeClipboard(text: string): Promise<void> {
+export async function writeClipboard(text: string): Promise<void> {
     const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
     if (clipboard?.writeText) {
         await clipboard.writeText(text);
@@ -831,22 +834,40 @@ async function writeClipboard(text: string): Promise<void> {
     document.body.removeChild(el);
 }
 
-/* ---- Iterations：TOC 冻结 / 独立分析 / 反馈 ---- */
+/* ---- Iterations：TOC 冻结 / 独立分析 / 反馈 / 系统迭代记录 ---- */
 
 /** TOC + 分析 + 反馈的聚合视图（GET /api/iterations）。 */
 export const iterations = ref<TocIterationView[]>([]);
+/** 系统迭代记录（GET /api/iterations/records），updatedAt 倒序。 */
+export const iterationRecords = ref<IterationRecordView[]>([]);
+/** 系统版本与构建信息（GET /api/system/info）。 */
+export const systemVersion = ref<SystemVersionView | null>(null);
 export const iterationsLoading = ref(false);
 
+/** 取并行请求的已兑现值（部分端点不可用时其余分片仍要渲染）。 */
+function settledValue<T>(result: PromiseSettledResult<T>): T | null {
+    return result.status === 'fulfilled' ? result.value : null;
+}
+
+/**
+ * 拉取 Iterations 面板全量数据：TOC 聚合 + 迭代记录 + 系统版本（单个刷新入口）。
+ * 三段各自容错：旧 API 缺 `/records` 或 `/system/info` 时，思维链仍照常展示。
+ */
 export async function loadIterations(): Promise<void> {
     iterationsLoading.value = true;
-    try {
-        const data = await api('/api/iterations');
-        iterations.value = Array.isArray(data?.iterations) ? data.iterations : [];
-    } catch (error) {
-        ui.err = String(error);
-    } finally {
-        iterationsLoading.value = false;
-    }
+    const [list, records, version] = await Promise.allSettled([
+        api('/api/iterations'),
+        api('/api/iterations/records'),
+        api('/api/system/info'),
+    ]);
+    const listData = settledValue(list);
+    const recordData = settledValue(records);
+    iterations.value = Array.isArray(listData?.iterations) ? listData.iterations : [];
+    iterationRecords.value = Array.isArray(recordData?.records) ? recordData.records : [];
+    systemVersion.value = settledValue(version) ?? null;
+    const failed = [list, records, version].find((result) => result.status === 'rejected');
+    if (failed?.status === 'rejected') ui.err = String(failed.reason);
+    iterationsLoading.value = false;
 }
 
 export interface AnalyzeTocInput {
@@ -887,6 +908,47 @@ export async function submitIterationFeedback(
         body: JSON.stringify(input),
     });
     await loadIterations();
+}
+
+export interface CreateIterationInput {
+    title: string;
+    intent?: string;
+    analyzeId?: string;
+    tocId?: string;
+}
+
+/** 采纳一条分析报告为系统迭代项（服务端注入基线版本）。 */
+export async function createIterationRecord(
+    input: CreateIterationInput,
+): Promise<IterationRecordView | null> {
+    const data = await api('/api/iterations/records', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+    });
+    await loadIterations();
+    return data?.record ?? null;
+}
+
+export interface UpdateIterationInput {
+    status?: IterationStatus;
+    title?: string;
+    intent?: string;
+    notes?: string;
+}
+
+/** 推进一条迭代记录的状态 / 编辑标题、意图、复盘备注。 */
+export async function updateIterationRecord(
+    iterationId: string,
+    patch: UpdateIterationInput,
+): Promise<IterationRecordView | null> {
+    const data = await api(`/api/iterations/records/${iterationId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+    });
+    await loadIterations();
+    return data?.record ?? null;
 }
 
 /** Open a Goal run: load its timeline snapshot and subscribe to live events. */

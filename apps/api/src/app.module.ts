@@ -23,6 +23,8 @@ import { SessionsController } from './sessions/sessions.controller.js';
 import { SessionsService } from './sessions/sessions.service.js';
 import { StorageController } from './storage/storage.controller.js';
 import { StorageService } from './storage/storage.service.js';
+import { SystemController } from './system/system.controller.js';
+import { SystemService } from './system/system.service.js';
 import { UsersController } from './users/users.controller.js';
 import { UsersService } from './users/users.service.js';
 import { WorkspacesController } from './workspaces/workspaces.controller.js';
@@ -45,6 +47,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         UsersController,
         LedgerController,
         QuestionsController,
+        SystemController,
     ],
     providers: [
         { provide: APP_FILTER, useClass: ApiExceptionsFilter },
@@ -57,6 +60,8 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         UsersService,
         LedgerService,
         QuestionsService,
+        // SystemService 构造器接受可注入 options（默认走真实 git/fs）；缺省参数不适配 Nest DI，显式工厂装配。
+        { provide: SystemService, useFactory: () => new SystemService() },
     ],
 })
 export class AppModule {}

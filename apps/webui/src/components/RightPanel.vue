@@ -12,17 +12,36 @@ import {
     formatSigned,
     formatTokens,
 } from '../scripts/audit.ts';
+import {
+    ITERATION_STATUS_LABELS,
+    ITERATION_STATUS_ORDER,
+    TOC_STATUS_LABELS,
+    buildIterationBoard,
+    filterRecords,
+    filterTocs,
+    firstLineOf,
+    iterationActions,
+    iterationStatusTone,
+    versionDetail,
+    versionLabel,
+} from '../scripts/iterations-view.ts';
+import { renderMarkdown } from '../scripts/markdown.ts';
 import { buildTraceBoard, filterTraceRuns } from '../scripts/trace.ts';
 import {
     analyzeToc,
     copyThinkingChain,
+    createIterationRecord,
     fetchLedger,
+    iterationRecords,
     iterations,
     iterationsLoading,
     loadIterations,
     short,
     submitIterationFeedback,
+    systemVersion,
     ui,
+    updateIterationRecord,
+    writeClipboard,
 } from '../scripts/store.ts';
 
 const props = defineProps({
@@ -411,6 +430,149 @@ async function submitFeedback(analyzeId) {
     try {
         await submitIterationFeedback(analyzeId, { content });
         setFeedbackDraft(analyzeId, '');
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+
+/* ---- Iterations 面板（docs/web/迭代面板设计.md v1）：思维链 / 迭代记录 / 系统 ---- */
+const ITERATION_SECTIONS = [
+    { key: 'toc', label: '思维链' },
+    { key: 'records', label: '迭代记录' },
+    { key: 'system', label: '系统' },
+];
+const TOC_STATUS_FILTERS = [
+    { key: 'all', label: '全部' },
+    { key: 'succeeded', label: '成功' },
+    { key: 'failed', label: '失败' },
+    { key: 'none', label: '未分析' },
+];
+const RECORD_STATUS_FILTERS = [
+    { key: 'all', label: '全部' },
+    ...ITERATION_STATUS_ORDER.map((status) => ({ key: status, label: ITERATION_STATUS_LABELS[status] })),
+];
+const iterationSection = ref('toc');
+const tocQuery = ref('');
+const tocStatusFilter = ref('all');
+const recordStatusFilter = ref('all');
+const selectedTocId = ref('');
+const openTocText = ref(new Set());
+const openRecordId = ref('');
+const recordDrafts = ref({});
+const busyAnalyzeId = ref('');
+
+/** TOC 聚合 + 迭代记录 + 计数。 */
+const iterationBoard = computed(() =>
+    buildIterationBoard({
+        iterations: iterations.value,
+        records: iterationRecords.value,
+    }),
+);
+const visibleTocs = computed(() =>
+    filterTocs(iterationBoard.value.tocs, { query: tocQuery.value, status: tocStatusFilter.value }),
+);
+const visibleRecords = computed(() =>
+    filterRecords(iterationBoard.value.records, recordStatusFilter.value),
+);
+/** 详情选中项：按 board 行取（不受列表过滤影响），原文/taskId 从原始记录取。 */
+const selectedToc = computed(
+    () => iterationBoard.value.tocs.find((row) => row.tocId === selectedTocId.value) ?? null,
+);
+const selectedTocRecord = computed(
+    () => iterations.value.find((item) => item.toc.tocId === selectedTocId.value)?.toc ?? null,
+);
+
+function openToc(tocId) {
+    selectedTocId.value = tocId;
+}
+function backToTocList() {
+    selectedTocId.value = '';
+}
+function toggleTocText(tocId) {
+    const next = new Set(openTocText.value);
+    next.has(tocId) ? next.delete(tocId) : next.add(tocId);
+    openTocText.value = next;
+}
+function toggleRecord(iterationId) {
+    openRecordId.value = openRecordId.value === iterationId ? '' : iterationId;
+}
+/** 从迭代记录回到来源思维链详情（清空过滤，避免目标被筛掉）。 */
+function selectTocFromRecord(row) {
+    if (!row.tocId) return;
+    iterationSection.value = 'toc';
+    tocQuery.value = '';
+    tocStatusFilter.value = 'all';
+    selectedTocId.value = row.tocId;
+}
+/** 从报告跳回其迭代记录：切到记录页并展开该条。 */
+function jumpToRecord(iterationId) {
+    iterationSection.value = 'records';
+    recordStatusFilter.value = 'all';
+    openRecordId.value = iterationId;
+}
+/** 采纳报告为迭代项：标题取分析诉求首行，缺省用 TOC 短号。 */
+async function adoptAnalysis(tocRow, analysisRow) {
+    if (analysisRow.record || busyAnalyzeId.value) return;
+    busyAnalyzeId.value = analysisRow.analysis.analyzeId;
+    try {
+        await createIterationRecord({
+            title:
+                firstLineOf(analysisRow.analysis.userInput, 80) || `TOC ${tocRow.shortId} 的改进`,
+            analyzeId: analysisRow.analysis.analyzeId,
+            tocId: tocRow.tocId,
+        });
+    } catch (error) {
+        ui.err = String(error);
+    } finally {
+        busyAnalyzeId.value = '';
+    }
+}
+async function runIterationAction(record, action) {
+    try {
+        await updateIterationRecord(record.iterationId, { status: action.next });
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+function recordDraft(iterationId, fallback) {
+    return recordDrafts.value[iterationId] ?? fallback ?? '';
+}
+function setRecordDraft(iterationId, text) {
+    recordDrafts.value = { ...recordDrafts.value, [iterationId]: text };
+}
+async function saveRecordNotes(record) {
+    try {
+        await updateIterationRecord(record.iterationId, {
+            notes: recordDraft(record.iterationId, record.notes),
+        });
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+async function copyReport(text) {
+    try {
+        await writeClipboard(String(text ?? ''));
+    } catch (error) {
+        ui.err = String(error);
+    }
+}
+/** 复用同一 TOC 再分析（需回原始记录取 task/goal/rootGoalId）。 */
+function reanalyzeToc(tocRow) {
+    const toc = iterations.value.find((item) => item.toc.tocId === tocRow.tocId)?.toc;
+    if (!toc) return;
+    openAnalyze({
+        taskId: toc.taskId,
+        goalId: toc.goalId,
+        rootGoalId: toc.rootGoalId,
+        tocId: toc.tocId,
+    });
+}
+/** 复制该 TOC 的 thinking 链（与对话流 Task 头等价）。 */
+async function copyTocChain(tocRow) {
+    const toc = iterations.value.find((item) => item.toc.tocId === tocRow.tocId)?.toc;
+    if (!toc) return;
+    try {
+        await copyThinkingChain(toc.rootGoalId, toc.taskId);
     } catch (error) {
         ui.err = String(error);
     }
@@ -882,52 +1044,206 @@ watch(
                 </div>
             </div>
             <div v-else-if="activeTab === 'iterations'" class="drawer-body audit-body iterations-body">
+                <!-- 分段：思维链 / 迭代记录 / 系统 -->
                 <section class="audit-section">
-                    <div class="audit-section-title">
-                        Iterations
-                        <span class="audit-pct">{{ iterations.length }} TOC</span>
+                    <div class="iter-filters">
+                        <button
+                            v-for="s in ITERATION_SECTIONS"
+                            :key="s.key"
+                            class="trace-chip"
+                            :class="{ on: iterationSection === s.key }"
+                            @click="iterationSection = s.key"
+                        >{{ s.label }}</button>
+                        <span class="trace-toolbar-gap"></span>
+                        <button class="trace-chip" @click="loadIterations()">刷新</button>
                     </div>
-                    <div v-if="!iterations.length" class="audit-muted">
-                        {{ iterationsLoading ? 'Loading…' : 'No iterations yet — use Analyze on a task.' }}
+                    <div class="iter-summary">
+                        <span>{{ iterationBoard.counts.tocs }} 思维链</span>
+                        <span>{{ iterationBoard.counts.analyses }} 报告</span>
+                        <span>{{ iterationBoard.counts.records }} 迭代记录</span>
                     </div>
-                    <div v-for="it in iterations" :key="it.toc.tocId" class="iter-card">
-                        <div class="iter-toc-head">
-                            <span class="iter-toc-title">TOC {{ short(it.toc.tocId, 8) }}</span>
-                            <span class="iter-toc-meta">
-                                {{ it.toc.model ? it.toc.model.modelId : 'default' }} · {{ fmtPrecise(it.toc.createdAt) }}
-                            </span>
-                            <button
-                                class="iter-reanalyze"
-                                @click="openAnalyze({ taskId: it.toc.taskId, goalId: it.toc.goalId, rootGoalId: it.toc.rootGoalId, tocId: it.toc.tocId })"
-                            >Analyze again</button>
+                </section>
+
+                <div v-if="iterationSection === 'toc'" class="iter-split" :class="{ split: maximized }">
+                    <!-- 列表（窄栏进详情后隐藏） -->
+                    <section v-if="maximized || !selectedToc" class="audit-section iter-list">
+                        <div class="audit-section-title">
+                            <span>思维链</span>
+                            <span class="audit-pct">{{ visibleTocs.length }} / {{ iterationBoard.counts.tocs }}</span>
                         </div>
-                        <div v-if="it.toc.userInput" class="iter-input">Input: {{ it.toc.userInput }}</div>
-                        <pre v-if="it.toc.text" class="iter-toc-text">{{ short(it.toc.text, 600) }}</pre>
-                        <div v-for="a in it.analyses" :key="a.analyzeId" class="iter-analysis">
-                            <div class="iter-analysis-head">
-                                <span class="iter-status" :class="a.status">{{ a.status }}</span>
-                                <span class="iter-analysis-meta">
-                                    {{ a.model ? a.model.modelId : 'default' }} · {{ fmtPrecise(a.createdAt) }}
+                        <input v-model="tocQuery" class="iter-search" placeholder="搜索输入 / 思维链 / task…" />
+                        <div class="iter-filters">
+                            <button
+                                v-for="f in TOC_STATUS_FILTERS"
+                                :key="f.key"
+                                class="trace-chip"
+                                :class="{ on: tocStatusFilter === f.key }"
+                                @click="tocStatusFilter = f.key"
+                            >{{ f.label }}</button>
+                        </div>
+                        <div v-if="!visibleTocs.length" class="audit-muted">
+                            {{ iterationsLoading ? 'Loading…' : '暂无思维链 —— 在 Trace 面板选中 Task → ⋯ → Analyze' }}
+                        </div>
+                        <button
+                            v-for="row in visibleTocs"
+                            :key="row.tocId"
+                            class="iter-toc-row"
+                            :class="{ selected: row.tocId === selectedTocId }"
+                            @click="openToc(row.tocId)"
+                        >
+                            <span class="iter-toc-row-title">{{ row.title }}</span>
+                            <span class="audit-status" :class="statusClass(row.status)">{{ TOC_STATUS_LABELS[row.status] }}</span>
+                            <span v-if="row.adopted" class="iter-badge-adopted">已采纳</span>
+                            <span class="iter-toc-row-meta">{{ row.analyses.length }} 报告 · {{ fmtPrecise(row.createdAt) }}</span>
+                        </button>
+                    </section>
+
+                    <!-- 详情：思维链原文 + 分析报告 -->
+                    <section v-if="selectedToc" class="audit-section iter-detail">
+                        <div class="iter-detail-head">
+                            <button v-if="!maximized" class="trace-chip" @click="backToTocList()">← 列表</button>
+                            <span class="iter-detail-id">TOC {{ selectedToc.shortId }}</span>
+                            <span class="iter-detail-meta">{{ selectedToc.modelLabel }} · {{ fmtPrecise(selectedToc.createdAt) }}</span>
+                            <span class="trace-toolbar-gap"></span>
+                            <button class="trace-chip" @click="copyTocChain(selectedToc)">Copy</button>
+                            <button class="trace-chip" @click="reanalyzeToc(selectedToc)">再分析</button>
+                        </div>
+                        <div class="iter-subhead">
+                            <span class="iter-label">思维链原文</span>
+                            <button class="iter-link" @click="toggleTocText(selectedToc.tocId)">
+                                {{ openTocText.has(selectedToc.tocId) ? '收起' : '展开全文' }}
+                            </button>
+                        </div>
+                        <pre
+                            class="iter-toc-text"
+                            :class="{ expanded: openTocText.has(selectedToc.tocId) }"
+                        >{{ selectedTocRecord ? selectedTocRecord.text : '' }}</pre>
+
+                        <div class="iter-subhead iter-subhead-reports">
+                            <span class="iter-label">分析报告</span>
+                            <span class="audit-pct">{{ selectedToc.analyses.length }}</span>
+                        </div>
+                        <div v-if="!selectedToc.analyses.length" class="audit-muted">还没有分析报告 —— 点上方「再分析」。</div>
+                        <article v-for="row in selectedToc.analyses" :key="row.analysis.analyzeId" class="iter-report">
+                            <header class="iter-report-head">
+                                <span class="iter-status" :class="row.analysis.status">{{ row.analysis.status }}</span>
+                                <span class="iter-report-meta">
+                                    {{ row.analysis.model ? row.analysis.model.modelId : 'default' }} · {{ fmtPrecise(row.analysis.createdAt) }}<template v-if="row.durationMs != null"> · {{ formatDuration(row.durationMs) }}</template>
                                 </span>
+                                <span class="trace-toolbar-gap"></span>
+                                <button
+                                    v-if="!row.record"
+                                    class="trace-chip on"
+                                    :disabled="busyAnalyzeId === row.analysis.analyzeId"
+                                    @click="adoptAnalysis(selectedToc, row)"
+                                >采纳为迭代项</button>
+                                <button v-else class="trace-chip" @click="jumpToRecord(row.record.iterationId)">已采纳 · 查看</button>
+                                <button v-if="row.analysis.output" class="trace-chip" @click="copyReport(row.analysis.output)">复制</button>
+                            </header>
+                            <div v-if="row.analysis.userInput" class="iter-input">诉求：{{ row.analysis.userInput }}</div>
+                            <div v-if="row.analysis.output" class="iter-report-body markdown-body" v-html="renderMarkdown(row.analysis.output)"></div>
+                            <div v-if="row.analysis.error" class="iter-error">{{ row.analysis.error }}</div>
+                            <div v-if="!row.analysis.output && !row.analysis.error" class="audit-muted">
+                                {{ row.analysis.status === 'running' || row.analysis.status === 'pending' ? '分析中…' : '（无输出）' }}
                             </div>
-                            <div v-if="a.userInput" class="iter-input">Request: {{ a.userInput }}</div>
-                            <pre v-if="a.output" class="iter-output">{{ a.output }}</pre>
-                            <div v-if="a.error" class="iter-error">{{ a.error }}</div>
-                            <div v-for="f in a.feedback" :key="f.feedbackId" class="iter-feedback">
-                                <span class="iter-feedback-meta">{{ fmtPrecise(f.createdAt) }}</span>
-                                <span>{{ f.content }}</span>
+                            <div v-if="row.analysis.feedback.length" class="iter-feedback-list">
+                                <div v-for="f in row.analysis.feedback" :key="f.feedbackId" class="iter-feedback">
+                                    <span class="iter-feedback-meta">{{ fmtPrecise(f.createdAt) }}</span>
+                                    <span>{{ f.content }}</span>
+                                </div>
                             </div>
                             <div class="iter-feedback-form">
                                 <input
-                                    :value="feedbackDraft(a.analyzeId)"
-                                    placeholder="Feedback on this analysis…"
-                                    @input="setFeedbackDraft(a.analyzeId, $event.target.value)"
-                                    @keydown.enter="submitFeedback(a.analyzeId)"
+                                    :value="feedbackDraft(row.analysis.analyzeId)"
+                                    placeholder="对这次分析的反馈…"
+                                    @input="setFeedbackDraft(row.analysis.analyzeId, $event.target.value)"
+                                    @keydown.enter="submitFeedback(row.analysis.analyzeId)"
                                 />
-                                <button @click="submitFeedback(a.analyzeId)">Send</button>
+                                <button @click="submitFeedback(row.analysis.analyzeId)">Send</button>
+                            </div>
+                        </article>
+                    </section>
+
+                    <div v-else-if="maximized" class="audit-muted iter-detail-empty">从左侧选择一条思维链查看分析报告</div>
+                </div>
+
+                <!-- 迭代记录：分析报告的采纳闭环 -->
+                <section v-else-if="iterationSection === 'records'" class="audit-section">
+                    <div class="audit-section-title">
+                        <span>迭代记录</span>
+                        <span class="audit-pct">{{ visibleRecords.length }} / {{ iterationBoard.counts.records }}</span>
+                    </div>
+                    <div class="iter-filters">
+                        <button
+                            v-for="f in RECORD_STATUS_FILTERS"
+                            :key="f.key"
+                            class="trace-chip"
+                            :class="{ on: recordStatusFilter === f.key }"
+                            @click="recordStatusFilter = f.key"
+                        >{{ f.label }}<template v-if="f.key !== 'all'"> {{ iterationBoard.counts.byStatus[f.key] }}</template></button>
+                    </div>
+                    <div v-if="!visibleRecords.length" class="audit-muted">
+                        {{ iterationsLoading ? 'Loading…' : '还没有迭代记录 —— 在分析报告上点「采纳为迭代项」' }}
+                    </div>
+                    <div v-for="row in visibleRecords" :key="row.record.iterationId" class="iter-record">
+                        <button class="iter-record-head" @click="toggleRecord(row.record.iterationId)">
+                            <span class="trace-head-caret">{{ openRecordId === row.record.iterationId ? '−' : '+' }}</span>
+                            <span class="iter-record-title">{{ row.record.title }}</span>
+                            <span class="audit-status" :class="iterationStatusTone(row.record.status)">{{ ITERATION_STATUS_LABELS[row.record.status] }}</span>
+                            <span class="iter-record-versions">{{ versionLabel(row.record.base) }} → {{ row.record.applied ? versionLabel(row.record.applied) : '—' }}</span>
+                        </button>
+                        <div v-if="openRecordId === row.record.iterationId" class="iter-record-body">
+                            <div class="iter-record-source">
+                                <button v-if="row.sourceLabel" class="iter-link" @click="selectTocFromRecord(row)">{{ row.sourceLabel }}</button>
+                                <span v-else class="audit-muted">手工创建</span>
+                                <span class="iter-record-updated">更新 {{ fmtPrecise(row.record.updatedAt) }}</span>
+                            </div>
+                            <div v-if="row.record.intent" class="iter-record-intent">{{ row.record.intent }}</div>
+                            <div class="audit-row"><span class="audit-key">基线版本</span><span class="audit-val audit-mono">{{ versionDetail(row.record.base) || versionLabel(row.record.base) }}</span></div>
+                            <div v-if="row.record.applied" class="audit-row"><span class="audit-key">应用版本</span><span class="audit-val audit-mono">{{ versionDetail(row.record.applied) || versionLabel(row.record.applied) }}</span></div>
+                            <textarea
+                                class="iter-notes"
+                                rows="3"
+                                placeholder="复盘备注：改了什么 / 为什么回滚…"
+                                :value="recordDraft(row.record.iterationId, row.record.notes)"
+                                @input="setRecordDraft(row.record.iterationId, $event.target.value)"
+                            ></textarea>
+                            <div class="iter-record-actions">
+                                <button class="trace-chip" @click="saveRecordNotes(row.record)">保存备注</button>
+                                <button
+                                    v-for="act in iterationActions(row.record.status)"
+                                    :key="act.action"
+                                    class="trace-chip"
+                                    :class="{ on: act.tone === 'primary', danger: act.tone === 'danger' }"
+                                    @click="runIterationAction(row.record, act)"
+                                >{{ act.label }}</button>
                             </div>
                         </div>
                     </div>
+                </section>
+
+                <!-- 系统版本与构建 -->
+                <section v-else class="audit-section">
+                    <div class="audit-section-title">
+                        <span>系统版本与构建</span>
+                        <span v-if="systemVersion" class="audit-pct">{{ fmtPrecise(systemVersion.readAt) }}</span>
+                    </div>
+                    <template v-if="systemVersion">
+                        <div class="sys-version-hero">
+                            <span class="sys-version-value">{{ versionLabel(systemVersion) }}</span>
+                            <span v-if="systemVersion.dirty" class="sys-dirty">dirty</span>
+                        </div>
+                        <div class="audit-row"><span class="audit-key">describe</span><span class="audit-val audit-mono">{{ systemVersion.version || '—' }}</span></div>
+                        <div class="audit-row"><span class="audit-key">提交</span><span class="audit-val audit-mono">{{ systemVersion.commit || '—' }}</span></div>
+                        <div class="audit-row"><span class="audit-key">分支</span><span class="audit-val audit-mono">{{ systemVersion.branch || '—' }}</span></div>
+                        <div class="audit-row"><span class="audit-key">提交说明</span><span class="audit-val">{{ systemVersion.commitSubject || '—' }}</span></div>
+                        <div class="audit-row"><span class="audit-key">提交时间</span><span class="audit-val audit-mono">{{ systemVersion.commitDate || '—' }}</span></div>
+                        <div class="audit-row"><span class="audit-key">包版本</span><span class="audit-val audit-mono">{{ systemVersion.packageVersion || '—' }}</span></div>
+                        <div class="audit-row"><span class="audit-key">Node</span><span class="audit-val audit-mono">{{ systemVersion.node || '—' }}</span></div>
+                        <div class="audit-row"><span class="audit-key">平台</span><span class="audit-val audit-mono">{{ systemVersion.platform || '—' }}</span></div>
+                        <div v-if="!systemVersion.commit" class="audit-note">未检测到 git，仅显示包版本。</div>
+                    </template>
+                    <div v-else class="audit-muted">{{ iterationsLoading ? 'Loading…' : '暂无系统信息' }}</div>
                 </section>
             </div>
             <StoragePanel v-else-if="activeTab === 'storage'" />
@@ -2227,62 +2543,188 @@ watch(
     color: #fff;
 }
 
-/* ---------- Iterations 面板 ---------- */
-.iter-card {
+/* ---------- Iterations 面板（docs/web/迭代面板设计.md v1） ---------- */
+.iterations-body {
+    padding: 8px 10px;
+}
+.iter-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin: 4px 0;
+}
+.iter-summary {
+    display: flex;
+    gap: 12px;
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+}
+/* 窄栏：列表 / 详情二选一；最大化：左列表 / 右详情 */
+.iter-split {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.iter-split.split {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    column-gap: 20px;
+    align-items: start;
+}
+.iter-list {
+    min-width: 0;
+    margin-bottom: 0;
+}
+.iter-detail {
+    min-width: 0;
+    margin-bottom: 0;
+}
+.iter-detail-empty {
+    padding: 16px 4px;
+}
+.iter-search {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-code);
+    color: var(--fg);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: 8px;
-    margin-bottom: 10px;
+    padding: 4px 8px;
+    font-size: 11px;
 }
-.iter-toc-head {
+.iter-toc-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    width: 100%;
+    padding: 5px 6px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    font-size: 11px;
 }
-.iter-toc-title {
-    font-weight: 600;
+.iter-toc-row:hover {
+    background: var(--bg-hover);
+}
+.iter-toc-row.selected {
+    background: var(--accent-soft);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+.iter-toc-row-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--fg);
 }
-.iter-toc-meta {
-    font-size: 11px;
+.iter-toc-row-meta {
+    flex-shrink: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
     color: var(--fg-tertiary);
-    flex: 1;
 }
-.iter-reanalyze {
+.iter-badge-adopted {
+    flex-shrink: 0;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--ok-soft);
+    color: var(--ok);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 16px;
+}
+.iter-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-soft);
+}
+.iter-detail-id {
+    font-family: ui-monospace, monospace;
+    font-weight: 700;
     font-size: 11px;
-    border: 1px solid var(--border);
+    color: var(--fg);
+}
+.iter-detail-meta {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.iter-subhead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin: 8px 0 4px;
+}
+.iter-subhead-reports {
+    margin-top: 12px;
+}
+.iter-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fg-tertiary);
+}
+.iter-link {
+    border: none;
     background: transparent;
-    color: var(--fg-secondary);
-    border-radius: var(--radius-sm);
-    padding: 2px 6px;
+    padding: 0;
+    color: var(--accent);
+    font-size: 10px;
     cursor: pointer;
+}
+.iter-link:hover {
+    text-decoration: underline;
 }
 .iter-input {
     font-size: 11px;
     color: var(--fg-secondary);
     margin: 4px 0;
 }
-.iter-toc-text,
-.iter-output {
+/* 思维链原文：默认定高折叠，展开后完整显示 */
+.iter-toc-text {
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 11px;
+    line-height: 1.5;
     background: var(--bg-code);
     border-radius: var(--radius-sm);
-    padding: 6px;
-    max-height: 200px;
+    padding: 8px;
+    max-height: 160px;
     overflow: auto;
-    margin: 4px 0;
+    margin: 0;
+    color: var(--fg-secondary);
 }
-.iter-analysis {
-    border-top: 1px dashed var(--border);
-    padding-top: 6px;
-    margin-top: 6px;
+.iter-toc-text.expanded {
+    max-height: none;
 }
-.iter-analysis-head {
+/* 分析报告 */
+.iter-report {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    min-width: 0;
+}
+.iter-report-head {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.iter-report-meta {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--fg-tertiary);
 }
 .iter-status {
     font-size: 10px;
@@ -2293,18 +2735,33 @@ watch(
     color: var(--fg-tertiary);
 }
 .iter-status.succeeded {
-    color: #2e9e5b;
+    color: var(--ok);
 }
 .iter-status.failed {
     color: var(--error);
 }
-.iter-analysis-meta {
-    font-size: 11px;
-    color: var(--fg-tertiary);
+.iter-status.running,
+.iter-status.pending {
+    color: var(--accent);
+}
+.iter-report-body {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--fg-secondary);
+    overflow-wrap: anywhere;
 }
 .iter-error {
     font-size: 11px;
     color: var(--error);
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+}
+.iter-feedback-list {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 .iter-feedback {
     font-size: 11px;
@@ -2314,14 +2771,17 @@ watch(
 }
 .iter-feedback-meta {
     color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+    flex-shrink: 0;
 }
 .iter-feedback-form {
     display: flex;
     gap: 6px;
-    margin-top: 4px;
+    margin-top: 6px;
 }
 .iter-feedback-form input {
     flex: 1;
+    min-width: 0;
     background: var(--bg-code);
     color: var(--fg);
     border: 1px solid var(--border);
@@ -2337,5 +2797,195 @@ watch(
     padding: 2px 8px;
     font-size: 11px;
     cursor: pointer;
+}
+/* 迭代记录 */
+.iter-record {
+    border-bottom: 1px solid var(--border-soft);
+}
+.iter-record-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 4px;
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    font-size: 11px;
+}
+.iter-record-head:hover {
+    background: var(--bg-hover);
+}
+.iter-record-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg);
+    font-weight: 500;
+}
+.iter-record-versions {
+    flex-shrink: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.iter-record-body {
+    padding: 2px 4px 10px 18px;
+}
+.iter-record-source {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.iter-record-updated {
+    font-family: ui-monospace, monospace;
+}
+.iter-record-intent {
+    font-size: 11px;
+    color: var(--fg-secondary);
+    margin-bottom: 4px;
+}
+.iter-notes {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 6px;
+    background: var(--bg-code);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    font-size: 11px;
+    font-family: inherit;
+    resize: vertical;
+}
+.iter-record-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+.trace-chip:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.trace-chip.danger {
+    border-color: var(--error);
+    color: var(--error);
+}
+/* 系统版本 */
+.sys-version-hero {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 10px;
+}
+.sys-version-value {
+    font-family: ui-monospace, monospace;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--fg);
+}
+.sys-dirty {
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--warn-soft);
+    color: var(--warn);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 16px;
+}
+/* 报告正文的 Markdown 呈现（与 ExecStream 的 markdown-body 同款语义，面板内更紧凑） */
+.iter-report-body :deep(h1),
+.iter-report-body :deep(h2),
+.iter-report-body :deep(h3),
+.iter-report-body :deep(h4) {
+    margin: 0.9em 0 0.35em;
+    line-height: 1.35;
+    font-weight: 600;
+    color: var(--fg);
+}
+.iter-report-body :deep(h1) { font-size: 1.25em; }
+.iter-report-body :deep(h2) { font-size: 1.15em; }
+.iter-report-body :deep(h3) { font-size: 1.05em; }
+.iter-report-body :deep(h1:first-child),
+.iter-report-body :deep(h2:first-child),
+.iter-report-body :deep(p:first-child) {
+    margin-top: 0;
+}
+.iter-report-body :deep(p),
+.iter-report-body :deep(ul),
+.iter-report-body :deep(ol),
+.iter-report-body :deep(blockquote),
+.iter-report-body :deep(pre),
+.iter-report-body :deep(table) {
+    margin: 0.45em 0;
+}
+.iter-report-body :deep(ul),
+.iter-report-body :deep(ol) {
+    padding-left: 1.4em;
+}
+.iter-report-body :deep(li) {
+    margin: 0.2em 0;
+}
+.iter-report-body :deep(code) {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: var(--bg-code);
+    border-radius: 4px;
+    padding: 0.15em 0.4em;
+    color: var(--fg);
+}
+.iter-report-body :deep(pre) {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    overflow-x: auto;
+    line-height: 1.45;
+}
+.iter-report-body :deep(pre code) {
+    background: transparent;
+    padding: 0;
+    white-space: pre;
+}
+.iter-report-body :deep(blockquote) {
+    border-left: 3px solid var(--border);
+    padding-left: 10px;
+    margin-left: 0;
+    color: var(--fg-tertiary);
+}
+.iter-report-body :deep(a) {
+    color: var(--accent);
+    text-decoration: none;
+}
+.iter-report-body :deep(a:hover) {
+    text-decoration: underline;
+}
+.iter-report-body :deep(table) {
+    border-collapse: collapse;
+    font-size: 11px;
+    display: block;
+    overflow-x: auto;
+}
+.iter-report-body :deep(th),
+.iter-report-body :deep(td) {
+    border: 1px solid var(--border);
+    padding: 4px 8px;
+}
+.iter-report-body :deep(th) {
+    background: var(--bg-hover);
+    font-weight: 600;
+}
+.iter-report-body :deep(hr) {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 0.9em 0;
 }
 </style>

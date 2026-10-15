@@ -40,6 +40,20 @@ export {
     parseDeepseekPricingPage,
     peakMultiplierOf,
 } from '@mazi/provider';
+// 系统迭代记录（分析报告 → 系统改动的闭环；状态机 + 版本快照由 API 层注入）
+export {
+    type IterationStore,
+    MemoryIterationStore,
+    SqliteIterationStore,
+} from './analysis/iteration-store.js';
+export {
+    type CreateIterationInput,
+    canTransition,
+    ITERATION_STATUSES,
+    IterationTracker,
+    type IterationTrackerDeps,
+    type UpdateIterationPatch,
+} from './analysis/iteration-tracker.js';
 export { type AnalyzeTocInput, TocAnalyst, type TocAnalystDeps } from './analysis/toc-analyst.js';
 // TOC / 独立分析 / 反馈（Iterations 面板的数据面；不进 Goal 坐标系）
 export {
