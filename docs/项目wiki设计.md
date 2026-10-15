@@ -25,6 +25,20 @@
 | 7 | 事件格式 | `- <时间> \| <功能级改动>`，**不下沉到文件**（如「新增项目 wiki 读取与上下文注入」） |
 | 8 | 快照刷新 | **阈值 + 会话结束**：变更累计 ≥ 10 条 或 会话结束 → 刷新状态快照；变更日志只追加 |
 | 9 | 交付范围 | **runtime + API + WebUI** 三层 |
+| 10 | 架构分层 | **runtime 事实/契约层 + 技能策略层 + 插件扩展层**（见 §2.1） |
+| 11 | 技能交付 | **用户级技能模板**（`docs/templates/skills/project-wiki/`，经 `/api/capabilities` 创建；不违反 能力包规范 §8 SK-5） |
+
+### 2.1 分层与边界（为什么 runtime 层不可省）
+
+本仓库 Skill 规范（docs/能力包规范.md §1/§2/§7）明确：Skill 是 **SKILL.md 文本资产**，不注册新工具、不改工具面/权限、不订阅事件；新工具 / 私有数据面 / 机械约束归插件或 MCP server。据此分三层：
+
+| 层 | 归属 | 承担 | 不承担 |
+| -- | ---- | ---- | ------ |
+| 事实/契约层 | runtime（本设计主体） | 写工具捕获、回合末兜底 diff、`时间 \| 改动` 日志（append-only）、存储/原子写/项目名治理/预算截断、新会话注入、`wiki.read`/`wiki.update` 两个稳定工具名、`WikiSummarizer` 策略插槽 | 摘要口径与文风、图谱/检索 |
+| 策略层 | 用户级 Skill（模板见 §11.1） | 何时刷新、快照分区口径、功能级摘要写法、审查清单 | 无法保证「每次写入必有记录」「新会话必然注入」 |
+| 扩展层 | 插件 / MCP server（本期不做） | 图谱、向量检索等新工具与新数据面；数据落 `$MAZI_HOME/wiki/<项目名>/graph/` sidecar | 不得改写 wiki.md 的日志区 |
+
+结论：**两条硬需求只有 runtime 层能保证**——「写工具事实」只有 harness 观测得到，「必然注入」只有 context 层做得到；技能层负责质量与可移植，插件层负责重型引擎。三者通过 §9/§11.1 的契约配合：日志区仅 harness 追加、快照区可被模型/技能/插件写、工具名稳定。
 
 ## 3. 目标 / 非目标
 
@@ -130,7 +144,7 @@ $MAZI_HOME/wiki/
 
 ### 7.2 回合末兜底（间接写入）
 
-- 会话开始建立工作区轻量快照：git 仓库用 `git status --porcelain` + `git diff --stat`（HEAD 对齐）；非 git 仓库/无 git 时用「路径 + size + mtime」索引（忽略集同 §7.1，深度与条目数设上限）。
+- 会话开始建立工作区轻量快照：**统一使用「相对路径 + size + mtime」索引**（忽略集同 §7.1，条目上限 20000）。理由：git 仓库与非 git 工作区行为一致、无 git 依赖；`size` 变化对新建与内容改动都敏感。git 历史仍由 `git` 工具按需查询，不参与兜底。
 - 回合结束再取一次，对比得到 added/modified/deleted 列表，与 §7.1 pending 合并去重 → 得到「本回合真实改动集」。
 - 兜底仅补事实，不重复记条：同一路径同回合只产生一条功能级条目。
 
@@ -140,7 +154,9 @@ $MAZI_HOME/wiki/
 - 输入：合并后的改动集（路径按顶层模块聚合）+ 本回合用户请求 + 助手最终答复要点 + 既有「进行中的工作」。
 - 输出：1–3 条 `功能级` 描述，落到 `## 变更日志`：`- 2026-10-16 02:13:40 | 新增项目 wiki 的读取、注入与变更记录`。
 - **不写文件名**；必要时用模块粒度括注（如「（runtime/API）」）。
+- 条目文本由 **`WikiSummarizer` 策略插槽**生成：默认 `TemplateSummarizer`（确定性、零模型调用、保证必有记录）；需要更好文风时注入 `createLlmSummarizer(complete)`（模型输出 JSON 数组，解析失败自动降级模板）。
 - 降级：摘要调用超时/失败/输出不合规 → 用确定性模板兜底（`更新了 N 个模块：runtime、API`），保证记录不丢。
+- 技能层不重复记账：runtime 已保证事实记录，`project-wiki` 技能的职责是**快照口径**；只有发现 runtime 漏记时才用 `wiki.update` 追加条目。
 - 变更日志保留上限：默认 500 条，超出时把最旧的 N 条折叠为一行汇总（`—— 更早 M 条变更已折叠 ——` 之上汇总为 1 行），避免文件无限膨胀。
 
 ## 8. 新会话读取与注入
@@ -150,6 +166,7 @@ $MAZI_HOME/wiki/
 - 预算：默认 ≤ 1500 token（约 6000 字符）；超限按 概览 > 进行中的工作 > 最近变更 顺序截断，并标注「（已截断，完整内容见 wiki.read）」。
 - 首次会话（wiki 不存在）：不注入空片段，改为注入一句「本项目尚无 wiki；如有结构性改动请在收尾时刷新 `wiki.update`」。
 - 注入内容视为**项目事实**，但属于模型可写来源 → 注入面治理（脱敏、长度上限）沿用 ContextManager 既有 hook 管线。
+- 片段拼接顺序：基础 system prompt → Skill 目录 → Feature 片段 → **项目 wiki 快照**（wiki 最后，靠近决策点）；wiki 缺失时只注入一句提示。
 
 ## 9. 工具
 
@@ -178,6 +195,14 @@ $MAZI_HOME/wiki/
 - 入口：侧边栏（Sidebar）在项目会话下显示「Wiki」；数据来自 `GET /api/wiki`，客户端状态加到 `apps/webui/src/api.ts` 与 `types.ts`。
 - 不做编辑（本期只读）。
 
+### 11.1 技能模板（用户级，非内置）
+
+- 模板文件：`docs/templates/skills/project-wiki/SKILL.md`。随仓库分发的是**模板**，不落 `builtin-skills/`，符合 能力包规范 §8 SK-5「核心零领域」。
+- 安装：复制到 `$MAZI_HOME/skills/project-wiki/SKILL.md`，或用 `POST /api/capabilities` 新建 + `POST /api/capabilities/project-wiki/mount` 挂载。
+- 职责：快照分区口径、功能级摘要写法、何时刷新、审查清单；只用既有工具 `wiki.read` / `wiki.update`（Skill 不注册新工具）。
+- 与 runtime 的配合：runtime 保证「每次写入必有记录」并负责注入；技能负责「快照与措辞质量」，不重复记账（避免同一改动出现两条）。
+- 插件扩展（本期不做）：graph-wiki 一类引擎把图谱数据放 `$MAZI_HOME/wiki/<项目名>/graph/`，工具面按插件/MCP 设计另行登记；wiki.md 的日志区始终由 harness 独占。
+
 ## 12. 配置（settings.json 的 `wiki` 段，全部可选）
 
 | 键 | 默认 | 说明 |
@@ -186,7 +211,7 @@ $MAZI_HOME/wiki/
 | `injectBudgetTokens` | `1500` | 注入预算 |
 | `snapshotThreshold` | `10` | 累计变更条数达到即刷新快照 |
 | `logLimit` | `500` | 变更日志保留条数 |
-| `summaryModel` | 会话当前模型 | 摘要/快照刷新所用模型 |
+| `summaryModel` | 未设置 | **预留**：模型摘要 provider 的模型选择；本期条目文本默认走确定性模板（§7.3），注入 `createLlmSummarizer` 后消费 |
 
 ## 13. 并发与一致性
 
@@ -214,6 +239,7 @@ $MAZI_HOME/wiki/
 - `wiki-writer.test.ts`：写工具成功 → pending 一条；同回合重复路径去重；无写入不触发摘要调用；bash 间接写入被兜底 diff 捕获；摘要失败走模板降级；阈值触发快照刷新；会话结束触发刷新。
 - `wiki-inject.test.ts`：新会话 system prompt 含快照与「最近变更」；超预算截断标记；wiki 缺失时不注入、给出提示句；`enabled=false` 不注入。
 - `wiki-tools.test.ts`：`wiki.read` 分区读取；`wiki.update` 快照替换 + 条目追加 + 权限映射。
+- `wiki-runtime-integration.test.ts`：新会话 system prompt 含 wiki 快照；模型调用 `fs.write` 后回合收尾落一条『时间 | 改动』；无写入的会话不产生条目。
 
 **API（`apps/api/test/`）**
 
@@ -235,16 +261,26 @@ $MAZI_HOME/wiki/
 | 里程碑 | 内容 | 主要文件 |
 | ------ | ---- | -------- |
 | M1 | 本设计文档确认 | `docs/项目wiki设计.md`（已提交） |
-| M2 | runtime：命名/存储 → 捕获 → 摘要 → 注入 → 工具（测试先行） | `packages/runtime/src/paths.ts`、新增 `packages/runtime/src/wiki/*`、`harness/runtime.ts`、`gts/goal-executor.ts`、`tool-gateway/*` |
+| M2 | runtime：命名/存储 → 捕获 → 摘要 → 注入 → 工具（测试先行） | `packages/runtime/src/paths.ts`、新增 `packages/runtime/src/wiki/*`、`harness/runtime.ts`、`config.ts`、`configs/config-io.ts` |
+| M2d | 分层落地：设计文档分层章节 + 用户级技能模板 | `docs/项目wiki设计.md`、`docs/templates/skills/project-wiki/SKILL.md` |
 | M3 | API：只读接口 + 测试 | `apps/api/src/wiki/*`、`app.module.ts`、`apps/api/test/wiki.controller.test.ts` |
 | M4 | WebUI：只读查看页 + 入口 + 测试 | `apps/webui/src/components/WikiPage.vue`、`App.vue`、`Sidebar.vue`、`api.ts`、`types.ts`、`apps/webui/test/*` |
 | M5 | 文档收尾：README 文档地图/AGENT 约定 + 端到端验收 | `README.md`、`docs/TODO.md`（如适用） |
 
 每个里程碑独立 commit；每个里程碑的测试先于实现落地。
 
-## 17. 待确认/可调整项（请指正）
+## 17. 已确认与后续可选
 
-1. 「逐次原始写记录」是否接受**只存在于既有 tool_call step（mazi.db/事件流）**，wiki.md 只保留功能级条目？（对应你选的「单文件」）
-2. 变更日志是否需要模块级括注（如「（runtime/API）」）？还是严格只要『时间 | 改动』两列？
-3. WebUI 入口放**侧边栏**（项目会话下显示）是否合适？
-4. 摘要用「会话当前模型」还是指定一个便宜模型？
+**已确认（2026-10-16 对齐）**
+
+1. 逐次原始写记录只存在于既有 tool_call step（mazi.db / 事件流）；wiki.md 只保留功能级条目（单文件）。
+2. 条目格式 `- 时间 | 功能级改动`，必要时带模块括注（如「（runtime/API）」），不写文件名。
+3. 架构分层：runtime 事实/契约层 + 用户级技能策略层 + 插件扩展层（§2.1）。
+4. 技能以**用户级模板**交付，不破例内置（符合 SK-5）。
+5. WebUI 入口放侧边栏（项目会话下显示），只读。
+
+**后续可选**
+
+- 模型摘要 provider 接入（配置 `wiki.summaryModel`，实现 `createLlmSummarizer`）。
+- graph-wiki 类插件：图谱 sidecar + 新工具面（独立设计文档）。
+- 跨项目检索 / wiki 历史版本链。
