@@ -378,7 +378,7 @@ mazi/
 - **模板功能**：prompt 模板、Skills、网页模板、输出结构模板；
 - **评估深化**：独立 Reflector 与 LLM-as-Verifier 校准；
 - **策略生态**：策略插件配置与第三方策略注册。
-- ~~AB测试：通过flag开关，测试feature的增益~~ ✅ **已实现**（[设计文档](./docs/AB测试设计.md)：Feature 开关 + 实验台 + 独立实验日志复盘）
+- ~~AB测试：通过flag开关，测试feature的增益~~ ✅ **已实现**（[设计文档](./docs/AB测试设计.md)：Feature 开关 + AB 实验室 + 独立实验日志复盘）
 - 多Agent编排
 - 知识库
 - Agent监督：可以监督其他Agent框架智能体工作

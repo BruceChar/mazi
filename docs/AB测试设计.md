@@ -1,14 +1,14 @@
 # AB 测试（对照实验）与 Feature 开关设计
 
 > 版本：v1.0 · 状态：设计定稿（待评审）
-> 范围：`packages/core`（Feature / Experiment 契约、观测事件）、`packages/runtime`（FeatureRuntime、ExperimentStore、ExperimentRunner）、`apps/api`（REST）、`apps/webui`（Feature 设置页 + 实验台）、`packages/libs`（文本 diff）。
+> 范围：`packages/core`（Feature / Experiment 契约、观测事件）、`packages/runtime`（FeatureRuntime、ExperimentStore、ExperimentRunner）、`apps/api`（REST）、`apps/webui`（Feature 设置页 + AB 实验室）、`packages/libs`（文本 diff）。
 > 依据：README §13 Roadmap「AB测试：通过flag开关，测试feature的增益」；AGENT.md「文档优先 + 测试先行 + 原子提交」；`docs/能力包规范.md`（Skill 边界）。
 
 ---
 
 ## 1. 需求
 
-一句话：**给 harness 一个「对照实验台」——同一输入、同一工作区，只改一个自变量（Feature 开关 / Skill 集合 / 模型 / 权限 / 推理档），分 A/B 两臂各跑一次 Goal，并排看最终输出与 Trace，结果写入独立实验日志，可随时复盘。**
+一句话：**给 harness 一个「对照AB 实验室」——同一输入、同一工作区，只改一个自变量（Feature 开关 / Skill 集合 / 模型 / 权限 / 推理档），分 A/B 两臂各跑一次 Goal，并排看最终输出与 Trace，结果写入独立实验日志，可随时复盘。**
 
 用户画像（原话转译）：
 
@@ -151,7 +151,7 @@ export interface RunOptions {
 
 > 关闭 feature 等于不追加片段、不调整技能/工具，与改动前完全一致；因此 Feature 系统的引入不改变任何既有会话的行为。
 >
-> **普通会话按全局默认开关运行，实验台用运行期 override 覆盖单个臂**；两条路径共用同一解析函数 `resolveFeatures`（只是 override 来源不同），因此「实验里测出来的增益」与「开关打开后普通对话的真实行为」是同一份代码。
+> **普通会话按全局默认开关运行，AB 实验室用运行期 override 覆盖单个臂**；两条路径共用同一解析函数 `resolveFeatures`（只是 override 来源不同），因此「实验里测出来的增益」与「开关打开后普通对话的真实行为」是同一份代码。
 
 ---
 
@@ -260,7 +260,7 @@ compareArms → experiment.completed
 - **同一工作区**：实验定义固定 `workspace`；运行期由 API 层 `setWorkspaceRoot` 后执行，两臂一致。
 - **基线快照**：`baseline` 在实验定义时冻结（permissionCeiling / reasoningLevel / 挂载技能快照 `skillIds`），运行时不再重读全局——保证可复现。
 - **失败语义**：单臂失败不阻断另一臂（对照实验要拿到两边的数据）；两臂都失败 → `experiment.completed` 仍写入（comparison 标注失败），整体流程只在「日志写入失败 / 创建会话失败」时落 `experiment.failed`。
-- **中止（本期边界）**：实验在单次 POST 内同步完成两臂，不提供运行中停止（进程内串行锁已阻止并发实验；如需中止，等待当前臂结束或在实验台删除该实验日志）。若未来开放并发，再补 stop 语义，届时 `status='aborted'` 计入指标、实验状态标 `aborted`。
+- **中止（本期边界）**：实验在单次 POST 内同步完成两臂，不提供运行中停止（进程内串行锁已阻止并发实验；如需中止，等待当前臂结束或在AB 实验室删除该实验日志）。若未来开放并发，再补 stop 语义，届时 `status='aborted'` 计入指标、实验状态标 `aborted`。
 - **局部失败隔离**：任何一臂抛错都被捕获并记录为该臂的 `error`，不污染进程状态。
 
 ---
@@ -299,12 +299,12 @@ compareArms → experiment.completed
 
 沿用 Skills 面板形态：列表（名称 / 描述 / 开关 / 覆盖项标签）+ 新建表单（id、name、description、promptFragment、skills、allowedTools、reasoningLevel）+ 删除确认。开关改动立即写 `features.json`（无需重启，因为运行期每次解析）。
 
-### 9.2 实验台（Experiments）
+### 9.2 AB 实验室（Experiments）
 
-新增主视图 `ui.view = 'experiments'`（侧边栏「实验台」入口）：
+新增主视图 `ui.view = 'experiments'`（侧边栏「AB 实验室」入口）：
 
 ```
-┌ 实验台 ─────────────────────────────────────────────────────────────┐
+┌ AB 实验室 ─────────────────────────────────────────────────────────────┐
 │ [新建实验]  历史实验列表（状态徽标 / 标题 / 输入摘要 / 时间）        │
 ├─────────────────────────────────────────────────────────────────────┤
 │ 自变量：kind= model | feature | skill | permission | reasoning       │
@@ -375,7 +375,7 @@ compareArms → experiment.completed
 | `apps/api/src/features/` | §8.1 端点 |
 | `apps/api/src/experiments/` | §8.2 端点 |
 | `apps/webui/src/components/FeaturesPanel.vue` | 设置页开关管理 |
-| `apps/webui/src/components/ExperimentsPage.vue` | 实验台（双窗 + 对比 + 复盘） |
+| `apps/webui/src/components/ExperimentsPage.vue` | AB 实验室（双窗 + 对比 + 复盘） |
 
 ### 12.1 提交拆分（原子提交）
 
@@ -386,11 +386,11 @@ compareArms → experiment.completed
 5. `feat(libs): 行级文本 diff 纯函数（实验输出并排对比）`
 6. `feat(runtime): 实验日志存储/折叠复盘 + 指标采集 + 对照执行器`
 7. `feat(api): Feature 与 Experiment 接口（开关 CRUD/解析 + 对照实验创建/复盘/重跑）`
-8. `feat(webui): 实验台（A/B 双窗 + 输出/Trace 对比 + 复盘）与 Feature 设置面板`
+8. `feat(webui): AB 实验室（A/B 双窗 + 输出/Trace 对比 + 复盘）与 Feature 设置面板`
 9. `feat(webui): 输出并排 diff 显示相似度与增删行数`
 10. `docs: 更新设计文档地图与 README`
 
-> 注：Feature 设置面板与实验台同属一条 UI 交付，合并为第 8 条提交（store 中两段状态耦合在同一文件）。
+> 注：Feature 设置面板与AB 实验室同属一条 UI 交付，合并为第 8 条提交（store 中两段状态耦合在同一文件）。
 
 ---
 
@@ -420,14 +420,14 @@ compareArms → experiment.completed
 | `dbd56fc` | libs：`diffText` 行级 diff |
 | `ae0bd07` | runtime：实验 JSONL 存储 + 折叠复盘 + 指标 + 执行器 |
 | `c9c6b20` | api：`/api/features` + `/api/experiments` |
-| `2f575b9` | webui：实验台 + Feature 设置面板 |
+| `2f575b9` | webui：AB 实验室 + Feature 设置面板 |
 | `9973c1e` | webui：输出 diff 相似度 |
 | `2ceeeef` | runtime/api：普通会话按全局 Feature 开关运行，恢复同样携带运行级覆盖 |
 
 验证（本次交付末次运行）：
 
 - `pnpm build`：6/6 成功（core / provider / libs / runtime / api / webui）；
-- `pnpm test`：138 个测试文件、815 个用例全绿（新增：Feature 解析 10、Experiment 契约 7、Feature 运行时 10、运行级覆盖 6、diff 5、实验存储 8、spec 6、指标 3、执行器 3、Feature 接口 6、实验接口 5、实验服务 5、实验台投影 14）；
+- `pnpm test`：138 个测试文件、815 个用例全绿（新增：Feature 解析 10、Experiment 契约 7、Feature 运行时 10、运行级覆盖 6、diff 5、实验存储 8、spec 6、指标 3、执行器 3、Feature 接口 6、实验接口 5、实验服务 5、AB 实验室投影 14）；
 - `biome check`：本次新增/修改的源文件无 error（仓库既有文件存在历史 lint 诊断，未在本特性范围内改动）。
 
 已知边界（与 §11 一致）：不做 LLM judge、多臂、显著性检验；实验串行执行；实验执行不写 Conversation。
