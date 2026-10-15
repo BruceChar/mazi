@@ -293,6 +293,10 @@ const conversationRuns = computed(() =>
 const auditSnapshot = computed(() =>
     current.value ? (runDetails[current.value] ?? detail.value ?? null) : (detail.value ?? null),
 );
+/** Trace 列表 Run 头标题：会话内 run 顺序（1-based）+ 用户输入摘要。 */
+const traceRuns = computed(() =>
+    runs.value.map((run, index) => ({ runIndex: index + 1, input: run.input || '' })),
+);
 const auditLiveSteps = computed(() => (current.value ? liveSteps[current.value] || [] : []));
 
 const auditView = computed(() =>
@@ -986,6 +990,7 @@ onBeforeUnmount(() => {
             :show-all-events="showAllEvents"
             :audit="auditView"
             :trace="conversationAudit"
+            :runs="traceRuns"
             @select-step="onSelectStep"
             @locate-step="onLocateStep"
             @select-conversation="onSelectConversation"

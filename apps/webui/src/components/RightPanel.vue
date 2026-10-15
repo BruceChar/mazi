@@ -12,7 +12,7 @@ import {
     formatSigned,
     formatTokens,
 } from '../scripts/audit.ts';
-import { buildTraceBoard, filterTraceGroups } from '../scripts/trace.ts';
+import { buildTraceBoard, filterTraceRuns } from '../scripts/trace.ts';
 import {
     analyzeToc,
     copyThinkingChain,
@@ -43,6 +43,8 @@ const props = defineProps({
     audit: { type: Object, default: null },
     /** 会话级 AuditView（buildAuditView 无选择时的结果）：Trace 看板的 rows / KPI 来源。 */
     trace: { type: Object, default: null },
+    /** 会话内按顺序的 run（`{ runIndex, input }`）：Trace 列表的 Run 头标题。 */
+    runs: { type: Array, default: () => [] },
 });
 const emit = defineEmits([
     'update:activeTab',
@@ -222,19 +224,38 @@ const traceBoard = computed(() =>
         rows: props.trace?.rows ?? [],
         usage: props.trace?.usage ?? null,
         tasks: props.trace?.tasks ?? [],
+        runs: props.runs ?? [],
     }),
 );
 const traceSummary = computed(() => traceBoard.value.summary);
-const traceGroups = computed(() => filterTraceGroups(traceBoard.value.groups, traceFilter.value));
-/** 列表渲染项：分组头 + 展平的 span（模型步 depth 0，工具子步 depth 1）。 */
+const traceRuns = computed(() => filterTraceRuns(traceBoard.value.runs, traceFilter.value));
+/** Run / Task 两级折叠态（默认展开）。 */
+const collapsedRuns = ref(new Set());
+const collapsedTasks = ref(new Set());
+function toggleRun(key) {
+    const next = new Set(collapsedRuns.value);
+    next.has(key) ? next.delete(key) : next.add(key);
+    collapsedRuns.value = next;
+}
+function toggleTask(key) {
+    const next = new Set(collapsedTasks.value);
+    next.has(key) ? next.delete(key) : next.add(key);
+    collapsedTasks.value = next;
+}
+/** 列表渲染项：Run 头 → Task 头 → 展平的 span（工具子步 depth 1）。 */
 const traceItems = computed(() => {
     const items = [];
-    for (const group of traceGroups.value) {
-        items.push({ kind: 'group', key: 'group:' + group.key, group });
-        for (const span of group.spans) {
-            items.push({ kind: 'span', key: span.stepId, span, depth: 0 });
-            for (const child of span.children) {
-                items.push({ kind: 'span', key: child.stepId, span: child, depth: 1 });
+    for (const run of traceRuns.value) {
+        items.push({ kind: 'run', key: run.key, run });
+        if (collapsedRuns.value.has(run.key)) continue;
+        for (const task of run.tasks) {
+            items.push({ kind: 'task', key: task.key, task });
+            if (collapsedTasks.value.has(task.key)) continue;
+            for (const span of task.spans) {
+                items.push({ kind: 'span', key: span.stepId, span, depth: 0 });
+                for (const child of span.children) {
+                    items.push({ kind: 'span', key: child.stepId, span: child, depth: 1 });
+                }
             }
         }
     }
@@ -427,31 +448,7 @@ watch(
             </div>
 
             <div v-if="activeTab === 'trace' && audit" class="drawer-body audit-body trace-body">
-                <div class="audit-head">
-                    <div class="audit-head-main">
-                        <div class="audit-title">
-                            {{ audit.title }}
-                            <span v-if="audit.status" class="audit-status" :class="statusClass(audit.status)">{{ audit.status }}</span>
-                            <span v-if="audit.taskStatus" class="audit-status task" :class="statusClass(audit.taskStatus)">task: {{ audit.taskStatus }}</span>
-                        </div>
-                        <div v-if="audit.subtitle" class="audit-subtitle">{{ audit.subtitle }}</div>
-                    </div>
-                    <div
-                        v-if="audit.startedAt"
-                        class="audit-head-start"
-                        :title="'执行开始时间：' + fmtPrecise(audit.startedAt)"
-                    >{{ fmtPrecise(audit.startedAt) }}</div>
-                    <button
-                        class="audit-info-btn"
-                        :class="{ on: audit.kind === 'conversation' }"
-                        title="会话汇总（清空 Step/Task 选择）"
-                        @click="emit('select-conversation')"
-                    >
-                        <LineIcon name="info" size="14" />
-                    </button>
-                </div>
-
-                <!-- Trace KPI 概览：会话级事实，不随 Step/Task 选择变化 -->
+                <!-- Trace KPI 概览：面板最上面，会话级事实，不随 Step/Task 选择变化 -->
                 <section class="trace-kpi">
                     <div class="trace-kpi-card">
                         <span class="trace-kpi-label">步骤</span>
@@ -480,25 +477,49 @@ watch(
                     </div>
                 </section>
 
+                <div class="audit-head">
+                    <div class="audit-head-main">
+                        <div class="audit-title">
+                            {{ audit.title }}
+                            <span v-if="audit.status" class="audit-status" :class="statusClass(audit.status)">{{ audit.status }}</span>
+                            <span v-if="audit.taskStatus" class="audit-status task" :class="statusClass(audit.taskStatus)">task: {{ audit.taskStatus }}</span>
+                        </div>
+                        <div v-if="audit.subtitle" class="audit-subtitle">{{ audit.subtitle }}</div>
+                    </div>
+                    <div
+                        v-if="audit.startedAt"
+                        class="audit-head-start"
+                        :title="'执行开始时间：' + fmtPrecise(audit.startedAt)"
+                    >{{ fmtPrecise(audit.startedAt) }}</div>
+                    <span v-if="tocTarget" class="toc-menu">
+                        <button
+                            class="toc-menu-trigger"
+                            :class="{ copied: copiedToc }"
+                            title="TOC"
+                            @click.stop="toggleTocMenu()"
+                        >
+                            <LineIcon name="more" size="14" />
+                        </button>
+                        <span v-if="tocMenuOpen" class="toc-menu-pop">
+                            <button @click.stop="copyFromMenu(tocTarget)">{{ copiedToc ? 'Copied' : 'Copy' }}</button>
+                            <button @click.stop="analyzeFromMenu(tocTarget)">Analyze</button>
+                        </span>
+                    </span>
+                    <button
+                        class="audit-info-btn"
+                        :class="{ on: audit.kind === 'conversation' }"
+                        title="会话汇总（清空 Step/Task 选择）"
+                        @click="emit('select-conversation')"
+                    >
+                        <LineIcon name="info" size="14" />
+                    </button>
+                </div>
+
                 <!-- Trace 列表：时间线 / Context 两种视图，单击选中、双击定位 -->
-                <section class="audit-section trace-list">
+                <section v-if="maximized" class="audit-section trace-list">
                     <div class="audit-section-title">
                         <span>Trace</span>
-                        <span class="audit-pct">{{ traceGroups.length }} 组 · {{ traceSummary.steps }} span</span>
-                        <span v-if="tocTarget" class="toc-menu">
-                            <button
-                                class="toc-menu-trigger"
-                                :class="{ copied: copiedToc }"
-                                title="TOC"
-                                @click.stop="toggleTocMenu()"
-                            >
-                                <LineIcon name="more" size="14" />
-                            </button>
-                            <span v-if="tocMenuOpen" class="toc-menu-pop">
-                                <button @click.stop="copyFromMenu(tocTarget)">{{ copiedToc ? 'Copied' : 'Copy' }}</button>
-                                <button @click.stop="analyzeFromMenu(tocTarget)">Analyze</button>
-                            </span>
-                        </span>
+                        <span class="audit-pct">{{ traceRuns.length }} run · {{ traceSummary.steps }} span</span>
                     </div>
 
                     <div class="trace-toolbar">
@@ -527,12 +548,29 @@ watch(
 
                     <div class="trace-groups">
                         <template v-for="item in traceItems" :key="item.key">
-                            <div v-if="item.kind === 'group'" class="trace-group-head">
-                                <span class="trace-group-loc">R#{{ item.group.runIndex }}·T#{{ item.group.taskIndex }}</span>
-                                <span class="trace-group-title">{{ item.group.title || 'Task' }}</span>
-                                <span class="audit-status" :class="statusClass(item.group.status)">{{ item.group.status }}</span>
-                                <span class="trace-group-meta">{{ item.group.stepCount }} 步 · {{ formatDuration(item.group.durationMs) || '—' }}</span>
-                            </div>
+                            <button
+                                v-if="item.kind === 'run'"
+                                class="trace-run-head"
+                                :title="collapsedRuns.has(item.run.key) ? '展开该 Run' : '折叠该 Run'"
+                                @click="toggleRun(item.run.key)"
+                            >
+                                <span class="trace-head-caret">{{ collapsedRuns.has(item.run.key) ? '+' : '−' }}</span>
+                                <span class="trace-run-loc">R#{{ item.run.runIndex }}</span>
+                                <span class="trace-run-title">{{ item.run.title || 'Run' }}</span>
+                                <span class="trace-head-meta">{{ item.run.stepCount }} 步 · {{ formatDuration(item.run.durationMs) || '—' }}</span>
+                            </button>
+                            <button
+                                v-else-if="item.kind === 'task'"
+                                class="trace-task-head"
+                                :title="collapsedTasks.has(item.task.key) ? '展开该 Task' : '折叠该 Task'"
+                                @click="toggleTask(item.task.key)"
+                            >
+                                <span class="trace-head-caret">{{ collapsedTasks.has(item.task.key) ? '+' : '−' }}</span>
+                                <span class="trace-task-loc">R#{{ item.task.runIndex }}·T#{{ item.task.taskIndex }}</span>
+                                <span class="trace-task-title">{{ item.task.title || 'Task' }}</span>
+                                <span class="audit-status" :class="statusClass(item.task.status)">{{ item.task.status }}</span>
+                                <span class="trace-head-meta">{{ item.task.stepCount }} 步 · {{ formatDuration(item.task.durationMs) || '—' }}</span>
+                            </button>
                             <div v-else class="trace-item">
                                 <div
                                     class="trace-span"
@@ -1409,24 +1447,68 @@ watch(
     display: flex;
     flex-direction: column;
 }
-.trace-group-head {
+/* Run 头（第一级，可折叠）：run 序号 + 用户输入摘要 + 步数/耗时 */
+.trace-run-head {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 2px 3px;
+    width: 100%;
+    padding: 5px 4px;
+    border: none;
     border-top: 1px solid var(--border-soft);
+    background: transparent;
+    text-align: left;
     font-size: 11px;
+    cursor: pointer;
 }
-.trace-group-head:first-child {
+.trace-run-head:first-child {
     border-top: none;
 }
-.trace-group-loc {
+.trace-run-head:hover {
+    background: var(--bg-hover);
+}
+.trace-run-loc {
+    flex-shrink: 0;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 700;
+}
+.trace-run-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--fg);
+}
+/* Task 头（第二级，可折叠）：R#/T# + 任务标题 + 状态 + 步数/耗时 */
+.trace-task-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 4px 4px 20px;
+    border: none;
+    background: transparent;
+    text-align: left;
+    font-size: 11px;
+    cursor: pointer;
+}
+.trace-task-head:hover {
+    background: var(--bg-hover);
+}
+.trace-task-loc {
     flex-shrink: 0;
     font-family: ui-monospace, monospace;
     font-size: 10px;
     color: var(--fg-tertiary);
 }
-.trace-group-title {
+.trace-task-title {
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -1435,7 +1517,19 @@ watch(
     font-weight: 500;
     color: var(--fg);
 }
-.trace-group-meta {
+/* Run / Task 头共用：折叠标识与右侧聚合信息 */
+.trace-head-caret {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--fg-tertiary);
+}
+.trace-head-meta {
     flex-shrink: 0;
     font-family: ui-monospace, monospace;
     font-size: 10px;
@@ -1446,7 +1540,7 @@ watch(
     grid-template-columns: 14px 66px 46px minmax(0, 1fr) 46px 40px;
     align-items: center;
     gap: 5px;
-    padding: 3px 4px;
+    padding: 3px 4px 3px 34px;
     border-radius: 4px;
     font-size: 11px;
     cursor: pointer;
@@ -1461,14 +1555,14 @@ watch(
 /* 工具子 span：缩进 + 竖向引导线，保持「模型步 → 工具调用」的树形可读性。 */
 .trace-span.child {
     position: relative;
-    padding-left: 14px;
+    padding-left: 48px;
 }
 .trace-span.child::before {
     content: '';
     position: absolute;
     top: 2px;
     bottom: 2px;
-    left: 6px;
+    left: 40px;
     width: 1px;
     background: var(--border);
 }
@@ -1549,11 +1643,6 @@ watch(
 .trace-delta.up { color: var(--ok); }
 .trace-delta.down { color: var(--warn); }
 .trace-delta.flat { color: var(--fg-tertiary); }
-/* 窄栏下 trace 列表限高，避免长 trace 把明细推到屏幕之外。 */
-.right-panel:not(.maximized) .trace-groups {
-    max-height: 40vh;
-    overflow: auto;
-}
 .trace-item .ctx-diff {
     padding-left: 22px;
 }
@@ -2053,8 +2142,8 @@ watch(
 .toc-menu-pop {
     position: absolute;
     right: 0;
-    bottom: 100%;
-    margin-bottom: 4px;
+    top: 100%;
+    margin-top: 4px;
     z-index: 30;
     display: inline-flex;
     gap: 4px;

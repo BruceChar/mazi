@@ -89,6 +89,26 @@ export interface TraceGroup {
     spans: TraceSpan[];
 }
 
+/** 一个 Run（Session）分组的 Task 列表（trace 列表第一级，可折叠）。 */
+export interface TraceRunGroup {
+    /** `run:${runIndex}` */
+    key: string;
+    runIndex: number;
+    /** 该 run 的用户输入摘要（缺省为空串） */
+    title: string;
+    stepCount: number;
+    startedAt: number | null;
+    endedAt: number | null;
+    durationMs: number | null;
+    tasks: TraceGroup[];
+}
+
+/** Run 头数据源（会话内按 run 顺序的输入）。 */
+export interface TraceRunInput {
+    runIndex: number;
+    input?: string;
+}
+
 /** trace 级 KPI 概览。 */
 export interface TraceSummary {
     steps: number;
@@ -114,7 +134,8 @@ export interface TraceLegendItem {
 
 export interface TraceBoard {
     summary: TraceSummary;
-    groups: TraceGroup[];
+    /** Run 分组（第一级），每个 Run 内是 Task 分组（第二级） */
+    runs: TraceRunGroup[];
     legend: TraceLegendItem[];
     peakContext: number;
     latestContext: number;
@@ -125,8 +146,10 @@ export interface TraceBoardInput {
     rows: AuditStepRow[];
     /** 会话级聚合用量，用于 KPI 的 vendor / cost。 */
     usage?: TraceUsageInput | null;
-    /** 会话级任务清单（conversationAudit.tasks），用于分组标题。 */
+    /** 会话级任务清单（conversationAudit.tasks），用于 Task 分组标题。 */
     tasks?: AuditTaskRow[];
+    /** 会话内按顺序的 run 输入，用于 Run 分组标题。 */
+    runs?: TraceRunInput[];
     /** 未结束 span 的截断基准（缺省 Date.now()；测试可注入）。 */
     now?: number;
 }
@@ -152,9 +175,10 @@ export function buildTraceBoard(input: TraceBoardInput): TraceBoard {
         peakContext: rows.reduce((max, row) => Math.max(max, row.contextTotal ?? 0), 0),
     };
     const titleByTask = new Map((input.tasks ?? []).map((task) => [task.taskId, task.title]));
+    const titleByRun = new Map((input.runs ?? []).map((run) => [run.runIndex, run.input ?? '']));
     return {
         summary: summarize(rows, input.usage ?? null),
-        groups: groupSpans(rows, geometry, titleByTask),
+        runs: groupRuns(rows, geometry, titleByTask, titleByRun),
         legend: collectLegend(rows),
         peakContext: geometry.peakContext,
         latestContext: latestContextOf(rows),
@@ -187,26 +211,55 @@ export function filterTraceGroups(groups: TraceGroup[], filter: TraceFilter): Tr
     return out;
 }
 
+/** Run 级过滤：对每个 Run 内的 Task 应用 span 过滤，整段没有命中的 Run 移除。 */
+export function filterTraceRuns(runs: TraceRunGroup[], filter: TraceFilter): TraceRunGroup[] {
+    if (filter === 'all') return runs;
+    const out: TraceRunGroup[] = [];
+    for (const run of runs) {
+        const tasks = filterTraceGroups(run.tasks, filter);
+        if (tasks.length > 0) out.push({ ...run, tasks });
+    }
+    return out;
+}
+
 function matchesFilter(span: TraceSpan, filter: TraceFilter): boolean {
     if (filter === 'model') return !span.isTool;
     if (filter === 'tool') return span.isTool;
     return span.isError;
 }
 
-function groupSpans(
+/** 会话流顺序（Run → Task → span）投影为两级分组；工具 span 挂到同 Task 内前一个模型步之下。 */
+function groupRuns(
     rows: AuditStepRow[],
     geometry: SpanGeometry,
     titleByTask: Map<string, string>,
-): TraceGroup[] {
-    const groups: TraceGroup[] = [];
-    const byKey = new Map<string, TraceGroup>();
-    let lastModel: TraceSpan | null = null;
+    titleByRun: Map<number, string>,
+): TraceRunGroup[] {
+    const runs: TraceRunGroup[] = [];
+    const runByIndex = new Map<number, TraceRunGroup>();
+    const taskByKey = new Map<string, TraceGroup>();
+    const lastModelByTask = new Map<string, TraceSpan | null>();
     for (const row of rows) {
-        const key = `${row.runIndex}:${row.taskId}`;
-        let group = byKey.get(key);
-        if (!group) {
-            group = {
-                key,
+        let run = runByIndex.get(row.runIndex);
+        if (run === undefined) {
+            run = {
+                key: `run:${row.runIndex}`,
+                runIndex: row.runIndex,
+                title: titleByRun.get(row.runIndex) ?? '',
+                stepCount: 0,
+                startedAt: null,
+                endedAt: null,
+                durationMs: null,
+                tasks: [],
+            };
+            runByIndex.set(row.runIndex, run);
+            runs.push(run);
+        }
+        const taskKey = `${row.runIndex}:${row.taskId}`;
+        let task = taskByKey.get(taskKey);
+        if (task === undefined) {
+            task = {
+                key: taskKey,
                 runIndex: row.runIndex,
                 taskIndex: row.taskIndex,
                 title: titleByTask.get(row.taskId) ?? '',
@@ -217,31 +270,39 @@ function groupSpans(
                 durationMs: null,
                 spans: [],
             };
-            byKey.set(key, group);
-            groups.push(group);
-            lastModel = null;
+            taskByKey.set(taskKey, task);
+            lastModelByTask.set(taskKey, null);
+            run.tasks.push(task);
         }
         const span = toSpan(row, geometry);
-        group.stepCount += 1;
-        extendGroupSpan(group, row, geometry.now);
+        task.stepCount += 1;
+        run.stepCount += 1;
+        extendSpan(task, row, geometry.now);
+        extendSpan(run, row, geometry.now);
+        const lastModel = lastModelByTask.get(taskKey) ?? null;
         if (span.isTool && lastModel !== null) {
             lastModel.children.push(span);
         } else {
-            group.spans.push(span);
-            if (!span.isTool) lastModel = span;
+            task.spans.push(span);
+            if (!span.isTool) lastModelByTask.set(taskKey, span);
         }
     }
-    return groups;
+    return runs;
 }
 
-function extendGroupSpan(group: TraceGroup, row: AuditStepRow, now: number): void {
+/** 分组（Run / Task）的起止与耗时聚合。 */
+function extendSpan(
+    target: Pick<TraceGroup, 'startedAt' | 'endedAt' | 'durationMs'>,
+    row: AuditStepRow,
+    now: number,
+): void {
     const start =
-        group.startedAt === null ? row.startedAt : Math.min(group.startedAt, row.startedAt);
+        target.startedAt === null ? row.startedAt : Math.min(target.startedAt, row.startedAt);
     const end = spanEnd(row, now);
-    const ended = group.endedAt === null ? end : Math.max(group.endedAt, end);
-    group.startedAt = start;
-    group.endedAt = ended;
-    group.durationMs = Math.max(0, ended - start);
+    const ended = target.endedAt === null ? end : Math.max(target.endedAt, end);
+    target.startedAt = start;
+    target.endedAt = ended;
+    target.durationMs = Math.max(0, ended - start);
 }
 
 function toSpan(row: AuditStepRow, geometry: SpanGeometry): TraceSpan {

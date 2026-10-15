@@ -4,6 +4,7 @@ import {
     TRACE_MIN_BAR_PERCENT,
     buildTraceBoard,
     filterTraceGroups,
+    filterTraceRuns,
 } from '../src/scripts/trace.ts';
 
 function segment(over: Partial<AuditSegment> = {}): AuditSegment {
@@ -138,12 +139,48 @@ describe('buildTraceBoard · KPI 概览', () => {
 
         const empty = buildTraceBoard({ rows: [] });
         expect(empty.summary.durationMs).toBeNull();
-        expect(empty.groups).toEqual([]);
+        expect(empty.runs).toEqual([]);
         expect(empty.peakContext).toBe(0);
     });
 });
 
 describe('buildTraceBoard · 分组与 span 树', () => {
+    it('按 Run 分组，Run 内再按 Task 分组', () => {
+        const board = buildTraceBoard({
+            rows: [
+                row({ stepId: 'a', runIndex: 1, taskId: 't1' }),
+                row({ stepId: 'b', runIndex: 1, taskId: 't2', taskIndex: 2, index: 1 }),
+                row({ stepId: 'c', runIndex: 2, taskId: 't3', taskIndex: 1, index: 1, startedAt: 9000, endedAt: 9500 }),
+            ],
+            tasks: [task(), task({ taskId: 't2', taskIndex: 2, title: '第二个任务' })],
+        });
+        expect(board.runs.map((r) => r.key)).toEqual(['run:1', 'run:2']);
+        expect(board.runs[0].runIndex).toBe(1);
+        expect(board.runs[0].tasks.map((t) => t.key)).toEqual(['1:t1', '1:t2']);
+        expect(board.runs[0].tasks[1].title).toBe('第二个任务');
+        expect(board.runs[1].tasks).toHaveLength(1);
+    });
+
+    it('Run 头带用户输入摘要与聚合耗时 / 步数', () => {
+        const board = buildTraceBoard({
+            rows: [
+                row({ stepId: 'a', runIndex: 1, startedAt: 0, endedAt: 1000, durationMs: 1000 }),
+                row({ stepId: 'b', runIndex: 1, index: 2, startedAt: 2000, endedAt: 5000, durationMs: 3000 }),
+            ],
+            runs: [{ runIndex: 1, input: '帮我审计一下这段上下文' }],
+        });
+        expect(board.runs[0].title).toBe('帮我审计一下这段上下文');
+        expect(board.runs[0].stepCount).toBe(2);
+        expect(board.runs[0].startedAt).toBe(0);
+        expect(board.runs[0].endedAt).toBe(5000);
+        expect(board.runs[0].durationMs).toBe(5000);
+    });
+
+    it('缺省 Run 输入时标题为空串', () => {
+        const board = buildTraceBoard({ rows: [row({ runIndex: 3 })] });
+        expect(board.runs[0].title).toBe('');
+    });
+
     it('按 Task 分组并带上任务标题', () => {
         const board = buildTraceBoard({
             rows: [
@@ -152,11 +189,12 @@ describe('buildTraceBoard · 分组与 span 树', () => {
             ],
             tasks: [task(), task({ taskId: 't2', taskIndex: 2, title: '第二个任务' })],
         });
-        expect(board.groups.map((g) => g.key)).toEqual(['1:t1', '1:t2']);
-        expect(board.groups[0].title).toBe('落地核心考虑');
-        expect(board.groups[1].title).toBe('第二个任务');
-        expect(board.groups[0].runIndex).toBe(1);
-        expect(board.groups[1].taskIndex).toBe(2);
+        const tasks = board.runs[0].tasks;
+        expect(tasks.map((t) => t.key)).toEqual(['1:t1', '1:t2']);
+        expect(tasks[0].title).toBe('落地核心考虑');
+        expect(tasks[1].title).toBe('第二个任务');
+        expect(tasks[0].runIndex).toBe(1);
+        expect(tasks[1].taskIndex).toBe(2);
     });
 
     it('工具调用挂到前一个模型步之下，不作为顶层 span', () => {
@@ -168,7 +206,7 @@ describe('buildTraceBoard · 分组与 span 树', () => {
                 row({ stepId: 'd', index: 4 }),
             ],
         });
-        const spans = board.groups[0].spans;
+        const spans = board.runs[0].tasks[0].spans;
         expect(spans.map((s) => s.stepId)).toEqual(['a', 'd']);
         expect(spans[0].children.map((s) => s.stepId)).toEqual(['b', 'c']);
         expect(spans[1].children).toEqual([]);
@@ -178,7 +216,7 @@ describe('buildTraceBoard · 分组与 span 树', () => {
         const board = buildTraceBoard({
             rows: [toolRow({ stepId: 'a', index: 1 }), row({ stepId: 'b', index: 2 })],
         });
-        const spans = board.groups[0].spans;
+        const spans = board.runs[0].tasks[0].spans;
         expect(spans.map((s) => s.stepId)).toEqual(['a', 'b']);
         expect(spans[0].isTool).toBe(true);
         expect(spans[0].children).toEqual([]);
@@ -186,7 +224,7 @@ describe('buildTraceBoard · 分组与 span 树', () => {
 
     it('每个 span 带 R#T#S# 整体编号与类型标签', () => {
         const board = buildTraceBoard({ rows: [row({ runIndex: 2, taskIndex: 3, index: 5 })] });
-        const span = board.groups[0].spans[0];
+        const span = board.runs[0].tasks[0].spans[0];
         expect(span.loc).toBe('R#2·T#3·S#5');
         expect(span.kindLabel).toBe('model');
         expect(span.name).toBe('deliberation');
@@ -194,8 +232,9 @@ describe('buildTraceBoard · 分组与 span 树', () => {
 
     it('工具 span 的名称优先取工具名', () => {
         const board = buildTraceBoard({ rows: [toolRow()] });
-        expect(board.groups[0].spans[0].name).toBe('shell.run');
-        expect(board.groups[0].spans[0].kindLabel).toBe('tool');
+        const span = board.runs[0].tasks[0].spans[0];
+        expect(span.name).toBe('shell.run');
+        expect(span.kindLabel).toBe('tool');
     });
 });
 
@@ -208,7 +247,7 @@ describe('buildTraceBoard · 时间线几何', () => {
             ],
             now: 9999,
         });
-        const [a, b] = board.groups[0].spans;
+        const [a, b] = board.runs[0].tasks[0].spans;
         expect(a.timeline.left).toBeCloseTo(0);
         expect(a.timeline.width).toBeCloseTo(66.67, 1);
         expect(b.timeline.left).toBeCloseTo(33.33, 1);
@@ -223,7 +262,7 @@ describe('buildTraceBoard · 时间线几何', () => {
             ],
             now: 9999,
         });
-        const b = board.groups[0].spans[1];
+        const b = board.runs[0].tasks[0].spans[1];
         expect(b.timeline.width).toBe(TRACE_MIN_BAR_PERCENT);
     });
 
@@ -235,7 +274,7 @@ describe('buildTraceBoard · 时间线几何', () => {
             ],
             now: 1000,
         });
-        const b = board.groups[0].spans[1];
+        const b = board.runs[0].tasks[0].spans[1];
         expect(b.timeline.left).toBeCloseTo(50);
         expect(b.timeline.width).toBeCloseTo(50);
     });
@@ -244,7 +283,7 @@ describe('buildTraceBoard · 时间线几何', () => {
         const board = buildTraceBoard({
             rows: [row({ startedAt: 100, endedAt: 200, durationMs: 100 })],
         });
-        const span = board.groups[0].spans[0];
+        const span = board.runs[0].tasks[0].spans[0];
         expect(span.timeline.left).toBe(0);
         expect(span.timeline.width).toBe(100);
     });
@@ -258,7 +297,7 @@ describe('buildTraceBoard · Context 堆叠条', () => {
                 row({ stepId: 'b', index: 2, contextTotal: 2000 }),
             ],
         });
-        const [a, b] = board.groups[0].spans;
+        const [a, b] = board.runs[0].tasks[0].spans;
         expect(board.peakContext).toBe(2000);
         expect(a.context.width).toBe(50);
         expect(b.context.width).toBe(100);
@@ -277,13 +316,13 @@ describe('buildTraceBoard · Context 堆叠条', () => {
                 }),
             ],
         });
-        const span = board.groups[0].spans[0];
+        const span = board.runs[0].tasks[0].spans[0];
         expect(span.segments.map((s) => s.width)).toEqual([40, 60]);
     });
 
     it('工具 span 没有 context 条与分段', () => {
         const board = buildTraceBoard({ rows: [row(), toolRow()] });
-        const tool = board.groups[0].spans[0].children[0];
+        const tool = board.runs[0].tasks[0].spans[0].children[0];
         expect(tool.context.width).toBe(0);
         expect(tool.segments).toEqual([]);
         expect(tool.contextTotal).toBeNull();
@@ -293,7 +332,7 @@ describe('buildTraceBoard · Context 堆叠条', () => {
         const board = buildTraceBoard({
             rows: [row({ contextDelta: 120 })],
         });
-        expect(board.groups[0].spans[0].contextDelta).toBe(120);
+        expect(board.runs[0].tasks[0].spans[0].contextDelta).toBe(120);
     });
 });
 
@@ -307,32 +346,64 @@ describe('filterTraceGroups', () => {
 
     it('all 原样返回', () => {
         const board = buildTraceBoard({ rows });
-        expect(filterTraceGroups(board.groups, 'all')).toBe(board.groups);
+        expect(filterTraceGroups(board.runs[0].tasks, 'all')).toBe(board.runs[0].tasks);
     });
 
     it('model 只保留模型步，去掉工具子步', () => {
         const board = buildTraceBoard({ rows });
-        const groups = filterTraceGroups(board.groups, 'model');
-        expect(groups[0].spans.map((s) => s.stepId)).toEqual(['m1', 'm2']);
-        expect(groups[0].spans[0].children).toEqual([]);
+        const tasks = filterTraceGroups(board.runs[0].tasks, 'model');
+        expect(tasks[0].spans.map((s) => s.stepId)).toEqual(['m1', 'm2']);
+        expect(tasks[0].spans[0].children).toEqual([]);
     });
 
     it('tool 保留工具步，并保留其父模型步作为容器', () => {
         const board = buildTraceBoard({ rows });
-        const groups = filterTraceGroups(board.groups, 'tool');
-        expect(groups[0].spans.map((s) => s.stepId)).toEqual(['m1']);
-        expect(groups[0].spans[0].children.map((s) => s.stepId)).toEqual(['t1', 't2']);
+        const tasks = filterTraceGroups(board.runs[0].tasks, 'tool');
+        expect(tasks[0].spans.map((s) => s.stepId)).toEqual(['m1']);
+        expect(tasks[0].spans[0].children.map((s) => s.stepId)).toEqual(['t1', 't2']);
     });
 
     it('error 保留异常 span 及其父容器，过滤掉正常 span', () => {
         const board = buildTraceBoard({ rows });
-        const groups = filterTraceGroups(board.groups, 'error');
-        expect(groups[0].spans.map((s) => s.stepId)).toEqual(['m1', 'm2']);
-        expect(groups[0].spans[0].children.map((s) => s.stepId)).toEqual(['t2']);
+        const tasks = filterTraceGroups(board.runs[0].tasks, 'error');
+        expect(tasks[0].spans.map((s) => s.stepId)).toEqual(['m1', 'm2']);
+        expect(tasks[0].spans[0].children.map((s) => s.stepId)).toEqual(['t2']);
     });
 
     it('过滤后没有命中的分组被移除', () => {
         const board = buildTraceBoard({ rows: [row({ stepId: 'ok' })] });
-        expect(filterTraceGroups(board.groups, 'error')).toEqual([]);
+        expect(filterTraceGroups(board.runs[0].tasks, 'error')).toEqual([]);
+    });
+});
+
+describe('filterTraceRuns', () => {
+    it('all 原样返回（不复制）', () => {
+        const board = buildTraceBoard({ rows: [row({ stepId: 'a' })] });
+        expect(filterTraceRuns(board.runs, 'all')).toBe(board.runs);
+    });
+
+    it('过滤 span 后，整段没有命中的 Run 被移除', () => {
+        const board = buildTraceBoard({
+            rows: [
+                row({ stepId: 'a', runIndex: 1, status: 'succeeded' }),
+                row({ stepId: 'b', runIndex: 2, taskId: 't9', startedAt: 9000, endedAt: 9500, status: 'failed' }),
+            ],
+        });
+        const runs = filterTraceRuns(board.runs, 'error');
+        expect(runs.map((r) => r.runIndex)).toEqual([2]);
+        expect(runs[0].tasks[0].spans.map((s) => s.stepId)).toEqual(['b']);
+    });
+
+    it('Run 内的空 Task 也被移除，保留 Run 级聚合字段', () => {
+        const board = buildTraceBoard({
+            rows: [
+                row({ stepId: 'a', runIndex: 1, taskId: 't1', index: 1 }),
+                row({ stepId: 'b', runIndex: 1, taskId: 't2', taskIndex: 2, index: 1, status: 'failed' }),
+            ],
+        });
+        const runs = filterTraceRuns(board.runs, 'error');
+        expect(runs).toHaveLength(1);
+        expect(runs[0].stepCount).toBe(2);
+        expect(runs[0].tasks.map((t) => t.key)).toEqual(['1:t2']);
     });
 });
