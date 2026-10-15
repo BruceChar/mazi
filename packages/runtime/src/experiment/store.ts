@@ -21,6 +21,7 @@ import { ulid } from '@mazi/core';
 export type ExperimentEventType =
     | 'experiment.created'
     | 'experiment.started'
+    | 'arm.planned'
     | 'arm.started'
     | 'arm.ended'
     | 'experiment.completed'

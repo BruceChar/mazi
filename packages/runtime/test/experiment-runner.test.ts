@@ -83,70 +83,113 @@ function setup(): { runner: ExperimentRunner; store: MemoryExperimentStore; requ
     return { runner, store, requests };
 }
 
-describe('ExperimentRunner（两臂顺序执行 + 冻结基线）', () => {
-    it('两臂各跑一次 Goal，Feature 只影响对应臂；写入 completed 与 comparison', async () => {
-        const { runner, store, requests } = setup();
-        const view = await runner.run(specOf());
+async function eventTypes(store: MemoryExperimentStore): Promise<string[]> {
+    return ((await store.list())[0] ?? []).map((event) => event.type);
+}
 
-        expect(view.status).toBe('completed');
-        expect(view.arms.map((arm) => arm.status)).toEqual(['completed', 'completed']);
+describe('ExperimentRunner（前台执行：plan → execute，两臂并行）', () => {
+    it('create 只建两臂会话：status=created、两臂 pending 且各有 rootGoalId，不发模型请求', async () => {
+        const { runner, store, requests } = setup();
+        const view = await runner.create(specOf());
+        expect(view.status).toBe('created');
+        expect(view.arms.map((arm) => arm.status)).toEqual(['pending', 'pending']);
         expect(view.arms[0]?.rootGoalId).toBeTruthy();
         expect(view.arms[1]?.rootGoalId).toBeTruthy();
         expect(view.arms[0]?.rootGoalId).not.toBe(view.arms[1]?.rootGoalId);
+        expect(requests).toHaveLength(0);
+        expect(await eventTypes(store)).toEqual([
+            'experiment.created',
+            'arm.planned',
+            'arm.planned',
+        ]);
+    });
+
+    it('execute 前台并行跑完两臂：completed + 对比 + 各臂 Feature 生效', async () => {
+        const { runner, store, requests } = setup();
+        const planned = await runner.create(specOf());
+        const done = await runner.execute(planned.experimentId);
+
+        expect(done.status).toBe('completed');
+        expect(done.arms.map((arm) => arm.status)).toEqual(['completed', 'completed']);
+        expect(done.arms[0]?.metrics?.finalAnswer).toContain('A 答案');
+        expect(done.arms[1]?.metrics?.finalAnswer).toContain('B 答案');
+        expect(done.arms[1]?.metrics?.features).toEqual({ concise: true });
+        expect(done.comparison?.outputs.identical).toBe(false);
+        expect(done.comparison?.execution).toBe('sequential');
 
         // 两臂确实带上了不同的 Feature 解析结果。
         expect(requests).toHaveLength(2);
-        expect(String(requests[0]?.system)).not.toContain('简洁作答');
-        expect(String(requests[1]?.system)).toContain('简洁作答');
+        const systems = requests.map((request) => String(request.system));
+        expect(systems.some((system) => system.includes('简洁作答'))).toBe(true);
+        expect(systems.some((system) => !system.includes('简洁作答'))).toBe(true);
 
-        expect(view.arms[0]?.metrics?.finalAnswer).toContain('A 答案');
-        expect(view.arms[1]?.metrics?.finalAnswer).toContain('B 答案');
-        expect(view.arms[1]?.metrics?.features).toEqual({ concise: true });
-        expect(view.comparison?.outputs.identical).toBe(false);
-        expect(view.comparison?.execution).toBe('sequential');
-        expect(view.comparison?.metrics.some((metric) => metric.key === 'costUsd')).toBe(true);
-
-        const events = (await store.list())[0]?.map((event) => event.type) ?? [];
-        expect(events).toEqual([
+        expect(await eventTypes(store)).toEqual([
             'experiment.created',
+            'arm.planned',
+            'arm.planned',
             'experiment.started',
             'arm.started',
-            'arm.ended',
             'arm.started',
+            'arm.ended',
             'arm.ended',
             'experiment.completed',
         ]);
     });
 
-    it('rerun 生成新 experimentId，不覆盖原记录；history 倒序', async () => {
+    it('execute 幂等：已完成的臂不重跑', async () => {
+        const { runner, requests } = setup();
+        const planned = await runner.create(specOf());
+        await runner.execute(planned.experimentId);
+        const again = await runner.execute(planned.experimentId);
+        expect(again.status).toBe('completed');
+        expect(requests).toHaveLength(2);
+    });
+
+    it('run = create + execute（一次性入口）', async () => {
+        const { runner } = setup();
+        const view = await runner.run(specOf());
+        expect(view.status).toBe('completed');
+        expect(view.comparison).toBeDefined();
+    });
+
+    it('rerun 复制为新的待执行实验（不执行、不覆盖原记录）', async () => {
         const { runner, store } = setup();
         const first = await runner.run(specOf());
         const second = await runner.rerun(first.experimentId);
         expect(second?.experimentId).not.toBe(first.experimentId);
-        expect(second?.status).toBe('completed');
+        expect(second?.status).toBe('created');
+        expect(second?.arms.map((arm) => arm.status)).toEqual(['pending', 'pending']);
         expect(second?.input).toBe(first.input);
         expect(second?.variables).toEqual(first.variables);
         expect((await store.list()).length).toBe(2);
         expect(await runner.rerun('01ARZ3NDEKTSV4RRFFQ69G5FAV')).toBeUndefined();
     });
 
-    it('create 阶段失败被隔离为该臂 failed，另一臂仍执行并产出对比', async () => {
+    it('单臂执行失败被隔离：另一臂仍完成并产出对比', async () => {
         const { runner, requests } = setup();
-        // 让第一次 createGoalSession 抛错：临时替换 harness 方法。
+        const planned = await runner.create(specOf());
         const harness = (runner as unknown as { harness: HarnessRuntime }).harness;
-        const original = harness.createGoalSession.bind(harness);
+        const original = harness.executeGoalTree.bind(harness);
         let calls = 0;
-        harness.createGoalSession = async (input: string, options) => {
+        harness.executeGoalTree = async (rootGoalId: string) => {
             calls += 1;
             if (calls === 1) throw new Error('模型不可用');
-            return original(input, options);
+            return original(rootGoalId);
         };
-        const view = await runner.run(specOf());
+        const view = await runner.execute(planned.experimentId);
         expect(view.status).toBe('completed');
         expect(view.arms[0]?.status).toBe('failed');
         expect(view.arms[0]?.error).toContain('模型不可用');
         expect(view.arms[1]?.status).toBe('completed');
-        expect(requests).toHaveLength(1);
         expect(view.comparison).toBeDefined();
+        expect(requests).toHaveLength(1);
+    });
+
+    it('history 按创建时间倒序', async () => {
+        const { runner } = setup();
+        await runner.create(specOf());
+        await runner.create({ ...specOf(), title: '第二次' });
+        const history = await runner.history();
+        expect(history.map((view) => view.title)).toEqual(['第二次', 'Feature 增益']);
     });
 });

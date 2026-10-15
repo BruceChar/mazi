@@ -1,14 +1,18 @@
 /**
  * ExperimentRunner —— 对照实验执行器（docs/AB测试设计.md §7）。
  *
- * 语义：同一输入 / 同一工作区，两臂顺序执行（共享进程内执行锁与厂商配额，耗时仅作参考）；
- * 单臂失败不阻断另一臂；只改 variables 声明的自变量，其余运行参数来自实验定义时冻结的 baseline。
- * 实验事实全部落 ExperimentStore（append-only），执行器本身不持有状态。
+ * 执行语义与主对话一致：**建会话 → 前台执行 Goal 树 → 事件/SSE 实时可见 → 审批可应答**。
+ * 因此拆成两步供 UI 使用：
+ *   create(spec)  —— 只建两臂 Goal 会话（arm.planned 携 rootGoalId），前端据此立刻开两个窗口；
+ *   execute(id)   —— 在同一个 runExclusive 持有期内**并行**跑完两臂（同一运行时、按 rootGoalId 隔离）。
+ * run(spec) 保留为「创建 + 执行」的一次性入口（测试 / 无 UI 宿主）。
+ * 单臂失败不阻断另一臂；事实全部落 ExperimentStore（append-only）。
  */
 
 import type {
     EffectiveFeatures,
     ExperimentArmSpec,
+    ExperimentArmState,
     ExperimentMetrics,
     ExperimentSpec,
     ExperimentView,
@@ -18,7 +22,7 @@ import type { RunOptions } from '../harness/conversation.js';
 import type { HarnessRuntime } from '../harness/index.js';
 import { listExperiments, loadExperiment } from './fold.js';
 import { collectMetrics, failedMetrics } from './metrics.js';
-import type { ExperimentStore } from './store.js';
+import type { ExperimentEventType, ExperimentStore } from './store.js';
 import { newExperimentEvent } from './store.js';
 
 export interface ExperimentRunnerOptions {
@@ -38,6 +42,10 @@ interface ResolvedArm {
     flags?: Record<string, boolean>;
 }
 
+function messageOf(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
 export class ExperimentRunner {
     private readonly harness: HarnessRuntime;
     private readonly store: ExperimentStore;
@@ -51,55 +59,81 @@ export class ExperimentRunner {
         this.now = options.now ?? Date.now;
     }
 
-    /** 定义并执行一次实验（created → started → 两臂 → completed）。 */
-    async run(spec: ExperimentSpec): Promise<ExperimentView> {
+    /**
+     * 定义实验（不执行）：为两臂各建一个 Goal 会话并写 arm.planned（含 rootGoalId）。
+     * 返回的视图里两臂 status=pending —— 前端可立即为两个窗口订阅事件流。
+     */
+    async create(spec: ExperimentSpec): Promise<ExperimentView> {
         const experimentId = ulid();
-        await this.store.append(
-            newExperimentEvent(experimentId, 'experiment.created', { spec }, this.now()),
-        );
-        await this.store.append(
-            newExperimentEvent(experimentId, 'experiment.started', {}, this.now()),
-        );
-        try {
-            const metrics = new Map<string, ExperimentMetrics>();
-            for (const arm of spec.arms) {
-                metrics.set(arm.label, await this.runArm(experimentId, spec, arm));
-            }
-            const first = spec.arms[0] as ExperimentArmSpec;
-            const second = spec.arms[1] as ExperimentArmSpec;
-            const comparison = compareArms(
-                metrics.get(first.label) as ExperimentMetrics,
-                metrics.get(second.label) as ExperimentMetrics,
-            );
-            await this.store.append(
-                newExperimentEvent(
-                    experimentId,
-                    'experiment.completed',
-                    { comparison },
-                    this.now(),
-                ),
-            );
-        } catch (error) {
-            await this.store.append(
-                newExperimentEvent(
-                    experimentId,
-                    'experiment.failed',
-                    { error: error instanceof Error ? error.message : String(error) },
-                    this.now(),
-                ),
-            );
-            throw error;
+        await this.append(experimentId, 'experiment.created', { spec });
+        for (const arm of spec.arms) {
+            const resolved = this.resolveArm(spec, arm);
+            const created = await this.harness.createGoalSession(spec.input, resolved.options);
+            await this.append(experimentId, 'arm.planned', {
+                label: arm.label,
+                rootGoalId: created.rootGoalId,
+                spec,
+            });
         }
-        const view = await loadExperiment(this.store, experimentId);
-        if (view === undefined) throw new Error('实验日志写入后无法折叠：' + experimentId);
-        return view;
+        return this.view(experimentId);
     }
 
-    /** 用同一 spec 再跑一次（新 experimentId，不覆盖原记录；用于观察方差）。 */
+    /**
+     * 前台执行尚未完成的臂（**并行**）：两臂在同一个 runExclusive 持有期内同时跑，
+     * 与主对话共用 createGoalSession/executeGoalTree/事件总线/审批 seam；
+     * 调用方（API）持有请求直到两臂结束，UI 期间通过 SSE 实时渲染并应答审批。
+     */
+    async execute(experimentId: string): Promise<ExperimentView> {
+        const view = await this.view(experimentId);
+        const spec = specOfExperiment(view);
+        const pending = view.arms.filter(
+            (arm) => arm.metrics === undefined && arm.rootGoalId !== undefined,
+        );
+        // 幂等：没有待执行臂时直接返回（不重复写 started，避免把终态改回 running）。
+        if (pending.length > 0) {
+            await this.append(experimentId, 'experiment.started', {});
+            try {
+                for (const arm of pending) {
+                    await this.append(experimentId, 'arm.started', { label: arm.label });
+                }
+                await Promise.all(
+                    pending.map(async (arm) => {
+                        const resolved = this.resolveArm(spec, arm.spec);
+                        await this.runArm(
+                            experimentId,
+                            arm.rootGoalId as string,
+                            arm.label,
+                            resolved,
+                        );
+                    }),
+                );
+            } catch (error) {
+                await this.append(experimentId, 'experiment.failed', { error: messageOf(error) });
+                throw error;
+            }
+        }
+        const done = await this.view(experimentId);
+        if (done.comparison === undefined && isComparable(done.arms)) {
+            const comparison = compareArms(
+                (done.arms[0] as ExperimentArmState).metrics as ExperimentMetrics,
+                (done.arms[1] as ExperimentArmState).metrics as ExperimentMetrics,
+            );
+            await this.append(experimentId, 'experiment.completed', { comparison });
+        }
+        return this.view(experimentId);
+    }
+
+    /** 定义 + 前台执行（一次性；测试与无 UI 宿主用）。 */
+    async run(spec: ExperimentSpec): Promise<ExperimentView> {
+        const created = await this.create(spec);
+        return this.execute(created.experimentId);
+    }
+
+    /** 复制为新的**待执行**实验（不执行：执行由前端前台触发；不覆盖原记录）。 */
     async rerun(experimentId: string): Promise<ExperimentView | undefined> {
         const previous = await loadExperiment(this.store, experimentId);
         if (previous === undefined) return undefined;
-        return this.run(specOfExperiment(previous));
+        return this.create(specOfExperiment(previous));
     }
 
     /** 实验历史（createdAt 倒序）。 */
@@ -107,28 +141,32 @@ export class ExperimentRunner {
         return listExperiments(this.store);
     }
 
+    private async view(experimentId: string): Promise<ExperimentView> {
+        const view = await loadExperiment(this.store, experimentId);
+        if (view === undefined) throw new Error('实验不存在：' + experimentId);
+        return view;
+    }
+
+    private append(
+        experimentId: string,
+        type: ExperimentEventType,
+        payload: Record<string, unknown>,
+    ): Promise<void> {
+        return this.store.append(newExperimentEvent(experimentId, type, payload, this.now()));
+    }
+
+    /** 单臂：执行 Goal 树 → 采集指标 → 落 arm.ended（异常隔离为该臂失败）。 */
     private async runArm(
         experimentId: string,
-        spec: ExperimentSpec,
-        arm: ExperimentArmSpec,
+        rootGoalId: string,
+        label: string,
+        resolved: ResolvedArm,
     ): Promise<ExperimentMetrics> {
-        const resolved = this.resolveArm(spec, arm);
         const fields = {
             ...(resolved.skills !== undefined ? { skills: resolved.skills } : {}),
             ...(resolved.flags !== undefined ? { features: resolved.flags } : {}),
         };
-        let rootGoalId: string | undefined;
         try {
-            const created = await this.harness.createGoalSession(spec.input, resolved.options);
-            rootGoalId = created.rootGoalId;
-            await this.store.append(
-                newExperimentEvent(
-                    experimentId,
-                    'arm.started',
-                    { label: arm.label, rootGoalId, spec },
-                    this.now(),
-                ),
-            );
             const startedAt = this.now();
             const result = await this.harness.executeGoalTree(rootGoalId);
             const endedAt = this.now();
@@ -143,26 +181,21 @@ export class ExperimentRunner {
                 skills: resolved.skills ?? [],
                 features: resolved.flags ?? {},
             });
-            await this.store.append(
-                newExperimentEvent(
-                    experimentId,
-                    'arm.ended',
-                    { label: arm.label, status: armStatusOf(metrics), metrics },
-                    this.now(),
-                ),
-            );
+            await this.append(experimentId, 'arm.ended', {
+                label,
+                status: armStatusOf(metrics),
+                metrics,
+            });
             return metrics;
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = messageOf(error);
             const metrics = failedMetrics(message, fields);
-            await this.store.append(
-                newExperimentEvent(
-                    experimentId,
-                    'arm.ended',
-                    { label: arm.label, status: 'failed', metrics, error: message },
-                    this.now(),
-                ),
-            );
+            await this.append(experimentId, 'arm.ended', {
+                label,
+                status: 'failed',
+                metrics,
+                error: message,
+            });
             return metrics;
         }
     }
@@ -223,6 +256,11 @@ export class ExperimentRunner {
             ...(flags !== undefined ? { flags } : {}),
         };
     }
+}
+
+/** 两臂是否都拿到指标（可对比）。 */
+function isComparable(arms: readonly ExperimentArmState[]): boolean {
+    return arms.length === 2 && arms.every((arm) => arm.metrics !== undefined);
 }
 
 /** 指标 status → 臂状态（succeeded → completed）。 */

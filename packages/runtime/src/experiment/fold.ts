@@ -54,8 +54,26 @@ function armOf(view: ExperimentView, label: unknown): ExperimentArmState | undef
 function applyEvent(view: ExperimentView, event: ExperimentEvent): void {
     switch (event.type) {
         case 'experiment.started': {
-            view.status = 'running';
+            // 只从 created 推进；不把终态降级回 running（重复执行 / 重放安全）。
+            if (view.status === 'created') view.status = 'running';
             view.startedAt ??= event.at;
+            return;
+        }
+        case 'arm.planned': {
+            // 建会话（不执行）：记 rootGoalId 与冻结的臂配置，状态仍为 pending。
+            const planned = armOf(view, event.payload.label);
+            if (planned === undefined) return;
+            if (typeof event.payload.rootGoalId === 'string') {
+                planned.rootGoalId = event.payload.rootGoalId;
+            }
+            const plannedSpec = asSpec(event.payload.spec);
+            if (plannedSpec !== undefined) {
+                const exactPlanned = plannedSpec.arms.find(
+                    (candidate) => candidate.label === planned.label,
+                );
+                if (exactPlanned !== undefined) planned.spec = exactPlanned;
+            }
+            planned.status = 'pending';
             return;
         }
         case 'arm.started': {
