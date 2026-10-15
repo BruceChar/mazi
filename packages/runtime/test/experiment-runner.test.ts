@@ -3,8 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ExperimentSpec, LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
 import { resolveFeatures } from '@mazi/core';
+import { ProviderError } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
+import { loadExperiment } from '../src/experiment/fold.js';
 import { ExperimentRunner } from '../src/experiment/runner.js';
 import { MemoryExperimentStore } from '../src/experiment/store.js';
 import { HarnessRuntime } from '../src/harness/index.js';
@@ -38,6 +40,47 @@ function branchingProvider(requests: LLMRequest[]): LLMProvider {
             yield { type: 'finish', finishReason: 'stop' };
         },
     };
+}
+
+/** 阻塞到被 abort 的 provider：两臂会一直"运行中"，用于测试随时终止。 */
+function blockingProvider(): { provider: LLMProvider; calls: () => number } {
+    let calls = 0;
+    const waitForAbort = (signal?: AbortSignal): Promise<void> =>
+        new Promise<void>((resolve) => {
+            if (signal?.aborted === true) {
+                resolve();
+                return;
+            }
+            signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+    return {
+        calls: () => calls,
+        provider: {
+            id: 'default',
+            name: 'default',
+            defaultModel: 'default',
+            models: [],
+            async ask() {
+                throw new Error('ask unused');
+            },
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                calls += 1;
+                yield { type: 'start', model: request.model ?? 'default' };
+                await waitForAbort(request.signal);
+                throw new ProviderError('aborted', 'caller aborted');
+            },
+        },
+    };
+}
+
+/** 轮询等待条件成立（不发定时器依赖）。 */
+async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (predicate()) return;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error('等待条件超时');
 }
 
 const FEATURE = {
@@ -191,5 +234,65 @@ describe('ExperimentRunner（前台执行：plan → execute，两臂并行）',
         await runner.create({ ...specOf(), title: '第二次' });
         const history = await runner.history();
         expect(history.map((view) => view.title)).toEqual(['第二次', 'Feature 增益']);
+    });
+
+    it('cancel 随时终止运行中的两臂：臂与实验都落 aborted，且写出对比', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-exp-cancel-'));
+        dirs.push(dir);
+        const blocking = blockingProvider();
+        const runtime = new HarnessRuntime(configIn(dir), {
+            llmProviders: { default: blocking.provider },
+        });
+        const store = new MemoryExperimentStore();
+        const runner = new ExperimentRunner({
+            harness: runtime,
+            store,
+            featureResolver: (overrides) => resolveFeatures([FEATURE], overrides),
+            now: () => 5000,
+        });
+        const planned = await runner.create(specOf());
+        const rootA = planned.arms[0]?.rootGoalId as string;
+        const rootB = planned.arms[1]?.rootGoalId as string;
+        const running = runner.execute(planned.experimentId);
+        await waitFor(() => runtime.isGoalRunning(rootA) && runtime.isGoalRunning(rootB));
+        expect(blocking.calls()).toBeGreaterThanOrEqual(1);
+
+        const stopping = await runner.cancel(planned.experimentId);
+        expect([...stopping].sort()).toEqual(['A', 'B']);
+
+        const done = await running;
+        expect(done.status).toBe('aborted');
+        expect(done.arms.map((arm) => arm.status)).toEqual(['aborted', 'aborted']);
+        expect(done.comparison).toBeDefined();
+        expect(await eventTypes(store)).toContain('experiment.completed');
+    });
+
+    it('cancel 只停单臂：另一臂继续跑完', async () => {
+        const { runner, store, requests } = setup();
+        const planned = await runner.create(specOf());
+        // 未进入执行（两臂都 pending）时指定 label：只落该臂 aborted。
+        const stopping = await runner.cancel(planned.experimentId, 'A');
+        expect(stopping).toEqual([]);
+        const afterCancel = (await loadExperiment(store, planned.experimentId)) as NonNullable<
+            Awaited<ReturnType<typeof loadExperiment>>
+        >;
+        expect(afterCancel.arms.map((arm) => arm.status)).toEqual(['aborted', 'pending']);
+
+        const done = await runner.execute(planned.experimentId);
+        expect(done.arms[1]?.status).toBe('completed');
+        expect(requests).toHaveLength(1);
+    });
+
+    it('未开始执行时 cancel 双臂：直接全部 aborted，execute 不会再拉起', async () => {
+        const { runner, requests } = setup();
+        const planned = await runner.create(specOf());
+        const stopping = await runner.cancel(planned.experimentId);
+        expect(stopping).toEqual([]);
+
+        const done = await runner.execute(planned.experimentId);
+        expect(done.status).toBe('aborted');
+        expect(done.arms.map((arm) => arm.status)).toEqual(['aborted', 'aborted']);
+        expect(done.arms[0]?.metrics?.finalAnswer).toBe('用户终止');
+        expect(requests).toHaveLength(0);
     });
 });

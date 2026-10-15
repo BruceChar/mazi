@@ -81,14 +81,15 @@ export function collectMetrics(input: MetricsInput): ExperimentMetrics {
     };
 }
 
-/** 臂在创建/执行阶段异常时的兜底指标（对照实验仍要拿到两臂数据）。 */
+/** 臂在创建/执行阶段异常（或被人为终止）时的兜底指标（对照实验仍要拿到两臂数据）。 */
 export function failedMetrics(
     error: string,
     fields: { skills?: readonly string[]; features?: Record<string, boolean> } = {},
+    status: 'failed' | 'aborted' = 'failed',
 ): ExperimentMetrics {
     return {
         ok: false,
-        status: 'failed',
+        status,
         tasks: 0,
         steps: 0,
         toolCalls: 0,

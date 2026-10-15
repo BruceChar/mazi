@@ -123,6 +123,51 @@ export class ExperimentRunner {
         return this.view(experimentId);
     }
 
+    /**
+     * 协作式终止（随时可停，`label` 缺省 = 两臂全停）：
+     * - 正在跑的臂 → `stopGoalTree`（Step 边界停止；该臂经正常路径落 aborted 指标）；
+     * - 尚未开始跑的臂 → 直接落 aborted 指标，之后 `execute` 不会再把它拉起；
+     * - 两臂都有指标后补写 experiment.completed（幂等）。
+     * 返回实际收到停止信号（当时正在运行）的臂 label。
+     */
+    async cancel(experimentId: string, label?: string): Promise<string[]> {
+        const view = await this.view(experimentId);
+        const spec = specOfExperiment(view);
+        const stopping: string[] = [];
+        for (const arm of view.arms) {
+            if (label !== undefined && arm.label !== label) continue;
+            if (arm.rootGoalId === undefined || arm.metrics !== undefined) continue;
+            if (this.harness.isGoalRunning(arm.rootGoalId)) {
+                if (this.harness.stopGoalTree(arm.rootGoalId)) stopping.push(arm.label);
+                continue;
+            }
+            const resolved = this.resolveArm(spec, arm.spec);
+            const metrics = failedMetrics(
+                '用户终止',
+                {
+                    ...(resolved.skills !== undefined ? { skills: resolved.skills } : {}),
+                    ...(resolved.flags !== undefined ? { features: resolved.flags } : {}),
+                },
+                'aborted',
+            );
+            await this.append(experimentId, 'arm.ended', {
+                label: arm.label,
+                status: 'aborted',
+                metrics,
+                error: '用户终止',
+            });
+        }
+        const done = await this.view(experimentId);
+        if (done.comparison === undefined && isComparable(done.arms)) {
+            const comparison = compareArms(
+                (done.arms[0] as ExperimentArmState).metrics as ExperimentMetrics,
+                (done.arms[1] as ExperimentArmState).metrics as ExperimentMetrics,
+            );
+            await this.append(experimentId, 'experiment.completed', { comparison });
+        }
+        return stopping;
+    }
+
     /** 定义 + 前台执行（一次性；测试与无 UI 宿主用）。 */
     async run(spec: ExperimentSpec): Promise<ExperimentView> {
         const created = await this.create(spec);
