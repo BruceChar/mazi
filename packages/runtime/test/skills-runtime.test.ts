@@ -114,19 +114,46 @@ describe('渐进披露：catalog 与使用情况', () => {
 });
 
 describe('新建 Skill', () => {
-    it('脚手架写出合法 SKILL.md，可立即被发现', async () => {
+    it('主体分栏拼装正文：何时使用 / 步骤（编号）/ 输出 / 注意事项', async () => {
         const root = makeRoot();
         const skillRoot = asSkillRoot(root, 'user');
         const created = scaffoldSkill(skillRoot, {
             id: 'my-skill',
             name: '我的技能',
             description: '做某事；当用户要求做某事时使用',
+            whenToUse: '用户说「帮我做某事」\n用户上传了相关文件',
+            steps: '- 读取 references/format.md\n向用户确认范围\n2. 写入结果文件',
+            output: '结果文件路径\n三条要点',
+            notes: '不写入公开目录',
         });
         expect(existsSync(created.path)).toBe(true);
         expect(created.content.startsWith('---')).toBe(true);
+        expect(created.content).toContain('## 何时使用');
+        expect(created.content).toContain('- 用户说「帮我做某事」');
+        expect(created.content).toContain('## 步骤');
+        expect(created.content).toContain('1. 读取 references/format.md');
+        expect(created.content).toContain('2. 向用户确认范围');
+        expect(created.content).toContain('3. 写入结果文件');
+        expect(created.content).toContain('## 输出');
+        expect(created.content).toContain('- 结果文件路径');
+        expect(created.content).toContain('## 注意事项');
+        expect(created.content).toContain('- 不写入公开目录');
+
         const registry = SkillRegistry.open({ roots: [skillRoot] });
         expect(registry.errors()).toEqual([]);
         expect(registry.get('my-skill')?.document.description).toBe('做某事；当用户要求做某事时使用');
+        expect(registry.get('my-skill')?.document.body).toContain('## 步骤');
+    });
+
+    it('分栏全空 → 落占位骨架，仍是合法 SKILL.md', () => {
+        const root = makeRoot();
+        const created = scaffoldSkill(asSkillRoot(root, 'user'), { id: 'blank', name: '空白技能' });
+        expect(created.content).toContain('## 何时使用');
+        expect(created.content).toContain('（写清触发场景与典型请求');
+        expect(created.content).toContain('1. …');
+        const registry = SkillRegistry.open({ roots: [asSkillRoot(root, 'user')] });
+        expect(registry.errors()).toEqual([]);
+        expect(registry.get('blank')).toBeDefined();
     });
 
     it('非法 id / 已存在 / 内置只读根 → 拒绝', () => {

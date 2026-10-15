@@ -20,12 +20,25 @@ async function discoveryOf(skills: SkillRuntime): Promise<Record<string, unknown
     };
 }
 
-/** 新建技能入参（scope 缺省 user；builtin 只读）。 */
+/** 取可选文本分栏（空串视为未填）。 */
+function optionalText(record: Record<string, unknown>, key: string): string | undefined {
+    const value = record[key];
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+/**
+ * 新建 Skill 入参：frontmatter（id/name/description） + 主体分栏
+ * （whenToUse=何时使用 / steps=步骤 / output=输出 / notes=注意事项）；scope 缺省 user。
+ */
 function createSkillInputOf(body: unknown): {
     id: string;
     name: string;
     description?: string;
     scope: WritableSkillRootScope;
+    whenToUse?: string;
+    steps?: string;
+    output?: string;
+    notes?: string;
 } {
     if (typeof body !== 'object' || body === null) throw new ApiError(400, '缺少请求体');
     const record = body as Record<string, unknown>;
@@ -37,12 +50,19 @@ function createSkillInputOf(body: unknown): {
     if (scope !== 'user' && scope !== 'project') {
         throw new ApiError(400, 'scope 只支持 user | project（builtin 只读）');
     }
+    const description = optionalText(record, 'description');
+    const whenToUse = optionalText(record, 'whenToUse');
+    const steps = optionalText(record, 'steps');
+    const output = optionalText(record, 'output');
+    const notes = optionalText(record, 'notes');
     return {
         id,
         name,
-        ...(typeof record.description === 'string' && record.description.trim().length > 0
-            ? { description: record.description.trim() }
-            : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(whenToUse !== undefined ? { whenToUse } : {}),
+        ...(steps !== undefined ? { steps } : {}),
+        ...(output !== undefined ? { output } : {}),
+        ...(notes !== undefined ? { notes } : {}),
         scope,
     };
 }

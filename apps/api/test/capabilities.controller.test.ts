@@ -101,13 +101,29 @@ describe('Skill 管理接口（§6 / CP SK-6）', () => {
         const created = await h.fastify.inject({
             method: 'POST',
             url: '/api/capabilities',
-            payload: { id: 'made-skill', name: '新建技能', description: '面板创建', scope: 'user' },
+            payload: {
+                id: 'made-skill',
+                name: '新建技能',
+                description: '面板创建',
+                scope: 'user',
+                whenToUse: '用户要求新建技能时',
+                steps: '第一步\n第二步',
+                output: '输出要点',
+                notes: '不要覆盖已有目录',
+            },
         });
         expect(created.statusCode).toBe(200);
         expect(created.json().id).toBe('made-skill');
         const file = join(h.home, 'skills', 'made-skill', 'SKILL.md');
         expect(existsSync(file)).toBe(true);
-        expect(readFileSync(file, 'utf8')).toContain('description: 面板创建');
+        const content = readFileSync(file, 'utf8');
+        expect(content).toContain('description: 面板创建');
+        expect(content).toContain('## 何时使用');
+        expect(content).toContain('用户要求新建技能时');
+        expect(content).toContain('1. 第一步');
+        expect(content).toContain('2. 第二步');
+        expect(content).toContain('- 输出要点');
+        expect(content).toContain('- 不要覆盖已有目录');
 
         const duplicate = await h.fastify.inject({
             method: 'POST',

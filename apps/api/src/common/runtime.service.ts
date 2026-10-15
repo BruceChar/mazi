@@ -571,14 +571,19 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     }
 
     /**
-     * 新建技能：在 user/project 根写 manifest 脚手架并立即重新发现（CP-11）。
-     * 内置根只读；同名技能已存在（任意根）→ 409，避免无声覆盖用户资产。
+     * 新建 Skill：在 user/project 根写 SKILL.md（frontmatter + 主体分栏）并立即重新发现。
+     * 内置根只读；同名 Skill 已存在（任意根）→ 409，避免无声覆盖用户资产。
      */
     async createSkill(input: {
         id: string;
         name: string;
         description?: string;
         scope: WritableSkillRootScope;
+        /** 主体分栏：何时使用 / 步骤 / 输出 / 注意事项。 */
+        whenToUse?: string;
+        steps?: string;
+        output?: string;
+        notes?: string;
     }): Promise<SkillView> {
         const before = await this.skills();
         if (before.detail(input.id) !== undefined) {
@@ -591,6 +596,10 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 id: input.id,
                 name: input.name,
                 ...(input.description !== undefined ? { description: input.description } : {}),
+                ...(input.whenToUse !== undefined ? { whenToUse: input.whenToUse } : {}),
+                ...(input.steps !== undefined ? { steps: input.steps } : {}),
+                ...(input.output !== undefined ? { output: input.output } : {}),
+                ...(input.notes !== undefined ? { notes: input.notes } : {}),
             });
         } catch (error) {
             throw new ApiError(400, error instanceof Error ? error.message : String(error));
