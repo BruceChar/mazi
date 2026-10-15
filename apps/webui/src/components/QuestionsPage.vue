@@ -6,10 +6,8 @@
  * 支持轴过滤与用户标签覆盖（append-only）。见 docs/用户问题标签与分类设计.md。
  */
 import { onMounted, ref } from 'vue';
-import LineIcon from '../assets/LineIcon.vue';
 import { addQuestionLabels, fetchQuestionTaxonomy, fetchUserQuestions } from '../scripts/store.ts';
 
-const emit = defineEmits(['close']);
 
 const questions = ref([]);
 const taxonomy = ref(null);
@@ -85,11 +83,8 @@ async function saveLabel(question) {
 </script>
 
 <template>
-    <div class="page-card">
+    <div class="uc-panel">
         <div class="page-heading">
-            <button class="icon-btn back-btn" title="返回会话" @click="emit('close')">
-                <LineIcon name="chevronRight" size="16" />
-            </button>
             <h1>问题</h1>
             <span class="question-badge">{{ questions.length }} 条</span>
         </div>

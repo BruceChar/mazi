@@ -87,7 +87,8 @@ export function setTheme(value: 'dark' | 'light' | 'system'): void {
 applyTheme(theme.value);
 
 export interface UiState {
-    view: 'chat' | 'system-settings' | 'settings' | 'profile' | 'questions' | 'behavior' | 'ledger';
+    /** 主区视图：对话 / 系统设置 / 用户中心整页（用户中心的 tab 归 UserCenterPage）。 */
+    view: 'chat' | 'system-settings' | 'user-center';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;

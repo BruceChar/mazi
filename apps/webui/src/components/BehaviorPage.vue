@@ -8,10 +8,8 @@
  */
 import { isUserBehavior } from '@mazi/libs';
 import { computed, onMounted, ref } from 'vue';
-import LineIcon from '../assets/LineIcon.vue';
 import { fetchUserBehaviors } from '../scripts/store.ts';
 
-const emit = defineEmits(['close']);
 
 const behaviors = ref([]);
 const loading = ref(true);
@@ -75,11 +73,8 @@ onMounted(async () => {
 </script>
 
 <template>
-    <div class="page-card">
+    <div class="uc-panel">
         <div class="page-heading">
-            <button class="icon-btn back-btn" title="返回会话" @click="emit('close')">
-                <LineIcon name="chevronRight" size="16" />
-            </button>
             <h1>行为链</h1>
             <span class="behavior-badge">{{ visible.length }} 条</span>
         </div>

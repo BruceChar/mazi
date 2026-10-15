@@ -6,11 +6,9 @@
  * 认知/性情/价值观等 LLM 维度待独立分析器，页面不臆造结论。
  */
 import { computed, onMounted, ref } from 'vue';
-import LineIcon from '../assets/LineIcon.vue';
 import { effectiveDistribution } from '../scripts/question-stats.ts';
 import { fetchUserProfile, fetchUserQuestions } from '../scripts/store.ts';
 
-const emit = defineEmits(['close']);
 
 const profile = ref(null);
 const questions = ref([]);
@@ -63,11 +61,8 @@ onMounted(async () => {
 </script>
 
 <template>
-    <div class="page-card">
+    <div class="uc-panel">
         <div class="page-heading">
-            <button class="icon-btn back-btn" title="返回会话" @click="emit('close')">
-                <LineIcon name="chevronRight" size="16" />
-            </button>
             <h1>用户画像</h1>
             <span class="profile-badge">{{ summary.total }} 条行为 · {{ sampleState }}</span>
         </div>

@@ -5,21 +5,17 @@ import ConfirmDialog from './components/ConfirmDialog.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
+import UserCenterPage from './components/UserCenterPage.vue';
 import Sidebar from './components/Sidebar.vue';
 import ChatMain from './components/ChatMain.vue';
 import TopBar from './components/TopBar.vue';
 import FeedbackModal from './components/FeedbackModal.vue';
 import PromptDialog from './components/PromptDialog.vue';
-import UserPreferencesPage from './components/UserPreferencesPage.vue';
-import ProfilePage from './components/ProfilePage.vue';
-import QuestionsPage from './components/QuestionsPage.vue';
-import BehaviorPage from './components/BehaviorPage.vue';
-import LedgerPage from './components/LedgerPage.vue';
-import { accountViewOf } from './scripts/account.ts';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
 import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
 import { SETTINGS_TABS } from './scripts/settings-tabs.ts';
+import { DEFAULT_USER_CENTER_TAB, userCenterTabOf } from './scripts/user-center.ts';
 import { buildAuditView } from './scripts/audit.ts';
 import { API_BASE } from './api.js';
 import {
@@ -89,7 +85,8 @@ const MIN_PANEL_W = 280;
 const MAX_PANEL_W = 960;
 const searchOpen = ref(false);
 const projectCollapsed = ref(new Set());
-const accountOpen = ref(false);
+/** 用户中心当前 tab（返回后保持原位）。 */
+const userCenterTab = ref(DEFAULT_USER_CENTER_TAB);
 const selectedModel = ref(runSettings.model || '');
 const REASONING_LEVELS = [
     { value: 'off', label: 'Off' },
@@ -554,15 +551,16 @@ function backToChat() {
     ui.view = 'chat';
 }
 
-function toggleAccount() {
-    accountOpen.value = !accountOpen.value;
+/** 用户中心内按 Esc 一键返回对话。 */
+function onKeydown(event) {
+    if (event.key !== 'Escape') return;
+    if (ui.view === 'user-center' || ui.view === 'system-settings') backToChat();
 }
 
-/** 个人中心菜单（docs/webui.md §3.2）→ 对应视图。 */
-function openAccount(id) {
-    accountOpen.value = false;
-    const view = accountViewOf(id);
-    if (view) ui.view = view;
+/** 进入用户中心整页（docs/webui.md §3.2）：可选直达某个 tab，默认画像。 */
+function openUserCenter(tab = DEFAULT_USER_CENTER_TAB) {
+    userCenterTab.value = userCenterTabOf(tab);
+    ui.view = 'user-center';
 }
 
 async function openSystemPicker() {
@@ -801,9 +799,9 @@ async function pingApi() {
 
 onMounted(async () => {
     document.addEventListener('click', () => {
-        accountOpen.value = false;
         searchOpen.value = false;
     });
+    window.addEventListener('keydown', onKeydown);
     try {
         await loadConfig();
         await loadConversations();
@@ -822,6 +820,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     stopEvents();
+    window.removeEventListener('keydown', onKeydown);
     if (latencyTimer) clearInterval(latencyTimer);
 });
 </script>
@@ -832,11 +831,10 @@ onBeforeUnmount(() => {
         :right-open="ui.rightOpen"
         :conversation-title="headerTitle"
         :workspace="headerWorkspace"
-        :account-open="accountOpen"
+        :user-center-open="ui.view === 'user-center'"
         @toggle-sidebar="ui.sidebar = !ui.sidebar"
         @toggle-right="ui.rightOpen = !ui.rightOpen"
-        @toggle-account="toggleAccount"
-        @account-item="openAccount"
+        @open-user-center="openUserCenter()"
     />
 
     <div class="app-shell" :class="{ 'panel-maximized': panelMaximized }">
@@ -960,12 +958,12 @@ onBeforeUnmount(() => {
                 />
             </template>
 
-            <UserPreferencesPage v-else-if="ui.view === 'settings'" @close="backToChat" />
-
-            <ProfilePage v-else-if="ui.view === 'profile'" @close="backToChat" />
-            <QuestionsPage v-else-if="ui.view === 'questions'" @close="backToChat" />
-            <BehaviorPage v-else-if="ui.view === 'behavior'" @close="backToChat" />
-            <LedgerPage v-else-if="ui.view === 'ledger'" @close="backToChat" />
+            <UserCenterPage
+                v-else-if="ui.view === 'user-center'"
+                :tab="userCenterTab"
+                @update:tab="userCenterTab = $event"
+                @close="backToChat"
+            />
         </main>
 
         <div

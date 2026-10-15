@@ -7,10 +7,8 @@
  */
 import { groupUsageByHour, sumUsage } from '@mazi/libs';
 import { computed, onMounted, ref } from 'vue';
-import LineIcon from '../assets/LineIcon.vue';
 import { cfg, fetchUsageRecords } from '../scripts/store.ts';
 
-const emit = defineEmits(['close']);
 
 const records = ref([]);
 const loading = ref(true);
@@ -77,11 +75,8 @@ onMounted(reload);
 </script>
 
 <template>
-    <div class="page-card">
+    <div class="uc-panel">
         <div class="page-heading">
-            <button class="icon-btn back-btn" title="返回会话" @click="emit('close')">
-                <LineIcon name="chevronRight" size="16" />
-            </button>
             <h1>花费账本</h1>
             <span class="ledger-badge">{{ buckets.length }} 个时段</span>
         </div>
