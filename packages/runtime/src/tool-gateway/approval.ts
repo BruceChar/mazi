@@ -23,6 +23,8 @@ export interface PendingApproval {
     allowedScopes: readonly authz.ApprovalScope[];
     identifiers: AuditIdentifiers;
     requestedAt: number;
+    /** Event id of approval.requested; settlements cite it through causedBy. */
+    requestEventId?: string;
 }
 
 /** 结算来源：人工响应 / TTL 超时 / 停机关闭。 */
@@ -79,7 +81,14 @@ export class ApprovalBroker implements authz.ApprovalSeam {
                 this.timeoutMs,
             );
             this.waiters.set(invocationId, { pending, resolve, timer });
-            this.emitEvent('approval.requested', identifiers, request.capability, pending);
+            const requested = this.emitEvent(
+                'approval.requested',
+                identifiers,
+                request.capability,
+                pending,
+                'harness',
+            );
+            pending.requestEventId = requested.eventId;
         });
     }
 
@@ -122,6 +131,8 @@ export class ApprovalBroker implements authz.ApprovalSeam {
                 by,
                 latencyMs,
             },
+            by === 'user' ? 'human' : 'system',
+            waiter.pending.requestEventId,
         );
         return true;
     }
@@ -137,17 +148,21 @@ export class ApprovalBroker implements authz.ApprovalSeam {
         identifiers: AuditIdentifiers,
         capability: string,
         payload: unknown,
-    ): void {
-        this.emit(
-            newHarnessEvent({
-                type,
-                rootGoalId: identifiers.rootGoalId,
-                goalId: identifiers.goalId,
-                taskId: identifiers.taskId,
-                stepId: identifiers.stepId,
-                attributes: { 'harness.approval_effect_class': capability },
-                payload,
-            }),
-        );
+        actor: HarnessEvent['actor'],
+        causedBy?: string,
+    ): HarnessEvent {
+        const event = newHarnessEvent({
+            type,
+            rootGoalId: identifiers.rootGoalId,
+            goalId: identifiers.goalId,
+            taskId: identifiers.taskId,
+            stepId: identifiers.stepId,
+            attributes: { 'harness.approval_effect_class': capability },
+            payload,
+            actor,
+            ...(causedBy !== undefined ? { causedBy } : {}),
+        });
+        this.emit(event);
+        return event;
     }
 }

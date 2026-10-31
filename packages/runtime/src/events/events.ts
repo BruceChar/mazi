@@ -13,6 +13,7 @@ export const RUNTIME_EVENT_TYPES = [
     'plan.invalid',
     'capacity.assembled',
     'capacity.degraded',
+    'toolset.assembled',
     'budget.reallocation',
     'budget.exceeded',
     'strategy.selected',
@@ -24,6 +25,12 @@ export const RUNTIME_EVENT_TYPES = [
     'run.aborted',
     /** 从已落库 Step 重放后继续执行 */
     'run.resumed',
+    /** Goal 创建时的 triage 判定：协商/升级/直答（goal 级，无 taskId） */
+    'goal.negotiation.requested',
+    /** 协商答复后修订并重新冻结契约（唯一合法迁移记录） */
+    'goal.contract-revised',
+    /** 运行收尾的契约满足度机械判定（评估器视角；goal 级，无 taskId） */
+    'goal.contract-evaluated',
 ] as const;
 
 export type RuntimeEventType = (typeof RUNTIME_EVENT_TYPES)[number];

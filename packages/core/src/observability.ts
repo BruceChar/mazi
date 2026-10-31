@@ -115,6 +115,16 @@ export interface HarnessEvent extends TraceIdentifiers {
     eventId: string;
     type: HarnessEventType;
     timestamp: number;
+    /** Per-root append-only sequence, assigned by the event bus. */
+    seq?: number;
+    /** Previous event hash for the same root goal. */
+    prevHash?: string;
+    /** SHA-256 over the immutable event envelope and payload. */
+    hash?: string;
+    /** Event id that mechanically caused this event, when known. */
+    causedBy?: string;
+    /** Source of the event; never inferred as human without evidence. */
+    actor?: 'human' | 'harness' | 'model' | 'tool' | 'system' | (string & {});
     attributes: {
         'gen_ai.operation.name'?: string;
         'gen_ai.request.model'?: string;

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HarnessEvent } from '@mazi/core';
@@ -95,6 +95,33 @@ describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
         ).toThrow(/stepId/);
         // goal 级事件可缺省 taskId/stepId
         expect(() => bus.emit(ev({ type: 'goal.started', rootGoalId: ulid() }))).not.toThrow();
+    });
+
+    it('为每个 root goal 生成可独立校验的 seq/hash 链，并能定位篡改', async () => {
+        const dir = makeDir();
+        const rootGoalId = ulid();
+        const bus = new DefaultEventBus({ eventDir: dir });
+        bus.emit(ev({ type: 'goal.started', rootGoalId }));
+        bus.emit(ev({ type: 'goal.ended', rootGoalId, causedBy: 'cause-1', actor: 'human' }));
+        await bus.flush();
+
+        const replay = bus.replay(rootGoalId);
+        expect(replay.map((event) => event.seq)).toEqual([1, 2]);
+        expect(replay[1]?.prevHash).toBe(replay[0]?.hash);
+        expect(replay[1]).toMatchObject({ causedBy: 'cause-1', actor: 'human' });
+        expect(bus.verifyChain(rootGoalId)).toMatchObject({ ok: true, verified: 2, legacy: 0 });
+
+        const file = join(dir, `${rootGoalId}.jsonl`);
+        const lines = readFileSync(file, 'utf8').trim().split('\n');
+        const tampered = JSON.parse(lines[0]!) as HarnessEvent;
+        tampered.payload = { changed: true };
+        lines[0] = JSON.stringify(tampered);
+        writeFileSync(file, `${lines.join('\n')}\n`);
+        const verifier = new DefaultEventBus({ eventDir: dir });
+        expect(verifier.verifyChain(rootGoalId)).toMatchObject({
+            ok: false,
+            code: 'AUDIT_TAMPER_SUSPECTED',
+        });
     });
 
     it('minLevel / requireFlag 过滤在 MVP 未实现，设置即 fail-fast 抛错', () => {
