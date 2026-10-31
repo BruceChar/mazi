@@ -17,6 +17,11 @@ export class SessionsController {
         return this.sessions.executeSession(sessionId);
     }
 
+    @Post(':id/negotiate')
+    negotiate(@Param('id') sessionId: string, @Body() body: Record<string, unknown>) {
+        return this.sessions.negotiateSession(sessionId, body);
+    }
+
     @Post(':id/stop')
     stop(@Param('id') sessionId: string) {
         return this.sessions.stopSession(sessionId);
@@ -25,6 +30,26 @@ export class SessionsController {
     @Post(':id/resume')
     resume(@Param('id') sessionId: string, @Body() body: Record<string, unknown>) {
         return this.sessions.resumeSession(sessionId, body);
+    }
+
+    @Get(':id/effects')
+    effects(@Param('id') sessionId: string) {
+        return this.sessions.effects(sessionId);
+    }
+
+    @Get(':id/portable')
+    portable(@Param('id') sessionId: string) {
+        return this.sessions.portable(sessionId);
+    }
+
+    @Post(':id/portable/import')
+    importPortable(@Param('id') sessionId: string, @Body() body: Record<string, unknown>) {
+        return this.sessions.importPortable(sessionId, body);
+    }
+
+    @Post(':id/rollback')
+    rollback(@Param('id') sessionId: string) {
+        return this.sessions.rollback(sessionId);
     }
 
     @Get(':id')

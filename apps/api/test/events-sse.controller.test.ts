@@ -140,4 +140,5 @@ describe('events SSE follow（NG-4）', () => {
         expect(types).toContain('goal.started');
         expect(types).not.toContain('llm.stream_event');
     });
+
 });

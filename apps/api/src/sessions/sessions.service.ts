@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { type EffectiveFeatures, ulid } from '@mazi/core';
 import { renderThinkingChain } from '@mazi/libs';
+import type { MemoryItem, PlannedTask } from '@mazi/runtime';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import Logger from '../common/log.js';
@@ -74,6 +75,22 @@ export class SessionsService {
                 : undefined;
         const permissionCeiling =
             requestedCeiling ?? this.runtime.resolvePermission(workspace, conversationId);
+        // 运行设置 → GoalContract：轮次上限与成本上限随契约冻结（缺省 = 不设限）。
+        // 非正数一律视为无效：0 轮 / 0 预算会让 run 在第一轮之前就停，等同于"没有输出"。
+        const requestedMaxSteps = goalBody?.maxSteps;
+        const maxSteps =
+            typeof requestedMaxSteps === 'number' &&
+            Number.isFinite(requestedMaxSteps) &&
+            requestedMaxSteps >= 1
+                ? Math.floor(requestedMaxSteps)
+                : undefined;
+        const requestedMaxCostUsd = goalBody?.maxCostUsd;
+        const maxCostUsd =
+            typeof requestedMaxCostUsd === 'number' &&
+            Number.isFinite(requestedMaxCostUsd) &&
+            requestedMaxCostUsd > 0
+                ? requestedMaxCostUsd
+                : undefined;
         const reasoningLevel =
             typeof goalBody?.reasoningLevel === 'string'
                 ? goalBody.reasoningLevel
@@ -87,6 +104,7 @@ export class SessionsService {
                   ? body.modelId
                   : undefined;
         const history = conversationId ? await this.conversationHistory(conversationId) : [];
+        const planProposal = planProposalOf(body, goalBody);
         // 新会话也先确定 id，使 session 作用域审批在后续续聊中可匹配。
         const sessionConversationId = conversationId ?? ulid();
         // 普通会话按全局 Feature 开关运行（实验台改用运行期 override 走 ExperimentRunner）。
@@ -95,11 +113,17 @@ export class SessionsService {
             userId,
             conversationId: sessionConversationId,
             ...(permissionCeiling ? { permissionCeiling } : {}),
+            ...(maxSteps !== undefined ? { maxSteps } : {}),
+            ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
+            // 契约协商：创建期跑 triage（direct / confirmed / negotiate / escalate）
+            parseIntent: true,
             ...(history.length > 0 ? { history } : {}),
+            ...(planProposal !== undefined ? { planProposal } : {}),
             ...(reasoningLevel ? { reasoningLevel } : {}),
             ...(modelId ? { modelId } : {}),
             ...featureOptions,
         });
+        await this.rememberPreferences(created.rootGoalId, body, userId, workspace);
         this.logger.log(
             `createSession ${created.rootGoalId} input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'} workspace=${workspace ?? '-'}`,
         );
@@ -125,11 +149,120 @@ export class SessionsService {
                 conversationId: sessionConversationId,
             });
         }
+        // 立即返回：triage 在 runtime 侧异步落地（goal.negotiation.requested 事件 +
+        // 契约追加条款），创建请求不再等模型轮次——用户输入要马上可见。
         return {
             sessionId: created.rootGoalId,
             state: 'active',
             conversationId: createdConversationId,
         };
+    }
+
+    /**
+     * POST /api/sessions/:id/negotiate：提交协商答复 → 修订并重新冻结契约
+     * （goal.contract-revised），返回修订后的 Goal 树快照。
+     */
+    async negotiateSession(sessionId: string, body: Record<string, unknown>): Promise<unknown> {
+        const raw = Array.isArray(body.answers) ? body.answers : [];
+        const answers = raw
+            .map((item) =>
+                typeof item === 'object' && item !== null
+                    ? (item as Record<string, unknown>)
+                    : undefined,
+            )
+            .filter((item): item is Record<string, unknown> => item !== undefined)
+            .filter((item) => typeof item.q === 'string')
+            .map((item) => ({
+                q: String(item.q),
+                answer: typeof item.answer === 'string' ? item.answer : '',
+                ...(item.usedDefault === true ? { usedDefault: true } : {}),
+            }));
+        // 缺字段才是坏请求；空数组是合法的「无问题可答 / 已知悉」，只做确认落库。
+        if (!Array.isArray(body.answers)) {
+            throw new ApiError(400, '缺少 answers');
+        }
+        try {
+            const result = await this.runtime.harness().negotiateGoal(sessionId, answers);
+            const snapshot = await this.runtime.harness().goalSnapshot(sessionId);
+            this.logger.log(
+                `negotiateSession ${sessionId} answers=${answers.length} revision=${result.revision}`,
+            );
+            return { sessionId, ...result, snapshot };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new ApiError(message.includes('不存在') ? 404 : 400, message);
+        }
+    }
+
+    async effects(sessionId: string): Promise<{ effects: unknown[] }> {
+        return { effects: await this.runtime.harness().listEffects(sessionId) };
+    }
+
+    private async rememberPreferences(
+        rootGoalId: string,
+        body: Record<string, unknown>,
+        userId: string | undefined,
+        workspaceId: string | undefined,
+    ): Promise<void> {
+        const raw =
+            body.preferences && typeof body.preferences === 'object'
+                ? (body.preferences as Record<string, unknown>)
+                : undefined;
+        if (raw === undefined) return;
+        const labels: Record<string, string> = {
+            displayName: '称呼',
+            favoriteTools: '偏好工具',
+            codeStyle: '代码风格',
+            responseStyle: '回答风格',
+        };
+        const items: MemoryItem[] = [];
+        for (const [key, label] of Object.entries(labels)) {
+            const value = typeof raw[key] === 'string' ? raw[key].trim() : '';
+            if (value.length === 0) continue;
+            items.push({
+                id: `preference:${userId ?? 'local'}:${key}`,
+                kind: 'preference',
+                text: `${label}：${value}`,
+                createdAt: Date.now(),
+                rootGoalId,
+                ...(userId !== undefined ? { userId } : {}),
+                ...(workspaceId !== undefined ? { workspaceId } : {}),
+                tags: ['preference', key],
+                provenance: {
+                    source: 'user',
+                    confidence: 'confirmed',
+                    trustTier: 'T1',
+                },
+                status: 'active',
+            });
+        }
+        if (items.length > 0) await this.runtime.harness().rememberMemory(items);
+    }
+
+    async rollback(sessionId: string): Promise<{ sessionId: string; effects: unknown[] }> {
+        try {
+            const effects = await this.runtime.harness().rollbackGoal(sessionId);
+            this.logger.log(`rollbackSession ${sessionId} effects=${effects.length}`);
+            return { sessionId, effects };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new ApiError(message.includes('工作区') ? 400 : 500, message);
+        }
+    }
+
+    async portable(sessionId: string) {
+        return this.runtime.harness().exportPortableBundle([sessionId]);
+    }
+
+    async importPortable(
+        sessionId: string,
+        body: Record<string, unknown>,
+    ): Promise<{ sessionId: string; imported: number }> {
+        const imported = await this.runtime
+            .harness()
+            .importPortableBundle(body as unknown as import('@mazi/runtime').MemoryBundle);
+        this.logger.log(`importPortable ${sessionId} records=${imported.imported}`);
+        return { sessionId, imported: imported.imported };
     }
 
     /**
@@ -312,7 +445,7 @@ export class SessionsService {
         );
         const last = result.tasks[result.tasks.length - 1];
         this.logger.log(
-            `resumeSession done ${sessionId} ms=${Date.now() - started} ok=${result.ok} tasks=${result.tasks.length} reason=${last?.reason ?? '-'}`,
+            `resumeSession done ${sessionId} ms=${Date.now() - started} ok=${result.ok} tasks=${result.tasks.length} reason=${last?.reason ?? '-'} rejected=${JSON.stringify(result.rejected ?? [])}`,
         );
         return result;
     }
@@ -375,4 +508,59 @@ export class SessionsService {
         );
         return { ok: true };
     }
+}
+
+function planProposalOf(
+    body: Record<string, unknown>,
+    goalBody: Record<string, unknown> | undefined,
+): PlannedTask[] | undefined {
+    const plan =
+        body.plan && typeof body.plan === 'object'
+            ? (body.plan as Record<string, unknown>)
+            : undefined;
+    const raw = body.planProposal ?? goalBody?.planProposal ?? plan?.tasks;
+    if (!Array.isArray(raw)) return undefined;
+    const tasks = raw
+        .map((item): PlannedTask | undefined => {
+            if (typeof item !== 'object' || item === null) return undefined;
+            const value = item as Record<string, unknown>;
+            const key = typeof value.key === 'string' ? value.key.trim() : '';
+            const title = typeof value.title === 'string' ? value.title.trim() : '';
+            if (key.length === 0 || title.length === 0) return undefined;
+            const dependsOn = Array.isArray(value.dependsOn)
+                ? value.dependsOn.filter((entry): entry is string => typeof entry === 'string')
+                : undefined;
+            const acceptanceConditionIds = Array.isArray(value.acceptanceConditionIds)
+                ? value.acceptanceConditionIds.filter(
+                      (entry): entry is string => typeof entry === 'string',
+                  )
+                : undefined;
+            const requiredTools = Array.isArray(value.requiredTools)
+                ? value.requiredTools.filter((entry): entry is string => typeof entry === 'string')
+                : undefined;
+            return {
+                key,
+                title,
+                ...(typeof value.goalId === 'string'
+                    ? { goalId: value.goalId as PlannedTask['goalId'] }
+                    : {}),
+                ...(dependsOn !== undefined ? { dependsOn } : {}),
+                ...(acceptanceConditionIds !== undefined
+                    ? {
+                          acceptanceConditionIds: acceptanceConditionIds as unknown as NonNullable<
+                              PlannedTask['acceptanceConditionIds']
+                          >,
+                      }
+                    : {}),
+                ...(requiredTools !== undefined ? { requiredTools } : {}),
+                ...(typeof value.permissionCeiling === 'string'
+                    ? {
+                          permissionCeiling:
+                              value.permissionCeiling as PlannedTask['permissionCeiling'],
+                      }
+                    : {}),
+            };
+        })
+        .filter((item): item is PlannedTask => item !== undefined);
+    return tasks.length > 0 ? tasks : undefined;
 }

@@ -132,6 +132,8 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
                     captured.push(opts);
                     return { rootGoalId: 'r1', goalId: 'g1' };
                 },
+                // createSession 读快照决定 state（协商/直答/可执行）
+                goalSnapshot: async () => ({ goals: [] }),
             }),
         };
         const service = new SessionsService(runtime as never, conversations as never);

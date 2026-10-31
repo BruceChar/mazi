@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import type { HarnessEvent } from '@mazi/core';
-import type { DefaultEventBus } from '@mazi/runtime';
+import type { ChainVerification, DefaultEventBus } from '@mazi/runtime';
 import { Controller, Get, Param, Query, Res } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import Logger from '../common/log.js';
@@ -18,6 +18,11 @@ export class EventsController {
     private readonly logger = new Logger('events');
 
     constructor(private readonly runtime: ApiRuntimeService) {}
+
+    @Get(':id/verify')
+    verify(@Param('id') sessionId: string): ChainVerification {
+        return (this.runtime.harness().eventBus as DefaultEventBus).verifyChain(sessionId);
+    }
 
     @Get(':id')
     replay(

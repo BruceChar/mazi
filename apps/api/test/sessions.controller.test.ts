@@ -95,6 +95,73 @@ describe('sessions（Goal 坐标系：sessionId = rootGoalId）', () => {
         }
     });
 
+    it('GET /timeline 携带契约与验收判定（UI 契约卡片的数据源）', async () => {
+        const created = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: {
+                input: '读取 README.md 并汇报',
+                goal: { permissionCeiling: 'read-only', maxCostUsd: 0.5, maxSteps: 8 },
+            },
+        });
+        const { sessionId } = created.json();
+        await fastify.inject({
+            method: 'POST',
+            url: `/api/sessions/${sessionId}/run`,
+            headers: { 'content-type': 'application/json' },
+            payload: '{}',
+        });
+        const detail = await fastify.inject({
+            method: 'GET',
+            url: `/api/sessions/${sessionId}/timeline`,
+        });
+        expect(detail.statusCode).toBe(200);
+        const goal = detail.json().goals[0];
+        // 运行设置 → 契约：预算/轮次在冻结时刻落进 GoalContract
+        expect(goal.contract.budget.maxCostUsd).toBe(0.5);
+        expect(goal.contract.terminationPolicy.maxSteps).toBe(8);
+        // 默认条款全部机械可判（健康度 100%）
+        expect(goal.contract.successConditions).toHaveLength(2);
+        expect(goal.contract.successConditions[0].check).toEqual({ kind: 'final-answer' });
+        expect(goal.contract.deterministicRatio).toBe(1);
+        // Task 验收锚定条款，评估器已产出判定事实
+        const task = goal.tasks[0];
+        expect(task.acceptance.conditions).toHaveLength(2);
+        expect(task.acceptanceResult.total).toBe(2);
+        expect(task.acceptanceResult.evaluated).toBe(2);
+        expect(task.acceptanceResult.conditions.every((item) => item.status !== 'unchecked')).toBe(
+            true,
+        );
+    });
+
+    it('POST /api/sessions/:id/negotiate：缺 answers → 400；未经协商 → 400', async () => {
+        const created = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '读取 README.md 并汇报' },
+        });
+        const { sessionId } = created.json();
+        const missing = await fastify.inject({
+            method: 'POST',
+            url: `/api/sessions/${sessionId}/negotiate`,
+            headers: { 'content-type': 'application/json' },
+            payload: {},
+        });
+        expect(missing.statusCode).toBe(400);
+        expect(missing.json()).toEqual({ error: '缺少 answers' });
+
+        const none = await fastify.inject({
+            method: 'POST',
+            url: `/api/sessions/${sessionId}/negotiate`,
+            headers: { 'content-type': 'application/json' },
+            payload: { answers: [{ q: '文件在哪？', answer: '在 Downloads' }] },
+        });
+        expect(none.statusCode).toBe(400);
+        expect(String(none.json().error)).toContain('未经协商');
+    });
+
     it('GET /api/sessions/:unknown → 404 { error: "session not found" }', async () => {
         const res = await fastify.inject({
             method: 'GET',
@@ -102,6 +169,102 @@ describe('sessions（Goal 坐标系：sessionId = rootGoalId）', () => {
         });
         expect(res.statusCode).toBe(404);
         expect(res.json()).toEqual({ error: 'session not found' });
+    });
+
+    it('effects / rollback / portable endpoints expose audit-safe recovery assets', async () => {
+        const created = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: {
+                input: '导出任务状态',
+                userId: 'u-memory',
+                preferences: { codeStyle: '先测试后实现', responseStyle: '简洁' },
+            },
+        });
+        const sessionId = created.json().sessionId;
+
+        const effects = await fastify.inject({
+            method: 'GET',
+            url: `/api/sessions/${sessionId}/effects`,
+        });
+        expect(effects.statusCode).toBe(200);
+        expect(effects.json()).toEqual({ effects: [] });
+
+        const portable = await fastify.inject({
+            method: 'GET',
+            url: `/api/sessions/${sessionId}/portable`,
+        });
+        expect(portable.statusCode, portable.body).toBe(200);
+        expect(portable.json()).toMatchObject({
+            format: 'mazi-memory-bundle',
+            schemaVersion: 1,
+        });
+        expect(portable.json().auditTrails[0].rootGoalId).toBe(sessionId);
+        expect(
+            portable
+                .json()
+                .records.some(
+                    (record: { kind: string; text: string }) =>
+                        record.kind === 'preference' && record.text.includes('先测试后实现'),
+                ),
+        ).toBe(true);
+
+        const imported = await fastify.inject({
+            method: 'POST',
+            url: `/api/sessions/${sessionId}/portable/import`,
+            headers: { 'content-type': 'application/json' },
+            payload: portable.body,
+        });
+        expect(imported.statusCode).toBe(200);
+        expect(imported.json().sessionId).toBe(sessionId);
+
+        const verified = await fastify.inject({
+            method: 'GET',
+            url: `/api/events/${sessionId}/verify`,
+        });
+        expect(verified.statusCode).toBe(200);
+        expect(verified.json()).toMatchObject({ ok: true });
+        expect(verified.json().verified).toBeGreaterThan(0);
+    });
+
+    it('创建会话接受多 Task 依赖计划并生成 plan.created', async () => {
+        const created = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: {
+                input: '检查并汇报',
+                goal: { modelId: 'faux-model' },
+                plan: {
+                    tasks: [
+                        { key: 'inspect', title: '检查项目' },
+                        {
+                            key: 'report',
+                            title: '汇总结论',
+                            dependsOn: ['inspect'],
+                        },
+                    ],
+                },
+            },
+        });
+        expect(created.statusCode).toBe(200);
+        const sessionId = created.json().sessionId;
+        const ran = await fastify.inject({
+            method: 'POST',
+            url: `/api/sessions/${sessionId}/run`,
+            headers: { 'content-type': 'application/json' },
+            payload: '{}',
+        });
+        expect(ran.statusCode).toBe(200);
+        const events = await fastify.inject({
+            method: 'GET',
+            url: `/api/events/${sessionId}`,
+        });
+        const plan = events
+            .json()
+            .find((event: { type: string }) => event.type === 'plan.created');
+        expect(plan.payload).toMatchObject({ taskCount: 2 });
     });
 
     it('POST /api/sessions/:id/run → 200 执行 Goal 树（返回 rootGoalId/tasks/ok）', async () => {
