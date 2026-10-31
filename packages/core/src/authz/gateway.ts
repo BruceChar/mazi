@@ -58,8 +58,21 @@ export function projectValues(
     if (path !== undefined) out.path = path;
     const host = firstString(projection.hostParams);
     if (host !== undefined) out.host = host;
-    const command = firstString(projection.commandParam ? [projection.commandParam] : undefined);
-    if (command !== undefined) out.command = command;
+    const rawCommand =
+        projection.commandParam === undefined ? undefined : args[projection.commandParam];
+    const command =
+        typeof rawCommand === 'string'
+            ? rawCommand
+            : Array.isArray(rawCommand) &&
+                rawCommand.every((item): item is string => typeof item === 'string')
+              ? rawCommand.join(' ')
+              : undefined;
+    if (command !== undefined) {
+        out.command =
+            projection.commandPrefix !== undefined && projection.commandPrefix.length > 0
+                ? `${projection.commandPrefix} ${command}`
+                : command;
+    }
     const sql = firstString(projection.sqlParam ? [projection.sqlParam] : undefined);
     if (sql !== undefined) out.sql = sql;
     if (projection.amountParam !== undefined) {
@@ -158,7 +171,8 @@ export class DefaultToolGateway implements ToolGateway {
         log('supply-check', 'allowed');
 
         // ② scope-check: capability surface + declared range
-        const caps: string[] = [registration.capability, ...(registration.coCapabilities ?? [])];
+        const capability = registration.capabilityForArgs?.(req.args) ?? registration.capability;
+        const caps: string[] = [capability, ...(registration.coCapabilities ?? [])];
         let needsApproval = false;
         for (const capability of caps) {
             const effective = this.bind.policy.capabilities[capability];
@@ -170,13 +184,9 @@ export class DefaultToolGateway implements ToolGateway {
             }
             if (effective.tier === 'gated') needsApproval = true;
         }
-        const primary = this.bind.policy.capabilities[registration.capability];
+        const primary = this.bind.policy.capabilities[capability];
         if (!primary) {
-            return reject(
-                'FORBIDDEN_BY_POLICY',
-                `能力未授予：${registration.capability}`,
-                'scope-check',
-            );
+            return reject('FORBIDDEN_BY_POLICY', `能力未授予：${capability}`, 'scope-check');
         }
         const projection = projectValues(req.args, registration.scope);
         if (!isInScope(projection, primary.spec)) {
@@ -195,7 +205,7 @@ export class DefaultToolGateway implements ToolGateway {
 
         // ③ risk-check: three questions + hard floor
         const assessment = assessQuestions({
-            capability: registration.capability,
+            capability,
             semantics: registration.semantics,
             projection,
             target,
@@ -287,14 +297,14 @@ export class DefaultToolGateway implements ToolGateway {
             const request: ApprovalRequest = {
                 invocationId,
                 tool: req.tool,
-                capability: registration.capability,
-                echo: this.buildEcho(registration, projection, invocationId),
+                capability,
+                echo: this.buildEcho(registration, projection, invocationId, capability),
                 allowedScopes: approval.allowedScopes,
                 identifiers,
             };
             log('approval', 'pending', { detail: 'approval-requested' });
             const decision = await this.bind.approval.decide(request);
-            const settled = this.settle(decision, approval, registration.capability);
+            const settled = this.settle(decision, approval, capability);
             if (settled) return reject(settled.code, settled.hint, 'approval');
             log('approval', 'allowed', { detail: decision.decision });
         } else {
@@ -331,6 +341,7 @@ export class DefaultToolGateway implements ToolGateway {
         try {
             output = await registration.handler(req.args, {
                 signal: new AbortController().signal,
+                identifiers,
                 ...(credentials.credentials ? { credentials: credentials.credentials } : {}),
             });
         } catch (error) {
@@ -370,12 +381,12 @@ export class DefaultToolGateway implements ToolGateway {
         if (registration.semantics.ingest === true) {
             this.bind.ledger.commit({
                 label: target.label as SensitivityLabel,
-                source: registration.capability,
+                source: capability,
                 stepId,
                 severed: severedRead,
             });
         }
-        if (isWriteCapability(registration.capability) && projection.path !== undefined) {
+        if (isWriteCapability(capability) && projection.path !== undefined) {
             this.bind.taint.markFromLedger(projection.path, this.bind.ledger);
         }
         log('writeback', 'allowed', { detail: untrusted ? 'untrusted' : 'committed' });
@@ -414,12 +425,13 @@ export class DefaultToolGateway implements ToolGateway {
         registration: ToolRegistration,
         projection: ValueProjection,
         invocationId: string,
+        capability: string,
     ): ApprovalRequest['echo'] {
         const verdict = this.bind.ledger.adjudicate();
         return {
             invocationId,
             tool: registration.name,
-            effectClass: registration.capability,
+            effectClass: capability,
             ...(projection.command !== undefined ? { command: projection.command } : {}),
             ...(projection.path !== undefined ? { targetAsset: projection.path } : {}),
             ...(projection.host !== undefined ? { counterparty: projection.host } : {}),

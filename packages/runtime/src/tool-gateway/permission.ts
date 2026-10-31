@@ -114,8 +114,24 @@ export function capabilityForTool(tool: ToolConfig): string {
     return 'fs.read.workspace';
 }
 
+/** Minimum human-facing level that makes the derived capability automatic. */
+export function permissionForTool(tool: ToolConfig): PermissionLevel {
+    const capability = capabilityForTool(tool);
+    if (capability === 'fs.read.workspace') return 'read-only';
+    if (
+        capability === 'fs.write.workspace' ||
+        capability === 'fs.write.draft' ||
+        capability === 'fs.exec'
+    ) {
+        return 'workspace-write';
+    }
+    if (capability === 'net.fetch') return 'draft';
+    return 'approved';
+}
+
 function scopeForTool(tool: ToolConfig): authz.ScopeProjection {
     if (tool.name === 'shell.run') return { commandParam: 'command' };
+    if (tool.name === 'git') return { commandParam: 'args', commandPrefix: 'git' };
     const effects = new Set(tool.sideEffects ?? []);
     if (effects.has('net')) return { hostParams: ['url'] };
     const properties = (tool.parameters as { properties?: Record<string, unknown> } | undefined)
@@ -136,12 +152,27 @@ function registrationForTool(
         description: tool.description,
         parameters: (tool.parameters ?? {}) as Record<string, unknown>,
         capability,
+        ...(tool.name === 'xh'
+            ? {
+                  capabilityForArgs: (args: Record<string, unknown>) => {
+                      const method =
+                          typeof args.method === 'string'
+                              ? args.method.trim().toUpperCase()
+                              : 'GET';
+                      return method === '' || method === 'GET' || method === 'HEAD'
+                          ? 'net.fetch'
+                          : 'net.send';
+                  },
+              }
+            : {}),
         semantics: RUNTIME_SEMANTICS[capability] ?? {},
         scope: scopeForTool(tool),
         trust: 'confined',
         ...(effects.has('net') ? { untrustedOutput: true } : {}),
-        handler: async (args) => {
-            const result = await execute(tool, args);
+        handler: async (args, ctx) => {
+            const result = await execute(tool, args, {
+                ...(ctx.identifiers !== undefined ? { identifiers: ctx.identifiers } : {}),
+            });
             if (!result.ok) throw new Error(result.error ?? `工具执行失败：${tool.name}`);
             return { value: result.content ?? '' };
         },
@@ -155,13 +186,27 @@ export function standingApprovalSeam(): authz.ApprovalSeam {
     };
 }
 
+/** Runtime-library default: no human seam means gated calls cannot execute. */
+export function failClosedApprovalSeam(): authz.ApprovalSeam {
+    return {
+        decide: async () => ({
+            decision: 'rejected',
+            reason: '未装配人工审批 seam（fail-closed）',
+        }),
+    };
+}
+
 export interface RuntimeGatewayOptions {
     rootGoalId: string;
     goalId: string;
     taskId: string;
     level: PermissionLevel;
     tools: readonly ToolConfig[];
-    execute: (tool: ToolConfig, args: Record<string, unknown>) => Promise<ToolCallResult>;
+    execute: (
+        tool: ToolConfig,
+        args: Record<string, unknown>,
+        ctx?: { identifiers?: import('@mazi/core').AuditIdentifiers },
+    ) => Promise<ToolCallResult>;
     audit?: authz.GatewayAuditSink;
     approval?: authz.ApprovalSeam;
     /** Process-level session/workspace 授权；跨 RuntimeToolGateway 复用，避免重复审批。 */
@@ -219,7 +264,7 @@ export class RuntimeToolGateway {
             ledger,
             taint,
             toolRegistry: this.registrations,
-            approval: opts.approval ?? standingApprovalSeam(),
+            approval: opts.approval ?? failClosedApprovalSeam(),
             ...(opts.approvalStore ? { approvalStore: opts.approvalStore } : {}),
             ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
             commandPolicy: opts.commandPolicy ?? DEFAULT_COMMAND_POLICY,

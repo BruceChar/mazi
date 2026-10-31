@@ -25,7 +25,6 @@ import type {
     EffectivePolicy,
     Question,
     ToolSemantics,
-    ValueProjection,
 } from './types.js';
 
 /** Tool parameter JSON Schema (bridges to @mazi/provider; core stays schema-agnostic). */
@@ -42,11 +41,15 @@ export interface ScopeProjection {
     hostParams?: string[];
     amountParam?: string;
     commandParam?: string;
+    /** Prefix applied to commandParam, e.g. `git` for an argv-only git tool. */
+    commandPrefix?: string;
     sqlParam?: string;
 }
 
 export interface HandlerContext {
     signal: AbortSignal;
+    /** Audit coordinates supplied by the gateway; never model-controlled. */
+    identifiers?: import('../observability.js').AuditIdentifiers;
     /** Counter-signed requests keyed by refId; the handler never sees plaintext. */
     credentials?: ReadonlyMap<string, SignedRequest>;
 }
@@ -68,6 +71,11 @@ export interface ToolRegistration {
     parameters: JSONSchemaSpec;
     /** Dispatch anchor into the effective policy. */
     capability: string;
+    /**
+     * Optional argument-sensitive capability selector. The result must be one
+     * of the capabilities present in the immutable policy snapshot.
+     */
+    capabilityForArgs?: (args: Record<string, unknown>) => string;
     coCapabilities?: readonly string[];
     /** Three-question declaration for this tool. */
     semantics: ToolSemantics;

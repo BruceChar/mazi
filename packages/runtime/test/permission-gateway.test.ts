@@ -162,6 +162,77 @@ describe('runtime permission bridge', () => {
         await expect(pending).resolves.toMatchObject({ ok: false });
     });
 
+    it('classifies git argv and gates write/network subcommands', async () => {
+        const broker = new ApprovalBroker({ emit: () => {}, timeoutMs: 1000 });
+        const git = tool({
+            name: 'git',
+            minPermission: 'read-only',
+            parameters: {
+                type: 'object',
+                properties: { args: { type: 'array', items: { type: 'string' } } },
+            },
+            command: { bin: 'git', args: ['{args?}'] },
+        });
+        const gateway = new RuntimeToolGateway({
+            rootGoalId: 'r',
+            goalId: 'g',
+            taskId: 't',
+            level: 'read-only',
+            tools: [git],
+            execute,
+            approval: broker,
+        });
+
+        await expect(gateway.invoke('git', { args: ['status'] })).resolves.toMatchObject({
+            ok: true,
+        });
+        expect(broker.pending()).toHaveLength(0);
+
+        const commit = gateway.invoke('git', { args: ['commit', '-m', 'x'] });
+        await Promise.resolve();
+        const commitApprovals = broker.pending();
+        expect(commitApprovals).toHaveLength(1);
+        expect(commitApprovals[0]?.summary).toContain('git commit');
+        broker.settle(commitApprovals[0]!.invocationId, { decision: 'rejected' });
+        await expect(commit).resolves.toMatchObject({ ok: false });
+
+        const push = gateway.invoke('git', { args: ['push', 'origin', 'main'] });
+        await Promise.resolve();
+        const pushApprovals = broker.pending();
+        expect(pushApprovals).toHaveLength(1);
+        broker.settle(pushApprovals[0]!.invocationId, { decision: 'rejected' });
+        await expect(push).resolves.toMatchObject({ ok: false });
+    });
+
+    it('treats mutating HTTP methods as egress requiring approval', async () => {
+        const broker = new ApprovalBroker({ emit: () => {}, timeoutMs: 1000 });
+        const gateway = new RuntimeToolGateway({
+            rootGoalId: 'r',
+            goalId: 'g',
+            taskId: 't',
+            level: 'draft',
+            tools: TOOLS,
+            execute,
+            approval: broker,
+        });
+
+        await expect(gateway.invoke('xh', { url: 'https://example.com' })).resolves.toMatchObject({
+            ok: true,
+        });
+        expect(broker.pending()).toHaveLength(0);
+
+        const post = gateway.invoke('xh', {
+            method: 'POST',
+            url: 'https://example.com/items',
+        });
+        await Promise.resolve();
+        const approvals = broker.pending();
+        expect(approvals).toHaveLength(1);
+        expect(approvals[0]?.capability).toBe('net.send');
+        broker.settle(approvals[0]!.invocationId, { decision: 'rejected' });
+        await expect(post).resolves.toMatchObject({ ok: false });
+    });
+
     it('executes a read tool and a draft tool through the pipeline', async () => {
         const gateway = new RuntimeToolGateway({
             rootGoalId: 'r',
