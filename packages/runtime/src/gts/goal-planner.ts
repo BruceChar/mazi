@@ -5,16 +5,31 @@
  */
 
 import { type AcceptanceSpec, type Goal, type Task, ulid } from '@mazi/core';
+import {
+    compileTaskPlan,
+    type PlanGraph,
+    type PlannedTask,
+    type PlanTool,
+    type PlanValidation,
+} from './plan-graph.js';
 
 export interface PlanGoalTreeInput {
     /** 扁平 Goal 集（无树结构；每个 goal 独立，intent 直接产生） */
     goals: Goal[];
+    /** Optional model/user proposal. Absence keeps the single-task MVP. */
+    proposals?: readonly PlannedTask[];
+    /** Available tool catalogue used for preflight validation. */
+    availableTools?: readonly PlanTool[];
+    planVersion?: number;
 }
 
 export interface GoalPlan {
     /** 可执行 Goal */
     goals: Goal[];
     tasks: Task[];
+    graph?: PlanGraph;
+    validation: PlanValidation;
+    rejected?: string[];
 }
 
 /** 从 goal.contract 机械成功条件派生 Task 验收（checkType='semantic' 项需 judge，暂以条件 id 占位） */
@@ -35,10 +50,24 @@ function acceptanceFrom(goal: Goal): AcceptanceSpec {
 export function planGoalTree(input: PlanGoalTreeInput): GoalPlan {
     const { goals } = input;
     const executable = goals.filter((g) => g.status === 'active');
-    const tasks = executable.map((goal, i) =>
-        planTask(goal, executable.length > 1 ? i : undefined),
-    );
-    return { goals: executable, tasks };
+    const compiled = compileTaskPlan({
+        goals,
+        ...(input.proposals !== undefined ? { proposals: input.proposals } : {}),
+        ...(input.availableTools !== undefined ? { availableTools: input.availableTools } : {}),
+        ...(input.planVersion !== undefined ? { planVersion: input.planVersion } : {}),
+    });
+    if (compiled.tasks.length > 1) {
+        compiled.tasks.forEach((task, index) => {
+            task.parentPlanNodeId ??= `plan-${index}`;
+        });
+    }
+    return {
+        goals: executable,
+        tasks: compiled.tasks,
+        validation: compiled.validation,
+        ...(compiled.graph !== undefined ? { graph: compiled.graph } : {}),
+        ...(!compiled.validation.ok ? { rejected: compiled.validation.rejected } : {}),
+    };
 }
 
 /**
