@@ -6,8 +6,9 @@
  * 本版不实现自动压缩，只暴露 shouldCompact 决策点。
  */
 
+import { createHash } from 'node:crypto';
 import type { authz, LLMMessage, RuntimeContextBreakdown, ToolSchema } from '@mazi/core';
-
+import { estimateTokens } from '../token-estimator.js';
 import { measureContext } from './context-measure.js';
 
 /** 敏感内容的 voucher：不透明句柄 + 策展属性，原文不进入 context。 */
@@ -84,6 +85,17 @@ export interface ContextManagerOptions {
     redactor?: SecretRedactor;
     /** 单轮 assistant 正文回注截断上限（默认 4000，保持既有行为）。 */
     assistantTextMax?: number;
+    /** Number of recent complete tool rounds retained during deterministic compaction. */
+    compactKeepRounds?: number;
+}
+
+export interface ContextSnapshot {
+    epochId: string;
+    prefixVersion: number;
+    prefixHash: string;
+    staticTokens: number;
+    dynamicMessages: number;
+    compactedMessages: number;
 }
 
 export const SECRET_REF_FIELD = '$secretRef';
@@ -142,7 +154,13 @@ export class ContextManager {
     private readonly contributions = new Map<string, ContextContribution>();
     private readonly redactor?: SecretRedactor;
     private readonly assistantTextMax: number;
+    private readonly compactKeepRounds: number;
     private readonly dynamic: LLMMessage[] = [];
+    private readonly compactionNotes: string[] = [];
+    private compactedMessages = 0;
+    private prefixVersion = 1;
+    private lastPrefixHash?: string;
+    private prefixEpochId = 'epoch-1';
     private lastTotalTokens?: number;
     private lastMessageCount?: number;
 
@@ -152,6 +170,7 @@ export class ContextManager {
         this.history = opts.history ?? [];
         this.redactor = opts.redactor;
         this.assistantTextMax = opts.assistantTextMax ?? 4000;
+        this.compactKeepRounds = opts.compactKeepRounds ?? 4;
         for (const contribution of opts.contributions ?? []) this.addContribution(contribution);
     }
 
@@ -204,9 +223,11 @@ export class ContextManager {
     }
 
     systemPrompt(): string | undefined {
-        const parts = [this.staticSystemPrompt, ...this.snapshotContributions().fragments].filter(
-            (part): part is string => typeof part === 'string' && part.length > 0,
-        );
+        const parts = [
+            this.staticSystemPrompt,
+            ...this.snapshotContributions().fragments,
+            ...this.compactionNotes,
+        ].filter((part): part is string => typeof part === 'string' && part.length > 0);
         return parts.length > 0 ? parts.join('\n\n') : undefined;
     }
 
@@ -231,6 +252,14 @@ export class ContextManager {
             baseline,
             contextWindow,
         );
+        breakdown.strategyApplied = [
+            ...new Set([
+                ...breakdown.strategyApplied,
+                'cache-prompt-prefix' as const,
+                ...(this.compactedMessages > 0 ? ['summarize-history' as const] : []),
+            ]),
+        ];
+        breakdown.contextSnapshot = this.snapshot();
         this.lastTotalTokens = breakdown.totalContextTokens;
         this.lastMessageCount = this.messages().length;
         return breakdown;
@@ -241,6 +270,77 @@ export class ContextManager {
         if (contextWindow <= 0) return false;
         const total = this.lastTotalTokens ?? this.estimateTotalTokens();
         return total / contextWindow >= threshold;
+    }
+
+    /**
+     * Compact complete assistant/tool round pairs while retaining the original
+     * user intent. A deterministic note is placed into the stable prefix, so
+     * this operation intentionally starts a new prefix epoch.
+     */
+    compactHistory(keepRounds = this.compactKeepRounds): boolean {
+        const groups: Array<{ start: number; end: number }> = [];
+        let index = this.dynamic[0]?.role === 'user' ? 1 : 0;
+        while (index < this.dynamic.length) {
+            const assistant = this.dynamic[index];
+            const tool = this.dynamic[index + 1];
+            if (
+                assistant?.role === 'assistant' &&
+                (assistant.toolCalls?.length ?? 0) > 0 &&
+                tool?.role === 'tool'
+            ) {
+                groups.push({ start: index, end: index + 2 });
+                index += 2;
+            } else {
+                index += 1;
+            }
+        }
+        if (groups.length <= keepRounds) return false;
+        const removeGroups = groups.slice(0, groups.length - keepRounds);
+        const remove = new Set<number>();
+        const excerpts: string[] = [];
+        for (const group of removeGroups) {
+            for (let i = group.start; i < group.end; i += 1) {
+                remove.add(i);
+                const message = this.dynamic[i];
+                if (message?.role === 'assistant') {
+                    const text = message.content
+                        .map((block) => (block.type === 'text' ? block.text : ''))
+                        .join('');
+                    const calls = (message.toolCalls ?? []).map((call) => call.name).join(',');
+                    if (text || calls)
+                        excerpts.push(`assistant:${text.slice(0, 300)} tools:${calls}`);
+                }
+            }
+        }
+        const retained = this.dynamic.filter((_, itemIndex) => !remove.has(itemIndex));
+        this.dynamic.splice(0, this.dynamic.length, ...retained);
+        this.compactedMessages += remove.size;
+        this.compactionNotes.push(
+            `## 已压缩历史\n已压缩 ${remove.size} 条完整工具轮消息。摘要：\n${excerpts.join('\n').slice(0, 4000)}`,
+        );
+        this.bumpPrefixEpoch();
+        return true;
+    }
+
+    snapshot(): ContextSnapshot {
+        const systemPrompt = this.systemPrompt() ?? '';
+        const tools = this.tools();
+        const prefixHash = createHash('sha256')
+            .update(JSON.stringify({ systemPrompt, tools }))
+            .digest('hex');
+        if (this.lastPrefixHash !== undefined && this.lastPrefixHash !== prefixHash) {
+            this.bumpPrefixEpoch();
+        }
+        this.lastPrefixHash = prefixHash;
+        const staticTokens = estimateTokens(systemPrompt) + estimateTokens(JSON.stringify(tools));
+        return {
+            epochId: this.prefixEpochId,
+            prefixVersion: this.prefixVersion,
+            prefixHash,
+            staticTokens,
+            dynamicMessages: this.dynamic.length,
+            compactedMessages: this.compactedMessages,
+        };
     }
 
     reset(): void {
@@ -269,6 +369,12 @@ export class ContextManager {
             undefined,
             1,
         ).totalContextTokens;
+    }
+
+    private bumpPrefixEpoch(): void {
+        this.prefixVersion += 1;
+        this.prefixEpochId = `epoch-${this.prefixVersion}`;
+        this.lastPrefixHash = undefined;
     }
 
     private projectOutput(observation: ContextToolObservation): string {

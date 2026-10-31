@@ -120,6 +120,38 @@ describe('ContextManager rounds', () => {
         manager.reset();
         expect(manager.dynamicMessageCount()).toBe(0);
     });
+
+    it('freezes a stable prefix identity and compacts complete tool rounds at an epoch boundary', () => {
+        const manager = new ContextManager({ systemPrompt: 'stable-system' });
+        manager.appendUser('goal');
+        for (let index = 0; index < 6; index += 1) {
+            manager.appendAssistant({
+                text: `answer-${index}`,
+                toolCalls: [{ callId: `c${index}`, name: 'read', arguments: { index } }],
+            });
+            manager.appendToolResults([{ callId: `c${index}`, output: `out-${index}` }]);
+        }
+        const first = manager.measure(100_000);
+        expect(first.contextSnapshot).toMatchObject({
+            epochId: 'epoch-1',
+            prefixVersion: 1,
+            compactedMessages: 0,
+        });
+        expect(first.strategyApplied).toContain('cache-prompt-prefix');
+
+        expect(manager.compactHistory(1)).toBe(true);
+        const second = manager.measure(100_000);
+        expect(second.contextSnapshot?.prefixVersion).toBe(2);
+        expect(second.contextSnapshot?.epochId).toBe('epoch-2');
+        expect(second.contextSnapshot?.compactedMessages).toBe(10);
+        expect(second.strategyApplied).toContain('summarize-history');
+        expect(manager.systemPrompt()).toContain('已压缩历史');
+        expect(manager.messages().map((message) => message.role)).toEqual([
+            'user',
+            'assistant',
+            'tool',
+        ]);
+    });
 });
 
 describe('ContextManager secret severance', () => {

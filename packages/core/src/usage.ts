@@ -56,6 +56,15 @@ export interface RuntimeContextBreakdown {
     contextWindowUtilization: number;
     /** 负值 = 压缩生效 */
     contextDeltaFromPrev: number;
+    /** Stable logical prefix identity for cache/replay debugging. */
+    contextSnapshot?: {
+        epochId: string;
+        prefixVersion: number;
+        prefixHash: string;
+        staticTokens: number;
+        dynamicMessages: number;
+        compactedMessages: number;
+    };
     strategyApplied: ContextStrategyAction[];
     budgetPressureAction?: 'truncate' | 'summarize' | 'drop-observation' | 'escalate';
     /** 由 Aggregator 回填：totalContextTokens − vendor.inputTokens（有符号） */
