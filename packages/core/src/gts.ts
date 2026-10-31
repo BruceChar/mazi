@@ -20,11 +20,24 @@ export interface RawPayload {
     receivedAt: number;
 }
 
+/**
+ * 条款级机械检查规格：由 actor 之外的评估器消费（裁决 D8）。
+ * 只收录能被确定性代码判定的形状——语义判断必须标 checkType='semantic'，
+ * 不给它一个假装的 check，避免把 judge 伪装成机械判定。
+ */
+export type ConditionCheck =
+    /** Task 以最终回答收尾（executor outcome.reason === 'final-answer'） */
+    | { kind: 'final-answer' }
+    /** 该 Task 没有任何失败 Step */
+    | { kind: 'no-failed-steps' };
+
 /** 机器可判验收条款（checkType='semantic' 占比是健康度指标，裁决 D8） */
 export interface CheckableCondition {
     id: ULID;
     checkType: 'deterministic' | 'semantic';
     description?: string;
+    /** 确定性检查规格；缺省且 checkType='deterministic' = 尚无检查器（UI 标未评估） */
+    check?: ConditionCheck;
 }
 
 /** 禁止触碰资源模式（许可模块细化；本处占位保持契约可编译） */
@@ -67,6 +80,45 @@ export interface GoalContract {
     riskProfile: RiskProfile;
 }
 
+/** 契约协商路线（goal-parser 模板的 block.route；fallback = 未接入解析模型时的保守默认） */
+export type NegotiationRoute = 'direct' | 'confirmed' | 'negotiate' | 'escalate' | 'fallback';
+
+/** 协商问题：模板要求每问必带默认路径（用户不回答就按默认冻结） */
+export interface NegotiationQuestion {
+    q: string;
+    why?: string;
+    default: string;
+}
+
+export interface NegotiationAnswer {
+    q: string;
+    answer: string;
+    /** 用户采纳问题自带默认（未手写答案） */
+    usedDefault?: boolean;
+}
+
+/**
+ * 契约协商轨迹：随 Goal 落库，让 Trace 面板能重建
+ * 「为什么冻结了这些条款、用户答复改了什么」。
+ */
+export interface GoalNegotiation {
+    route: NegotiationRoute;
+    /** parser = 模型 triage 结果；fallback = 无解析模型时的默认执行路径 */
+    classifiedBy: 'parser' | 'fallback';
+    triggers: string[];
+    understanding?: string[];
+    defaultPath?: string[];
+    questions: NegotiationQuestion[];
+    answers: NegotiationAnswer[];
+    escalation?: string;
+    directAnswer?: string;
+    /** 契约修订次数：0 = 首次冻结，>0 = 协商答复后修订 */
+    revision: number;
+    /** 协商是否已有答复（blocked → active 的判据） */
+    resolved: boolean;
+    at: number;
+}
+
 export interface Goal {
     goalId: ULID;
     /** 接收侧来源标记：user intent 直接产 Goal（本坐标系无树结构，Goal 相互独立） */
@@ -81,6 +133,8 @@ export interface Goal {
     status: GoalStatus;
     createdAt: number;
     endedAt?: number;
+    /** 契约协商轨迹（triage 结果 + 用户答复）；旧数据缺省 = 未经协商直接冻结 */
+    negotiation?: GoalNegotiation;
 }
 
 /** 任务验收锚定 Goal 契约的条款（复用旧 AcceptanceSpec 同构形状，独立于旧模块） */
@@ -88,6 +142,28 @@ export interface AcceptanceSpec {
     conditions: string[];
     aggregateConditions?: string[];
     description?: string;
+}
+
+/** 单条款的机械判定结果 */
+export interface ConditionResult {
+    conditionId: ULID;
+    /** unchecked = 无机械检查器（语义条款或未配置 check），需 judge/人工 */
+    status: 'passed' | 'failed' | 'unchecked';
+    detail?: string;
+}
+
+/**
+ * 验收判定事实（评估器角色产出，随 Task 落库）：
+ * 只陈述"机械判定"能判到什么，判不到的显式标 unchecked，不冒充成功。
+ */
+export interface AcceptanceResult {
+    checkedAt: number;
+    /** 无 failed 条款且 Task 本身 ok */
+    passed: boolean;
+    /** 已机械判定的条款数 / 全部条款数 */
+    evaluated: number;
+    total: number;
+    conditions: ConditionResult[];
 }
 
 type TaskStatus = Status;
@@ -100,10 +176,22 @@ export interface Task {
     acceptance: AcceptanceSpec;
     status: TaskStatus;
     parentPlanNodeId?: string;
+    /** Task-level DAG dependencies. Execution order is a topological order. */
+    dependsOn?: ULID[];
+    /** Permission ceiling inherited from the plan node; must not exceed the Goal ceiling. */
+    permissionCeiling?: PermissionLevel;
+    /** Task-level budget; siblings must not exceed the parent allocation. */
+    budget?: BudgetAllocation;
+    /** Tool names required by this node. The runtime validates them before execution. */
+    requiredTools?: string[];
+    /** Plan version that produced this Task. */
+    planVersion?: number;
     /** 进入 active 的时间（executor 落库；旧数据缺省） */
     startedAt?: number;
     /** 进入终态的时间 */
     endedAt?: number;
+    /** 验收判定事实（评估器写入；旧数据缺省） */
+    acceptanceResult?: AcceptanceResult;
 }
 /************************** STEP ********************************************/
 

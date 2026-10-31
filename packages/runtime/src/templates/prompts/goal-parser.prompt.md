@@ -1,3 +1,5 @@
+> 实现说明：runtime 实际下发的是同目录 `goal-parser.prompt.ts`（紧凑版，只保留路由与
+> 严格 JSON 约定）；本文件是完整规范。机械校验在 `packages/runtime/src/gts/negotiation.ts`。
 
 Role
 ----

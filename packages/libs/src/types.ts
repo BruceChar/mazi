@@ -345,6 +345,79 @@ export interface StepView {
     usage?: StepUsage;
 }
 
+/** 条款级机械检查规格（wire 视图；与 core ConditionCheck 同形）。 */
+export type ContractConditionCheck = { kind: 'final-answer' } | { kind: 'no-failed-steps' };
+
+/** 一条验收条款的线协议视图。 */
+export interface ContractConditionView {
+    id: string;
+    checkType: 'deterministic' | 'semantic';
+    description?: string;
+    check?: ContractConditionCheck;
+}
+
+/** Goal 冻结契约的线协议视图。审批人/评估器/审计员的参照物（裁决 D8）。 */
+export interface ContractView {
+    successConditions: ContractConditionView[];
+    failureConditions: ContractConditionView[];
+    forbiddenResources: { kind: string; pattern: string }[];
+    budget: {
+        maxTokens?: number;
+        maxCostUsd?: number;
+        maxSteps?: number;
+        maxTurns?: number;
+        timeoutMs?: number;
+        reserveRatio?: number;
+    };
+    terminationPolicy: {
+        maxTurns?: number;
+        maxSteps?: number;
+        maxCostUsd?: number;
+        timeoutMs?: number;
+    };
+    riskProfile: {
+        hasIrreversibleActions: boolean;
+        touchesNetwork: boolean;
+        touchesExternalApi: boolean;
+    };
+    /** successConditions 中 deterministic 占比（健康度：能用代码判的绝不交给 judge）。 */
+    deterministicRatio: number;
+}
+
+/** Task 的验收锚定（指向 Goal 契约的条款 id）。 */
+export interface AcceptanceView {
+    conditions: string[];
+    aggregateConditions?: string[];
+    description?: string;
+}
+
+/** 单条款判定结果。 */
+export interface ConditionResultView {
+    conditionId: string;
+    status: 'passed' | 'failed' | 'unchecked';
+    detail?: string;
+}
+
+/** 验收判定事实（评估器产出，随 Task 落库）。 */
+export interface AcceptanceResultView {
+    checkedAt: number;
+    passed: boolean;
+    evaluated: number;
+    total: number;
+    conditions: ConditionResultView[];
+}
+
+/** 契约满足度（Goal 级机械汇总，评估器角色产出）。 */
+export type ContractStateView = 'satisfied' | 'violated' | 'partial' | 'unchecked';
+
+export interface ContractStatusView {
+    state: ContractStateView;
+    total: number;
+    evaluated: number;
+    passed: number;
+    failed: number;
+}
+
 /** A task node in the goal-tree snapshot. */
 export interface TaskNodeView {
     taskId: string;
@@ -354,7 +427,41 @@ export interface TaskNodeView {
     startedAt?: number;
     /** Task 结束时间（进入终态时落库） */
     endedAt?: number;
+    /** 验收锚定 Goal 契约的哪些条款。 */
+    acceptance?: AcceptanceView;
+    /** 验收判定事实（评估器写入；旧数据缺省）。 */
+    acceptanceResult?: AcceptanceResultView;
     steps: StepView[];
+}
+
+/** 协商问题视图（模板要求每问必带默认路径）。 */
+export interface NegotiationQuestionView {
+    q: string;
+    why?: string;
+    default: string;
+}
+
+export interface NegotiationAnswerView {
+    q: string;
+    answer: string;
+    usedDefault?: boolean;
+}
+
+/** 契约协商轨迹视图：Trace 面板重建「条款从哪来、用户答复改了什么」。 */
+export interface NegotiationView {
+    route: 'direct' | 'confirmed' | 'negotiate' | 'escalate' | 'fallback';
+    classifiedBy: 'parser' | 'fallback';
+    triggers: string[];
+    understanding?: string[];
+    defaultPath?: string[];
+    questions: NegotiationQuestionView[];
+    answers: NegotiationAnswerView[];
+    escalation?: string;
+    directAnswer?: string;
+    /** 0 = 首次冻结，>0 = 协商答复后修订 */
+    revision: number;
+    resolved: boolean;
+    at: number;
 }
 
 /** A goal node in the goal-tree snapshot. */
@@ -362,6 +469,12 @@ export interface GoalNodeView {
     goalId: string;
     status: string;
     statement: string;
+    /** 冻结契约（GoalContract 投影）；执行前承诺的可视化载体。 */
+    contract?: ContractView;
+    /** 契约协商轨迹（triage 结果 + 用户答复）；旧数据缺省。 */
+    negotiation?: NegotiationView;
+    /** 契约满足度汇总（机械口径）；未执行/旧数据缺省。 */
+    contractStatus?: ContractStatusView;
     tasks: TaskNodeView[];
 }
 

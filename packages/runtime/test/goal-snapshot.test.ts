@@ -205,4 +205,100 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
         const snap = snapshotGoalTree(root, [work], [t], [s]);
         expect(snap.goals[0]?.tasks[0]?.steps[0]).not.toHaveProperty('usage');
     });
+
+    it('契约投影：Goal.contract 全量 + deterministicRatio 健康度', () => {
+        const root = ulid();
+        const work = goal(ulid(), root);
+        const conditionId = ulid();
+        work.contract.successConditions = [
+            {
+                id: conditionId,
+                checkType: 'deterministic',
+                description: '产出最终回答',
+                check: { kind: 'final-answer' },
+            },
+            { id: ulid(), checkType: 'semantic', description: '回答得体' },
+        ];
+        work.contract.budget = { maxCostUsd: 0.5 };
+        work.contract.terminationPolicy = { maxSteps: 8 };
+        work.contract.forbiddenResources = [{ kind: 'fs-glob', pattern: '/etc/**' }];
+        const snap = snapshotGoalTree(root, [work], [task(ulid(), work.goalId)], []);
+        const view = snap.goals[0]?.contract;
+        expect(view?.successConditions).toHaveLength(2);
+        expect(view?.successConditions[0]).toEqual({
+            id: conditionId,
+            checkType: 'deterministic',
+            description: '产出最终回答',
+            check: { kind: 'final-answer' },
+        });
+        expect(view?.deterministicRatio).toBe(0.5);
+        expect(view?.budget.maxCostUsd).toBe(0.5);
+        expect(view?.terminationPolicy.maxSteps).toBe(8);
+        expect(view?.forbiddenResources).toEqual([{ kind: 'fs-glob', pattern: '/etc/**' }]);
+        expect(view?.riskProfile.touchesNetwork).toBe(false);
+    });
+
+    it('验收投影：Task.acceptance 锚定条款；acceptanceResult 缺省时不输出', () => {
+        const root = ulid();
+        const work = goal(ulid(), root);
+        const conditionId = ulid();
+        const t = task(ulid(), work.goalId);
+        t.acceptance = { conditions: [conditionId], description: 's' };
+        const before = snapshotGoalTree(root, [work], [t], []);
+        const taskView = before.goals[0]?.tasks[0];
+        expect(taskView?.acceptance?.conditions).toEqual([conditionId]);
+        expect(taskView?.acceptance?.description).toBe('s');
+        expect(taskView).not.toHaveProperty('acceptanceResult');
+        t.acceptanceResult = {
+            checkedAt: 42,
+            passed: true,
+            evaluated: 1,
+            total: 1,
+            conditions: [{ conditionId, status: 'passed', detail: 'executor:final-answer' }],
+        };
+        const after = snapshotGoalTree(root, [work], [t], []);
+        const result = after.goals[0]?.tasks[0]?.acceptanceResult;
+        expect(result?.passed).toBe(true);
+        expect(result?.evaluated).toBe(1);
+        expect(result?.conditions[0]?.status).toBe('passed');
+    });
+
+    it('契约满足度：Goal 级汇总来自评估器判定（未执行 = unchecked，不谎报满足）', () => {
+        const root = ulid();
+        const work = goal(ulid(), root);
+        const conditionId = ulid();
+        work.contract.successConditions = [
+            {
+                id: conditionId,
+                checkType: 'deterministic',
+                description: '产出最终回答',
+                check: { kind: 'final-answer' },
+            },
+            { id: ulid(), checkType: 'semantic', description: '命名得体' },
+        ];
+        const t = task(ulid(), work.goalId);
+
+        // 未执行：没有任何机械判定 → unchecked
+        const before = snapshotGoalTree(root, [work], [t], []);
+        expect(before.goals[0]?.contractStatus?.state).toBe('unchecked');
+
+        t.acceptanceResult = {
+            checkedAt: 1,
+            passed: true,
+            evaluated: 1,
+            total: 2,
+            conditions: [
+                { conditionId, status: 'passed' },
+                { conditionId: ulid(), status: 'unchecked' },
+            ],
+        };
+        const after = snapshotGoalTree(root, [work], [t], []);
+        expect(after.goals[0]?.contractStatus).toEqual({
+            state: 'partial',
+            total: 2,
+            evaluated: 1,
+            passed: 1,
+            failed: 0,
+        });
+    });
 });
