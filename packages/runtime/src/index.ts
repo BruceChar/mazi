@@ -105,8 +105,21 @@ export {
     saveRuntimeSettings,
     toRuntimeConfig,
 } from './configs/config-io.js';
+export {
+    argsDigest,
+    type EffectRecord,
+    type EffectStatus,
+    type EffectStore,
+    effectPathsForTool,
+    type FileSnapshot,
+    MemoryEffectStore,
+    newEffectRecord,
+    rollbackEffects,
+    SqliteEffectStore,
+    snapshotFiles,
+} from './effects/effect-store.js';
 // 观测层（事件总线；apps 直接消费）
-export type { EventBusOptions, NewEventInput } from './events/event-bus.js';
+export type { ChainVerification, EventBusOptions, NewEventInput } from './events/event-bus.js';
 export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './events/event-bus.js';
 // 对照实验（Experiment）：日志 / 折叠复盘 / 指标 / 执行器（docs/AB测试设计.md §5-§7）
 export * from './experiment/index.js';
@@ -124,11 +137,21 @@ export {
     renderResultTemplate,
 } from './gts/deterministic-finalize.js';
 export {
+    compileTaskPlan,
+    type PlanGraph,
+    type PlannedTask,
+    type PlanTool,
+    type PlanValidation,
+    topologicalTaskOrder,
+    validatePlanGraph,
+} from './gts/plan-graph.js';
+export {
     type ContextAssistantTurn,
     type ContextContribution,
     ContextManager,
     type ContextManagerOptions,
     type ContextSecretRef,
+    type ContextSnapshot,
     type ContextToolObservation,
     HarnessRuntime,
     parseSecretRef,
@@ -161,7 +184,9 @@ export type {
     MemoryItem,
     MemoryKind,
     MemoryPolicy,
+    MemoryProvenance,
     MemoryQuery,
+    MemoryStatus,
     MemoryStore,
     MemoryTurn,
     RecallInput,
@@ -172,6 +197,7 @@ export {
     InMemoryMemoryStore,
     MemoryManager,
     recentMemoryPolicy,
+    SqliteMemoryStore,
     turnsToMemory,
 } from './memory/index.js';
 export type {
@@ -180,6 +206,14 @@ export type {
     QuestionStore,
 } from './memory/question-store.js';
 export { ensureQuestionTables, SqliteQuestionStore } from './memory/question-store.js';
+export {
+    type AuditTrailBundle,
+    exportMemoryBundle,
+    importMemoryBundle,
+    MEMORY_BUNDLE_FORMAT,
+    MEMORY_BUNDLE_SCHEMA_VERSION,
+    type MemoryBundle,
+} from './memory/transfer.js';
 export { BehaviorRecorder, feedbackBehaviorRecords } from './observability/behavior-recorder.js';
 export type { MaziPaths } from './paths.js';
 export {

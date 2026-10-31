@@ -44,6 +44,8 @@ export interface GoalExecutorDeps {
     /** 工作目录（工具实际执行目录；入库到 invocation payload.cwd 供展示/追溯） */
     workspaceRoot?: string;
     maxSteps?: number;
+    /** 成本上限（USD）；每轮结束后累计 round.cost.totalCostUsd，超限即停 */
+    maxCostUsd?: number;
     now?: () => number;
     /** Step 落库后即时回调（流式上报：思考/工具/观察），供事件总线实时推送给 UI */
     onStep?: (step: Step) => void;
@@ -53,11 +55,14 @@ export interface GoalExecutorDeps {
     signal?: AbortSignal;
     /** 恢复执行：该 Task 已落库的 Step（按 startedAt 升序），用于重放上下文。 */
     resumeSteps?: readonly Step[];
+    /** 在上下文窗口占用达到阈值时压缩完整工具轮（默认 0.9）。 */
+    contextCompactThreshold?: number;
 }
 
 export type TaskStopReason =
     | 'final-answer'
     | 'max-steps'
+    | 'budget-exceeded'
     | 'driver-error'
     | 'blocked-tool'
     | 'aborted';
@@ -300,6 +305,9 @@ export async function executeTask(
     };
     // 真实模型对项目类任务往往需要多轮工具调用后才收敛，默认上限放宽到 50
     const maxSteps = deps.maxSteps ?? 50;
+    // 成本闸门：累计已花费（vendor 计价口径；无计价表时回落估算口径）
+    const maxCostUsd = deps.maxCostUsd;
+    let spentUsd = 0;
     const invoker = deps.invoker;
     /** 协作式停止是否已触发（函数调用避免 TS 对 deps.signal 的过度收窄）。 */
     const stopRequested = (): boolean => deps.signal?.aborted === true;
@@ -390,7 +398,20 @@ export async function executeTask(
                 await saveTask();
                 return { task, steps, ok: false, reason: 'aborted' };
             }
+            // 成本闸门：契约 budget.maxCostUsd 的执行点（在发起下一轮之前判定）
+            if (maxCostUsd !== undefined && spentUsd >= maxCostUsd) {
+                task.status = 'failed';
+                await saveTask();
+                return {
+                    task,
+                    steps,
+                    ok: false,
+                    reason: 'budget-exceeded',
+                    errorMessage: `达到成本上限 $${maxCostUsd}（已花费 $${spentUsd.toFixed(4)}）`,
+                };
+            }
             const round = await roundRequest();
+            spentUsd += round.cost?.totalCostUsd ?? round.estimatedCost?.totalCostUsd ?? 0;
 
             // 一轮 usage 归属：模型生成本轮的 deliberation step，携带 roundId；
             // 审计聚合按 roundId 去重，保证一轮总量只计一次。
@@ -711,6 +732,14 @@ export async function executeTask(
                     isError: o.isError,
                 })),
             );
+            const contextWindow = round.contextUsage?.contextWindowTokens;
+            if (
+                contextWindow !== undefined &&
+                contextWindow > 0 &&
+                context.shouldCompact(contextWindow, deps.contextCompactThreshold ?? 0.9)
+            ) {
+                context.compactHistory();
+            }
         }
         task.status = 'failed';
         await saveTask();

@@ -1,4 +1,14 @@
-import type { EventBus, Goal, PermissionLevel, Step, Task, ToolSchema } from '@mazi/core';
+import { isAbsolute, relative, resolve } from 'node:path';
+import type {
+    EventBus,
+    Goal,
+    LLMProvider,
+    NegotiationAnswer,
+    PermissionLevel,
+    Step,
+    Task,
+    ToolSchema,
+} from '@mazi/core';
 import { authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
 import { buildQuestionView } from '@mazi/libs';
@@ -9,9 +19,28 @@ import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
 import { loadCommandPolicy } from '../auth/command-policy.js';
 import type { SkillProvider } from '../capabilities/runtime.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
+import {
+    type EffectRecord,
+    type EffectStore,
+    effectPathsForTool,
+    MemoryEffectStore,
+    newEffectRecord,
+    rollbackEffects,
+    SqliteEffectStore,
+    snapshotFiles,
+} from '../effects/effect-store.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
+import { rollupAcceptance } from '../gts/acceptance.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
+import {
+    applyNegotiationAnswers,
+    baselineConditions,
+    type ParsedGoalPlan,
+    parseGoalParserOutput,
+    planNegotiation,
+} from '../gts/negotiation.js';
+import type { PlannedTask, PlanTool } from '../gts/plan-graph.js';
 import {
     type BehaviorMigrationResult,
     type BehaviorStore,
@@ -33,6 +62,8 @@ import {
     type QuestionStore,
     SqliteQuestionStore,
 } from '../memory/question-store.js';
+import { type MemoryItem, SqliteMemoryStore } from '../memory/store.js';
+import { exportMemoryBundle, importMemoryBundle, type MemoryBundle } from '../memory/transfer.js';
 import { BehaviorRecorder } from '../observability/behavior-recorder.js';
 import { maziHome, maziPaths } from '../paths.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
@@ -42,10 +73,12 @@ import { type QuestionClassifier, QuestionLabeler } from '../question/labeler.js
 import { loadQuestionTaxonomy, type QuestionTaxonomy } from '../question/taxonomy.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
 import { GENERAL_PROMPT } from '../templates/prompts/general.prompt.js';
+import { GOAL_PARSER_PROMPT } from '../templates/prompts/goal-parser.prompt.js';
 import { configureTokenizer } from '../token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
-import { RuntimeToolGateway } from '../tool-gateway/permission.js';
+import { permissionForTool, RuntimeToolGateway } from '../tool-gateway/permission.js';
 import { RuntimePolicyAuditSink } from '../tool-gateway/policy-audit.js';
+import { RuntimeToolRegistry } from '../tool-gateway/registry.js';
 import { WikiService } from '../wiki/index.js';
 import type { FeedbackInput, RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
@@ -76,10 +109,32 @@ function goalRunSummary(result: GoalRunResult): string {
  * 本类只负责生命周期编排与 collaborator 组装；轮次执行归 RoundRunner，
  * 模型/计价解析归 ModelResolver，Step 事件归 StepEventEmitter，工具执行归 tool-executors。
  */
+/** triage 超时上限：协商是增强能力，绝不能拖住创建会话（进而拖住主会话输出）。 */
+const TRIAGE_TIMEOUT_MS = 10_000;
+
+/** 给 promise 加超时；超时或失败都返回 undefined（调用方回落 fallback，不抛错）。 */
+function withTriageTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(undefined), ms);
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            () => {
+                clearTimeout(timer);
+                resolve(undefined);
+            },
+        );
+    });
+}
+
 export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
     private readonly goalStoreDb: GoalStore;
     private readonly resolver: ModelResolver;
+    /** LLM provider 池（triage 无显式模型时取第一个可用 provider 的默认模型）。 */
+    private readonly llmProviders: Map<string, LLMProvider>;
     private readonly stepEvents: StepEventEmitter;
     private readonly roundRunner: RoundRunner;
     /** 项目 wiki 事实层：写工具捕获 + 回合末条目 + 新会话注入（docs/项目wiki设计.md）。 */
@@ -98,10 +153,15 @@ export class HarnessRuntime {
     private readonly approvalStore = new authz.InMemoryApprovalStore();
     /** 命令分类规则（运行时从配置加载；未命中规则走 shell.run 默认）。 */
     private readonly commandPolicy: authz.CommandPolicy;
+    /** Versioned catalogue; each run pins one immutable snapshot. */
+    private readonly toolRegistry: RuntimeToolRegistry;
     /** 待执行 Session 的 Conversation id（session 作用域审批匹配用） */
     private readonly pendingSessionId = new Map<string, string>();
-    /** 长期记忆调度组合根（store 缺省进程内实现，可注入替换）。 */
-    private readonly memoryManager = new MemoryManager();
+    /** 长期记忆调度组合根（有 dbPath 时跨进程持久化）。 */
+    private readonly memoryManager: MemoryManager;
+    private readonly persistentMemoryStore?: SqliteMemoryStore;
+    /** Reversible workspace effect journal (snapshots only explicitly scoped file writes). */
+    private readonly effectStore: EffectStore;
     /** 用户行为流权威库（SQLite；缺 dbPath 时进程内）。 */
     private readonly behaviorStore: BehaviorStore;
     /** 用户行为指令记录器（输入/反馈/审批；行为流 append-only）。 */
@@ -124,6 +184,17 @@ export class HarnessRuntime {
     private readonly pendingSkills = new Map<string, readonly string[]>();
     /** 待执行 Session 的工具白名单收窄（与配置白名单取交集） */
     private readonly pendingAllowedTools = new Map<string, readonly string[]>();
+    /** Optional caller/model plan proposal; Task identity is created by the harness. */
+    private readonly pendingPlanProposal = new Map<string, readonly PlannedTask[]>();
+    private readonly pendingMemoryContext = new Map<
+        string,
+        {
+            conversationId?: string;
+            userId?: string;
+            workspaceId?: string;
+            projectId?: string;
+        }
+    >();
     /** 待执行 Session 的开关审计（flag.evaluated：值 + 求值痕迹） */
     private readonly pendingFlags = new Map<
         string,
@@ -146,6 +217,7 @@ export class HarnessRuntime {
         this.commandPolicy = loadCommandPolicy(
             config.authCommandPolicyFile ?? maziPaths().authCommandPolicyFile,
         ).policy;
+        this.toolRegistry = new RuntimeToolRegistry([...BUILTIN_TOOL_PRESET, ...config.tools]);
         configureTokenizer(config.tokenizerEncoding);
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
@@ -182,7 +254,17 @@ export class HarnessRuntime {
             },
         );
         this.goalStoreDb = new SqliteGoalStore(config.dbPath ?? ':memory:');
-        this.resolver = new ModelResolver(config, buildLlmProviders(config, options));
+        this.persistentMemoryStore =
+            config.dbPath !== undefined ? new SqliteMemoryStore(config.dbPath) : undefined;
+        this.memoryManager = new MemoryManager(
+            this.persistentMemoryStore !== undefined ? { store: this.persistentMemoryStore } : {},
+        );
+        this.effectStore =
+            config.dbPath !== undefined
+                ? new SqliteEffectStore(config.dbPath)
+                : new MemoryEffectStore();
+        this.llmProviders = buildLlmProviders(config, options);
+        this.resolver = new ModelResolver(config, this.llmProviders);
         this.stepEvents = new StepEventEmitter(this.bus);
         this.wiki = new WikiService({
             home: maziHome(),
@@ -315,6 +397,8 @@ export class HarnessRuntime {
 
     async close(): Promise<void> {
         this.goalStoreDb.close();
+        this.persistentMemoryStore?.close();
+        this.effectStore.close();
         this.tocStore.close();
         this.iterationStore.close();
         this.behaviorRecorder.close();
@@ -331,8 +415,21 @@ export class HarnessRuntime {
         if (opts.conversationId !== undefined) {
             this.pendingSessionId.set(rootGoalId, opts.conversationId);
         }
+        const workspaceId = opts.workspaceRoot ?? this.workspaceRoot;
+        const memoryContext = {
+            ...(opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {}),
+            ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
+            ...(workspaceId !== undefined ? { workspaceId } : {}),
+        };
+        this.pendingMemoryContext.set(rootGoalId, memoryContext);
         if (opts.history !== undefined && opts.history.length > 0) {
-            await this.memoryManager.remember(turnsToMemory(opts.history, { rootGoalId }));
+            await this.memoryManager.remember(
+                turnsToMemory(opts.history, {
+                    rootGoalId,
+                    ...memoryContext,
+                    provenance: { source: 'user', confidence: 'confirmed', trustTier: 'T1' },
+                }),
+            );
         }
         if (opts.reasoningLevel) {
             this.pendingReasoning.set(rootGoalId, opts.reasoningLevel);
@@ -349,6 +446,15 @@ export class HarnessRuntime {
         if (opts.allowedTools !== undefined) {
             this.pendingAllowedTools.set(rootGoalId, opts.allowedTools);
         }
+        if (opts.planProposal !== undefined) {
+            this.pendingPlanProposal.set(
+                rootGoalId,
+                opts.planProposal.map((task) => ({
+                    ...task,
+                    goalId: task.goalId ?? (rootGoalId as NonNullable<typeof task.goalId>),
+                })),
+            );
+        }
         if (opts.flagOverrides !== undefined) {
             this.pendingFlags.set(rootGoalId, {
                 values: { ...opts.flagOverrides },
@@ -357,16 +463,24 @@ export class HarnessRuntime {
         }
         const ceiling =
             opts.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only';
+        // 运行设置 → 契约：预算与终止策略在冻结时刻落进 GoalContract，执行期由
+        // runGoalTree/executeTask 读取（UI 的「预算 / 最大步数」不再是空控件）。
+        const budgetAllocation =
+            opts.maxCostUsd !== undefined ? { maxCostUsd: opts.maxCostUsd } : {};
+        const terminationPolicy = opts.maxSteps !== undefined ? { maxSteps: opts.maxSteps } : {};
+        // 契约先按基线冻结并立即建会话：triage 是"增强"，绝不占用创建请求的关键路径
+        // （否则用户消息要等一次模型轮次才显示，主会话看起来卡住）。
         const goal: Goal = {
             goalId: rootGoalId,
             origin: { kind: 'human' },
             statement: input,
             contract: {
-                successConditions: [{ id: ulid(), checkType: 'deterministic' }],
+                // 基线条款机械可判（check 由评估器执行）；triage 落地后追加语义条款
+                successConditions: baselineConditions(),
                 failureConditions: [],
                 forbiddenResources: [],
-                budget: {},
-                terminationPolicy: {},
+                budget: budgetAllocation,
+                terminationPolicy,
                 riskProfile: {
                     hasIrreversibleActions: false,
                     touchesNetwork: false,
@@ -374,7 +488,7 @@ export class HarnessRuntime {
                 },
             },
             permissionCeiling: ceiling,
-            budget: {},
+            budget: budgetAllocation,
             status: 'active',
             createdAt: Date.now(),
         };
@@ -401,7 +515,149 @@ export class HarnessRuntime {
             }),
         );
         await this.bus.flush();
+        // 异步 triage：不 await。落地后以「读改写」合并进契约（对正在跑的 run 只做加法）。
+        if (opts.parseIntent === true) {
+            this.scheduleIntentTriage(rootGoalId, input, opts);
+        }
         return { rootGoalId, goalId: rootGoalId };
+    }
+
+    /** 异步 triage：失败/超时只是不协商，绝不影响会话创建与执行。 */
+    private scheduleIntentTriage(rootGoalId: string, statement: string, opts: RunOptions): void {
+        void this.applyIntentTriage(rootGoalId, statement, opts).catch(() => undefined);
+    }
+
+    /**
+     * triage 结果落地：读改写当前 Goal，只在尚未有协商结论时合并（幂等）。
+     * 追加的语义条款是纯增量，不会让已生成的 Task.acceptance / Step 归因失效。
+     */
+    private async applyIntentTriage(
+        rootGoalId: string,
+        statement: string,
+        opts: RunOptions,
+    ): Promise<void> {
+        const parsed = await this.parseIntent(statement, rootGoalId, opts);
+        const plan = planNegotiation(parsed);
+        const goal = await this.goalStoreDb.loadGoal(rootGoalId);
+        if (goal === undefined || goal.negotiation !== undefined) return;
+        const added = plan.conditions.filter((condition) => condition.checkType === 'semantic');
+        goal.contract = {
+            ...goal.contract,
+            successConditions: [...goal.contract.successConditions, ...added],
+        };
+        goal.negotiation = plan.negotiation;
+        await this.goalStoreDb.saveGoal(goal);
+        if (plan.negotiation.route !== 'negotiate' && plan.negotiation.route !== 'escalate') return;
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'goal.negotiation.requested',
+                rootGoalId,
+                goalId: rootGoalId,
+                payload: {
+                    route: plan.negotiation.route,
+                    triggers: plan.negotiation.triggers,
+                    questions: plan.negotiation.questions,
+                    defaultPath: plan.negotiation.defaultPath ?? [],
+                    ...(plan.negotiation.escalation !== undefined
+                        ? { escalation: plan.negotiation.escalation }
+                        : {}),
+                },
+            }),
+        );
+        await this.bus.flush();
+    }
+
+    /**
+     * triage：把用户输入交给 goal-parser 模板判定路由（direct / confirmed / negotiate / escalate）。
+     * 没有可用 provider 时返回 undefined（调用方走 fallback），不额外制造失败噪声。
+     */
+    private async parseIntent(
+        statement: string,
+        rootGoalId: string,
+        opts: RunOptions,
+    ): Promise<ParsedGoalPlan | undefined> {
+        if (opts.parseIntent !== true) return undefined;
+        const model = this.resolver.resolveModelChoice(opts.modelId) ?? this.triageModel();
+        if (model === undefined) return undefined;
+        // triage 是"增强"，不能成为主流程的阻塞点：超时/失败/无输出一律回落默认执行
+        const round = await withTriageTimeout(
+            this.roundRunner.requestRound(
+                rootGoalId,
+                {
+                    model,
+                    messages: [{ role: 'user', content: [{ type: 'text', text: statement }] }],
+                    systemPrompt: GOAL_PARSER_PROMPT,
+                    tools: [],
+                },
+                opts.reasoningLevel,
+            ),
+            TRIAGE_TIMEOUT_MS,
+        );
+        if (round === undefined) return undefined;
+        return parseGoalParserOutput(round.text);
+    }
+
+    /**
+     * triage 用的模型：无显式 modelId 时取 provider 池里第一个有默认模型的 provider。
+     * 没有任何可用 provider 时返回 undefined（不协商，走 fallback）。
+     */
+    private triageModel(): { providerId: string; modelId: string } | undefined {
+        for (const [providerId, provider] of this.llmProviders) {
+            const modelId = provider.defaultModel || provider.models?.[0]?.id;
+            if (modelId !== undefined && modelId.length > 0) {
+                return { providerId, modelId };
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * 协商答复 → 修订并重新冻结契约（goal.contract-revised 是唯一合法迁移记录）。
+     * 只在 goal 处于 blocked 且未经答复时受理；重复调用按幂等处理。
+     */
+    async negotiateGoal(
+        rootGoalId: string,
+        answers: readonly NegotiationAnswer[],
+    ): Promise<{ goalId: string; revision: number; resolved: boolean }> {
+        const goal = await this.goalStoreDb.loadGoal(rootGoalId);
+        if (goal === undefined) throw new Error(`Goal 不存在：${rootGoalId}`);
+        const current = goal.negotiation;
+        if (
+            current === undefined ||
+            (current.route !== 'negotiate' && current.route !== 'escalate')
+        ) {
+            throw new Error(`该 Goal 未经协商（route=${current?.route ?? 'none'}）：${rootGoalId}`);
+        }
+        const applied = applyNegotiationAnswers(current, answers, goal.contract.successConditions);
+        goal.contract = { ...goal.contract, successConditions: applied.conditions };
+        goal.negotiation = applied.negotiation;
+        if (goal.status === 'blocked') goal.status = 'active';
+        await this.goalStoreDb.saveGoal(goal);
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'goal.contract-revised',
+                rootGoalId,
+                goalId: goal.goalId,
+                payload: {
+                    fromRevision: current.revision,
+                    toRevision: applied.negotiation.revision,
+                    answers: applied.negotiation.answers,
+                    conditions: applied.conditions.map((condition) => ({
+                        id: condition.id,
+                        checkType: condition.checkType,
+                        ...(condition.description !== undefined
+                            ? { description: condition.description }
+                            : {}),
+                    })),
+                },
+            }),
+        );
+        await this.bus.flush();
+        return {
+            goalId: goal.goalId,
+            revision: applied.negotiation.revision,
+            resolved: applied.negotiation.resolved,
+        };
     }
 
     /** 执行 Goal（plan → 逐 Task；事实全部经 goalStore 留痕）；发 goal.ended / run.aborted */
@@ -425,6 +681,10 @@ export class HarnessRuntime {
         this.pendingSkills.delete(rootGoalId);
         const allowedToolsOverride = this.pendingAllowedTools.get(rootGoalId);
         this.pendingAllowedTools.delete(rootGoalId);
+        const planProposal = this.pendingPlanProposal.get(rootGoalId);
+        this.pendingPlanProposal.delete(rootGoalId);
+        const memoryContext = this.pendingMemoryContext.get(rootGoalId) ?? {};
+        this.pendingMemoryContext.delete(rootGoalId);
         const flags = this.pendingFlags.get(rootGoalId);
         this.pendingFlags.delete(rootGoalId);
         const model = this.resolver.resolveModelChoice(modelId);
@@ -438,6 +698,19 @@ export class HarnessRuntime {
             rootGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
             sessionId,
             allowedToolsOverride,
+        );
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'toolset.assembled',
+                rootGoalId,
+                goalId,
+                attributes: { 'harness.level': 'info' },
+                payload: {
+                    version: exec.toolsetVersion,
+                    digest: exec.toolsetDigest,
+                    tools: exec.allowedTools,
+                },
+            }),
         );
         // 项目 wiki：先建兜底 diff 基线并确保项目概览快照存在，再读一次用于注入。
         await this.wiki.beginRun();
@@ -470,6 +743,13 @@ export class HarnessRuntime {
                     invoker: exec.invoker,
                     allowedTools: exec.allowedTools,
                     memory: this.memoryManager,
+                    memoryQuery: {
+                        rootGoalId,
+                        ...memoryContext,
+                    },
+                    memoryWriteContext: memoryContext,
+                    ...(planProposal !== undefined ? { planProposal } : {}),
+                    planTools: exec.planTools,
                     ...(model ? { model } : {}),
                     ...(this.workspaceRoot !== undefined
                         ? { workspaceRoot: this.workspaceRoot }
@@ -479,6 +759,22 @@ export class HarnessRuntime {
                     onStep: (step) => {
                         this.stepEvents.emitStep(rootGoalId, step);
                         this.wiki.observeStep(step);
+                    },
+                    onPlan: (taskCount, digest, rejected) => {
+                        this.bus.emit(
+                            newHarnessEvent({
+                                type: rejected === undefined ? 'plan.created' : 'plan.invalid',
+                                rootGoalId,
+                                goalId,
+                                attributes: {
+                                    'harness.level': rejected === undefined ? 'info' : 'warn',
+                                },
+                                payload:
+                                    rejected === undefined
+                                        ? { taskCount, digest }
+                                        : { taskCount, rejected },
+                            }),
+                        );
                     },
                 },
                 goals,
@@ -491,23 +787,38 @@ export class HarnessRuntime {
         }
         const aborted = result.tasks.some((outcome) => outcome.reason === 'aborted');
         // Settle the Goal entities so the persisted tree/snapshot no longer reports
-        // every goal as 'active' after the run has finished. Aborted runs stay
+        // every active goal as 'active' after the run has finished. Aborted runs stay
         // resumable (Goal.status='aborted') instead of being marked failed.
+        // 没有 TaskOutcome 的 Goal（blocked 待协商 / direct 直答 / pending）保持原状态：
+        // 它们根本没进入本次执行，不能被一次「空运行」改写成 succeeded。
         const outcomeByGoal = new Map(
             result.tasks.map((outcome) => [outcome.task.goalId, outcome]),
         );
         for (const goal of goals) {
             const outcome = outcomeByGoal.get(goal.goalId);
-            goal.status = outcome
-                ? outcome.reason === 'aborted'
-                    ? 'aborted'
-                    : outcome.ok
-                      ? 'succeeded'
-                      : 'failed'
-                : result.ok
-                  ? 'succeeded'
-                  : 'failed';
-            await this.goalStoreDb.saveGoal(goal);
+            if (outcome === undefined) continue;
+            // 读改写最新行：异步 triage 可能刚把协商结论/语义条款写进同一个 Goal，
+            // 不能用运行开始时读到的旧副本整体覆盖。
+            const latest = (await this.goalStoreDb.loadGoal(goal.goalId)) ?? goal;
+            latest.status =
+                outcome.reason === 'aborted' ? 'aborted' : outcome.ok ? 'succeeded' : 'failed';
+            await this.goalStoreDb.saveGoal(latest);
+            // 契约满足度落事件：Goal.status 是 executor 的成败，这里才是评估器的机械判定，
+            // 两者分开（裁决 D8），审计可据此回答「契约到底被满足了没有」。
+            const evaluation = rollupAcceptance(
+                latest.contract.successConditions.map((condition) => condition.id),
+                [outcome.task.acceptanceResult],
+            );
+            this.bus.emit(
+                newHarnessEvent({
+                    type: 'goal.contract-evaluated',
+                    rootGoalId,
+                    goalId: goal.goalId,
+                    attributes: { 'harness.level': 'info' },
+                    payload: evaluation,
+                }),
+            );
+            await this.bus.flush();
         }
         // 终态失败写入分类账；aborted 是协作式停止、可恢复，不记失败。
         for (const outcome of result.tasks) {
@@ -753,17 +1064,13 @@ export class HarnessRuntime {
         tools: ToolSchema[];
         invoker: GoalToolInvoker;
         allowedTools: string[];
+        planTools: PlanTool[];
+        toolsetVersion: number;
+        toolsetDigest: string;
     } {
-        // 预设与配置同名合并：配置覆盖预设；其余内置 CLI 工具自动可用
-        const merged: ToolConfig[] = [...BUILTIN_TOOL_PRESET];
-        for (const tool of this.config.tools) {
-            const idx = merged.findIndex((t) => t.name === tool.name);
-            if (idx >= 0) {
-                merged[idx] = tool;
-            } else {
-                merged.push(tool);
-            }
-        }
+        // Each run pins one registry snapshot; dynamic registration affects future runs.
+        const toolSnapshot = this.toolRegistry.snapshot();
+        const merged: ToolConfig[] = toolSnapshot.tools;
         // 项目 wiki 内置工具（wiki.read 只读免审批；wiki.update 归写能力，走既有判权）。
         if (this.wiki.enabled) {
             merged.push(...wikiToolConfigs(this.wiki));
@@ -774,7 +1081,7 @@ export class HarnessRuntime {
             taskId: goalId,
             level,
             tools: merged,
-            execute: (tool, args) => this.executeToolConfig(tool, args),
+            execute: (tool, args, ctx) => this.executeEffectful(tool, args, ctx),
             ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
             audit: new RuntimePolicyAuditSink({ emit: (event) => this.bus.emit(event) }),
             ...(this.approvalSeam ? { approval: this.approvalSeam } : {}),
@@ -804,7 +1111,17 @@ export class HarnessRuntime {
                 ? { ok: true, content: String(result.content ?? '') }
                 : { ok: false, content: '', error: result.error ?? 'tool failed' };
         };
-        return { tools, invoker: { invoke }, allowedTools: names };
+        return {
+            tools,
+            invoker: { invoke },
+            allowedTools: names,
+            planTools: merged.map((tool) => ({
+                name: tool.name,
+                minPermission: permissionForTool(tool),
+            })),
+            toolsetVersion: toolSnapshot.version,
+            toolsetDigest: toolSnapshot.digest,
+        };
     }
 
     /**
@@ -829,10 +1146,7 @@ export class HarnessRuntime {
         const parts = [base];
         if (entries.length > 0) {
             const catalog = entries
-                .map(
-                    (entry) =>
-                        '- ' + entry.name + '：' + entry.description + '（' + entry.path + '）',
-                )
+                .map((entry) => `- ${entry.name}：${entry.description}（${entry.path}）`)
                 .join('\n');
             parts.push(
                 '## 可用技能（Skill）\n' +
@@ -897,6 +1211,21 @@ export class HarnessRuntime {
         args: Record<string, unknown>,
     ): Promise<ToolCallResult> {
         const toolName = tool?.name ?? '';
+        if (this.workspaceRoot !== undefined && toolName !== 'shell.run' && toolName !== 'git') {
+            for (const key of ['path', 'a', 'b']) {
+                const value = args[key];
+                if (typeof value === 'string' && value.length > 0) {
+                    try {
+                        assertInsideWorkspace(this.workspaceRoot, value);
+                    } catch (error) {
+                        return {
+                            ok: false,
+                            error: error instanceof Error ? error.message : String(error),
+                        };
+                    }
+                }
+            }
+        }
         if (toolName === 'fs.read') {
             const res = await fsReadToolImpl(args, this.workspaceRoot);
             return res.ok
@@ -911,7 +1240,6 @@ export class HarnessRuntime {
         }
         if (tool?.command) {
             const res = await runCliTool(tool.command, args, this.workspaceRoot);
-            console.log('runcli tool result:', res);
             return res.ok
                 ? { ok: true, content: res.content ?? '' }
                 : { ok: false, error: res.error ?? 'tool failed' };
@@ -925,6 +1253,106 @@ export class HarnessRuntime {
             ? { ok: true, content: String(res.content ?? '') }
             : { ok: false, error: res.error ?? 'tool failed' };
     }
+
+    private async executeEffectful(
+        tool: ToolConfig,
+        args: Record<string, unknown>,
+        ctx?: { identifiers?: import('@mazi/core').AuditIdentifiers },
+    ): Promise<ToolCallResult> {
+        const identifiers = ctx?.identifiers;
+        const paths = this.workspaceRoot !== undefined ? effectPathsForTool(tool, args) : [];
+        const before =
+            paths.length > 0 && this.workspaceRoot !== undefined
+                ? snapshotFiles(this.workspaceRoot, paths)
+                : [];
+        const result = await this.executeToolConfig(tool, args);
+        if (before.length > 0 && identifiers !== undefined) {
+            await this.effectStore.append(
+                newEffectRecord({
+                    rootGoalId: identifiers.rootGoalId,
+                    goalId: identifiers.goalId,
+                    taskId: identifiers.taskId,
+                    stepId: identifiers.stepId,
+                    toolName: tool.name,
+                    args,
+                    before,
+                }),
+            );
+        }
+        return result;
+    }
+
+    listEffects(rootGoalId: string): Promise<EffectRecord[]> {
+        return this.effectStore.list(rootGoalId);
+    }
+
+    async rememberMemory(items: readonly MemoryItem[]): Promise<void> {
+        await this.memoryManager.remember(items);
+    }
+
+    listMemory(query = {}): Promise<readonly MemoryItem[]> {
+        return this.memoryManager.recall(query);
+    }
+
+    async exportPortableBundle(rootGoalIds: readonly string[]): Promise<MemoryBundle> {
+        const auditTrails = rootGoalIds.map((rootGoalId) => {
+            const verification = this.bus.verifyChain(rootGoalId);
+            if (!verification.ok) {
+                throw new Error(
+                    `拒绝导出被篡改的审计链 ${rootGoalId}: ${verification.reason ?? 'unknown'}`,
+                );
+            }
+            return {
+                rootGoalId,
+                head: verification.head ?? '',
+                events: this.bus.replay(rootGoalId),
+            };
+        });
+        return exportMemoryBundle(this.memoryManager, Date.now, auditTrails);
+    }
+
+    importPortableBundle(bundle: MemoryBundle): Promise<{ imported: number }> {
+        return importMemoryBundle(this.memoryManager, bundle);
+    }
+
+    /** Dynamic registration is pinned at the next run boundary. */
+    registerTool(tool: ToolConfig): number {
+        return this.toolRegistry.register(tool);
+    }
+
+    unregisterTool(name: string): boolean {
+        return this.toolRegistry.unregister(name);
+    }
+
+    /** Restore reversible file effects in reverse execution order. */
+    async rollbackGoal(rootGoalId: string): Promise<EffectRecord[]> {
+        if (this.workspaceRoot === undefined) {
+            throw new Error('回滚需要工作区根路径');
+        }
+        const effects = await rollbackEffects(this.effectStore, rootGoalId, this.workspaceRoot);
+        for (const effect of effects) {
+            this.bus.emit(
+                newHarnessEvent({
+                    type: 'rollback.executed',
+                    rootGoalId,
+                    goalId: effect.goalId,
+                    taskId: effect.taskId,
+                    stepId: effect.stepId,
+                    attributes: {
+                        'harness.level': effect.status === 'rolled-back' ? 'info' : 'error',
+                    },
+                    payload: {
+                        effectId: effect.effectId,
+                        status: effect.status,
+                        paths: effect.before.map((item) => item.path),
+                        ...(effect.error !== undefined ? { error: effect.error } : {}),
+                    },
+                }),
+            );
+        }
+        await this.bus.flush();
+        return effects;
+    }
 }
 /**
  * 合并 system prompt 片段：Feature 片段在前，项目 wiki 快照在后（只增文本，不改工具面）。
@@ -937,6 +1365,15 @@ function combinePromptFragments(
         (part) => part.length > 0,
     );
     return parts.length > 0 ? parts.join('\n\n') : undefined;
+}
+
+function assertInsideWorkspace(workspaceRoot: string, path: string): void {
+    const root = resolve(workspaceRoot);
+    const target = resolve(isAbsolute(path) ? path : resolve(root, path));
+    const rel = relative(root, target);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+        throw new Error(`路径越出工作区：${path}`);
+    }
 }
 
 /**

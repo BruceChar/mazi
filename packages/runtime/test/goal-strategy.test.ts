@@ -139,4 +139,167 @@ describe('goal-strategy（C3d：Goal 顺序驱动，扁平模型）', () => {
         expect(items.some((item) => item.kind === 'fact' && item.text.includes('noop'))).toBe(true);
         expect(prompts[2]).toContain('noop');
     });
+
+    it('契约终止策略生效：terminationPolicy.maxSteps 覆盖 executor 默认 50', async () => {
+        const store = new MemoryGoalStore();
+        const a = goal(ulid());
+        a.contract.terminationPolicy = { maxSteps: 2 };
+        await store.saveGoal(a);
+        let rounds = 0;
+        const result = await runGoalTree(
+            {
+                store,
+                allowedTools: ['noop'],
+                invoker: { invoke: async () => ({ ok: true, content: 'OUT' }) },
+                requestRound: async () => {
+                    rounds += 1;
+                    return {
+                        text: '',
+                        reasoning: '',
+                        toolCalls: [
+                            {
+                                callId: `c${rounds}`,
+                                toolName: 'noop',
+                                arguments: { n: rounds },
+                            },
+                        ],
+                        finishReason: 'tool_calls',
+                        ttftMs: 0,
+                        totalMs: 1,
+                    };
+                },
+            },
+            [a],
+        );
+        expect(rounds).toBe(2);
+        expect(result.tasks[0]?.reason).toBe('max-steps');
+    });
+
+    it('契约预算生效：累计 round.cost 达上限即停（budget-exceeded）', async () => {
+        const store = new MemoryGoalStore();
+        const a = goal(ulid());
+        a.contract.budget = { maxCostUsd: 0.01 };
+        await store.saveGoal(a);
+        let rounds = 0;
+        const result = await runGoalTree(
+            {
+                store,
+                allowedTools: ['noop'],
+                invoker: { invoke: async () => ({ ok: true, content: 'OUT' }) },
+                requestRound: async () => {
+                    rounds += 1;
+                    return {
+                        text: '',
+                        reasoning: '',
+                        toolCalls: [
+                            {
+                                callId: `c${rounds}`,
+                                toolName: 'noop',
+                                arguments: { n: rounds },
+                            },
+                        ],
+                        finishReason: 'tool_calls',
+                        ttftMs: 0,
+                        totalMs: 1,
+                        cost: {
+                            inputCostUsd: 0,
+                            outputCostUsd: 0,
+                            cacheWriteCostUsd: 0,
+                            cacheReadCostUsd: 0,
+                            reasoningCostUsd: 0,
+                            totalCostUsd: 0.02,
+                            priceTierApplied: 'standard',
+                            pricingVersion: 'v1',
+                            currency: 'USD',
+                            calculatedAt: 1,
+                        },
+                    };
+                },
+            },
+            [a],
+        );
+        expect(rounds).toBe(1);
+        expect(result.tasks[0]?.reason).toBe('budget-exceeded');
+    });
+
+    it('执行后写入验收判定事实（评估器随 Task 落库）', async () => {
+        const store = new MemoryGoalStore();
+        const a = goal(ulid());
+        await store.saveGoal(a);
+        const result = await runGoalTree({ store, requestRound: async () => okRound }, [a]);
+        const saved = await store.loadTask(result.tasks[0]!.task.taskId);
+        expect(saved?.acceptanceResult?.total).toBe(1);
+        expect(saved?.acceptanceResult?.evaluated).toBe(0);
+        expect(saved?.acceptanceResult?.conditions[0]?.status).toBe('unchecked');
+        expect(saved?.acceptanceResult?.passed).toBe(true);
+    });
+
+    it('按依赖拓扑执行分层 Task，并在执行前拒绝越权计划', async () => {
+        const store = new MemoryGoalStore();
+        const a = goal(ulid());
+        await store.saveGoal(a);
+        const condition = a.contract.successConditions[0]!.id;
+        const calls: string[] = [];
+        const result = await runGoalTree(
+            {
+                store,
+                requestRound: async () => {
+                    calls.push('round');
+                    return okRound;
+                },
+                planProposal: [
+                    {
+                        key: 'inspect',
+                        goalId: a.goalId,
+                        title: '检查',
+                        acceptanceConditionIds: [condition],
+                    },
+                    {
+                        key: 'verify',
+                        goalId: a.goalId,
+                        title: '验证',
+                        dependsOn: ['inspect'],
+                        acceptanceConditionIds: [condition],
+                    },
+                ],
+            },
+            [a],
+        );
+        expect(result.ok).toBe(true);
+        expect(result.tasks.map((outcome) => outcome.task.title)).toEqual(['检查', '验证']);
+        expect(calls).toHaveLength(2);
+        expect(result.tasks[0]?.task.dependsOn).toEqual([]);
+        expect(result.tasks[1]?.task.dependsOn).toEqual([result.tasks[0]?.task.taskId]);
+
+        const rejected = await runGoalTree(
+            {
+                store: new MemoryGoalStore(),
+                requestRound: async () => okRound,
+                planProposal: [
+                    {
+                        key: 'escalate',
+                        goalId: a.goalId,
+                        title: '越权',
+                        permissionCeiling: 'autonomous',
+                        acceptanceConditionIds: [condition],
+                    },
+                ],
+            },
+            [a],
+        );
+        expect(rejected.ok).toBe(false);
+        expect(rejected.rejected?.join('\n')).toContain('权限超过 Goal 上限');
+    });
+
+    it('resume 对尚未生成 Task 的 active Goal 补建计划而不是空跑', async () => {
+        const store = new MemoryGoalStore();
+        const a = goal(ulid());
+        await store.saveGoal(a);
+        const result = await runGoalTree(
+            { store, resume: true, requestRound: async () => okRound },
+            [a],
+        );
+        expect(result.tasks).toHaveLength(1);
+        expect((await store.listTasks(a.goalId))[0]?.taskId).toBe(result.tasks[0]?.task.taskId);
+    });
 });

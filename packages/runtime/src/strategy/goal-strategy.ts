@@ -8,12 +8,24 @@
  */
 
 import { type Goal, type Step, type Task, ulid } from '@mazi/core';
+import { evaluateAcceptance } from '../gts/acceptance.js';
 import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../gts/goal-executor.js';
 import { executeTask } from '../gts/goal-executor.js';
-import { planTask } from '../gts/goal-planner.js';
+import { planGoalTree } from '../gts/goal-planner.js';
+import {
+    type PlannedTask,
+    type PlanTool,
+    topologicalTaskOrder,
+    validatePlanGraph,
+} from '../gts/plan-graph.js';
 import type { ContextContribution } from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
-import { type MemoryItem, MemoryManager, turnsToMemory } from '../memory/index.js';
+import {
+    type MemoryItem,
+    MemoryManager,
+    type MemoryQuery,
+    turnsToMemory,
+} from '../memory/index.js';
 
 /** 把一次 Task 的工具执行记录成 memory fact，供后续 Goal/会话判定“已执行过”。 */
 function toolMemoryFacts(steps: readonly Step[], rootGoalId: string): MemoryItem[] {
@@ -40,14 +52,33 @@ export interface GoalRunDeps {
     allowedTools?: string[];
     /** 记忆调度组合根（缺省新建进程内实现）。 */
     memory?: MemoryManager;
+    /** Scoped recall selector; unionScope joins user/workspace/session/task views. */
+    memoryQuery?: MemoryQuery;
+    /** Scope written back for this run's episodic memory. */
+    memoryWriteContext?: {
+        conversationId?: string;
+        userId?: string;
+        workspaceId?: string;
+        projectId?: string;
+    };
     /** 工作目录（透传 executeTask；入库到 invocation payload.cwd） */
     workspaceRoot?: string;
     /** Step 流式回调（透传 executeTask.onStep） */
     onStep?: GoalExecutorDeps['onStep'];
     /** 协作式停止信号（透传 executeTask）。 */
     signal?: AbortSignal;
+    /** Optional hierarchical plan proposal from the model/caller. */
+    planProposal?: readonly PlannedTask[];
+    /** Available tool catalogue used by plan preflight. */
+    planTools?: readonly PlanTool[];
+    /** Plan lifecycle observation for auditing/UI. */
+    onPlan?: (taskCount: number, digest?: string, rejected?: readonly string[]) => void;
     /** 恢复模式：复用未终结 Task 并从已落库 Step 重放上下文。 */
     resume?: boolean;
+    /** 轮次上限覆盖（缺省读 goal.contract.terminationPolicy.maxSteps）。 */
+    maxSteps?: number;
+    /** 成本上限覆盖 USD（缺省读 goal.contract.budget.maxCostUsd）。 */
+    maxCostUsd?: number;
 }
 
 export interface GoalRunResult {
@@ -55,14 +86,6 @@ export interface GoalRunResult {
     tasks: TaskOutcome[];
     ok: boolean;
     rejected?: string[];
-}
-
-/** 恢复执行时为 Goal 选取可复用 Task（最近一个 aborted/active 的未终结 Task）。 */
-async function resumableTask(store: GoalStore, goal: Goal): Promise<Task | undefined> {
-    const tasks = await store.listTasks(goal.goalId);
-    const latest = [...tasks].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)).at(-1);
-    if (latest === undefined) return undefined;
-    return latest.status === 'aborted' || latest.status === 'active' ? latest : undefined;
 }
 
 export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<GoalRunResult> {
@@ -73,16 +96,101 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         (goal) => goal.status === 'active' || (resume && goal.status === 'aborted'),
     );
     const outcomes: TaskOutcome[] = [];
-    for (const [index, goal] of executable.entries()) {
-        const planIndex = executable.length > 1 ? index : undefined;
-        const task =
-            (resume ? await resumableTask(deps.store, goal) : undefined) ??
-            planTask(goal, planIndex);
+    let tasks: Task[];
+    let planDigest: string | undefined;
+    if (resume) {
+        tasks = [];
+        for (const goal of executable) {
+            for (const task of await deps.store.listTasks(goal.goalId)) {
+                const goalConditions = new Set<string>(
+                    goal.contract.successConditions.map((condition) => condition.id),
+                );
+                if (
+                    !task.acceptance.conditions.some((condition) => goalConditions.has(condition))
+                ) {
+                    // Legacy rows predate Task-level acceptance and may contain placeholders.
+                    task.acceptance.conditions = [...goalConditions];
+                    task.permissionCeiling ??= goal.permissionCeiling;
+                    task.budget ??= goal.budget;
+                    await deps.store.saveTask(task);
+                }
+                tasks.push(task);
+            }
+        }
+        if (tasks.length === 0) {
+            const planGoals = executable.map((goal) =>
+                goal.status === 'aborted' ? { ...goal, status: 'active' as const } : goal,
+            );
+            const planned = planGoalTree({
+                goals: planGoals,
+                ...(deps.planProposal !== undefined ? { proposals: deps.planProposal } : {}),
+                ...(deps.planTools !== undefined ? { availableTools: deps.planTools } : {}),
+            });
+            if (!planned.validation.ok) {
+                deps.onPlan?.(0, undefined, planned.rejected ?? ['计划无效']);
+                return {
+                    rootGoalId: runId,
+                    tasks: [],
+                    ok: false,
+                    rejected: planned.rejected ?? ['计划无效'],
+                };
+            }
+            tasks = planned.tasks;
+            planDigest = planned.graph?.digest;
+        }
+        const validation = validatePlanGraph(executable, tasks, deps.planTools);
+        if (!validation.ok) {
+            deps.onPlan?.(0, undefined, validation.rejected);
+            return { rootGoalId: runId, tasks: [], ok: false, rejected: validation.rejected };
+        }
+    } else {
+        const planned = planGoalTree({
+            goals: executable,
+            ...(deps.planProposal !== undefined ? { proposals: deps.planProposal } : {}),
+            ...(deps.planTools !== undefined ? { availableTools: deps.planTools } : {}),
+        });
+        if (!planned.validation.ok) {
+            deps.onPlan?.(0, undefined, planned.rejected ?? ['计划无效']);
+            return {
+                rootGoalId: runId,
+                tasks: [],
+                ok: false,
+                rejected: planned.rejected ?? ['计划无效'],
+            };
+        }
+        tasks = planned.tasks;
+        planDigest = planned.graph?.digest;
+    }
+    deps.onPlan?.(tasks.length, planDigest);
+    const goalById = new Map(executable.map((goal) => [goal.goalId, goal]));
+    const ordered = topologicalTaskOrder(tasks);
+    for (const task of ordered) {
+        if (resume && task.status === 'succeeded') continue;
+        const goal = goalById.get(task.goalId);
+        if (goal === undefined) {
+            return {
+                rootGoalId: runId,
+                tasks: outcomes,
+                ok: false,
+                rejected: [`Task ${task.taskId} 的 Goal 不在可执行集合`],
+            };
+        }
         const contribution: ContextContribution = await memory.prepareContribution(
-            { rootGoalId: runId },
+            {
+                rootGoalId: runId,
+                ...(deps.memoryQuery ?? {}),
+                unionScope: true,
+            },
             { id: 'memory' },
         );
         const resumeSteps = resume ? await deps.store.listSteps(task.taskId) : undefined;
+        // 契约 → 执行上限：终止策略与预算来自 Goal 冻结契约；运行级 deps 显式覆盖
+        const maxSteps =
+            deps.maxSteps ?? goal.contract.terminationPolicy.maxSteps ?? goal.budget.maxSteps;
+        const maxCostUsd =
+            deps.maxCostUsd ??
+            goal.contract.budget.maxCostUsd ??
+            goal.contract.terminationPolicy.maxCostUsd;
         const outcome = await executeTask(
             {
                 store: deps.store,
@@ -97,19 +205,28 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                 ...(resumeSteps !== undefined && resumeSteps.length > 0 ? { resumeSteps } : {}),
                 contributions: [contribution],
                 ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
+                ...(maxSteps !== undefined ? { maxSteps } : {}),
+                ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
             },
             task,
             goal,
         );
+        // 验收判定：评估器独立于 executor 产出事实并随 Task 落库（裁决 D8）
+        outcome.task.acceptanceResult = evaluateAcceptance(goal, outcome);
+        await deps.store.saveTask(outcome.task);
         outcomes.push(outcome);
-        if (!outcome.ok) break; // 顺序依赖：首个失败即停（后续可扩展为任务组并行）
+        if (!outcome.ok) break;
         // Task 之间共享上下文：本 Goal 的输入、最终回答与工具执行事实写入长期记忆，供后续 Goal/会话召回
         const items: MemoryItem[] = turnsToMemory(
             [
                 { role: 'user', text: goal.statement },
                 { role: 'assistant', text: outcome.finalMessage ?? '' },
             ],
-            { rootGoalId: runId },
+            {
+                rootGoalId: runId,
+                ...(deps.memoryWriteContext ?? {}),
+                provenance: { source: 'system', confidence: 'confirmed', trustTier: 'T2' },
+            },
         );
         items.push(...toolMemoryFacts(outcome.steps, runId));
         await memory.remember(items);

@@ -1,4 +1,5 @@
 import type { LLMMessage, LLMProvider, PermissionLevel } from '@mazi/core';
+import type { PlannedTask } from '../gts/plan-graph.js';
 
 /** 用户反馈载荷 */
 export interface FeedbackInput {
@@ -18,6 +19,12 @@ export interface RunOptions {
     userId?: string;
     /** 本次 Goal 的权限档位（composer 选择）；缺省用配置默认。 */
     permissionCeiling?: PermissionLevel;
+    /** 轮次上限（UI 运行设置 → GoalContract.terminationPolicy.maxSteps）。 */
+    maxSteps?: number;
+    /** 成本上限 USD（UI 运行设置 → GoalContract.budget.maxCostUsd）。 */
+    maxCostUsd?: number;
+    /** 创建 Goal 时是否跑 triage（契约协商）；缺省 false，调用方显式开启；无可用 provider 自动回落 fallback。 */
+    parseIntent?: boolean;
     /** 工作区根路径；文件工具只允许读取该目录内文件 */
     workspaceRoot?: string;
     /** providerId → LLMProvider 覆盖（离线测试注入；优先生效） */
@@ -40,6 +47,8 @@ export interface RunOptions {
     flagOverrides?: Readonly<Record<string, boolean>>;
     /** 开关求值痕迹（复盘：值从默认来还是从运行期覆盖来）。 */
     flagTrace?: readonly { id: string; enabled: boolean; source: string }[];
+    /** Optional hierarchical plan proposal; harness validates it before execution. */
+    planProposal?: readonly PlannedTask[];
 }
 
 /** ConversationTurn[] → LLMMessage[]（user/assistant 文本消息）。 */

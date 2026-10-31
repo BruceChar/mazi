@@ -4,6 +4,7 @@ export {
     ContextManager,
     type ContextManagerOptions,
     type ContextSecretRef,
+    type ContextSnapshot,
     type ContextToolObservation,
     parseSecretRef,
     SECRET_REF_FIELD,
