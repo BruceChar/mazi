@@ -13,6 +13,7 @@ import { estimateTokens } from '../token-estimator.js';
 import {
     InMemoryMemoryStore,
     type MemoryItem,
+    type MemoryProvenance,
     type MemoryQuery,
     type MemoryStore,
 } from './store.js';
@@ -69,6 +70,11 @@ export interface MemoryTurn {
 export interface TurnsToMemoryOptions {
     rootGoalId?: string;
     conversationId?: string;
+    userId?: string;
+    workspaceId?: string;
+    projectId?: string;
+    tags?: readonly string[];
+    provenance?: MemoryProvenance;
     now?: () => number;
     id?: (index: number) => string;
 }
@@ -88,6 +94,11 @@ export function turnsToMemory(
         createdAt: base + index,
         ...(opts.rootGoalId !== undefined ? { rootGoalId: opts.rootGoalId } : {}),
         ...(opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {}),
+        ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
+        ...(opts.workspaceId !== undefined ? { workspaceId: opts.workspaceId } : {}),
+        ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
+        ...(opts.tags !== undefined ? { tags: [...opts.tags] } : {}),
+        ...(opts.provenance !== undefined ? { provenance: opts.provenance } : {}),
     }));
 }
 
@@ -119,7 +130,33 @@ export class MemoryManager {
     }
 
     async recall(input: RecallInput = {}): Promise<readonly MemoryItem[]> {
-        const recalled = await this.store.recall(input);
+        let recalled: readonly MemoryItem[];
+        if (input.unionScope === true) {
+            const queries: MemoryQuery[] = [];
+            if (input.rootGoalId !== undefined) {
+                queries.push({ rootGoalId: input.rootGoalId, status: input.status });
+            }
+            if (input.conversationId !== undefined) {
+                queries.push({ conversationId: input.conversationId, status: input.status });
+            }
+            if (input.userId !== undefined) {
+                queries.push({ userId: input.userId, status: input.status });
+            }
+            if (input.workspaceId !== undefined) {
+                queries.push({ workspaceId: input.workspaceId, status: input.status });
+            }
+            if (input.projectId !== undefined) {
+                queries.push({ projectId: input.projectId, status: input.status });
+            }
+            if (queries.length === 0) queries.push({ status: input.status });
+            const byId = new Map<string, MemoryItem>();
+            for (const query of queries) {
+                for (const item of await this.store.recall(query)) byId.set(item.id, item);
+            }
+            recalled = [...byId.values()];
+        } else {
+            recalled = await this.store.recall(input);
+        }
         const budget = input.budgetTokens ?? this.budgetTokens;
         return this.policy.select(recalled, {
             ...input,
@@ -156,5 +193,10 @@ export class MemoryManager {
     /** 清理记忆（会话销毁 / 测试）。 */
     async forget(query: MemoryQuery = {}): Promise<void> {
         await this.store.clear(query);
+    }
+
+    /** Export-friendly immutable view of all records. */
+    all(): Promise<readonly MemoryItem[]> {
+        return this.store.all();
     }
 }

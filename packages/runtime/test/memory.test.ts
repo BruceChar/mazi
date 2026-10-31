@@ -1,11 +1,17 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { ContextManager } from '../src/harness/context-manager.js';
 import {
     InMemoryMemoryStore,
+    exportMemoryBundle,
+    importMemoryBundle,
     MemoryManager,
     type MemoryItem,
     recentMemoryPolicy,
+    SqliteMemoryStore,
     turnsToMemory,
 } from '../src/memory/index.js';
 import { estimateTokens } from '../src/token-estimator.js';
@@ -123,5 +129,106 @@ describe('MemoryManager', () => {
         context.appendUser('current');
         expect(context.baseMessageCount()).toBe(1);
         expect(context.messages().map((message) => message.role)).toEqual(['user', 'user']);
+    });
+
+    it('unions user/workspace/conversation scopes while excluding expired or tombstoned memory', async () => {
+        const store = new InMemoryMemoryStore();
+        await store.append([
+            {
+                ...note('user', 'preference', 1),
+                userId: 'u1',
+                provenance: { source: 'user', confidence: 'confirmed', trustTier: 'T1' },
+            },
+            { ...note('workspace', 'project fact', 2), workspaceId: '/w1' },
+            { ...note('conversation', 'previous task', 3), conversationId: 'c1' },
+            { ...note('expired', 'old', 4), userId: 'u1', expiresAt: 10 },
+            { ...note('deleted', 'gone', 5), userId: 'u1', status: 'tombstoned' },
+        ]);
+        const memory = new MemoryManager({ store });
+        const recalled = await memory.recall({
+            userId: 'u1',
+            workspaceId: '/w1',
+            conversationId: 'c1',
+            unionScope: true,
+        });
+        expect(recalled.map((item) => item.id).sort()).toEqual([
+            'conversation',
+            'user',
+            'workspace',
+        ]);
+    });
+
+    it('persists cross-session scoped memory in SQLite', async () => {
+        const dbPath = join(mkdtempSync(join(tmpdir(), 'mazi-memory-')), 'memory.db');
+        const first = new SqliteMemoryStore(dbPath);
+        await first.append([
+            {
+                ...note('pref', '回答保持简洁', 1),
+                userId: 'u1',
+                workspaceId: '/w1',
+                provenance: { source: 'user', confidence: 'confirmed', trustTier: 'T1' },
+            },
+        ]);
+        first.close();
+
+        const second = new SqliteMemoryStore(dbPath);
+        const recalled = await second.recall({ userId: 'u1', workspaceId: '/w1' });
+        expect(recalled[0]).toMatchObject({
+            id: 'pref',
+            userId: 'u1',
+            workspaceId: '/w1',
+        });
+        second.close();
+    });
+
+    it('exports and imports a versioned checksummed memory bundle', async () => {
+        const source = new MemoryManager();
+        await source.remember([
+            {
+                ...note('pref', '中文回答', 1),
+                userId: 'u1',
+                provenance: { source: 'user', confidence: 'confirmed', trustTier: 'T1' },
+            },
+            {
+                ...note('task', '已完成迁移', 2),
+                workspaceId: '/w1',
+                provenance: { source: 'system', confidence: 'confirmed', trustTier: 'T2' },
+            },
+        ]);
+        const bundle = await exportMemoryBundle(source, () => 42, [
+            {
+                rootGoalId: 'r1',
+                head: 'h1',
+                events: [
+                    {
+                        eventId: 'e1',
+                        type: 'approval.granted',
+                        rootGoalId: 'r1',
+                        timestamp: 1,
+                        attributes: {},
+                        actor: 'human',
+                    },
+                ],
+            },
+        ]);
+        expect(bundle).toMatchObject({
+            format: 'mazi-memory-bundle',
+            schemaVersion: 1,
+            exportedAt: 42,
+        });
+        expect(bundle.checksum).toMatch(/^[0-9a-f]{64}$/);
+        expect(bundle.auditTrails?.[0]?.events[0]?.type).toBe('approval.granted');
+
+        const target = new MemoryManager();
+        expect(await importMemoryBundle(target, bundle)).toEqual({ imported: 2 });
+        expect((await target.recall({ userId: 'u1' }))[0]?.text).toBe('中文回答');
+
+        const tampered = { ...bundle, records: [{ ...bundle.records[0]!, text: 'changed' }] };
+        await expect(importMemoryBundle(target, tampered)).rejects.toThrow(/checksum/);
+        const auditTampered = {
+            ...bundle,
+            auditTrails: [{ ...bundle.auditTrails![0]!, head: 'changed' }],
+        };
+        await expect(importMemoryBundle(target, auditTampered)).rejects.toThrow(/checksum/);
     });
 });
