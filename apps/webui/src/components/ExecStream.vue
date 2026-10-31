@@ -3,6 +3,14 @@ import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import { formatTokens } from '../scripts/audit.ts';
 import { behaviorRowsOf, groupBehaviorsByTask } from '../scripts/behavior-rows.ts';
+import {
+    acceptanceBadge,
+    acceptanceRows,
+    contractStateLabel,
+    contractStateTone,
+    contractSummaryOf,
+    ROUTE_LABEL,
+} from '../scripts/contract-view.ts';
 import { deliberationRowDecision } from '../scripts/exec-tree.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { copyThinkingChain, ui } from '../scripts/store.ts';
@@ -201,12 +209,15 @@ function finalSummaryRowOf(detailObj) {
 }
 
 /**
- * Display tree. Goals without tasks are dropped, and each task carries one full
- * date/time so its steps only show time-of-day.
+ * Display tree. Goals without tasks are dropped **unless** they carry a direct
+ * answer (triage `direct`)：那种 Goal 没有 Task，但它的回答就是本次运行的输出，
+ * 不能因为"没任务"而在主会话里消失。每个 task 带一个完整日期时间，步骤只显示时分秒。
  */
 function buildExecTree(detailObj) {
     const lastAnswerId = lastAnswerStepId(detailObj);
-    const goals = (detailObj?.goals || []).filter((goal) => (goal.tasks || []).length > 0);
+    const goals = (detailObj?.goals || []).filter(
+        (goal) => (goal.tasks || []).length > 0 || Boolean(goal.negotiation?.directAnswer),
+    );
     const behaviorRows = behaviorRowsOf(allStepViewsOf(detailObj), detailObj?.behaviors || []);
     // 扁平任务时间窗：行为行按 at 落到所属任务（run 结束后的反馈归末任务）。
     let cursor = 0;
@@ -221,22 +232,51 @@ function buildExecTree(detailObj) {
     const behaviorsByTask = new Map(
         flatTasks.map((entry, index) => [entry.task.taskId, grouped[index] || []]),
     );
-    return goals.map((goal) => ({
-        goalId: goal.goalId,
-        statement: goal.statement,
-        status: goal.status,
-        tasks: (goal.tasks || []).map((task) => {
-            const startedAt = taskStartedAt(task);
-            return {
-                taskId: task.taskId,
-                title: task.title,
-                status: task.status,
-                time: startedAt ? fmtDateTime(startedAt) : '',
-                steps: taskStepRows(task, lastAnswerId),
-                behaviors: behaviorsByTask.get(task.taskId) || [],
-            };
-        }),
-    }));
+    return goals.map((goal) => {
+        // 契约与验收判定都在快照里，UI 只投影不再推断（承诺 vs 事实并排）。
+        const contract = contractSummaryOf(goal.contract);
+        return {
+            goalId: goal.goalId,
+            statement: goal.statement,
+            status: goal.status,
+            contract,
+            /** 契约满足度汇总（评估器机械口径；未执行时为 null）。 */
+            contractStatus: goal.contractStatus ?? null,
+            /** direct 路线的直答：Goal 直接 succeeded，没有 Task，答案在这里呈现。 */
+            directAnswer: goal.negotiation?.directAnswer || '',
+            /** escalate 路线：挂起待人决的原因。 */
+            escalation: goal.negotiation?.escalation || '',
+            tasks: (goal.tasks || []).map((task) => {
+                const startedAt = taskStartedAt(task);
+                const acceptance = acceptanceRows(
+                    task.acceptance,
+                    goal.contract,
+                    task.acceptanceResult,
+                );
+                return {
+                    taskId: task.taskId,
+                    title: task.title,
+                    status: task.status,
+                    time: startedAt ? fmtDateTime(startedAt) : '',
+                    acceptance,
+                    acceptanceBadge: acceptanceBadge(task.acceptanceResult),
+                    acceptanceTitle: acceptance
+                        .map((row) => `${ACCEPTANCE_MARK[row.status]} ${row.judgeLabel} · ${row.text}`)
+                        .join('\n'),
+                    steps: taskStepRows(task, lastAnswerId),
+                    behaviors: behaviorsByTask.get(task.taskId) || [],
+                };
+            }),
+        };
+    });
+}
+
+/** 条款状态前缀（悬停验收徽标时展示逐条明细）。 */
+const ACCEPTANCE_MARK = { passed: '✔', failed: '✘', unchecked: '·' };
+
+/** 协商问题的已答复文本（未答复返回空串）。 */
+function negotiationAnswer(negotiation, q) {
+    return (negotiation?.answers || []).find((item) => item.q === q)?.answer || '';
 }
 function allStepViewsOf(detailObj) {
     return (detailObj?.goals || []).flatMap((goal) =>
@@ -379,6 +419,102 @@ const outputAt = computed(() => {
                 <span class="exec-goal-count">{{ goal.tasks.length }} tasks · {{ goal.tasks.reduce((s, t) => s + t.steps.length, 0) }} steps</span>
             </div>
             <div v-if="!collapsedGoals.has(goal.goalId)" class="exec-goal-body">
+                <!-- direct 路线：Goal 无 Task，但回答就是本次输出（不能空着） -->
+                <div v-if="goal.directAnswer" class="exec-direct">
+                    <span class="exec-direct-tag">直答</span>
+                    <div class="exec-direct-text">{{ goal.directAnswer }}</div>
+                </div>
+                <div v-if="goal.escalation" class="exec-escalation">
+                    已挂起待人决：{{ goal.escalation }}
+                </div>
+                <!-- 契约前置：执行前冻结的承诺（条款 / 上限 / 风险 / 禁止项） -->
+                <div
+                    v-if="!goal.contract.empty"
+                    class="exec-contract"
+                    title="执行前冻结的 GoalContract：承诺与判定参照物"
+                >
+                    <div class="exec-contract-head">
+                        <span class="exec-contract-tag">契约</span>
+                        <span
+                            class="exec-contract-ratio"
+                            :class="{ warn: goal.contract.deterministicPercent < 100 }"
+                            title="successConditions 中机械可判条款的占比（健康度）"
+                        >
+                            机械可判 {{ goal.contract.deterministicPercent }}%
+                        </span>
+                        <span
+                            class="exec-contract-state"
+                            :class="contractStateTone(goal.contractStatus?.state)"
+                            title="契约满足度：评估器对条款的机械判定汇总"
+                        >{{ contractStateLabel(goal.contractStatus) }}</span>
+                        <span
+                            v-for="limit in goal.contract.limits"
+                            :key="limit.label"
+                            class="exec-contract-chip"
+                        >
+                            {{ limit.label }} {{ limit.value }}
+                        </span>
+                        <span
+                            v-for="risk in goal.contract.risks"
+                            :key="risk"
+                            class="exec-contract-chip risk"
+                        >
+                            {{ risk }}
+                        </span>
+                    </div>
+                    <div v-if="goal.negotiation" class="exec-contract-negotiation">
+                        <span class="exec-contract-route">{{
+                            ROUTE_LABEL[goal.negotiation.route] || goal.negotiation.route
+                        }}</span>
+                        <span v-if="goal.negotiation.revision > 0" class="exec-contract-trigger">
+                            契约 v{{ goal.negotiation.revision }}
+                        </span>
+                        <span
+                            v-for="trigger in goal.negotiation.triggers"
+                            :key="trigger"
+                            class="exec-contract-trigger"
+                        >{{ trigger }}</span>
+                    </div>
+                    <div v-if="goal.negotiation && goal.negotiation.escalation" class="exec-contract-escalation">
+                        升级待人决：{{ goal.negotiation.escalation }}
+                    </div>
+                    <div
+                        v-if="goal.negotiation && goal.negotiation.questions.length > 0"
+                        class="exec-contract-questions"
+                    >
+                        <div
+                            v-for="question in goal.negotiation.questions"
+                            :key="question.q"
+                            class="exec-contract-question"
+                        >
+                            <span class="q">{{ question.q }}</span>
+                            <span class="default">默认：{{ question.default }}</span>
+                            <span v-if="negotiationAnswer(goal.negotiation, question.q)" class="answer">
+                                已答复：{{ negotiationAnswer(goal.negotiation, question.q) }}
+                            </span>
+                        </div>
+                    </div>
+                    <ul class="exec-contract-conditions">
+                        <li
+                            v-for="condition in goal.contract.conditions"
+                            :key="condition.id"
+                            class="exec-contract-condition"
+                        >
+                            <span class="exec-contract-judge" :class="condition.judge">
+                                {{ condition.judgeLabel }}
+                            </span>
+                            <span class="exec-contract-text">{{ condition.text }}</span>
+                        </li>
+                        <li
+                            v-for="forbidden in goal.contract.forbidden"
+                            :key="forbidden"
+                            class="exec-contract-condition"
+                        >
+                            <span class="exec-contract-judge forbidden">禁止</span>
+                            <span class="exec-contract-text">{{ forbidden }}</span>
+                        </li>
+                    </ul>
+                </div>
                 <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
                     <div
                         class="exec-task-head"
@@ -395,6 +531,21 @@ const outputAt = computed(() => {
                         ></span>
                         <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
                         <span class="exec-task-title">{{ task.title }}</span>
+                        <span
+                            v-if="task.acceptanceBadge"
+                            class="exec-task-acceptance"
+                            :class="task.acceptanceBadge.tone"
+                            :title="task.acceptanceTitle"
+                        >
+                            {{ task.acceptanceBadge.label }}
+                        </span>
+                        <span
+                            v-else-if="task.acceptance.length > 0"
+                            class="exec-task-acceptance muted"
+                            :title="task.acceptanceTitle"
+                        >
+                            验收 {{ task.acceptance.length }} 条款
+                        </span>
                         <span class="exec-task-count">{{ task.steps.length }} steps</span>
                         <button
                             class="exec-task-copy"
@@ -1204,5 +1355,184 @@ const outputAt = computed(() => {
 }
 .exec-behavior-feedback {
     border-left-color: var(--fg-tertiary);
+}
+/* ---- 契约卡片：GoalContract 的可视化（承诺） ---- */
+.exec-contract {
+    margin: 4px 0 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-hover);
+}
+.exec-contract-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.exec-contract-tag {
+    font-weight: 600;
+    color: var(--fg);
+}
+.exec-contract-ratio {
+    font-family: ui-monospace, monospace;
+    color: var(--fg-tertiary);
+}
+.exec-contract-ratio.warn {
+    color: var(--warn);
+}
+.exec-contract-state {
+    font-size: 10px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    color: var(--fg-tertiary);
+}
+.exec-contract-state.ok {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.exec-contract-state.fail {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.exec-contract-chip {
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    color: var(--fg-secondary);
+}
+.exec-contract-chip.risk {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.exec-contract-conditions {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.exec-contract-condition {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.exec-contract-judge {
+    flex-shrink: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    border-radius: 3px;
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    color: var(--fg-tertiary);
+}
+.exec-contract-judge.mechanical {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.exec-contract-judge.semantic,
+.exec-contract-judge.forbidden {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.exec-contract-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.exec-direct {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 6px 0;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-hover);
+}
+.exec-direct-tag {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+.exec-direct-text {
+    font-size: 13px;
+    color: var(--fg);
+    white-space: pre-wrap;
+}
+.exec-escalation {
+    margin: 6px 0;
+    font-size: 12px;
+    color: var(--warn);
+}
+.exec-contract-negotiation {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.exec-contract-route {
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+.exec-contract-trigger {
+    color: var(--warn);
+    border: 1px solid var(--warn);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+.exec-contract-escalation {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--warn);
+}
+.exec-contract-questions {
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.exec-contract-question {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.exec-contract-question .default,
+.exec-contract-question .answer {
+    color: var(--fg-tertiary);
+}
+/* ---- Task 验收徽标：机械判定的结论（事实） ---- */
+.exec-task-acceptance {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-family: ui-monospace, monospace;
+    border-radius: 3px;
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    color: var(--fg-tertiary);
+}
+.exec-task-acceptance.ok {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.exec-task-acceptance.fail {
+    border-color: var(--warn);
+    color: var(--warn);
 }
 </style>

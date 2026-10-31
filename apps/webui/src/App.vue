@@ -12,6 +12,7 @@ import Sidebar from './components/Sidebar.vue';
 import ChatMain from './components/ChatMain.vue';
 import TopBar from './components/TopBar.vue';
 import FeedbackModal from './components/FeedbackModal.vue';
+import NegotiationDialog from './components/NegotiationDialog.vue';
 import PromptDialog from './components/PromptDialog.vue';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
 import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
@@ -20,6 +21,7 @@ import { SETTINGS_TABS } from './scripts/settings-tabs.ts';
 import { DEFAULT_USER_CENTER_TAB, userCenterTabOf } from './scripts/user-center.ts';
 import { wikiWorkspaceFor } from './scripts/wiki.ts';
 import { buildAuditView } from './scripts/audit.ts';
+import { pendingNegotiationOf } from './scripts/contract-view.ts';
 import { API_BASE } from './api.js';
 import {
     activeLiveStream,
@@ -48,7 +50,9 @@ import {
     freeChatWorkspace,
     pickFreeChatWorkspace,
     saveFreeChatWorkspace,
+    negotiateRun,
     openRun,
+    pendingInput,
     pickWorkspace,
     projects,
     renameProject,
@@ -321,6 +325,37 @@ const conversationAudit = computed(() =>
         conversationTitle: conversationTitle(activeConversation.value),
     }),
 );
+
+/**
+ * 待答复的契约协商：异步 triage 落地后由 SSE（goal.negotiation.requested）刷新驱动。
+ * 只对「未决 + 无答复」的 negotiate / escalate 弹窗；用户关掉后记入 dismissed 不再打扰。
+ */
+const dismissedNegotiations = ref(new Set());
+const negotiationBusy = ref(false);
+const pendingNegotiation = computed(() =>
+    pendingNegotiationOf(conversationAudit.value?.contracts, dismissedNegotiations.value),
+);
+
+function dismissNegotiation() {
+    const entry = pendingNegotiation.value;
+    if (!entry) return;
+    dismissedNegotiations.value = new Set([...dismissedNegotiations.value, entry.goalId]);
+}
+
+/** 提交协商答复 → 后端修订并重新冻结契约（goal.contract-revised）。 */
+async function resolveNegotiation(answers) {
+    const entry = pendingNegotiation.value;
+    if (!entry || negotiationBusy.value) return;
+    negotiationBusy.value = true;
+    try {
+        await negotiateRun(entry.goalId, answers || []);
+        dismissedNegotiations.value = new Set([...dismissedNegotiations.value, entry.goalId]);
+    } catch {
+        // negotiateRun 已把错误写入 ui.err，窗口保持打开让用户重试
+    } finally {
+        negotiationBusy.value = false;
+    }
+}
 
 /** Conversation-wide totals for the status bar under the composer. */
 const conversationStats = computed(() => {
@@ -919,6 +954,7 @@ onBeforeUnmount(() => {
                     :suggestion-cards="suggestionCards"
                     :feedback-sent="feedbackSent"
                     :prompt="prompt"
+                    :pending-input="pendingInput"
                     :projects="projects"
                     :cfg="cfg"
                     :selected-model="selectedModel"
@@ -1048,6 +1084,15 @@ onBeforeUnmount(() => {
         :subject="short(current, 24)"
         @close="feedbackModal = false"
         @submit="onFeedbackSubmit"
+    />
+
+    <NegotiationDialog
+        :open="pendingNegotiation !== null"
+        :entry="pendingNegotiation"
+        :busy="negotiationBusy"
+        @submit="resolveNegotiation"
+        @use-defaults="resolveNegotiation"
+        @dismiss="dismissNegotiation"
     />
 
     <ConfirmDialog

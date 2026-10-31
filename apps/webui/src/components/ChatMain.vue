@@ -22,6 +22,8 @@ const props = defineProps({
     suggestionCards: { type: Array, default: () => [] },
     feedbackSent: { type: Boolean, default: false },
     prompt: { type: String, default: '' },
+    /** 乐观回显：提交后、真实 run 落库前的用户输入。 */
+    pendingInput: { type: String, default: '' },
     projects: { type: Array, default: () => [] },
     cfg: { type: Object, default: null },
     selectedModel: { type: String, default: '' },
@@ -151,7 +153,7 @@ function scrollToRun(rootGoalId) {
 
 /** New run or run switch: always follow to the latest output. */
 watch(
-    () => [props.runs.length, props.current],
+    () => [props.runs.length, props.current, props.pendingInput],
     async () => {
         await nextTick();
         scrollToBottom();
@@ -232,10 +234,10 @@ onMounted(() => {
                             />
                         </div>
                     </template>
-                    <div v-else-if="activeConversation" class="empty-hint">
+                    <div v-else-if="!pendingInput && activeConversation" class="empty-hint">
                         暂无 run，输入任务开始
                     </div>
-                    <div v-else class="welcome-screen">
+                    <div v-else-if="!pendingInput" class="welcome-screen">
                         <div class="welcome-icon">
                             <LineIcon name="userMessage" size="36" />
                         </div>
@@ -254,6 +256,15 @@ onMounted(() => {
                                 </span>
                                 <span class="welcome-card-title">{{ card.title }}</span>
                             </button>
+                        </div>
+                    </div>
+                    <!-- 乐观回显：真实 run 落库前先显示用户消息（创建期有 triage/网络耗时） -->
+                    <div v-if="pendingInput" class="run-block pending">
+                        <div class="msg msg-user">
+                            <div class="msg-bubble">{{ pendingInput }}</div>
+                        </div>
+                        <div class="msg msg-assistant">
+                            <div class="msg-bubble thinking-bubble">执行中…</div>
                         </div>
                     </div>
                 </div>

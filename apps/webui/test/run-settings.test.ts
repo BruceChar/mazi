@@ -3,7 +3,8 @@ import { goalFromRunSettings, runSettings, saveRunSettings } from '../src/script
 
 describe('run settings (global GoalContract defaults)', () => {
     it('starts from the documented defaults', () => {
-        expect(runSettings.maxSteps).toBe(8);
+        // 与执行器默认一致（50）：该值已真正写入契约，默认过小会截断复杂任务
+        expect(runSettings.maxSteps).toBe(50);
         expect(runSettings.loopMode).toBe('goal-plan-execute-reflect');
     });
 

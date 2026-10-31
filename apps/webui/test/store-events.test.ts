@@ -91,6 +91,20 @@ describe('webui live step refresh', () => {
         expect(runDetails['run-1']?.goals[0]?.tasks[0]?.steps[0]?.stepId).toBe('s1');
     });
 
+    it('goal.negotiation.requested 触发重取 timeline（协商弹窗的数据来源）', async () => {
+        delete runDetails['run-1'];
+        watchEvents('run-1');
+        const source = FakeEventSource.instances.at(-1)!;
+        source.emit('goal.negotiation.requested', {
+            eventId: 'n1',
+            type: 'goal.negotiation.requested',
+            payload: { route: 'negotiate', questions: [{ q: '文件在哪？', default: '停止' }] },
+        });
+        await vi.advanceTimersByTimeAsync(300);
+        // 没有这次刷新，协商问题永远到不了 UI（弹窗就不会出现）
+        expect(runDetails['run-1']?.stepCount).toBe(1);
+    });
+
     it('live steps append on step.started and close the previous running step', () => {
         watchEvents('run-2');
         const source = FakeEventSource.instances.at(-1)!;

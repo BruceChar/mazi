@@ -48,6 +48,9 @@ const LIVE_EVENT_TYPES = [
     'approval.cancelled',
     'run.aborted',
     'run.resumed',
+    // 契约协商：异步 triage 落地后必须刷新快照，否则协商问题永远到不了 UI
+    'goal.negotiation.requested',
+    'goal.contract-revised',
 ] as const;
 const REFRESH_EVENT_TYPES = new Set<string>([
     'session.ended',
@@ -55,6 +58,9 @@ const REFRESH_EVENT_TYPES = new Set<string>([
     'run.aborted',
     // 行为流随审批/反馈事件刷新，使 approval/authorization/feedback 行进入执行流。
     'user.feedback.captured',
+    // 协商问题/契约修订落库 → 立刻重取 timeline（驱动协商弹窗与 Trace 契约区）
+    'goal.negotiation.requested',
+    'goal.contract-revised',
 ]);
 
 function systemPrefersDark(): boolean {
@@ -255,6 +261,12 @@ export async function loadSystemLogs(level = 'all', limit = 500): Promise<void> 
         systemLogs.value = [];
     }
 }
+/**
+ * 乐观回显：提交后立刻把用户输入渲染到主会话，不等 POST /api/sessions 往返
+ * （创建期可能有 triage/网络耗时，否则"用户输入很久才出现"）。
+ */
+export const pendingInput = ref('');
+
 /** Active streaming answers (token level); keyed by streamId (docs/web/流式响应设计.md §5). */
 export const liveStreams = ref<LiveStreamMap>({});
 /** Most recent active stream of the current run (max updatedAt). */
@@ -931,10 +943,22 @@ export async function createRun({
 }: CreateRunOptions): Promise<string | null> {
     const text = String(input ?? '').trim();
     if (!text) return null;
+    // 乐观回显：用户消息先落到 UI（真实 run 由 loadConversations 换进来）
+    pendingInput.value = text;
     busy.value = true;
     ui.err = null;
     try {
-        const body: Record<string, unknown> = { input: text, userId, workspacePath };
+        const body: Record<string, unknown> = {
+            input: text,
+            userId,
+            workspacePath,
+            preferences: {
+                displayName: userPreferences.displayName,
+                favoriteTools: userPreferences.favoriteTools,
+                codeStyle: userPreferences.codeStyle,
+                responseStyle: userPreferences.responseStyle,
+            },
+        };
         if (goal && typeof goal === 'object') {
             body.goal = goal;
         }
@@ -951,6 +975,8 @@ export async function createRun({
             refreshSessionPermission();
         }
         await loadConversations();
+        // 真实 run 已在会话里，乐观占位退场
+        if (pendingInput.value === text) pendingInput.value = '';
         await openRun(created.sessionId);
         if (exec) {
             await executeRun(created.sessionId);
@@ -960,6 +986,7 @@ export async function createRun({
         ui.err = String(error);
         return null;
     } finally {
+        if (pendingInput.value === text) pendingInput.value = '';
         busy.value = false;
     }
 }
@@ -1009,6 +1036,34 @@ export async function stopRun(rootGoalId: string): Promise<void> {
         headers: { 'content-type': 'application/json' },
         body: '{}',
     });
+}
+
+/**
+ * 提交契约协商答复：后端修订并重新冻结契约（goal.contract-revised）并返回新快照；
+ * 前端随后刷新详情。
+ */
+export async function negotiateRun(
+    rootGoalId: string,
+    answers: Array<{ q: string; answer: string; usedDefault?: boolean }>,
+): Promise<void> {
+    // 空答复是合法的「已知悉 / 无问题可答」：只做确认落库，不新增条款
+    if (!rootGoalId) return;
+    busy.value = true;
+    ui.err = null;
+    try {
+        await api(`/api/sessions/${encodeURIComponent(rootGoalId)}/negotiate`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ answers }),
+        });
+        await loadConversations();
+        await loadDetail(rootGoalId);
+    } catch (error) {
+        ui.err = String(error);
+        throw error;
+    } finally {
+        busy.value = false;
+    }
 }
 
 export interface ResumeRunOptions {

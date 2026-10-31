@@ -20,7 +20,8 @@ function defaultRunSettings(): RunSettings {
     const draft = createGoalContractDraft();
     return {
         budgetUsd: draft.budgetUsd,
-        maxSteps: draft.maxSteps,
+        // 与执行器默认一致（50）：只有显式调小才收窄，避免"默认只跑 8 轮"截断复杂任务
+        maxSteps: Math.max(draft.maxSteps, 50),
         loopMode: draft.loopMode,
         model: '',
         reasoningLevel: 'high',

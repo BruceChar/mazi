@@ -12,6 +12,7 @@ import type {
     StepRuntimeUsage,
     StepUsage,
 } from '../types.ts';
+import { type ContractTraceView, contractTraceOf } from './contract-view.ts';
 
 /** 单段 diff（Context 追踪用）。 */
 export interface AuditDiffPart {
@@ -297,6 +298,8 @@ export interface AuditView {
     diffParts: AuditDiffPart[];
     /** tool_call step 的专用视图；非工具步为 null */
     tool: AuditToolView | null;
+    /** 会话级契约区（Trace 面板）：每个 Goal 的条款 / 上限 / 验收 / 协商轨迹 */
+    contracts?: ContractTraceView[];
 }
 
 /** 一个 run（Session）及其快照，按 Conversation 内时间顺序。 */
@@ -1395,8 +1398,10 @@ export function buildAuditView(input: AuditInput): AuditView {
     const runtime = usage.runtime;
     const runCount = input.runs && input.runs.length > 0 ? input.runs.length : 1;
     const span = spanOf(rows);
+    const contracts = snapshots.flatMap((snapshot) => contractTraceOf(snapshot?.goals));
     return {
         kind: 'conversation',
+        contracts,
         stale: false,
         title: '会话汇总',
         subtitle: (input.conversationTitle ?? '').trim() || `${runCount} 轮 · ${rows.length} 步`,

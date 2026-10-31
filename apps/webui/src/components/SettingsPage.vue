@@ -298,7 +298,10 @@ watch(
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-name">Budget (USD)</div>
-                        <div class="setting-desc">Spending cap for a new goal</div>
+                        <div class="setting-desc">
+                            Spending cap for a new goal · 写入 GoalContract.budget，运行时按轮累计
+                            round.cost 超限即停
+                        </div>
                     </div>
                     <input
                         class="setting-input"
@@ -312,7 +315,10 @@ watch(
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-name">Max steps</div>
-                        <div class="setting-desc">Upper bound of model steps per task</div>
+                        <div class="setting-desc">
+                            Upper bound of model steps per task · 写入
+                            GoalContract.terminationPolicy，执行器每轮判定
+                        </div>
                     </div>
                     <input
                         class="setting-input"
@@ -326,7 +332,10 @@ watch(
                 <div class="setting-item">
                     <div class="setting-info">
                         <div class="setting-name">Loop mode</div>
-                        <div class="setting-desc">Execution loop used for new goals</div>
+                        <div class="setting-desc">
+                            Execution loop used for new goals · 后端尚未消费：当前只有单一
+                            plan→execute 循环，复杂任务的契约协商未接线
+                        </div>
                     </div>
                     <select
                         class="setting-select"

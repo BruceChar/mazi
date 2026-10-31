@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import AuditDisclosure from './AuditDisclosure.vue';
 import StoragePanel from './StoragePanel.vue';
@@ -25,6 +25,11 @@ import {
     versionDetail,
     versionLabel,
 } from '../scripts/iterations-view.ts';
+import {
+    ROUTE_LABEL,
+    contractStateLabel,
+    contractStateTone,
+} from '../scripts/contract-view.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { buildTraceBoard, filterTraceRuns } from '../scripts/trace.ts';
 import {
@@ -36,6 +41,7 @@ import {
     iterations,
     iterationsLoading,
     loadIterations,
+    negotiateRun,
     short,
     submitIterationFeedback,
     systemVersion,
@@ -280,6 +286,53 @@ const traceItems = computed(() => {
     }
     return items;
 });
+/* ---- 契约区（Trace 面板）：Goal + 验证约束 + 协商轨迹 ---- */
+const traceContracts = computed(() => props.trace?.contracts ?? props.audit?.contracts ?? []);
+const collapsedContracts = ref(new Set());
+function toggleContract(goalId) {
+    const s = new Set(collapsedContracts.value);
+    s.has(goalId) ? s.delete(goalId) : s.add(goalId);
+    collapsedContracts.value = s;
+}
+/** 协商答复草稿：key = 问题文本。 */
+const answersDraft = reactive({});
+const negotiating = ref(false);
+const answeredGoals = ref(new Set());
+function answerOf(negotiation, q) {
+    return (negotiation?.answers ?? []).find((item) => item.q === q)?.answer ?? '';
+}
+function statusMark(status) {
+    return status === 'passed' ? '✔' : status === 'failed' ? '✘' : '·';
+}
+/** 待答复的协商：协商路线 + 有问题 + 尚无答复。 */
+function needsAnswer(entry) {
+    const negotiation = entry.negotiation;
+    return (
+        negotiation !== null &&
+        negotiation !== undefined &&
+        negotiation.route === 'negotiate' &&
+        negotiation.questions.length > 0 &&
+        negotiation.answers.length === 0 &&
+        !answeredGoals.value.has(entry.goalId)
+    );
+}
+async function submitNegotiation(entry) {
+    if (negotiating.value || !entry.negotiation) return;
+    const answers = entry.negotiation.questions.map((question) => ({
+        q: question.q,
+        answer: String(answersDraft[question.q] ?? '').trim(),
+    }));
+    negotiating.value = true;
+    try {
+        await negotiateRun(entry.goalId, answers);
+        answeredGoals.value = new Set([...answeredGoals.value, entry.goalId]);
+    } catch (error) {
+        ui.err = String(error);
+    } finally {
+        negotiating.value = false;
+    }
+}
+
 const traceUtilization = computed(() => props.trace?.utilization ?? null);
 const traceWindowTokens = computed(() => props.trace?.contextWindowTokens ?? null);
 
@@ -636,6 +689,107 @@ watch(
                         <span class="trace-kpi-label">耗时</span>
                         <span class="trace-kpi-value">{{ formatDuration(traceSummary.durationMs) || '—' }}</span>
                         <span class="trace-kpi-sub">{{ traceThroughput != null ? toFixed1(traceThroughput) + ' tok/s' : 'trace' }}</span>
+                    </div>
+                </section>
+
+                <!-- 契约区：执行前承诺（goal / 条款 / 上限 / 风险）+ 验收判定 + 协商轨迹 -->
+                <section v-if="traceContracts.length > 0" class="audit-section contract-section">
+                    <div class="audit-section-title">
+                        <span>契约 · 验证约束</span>
+                        <span class="audit-pct">{{ traceContracts.length }} goal</span>
+                    </div>
+                    <div v-for="entry in traceContracts" :key="entry.goalId" class="contract-goal">
+                        <div class="contract-goal-head" @click="toggleContract(entry.goalId)">
+                            <span class="contract-caret">{{ collapsedContracts.has(entry.goalId) ? '+' : '−' }}</span>
+                            <span class="contract-goal-title">{{ entry.statement }}</span>
+                            <span class="contract-goal-status">{{ entry.goalStatus }}</span>
+                            <span
+                                class="contract-ratio"
+                                :class="{ warn: entry.summary.deterministicPercent < 100 }"
+                                title="successConditions 中机械可判条款的占比"
+                            >机械可判 {{ entry.summary.deterministicPercent }}%</span>
+                            <span
+                                class="contract-state"
+                                :class="contractStateTone(entry.contractStatus?.state)"
+                                title="契约满足度：评估器对条款的机械判定汇总（不是 executor 的成败）"
+                            >{{ contractStateLabel(entry.contractStatus) }}</span>
+                        </div>
+                        <template v-if="!collapsedContracts.has(entry.goalId)">
+                            <div v-if="entry.negotiation" class="contract-negotiation">
+                                <span class="contract-chip route">{{ ROUTE_LABEL[entry.negotiation.route] || entry.negotiation.route }}</span>
+                                <span v-if="entry.negotiation.revision > 0" class="contract-chip">已修订 v{{ entry.negotiation.revision }}</span>
+                                <span v-if="entry.negotiation.classifiedBy === 'fallback'" class="contract-chip">无解析模型</span>
+                                <span v-for="trigger in entry.negotiation.triggers" :key="trigger" class="contract-chip warn">{{ trigger }}</span>
+                            </div>
+                            <div v-if="entry.negotiation && entry.negotiation.directAnswer" class="contract-note">
+                                直答：{{ entry.negotiation.directAnswer }}
+                            </div>
+                            <div v-if="entry.negotiation && entry.negotiation.escalation" class="contract-note warn">
+                                升级：{{ entry.negotiation.escalation }}
+                            </div>
+                            <ul v-if="entry.negotiation && entry.negotiation.questions.length > 0" class="contract-questions">
+                                <li v-for="question in entry.negotiation.questions" :key="question.q">
+                                    <span class="contract-question">{{
+                                        answerOf(entry.negotiation, question.q)
+                                            ? question.q
+                                            : question.q + '（待答）'
+                                    }}</span>
+                                    <span class="contract-question-default">默认：{{ question.default }}</span>
+                                    <span v-if="answerOf(entry.negotiation, question.q)" class="contract-question-answer">
+                                        答复：{{ answerOf(entry.negotiation, question.q) }}
+                                    </span>
+                                </li>
+                            </ul>
+                            <div v-if="needsAnswer(entry)" class="contract-answer">
+                                <div
+                                    v-for="question in entry.negotiation.questions"
+                                    :key="question.q"
+                                    class="contract-answer-row"
+                                >
+                                    <label class="contract-answer-q">{{ question.q }}</label>
+                                    <input
+                                        v-model="answersDraft[question.q]"
+                                        class="contract-answer-input"
+                                        :placeholder="'留空采用默认：' + question.default"
+                                    />
+                                </div>
+                                <button
+                                    class="contract-answer-submit"
+                                    :disabled="negotiating"
+                                    @click="submitNegotiation(entry)"
+                                >{{ negotiating ? '提交中…' : '冻结契约并继续' }}</button>
+                            </div>
+                            <ul class="contract-conditions">
+                                <li v-for="condition in entry.conditions" :key="condition.id" class="contract-condition">
+                                    <span class="contract-status" :class="condition.status">{{ statusMark(condition.status) }}</span>
+                                    <span class="contract-judge" :class="condition.judge">{{ condition.judgeLabel }}</span>
+                                    <span class="contract-text">{{ condition.text }}</span>
+                                    <span v-if="condition.detail" class="contract-detail">{{ condition.detail }}</span>
+                                </li>
+                                <li v-for="failure in entry.failureConditions" :key="failure" class="contract-condition">
+                                    <span class="contract-status unchecked">·</span>
+                                    <span class="contract-judge failure">失败条件</span>
+                                    <span class="contract-text">{{ failure }}</span>
+                                </li>
+                            </ul>
+                            <div
+                                v-if="entry.summary.limits.length > 0 || entry.summary.risks.length > 0 || entry.summary.forbidden.length > 0"
+                                class="contract-meta"
+                            >
+                                <span v-for="limit in entry.summary.limits" :key="limit.label" class="contract-chip">{{ limit.label }} {{ limit.value }}</span>
+                                <span v-for="risk in entry.summary.risks" :key="risk" class="contract-chip warn">{{ risk }}</span>
+                                <span v-for="item in entry.summary.forbidden" :key="item" class="contract-chip warn">禁止 {{ item }}</span>
+                            </div>
+                            <div v-if="entry.tasks.length > 0" class="contract-tasks">
+                                <div v-for="task in entry.tasks" :key="task.taskId" class="contract-task">
+                                    <span class="contract-task-title">{{ task.title }}</span>
+                                    <span class="contract-task-status">{{ task.status }}</span>
+                                    <span v-for="row in task.acceptance" :key="row.id" class="contract-task-clause" :class="row.status">
+                                        {{ statusMark(row.status) }} {{ row.text }}
+                                    </span>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </section>
 
@@ -2987,5 +3141,241 @@ watch(
     border: none;
     border-top: 1px solid var(--border);
     margin: 0.9em 0;
+}
+/* ---- 契约区（Trace 面板）：承诺 + 判定 + 协商 ---- */
+.contract-section {
+    margin-top: 8px;
+}
+.contract-goal {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    padding: 6px;
+}
+.contract-goal-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--fg);
+}
+.contract-caret {
+    font-family: ui-monospace, monospace;
+    color: var(--fg-tertiary);
+    width: 10px;
+    flex-shrink: 0;
+}
+.contract-goal-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.contract-goal-status {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    flex-shrink: 0;
+}
+.contract-ratio {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.contract-ratio.warn {
+    color: var(--warn);
+}
+.contract-state {
+    font-size: 10px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+}
+.contract-state.ok {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.contract-state.fail {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.contract-negotiation {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+}
+.contract-chip {
+    font-size: 10px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    color: var(--fg-secondary);
+}
+.contract-chip.warn {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.contract-chip.route {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.contract-note {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.contract-note.warn {
+    color: var(--warn);
+}
+.contract-questions {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+}
+.contract-questions li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.contract-question-default,
+.contract-question-answer {
+    color: var(--fg-tertiary);
+}
+.contract-answer {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.contract-answer-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.contract-answer-q {
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.contract-answer-input {
+    font-size: 11px;
+    padding: 3px 5px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--fg);
+}
+.contract-answer-submit {
+    align-self: flex-start;
+    font-size: 11px;
+    padding: 3px 8px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    background: transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+.contract-answer-submit:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.contract-conditions {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.contract-condition {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.contract-status {
+    font-family: ui-monospace, monospace;
+    flex-shrink: 0;
+    width: 10px;
+}
+.contract-status.passed {
+    color: var(--accent);
+}
+.contract-status.failed {
+    color: var(--warn);
+}
+.contract-judge {
+    flex-shrink: 0;
+    font-size: 10px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    color: var(--fg-tertiary);
+}
+.contract-judge.mechanical {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.contract-judge.semantic,
+.contract-judge.failure {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.contract-text {
+    flex: 1;
+}
+.contract-detail {
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+}
+.contract-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+.contract-tasks {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.contract-task {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.contract-task-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.contract-task-status {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.contract-task-clause {
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.contract-task-clause.failed {
+    color: var(--warn);
+}
+.contract-task-clause.passed {
+    color: var(--accent);
 }
 </style>
