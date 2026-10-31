@@ -370,6 +370,7 @@ mazi/
 | [WebUI 设计文档](./docs/webui.md)                                          | 界面布局、交互、组件与演进路线                                |
 | [AB 测试设计](./docs/AB测试设计.md)                                        | 对照实验：Feature 开关 / Skill / 模型自变量、输出与 Trace 对比、独立实验日志与复盘 |
 | [项目 Wiki 设计](./docs/项目wiki设计.md)                                   | 项目级状态快照 + `时间 \| 改动` 变更日志；runtime 事实层 + 用户级技能策略层 + 插件扩展层 |
+| [Agent 能力实现状态](<./docs/runtime/AGENT_CAPABILITY_IMPLEMENTATION.md>) | Task DAG、工具快照、审计链、上下文 epoch、SQLite 记忆与可迁移 bundle 的实现边界 |
 
 ---
 
@@ -384,6 +385,7 @@ mazi/
 - 知识库
 - Agent监督：可以监督其他Agent框架智能体工作
 - ~~项目 Wiki：新会话直读项目状态，写入即记录~~ ✅ **已实现**（[设计文档](<./docs/项目wiki设计.md>)：runtime 事实层 + 用户级技能模板 + WebUI 只读面板）
+- ~~分层 Task 图、权限快照、审计链、上下文 epoch、持久记忆与迁移 bundle~~ ✅ **基础闭环已实现**（[实现状态](<./docs/runtime/AGENT_CAPABILITY_IMPLEMENTATION.md>)）
 
 ---
 
