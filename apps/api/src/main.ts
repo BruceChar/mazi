@@ -1,13 +1,13 @@
 import 'reflect-metadata';
+import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
+import dotenv from 'dotenv';
 import type { FastifyInstance } from 'fastify';
 import { AppModule } from './app.module.js';
-import Logger from './common/log.js';
 import { registerHttpLogging } from './common/http-log.js';
-import dotenv from 'dotenv';
-import { resolve } from 'node:path';
+import Logger from './common/log.js';
 
 // 配置源：包内 .env（apps/api/.env）优先，仓库根 .env 兜底；
 // 两者均不覆盖进程已存在的环境变量（shell/CI 注入优先，dotenv 默认语义）。

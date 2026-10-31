@@ -9,6 +9,7 @@
  * 避免误删运维手工目录。缺失定价 = 保持现状（不为无价型号虚构价格，也不清空已有价格）。
  */
 
+import { ulid } from '@mazi/core';
 import type {
     CatalogChange,
     CatalogChangeKind,
@@ -31,7 +32,6 @@ import {
     selectActivePlan,
     vendorIdOf,
 } from './contract.js';
-import { ulid } from '@mazi/core';
 import type { CatalogFacts } from './state.js';
 import { cloneCatalogFacts } from './state.js';
 

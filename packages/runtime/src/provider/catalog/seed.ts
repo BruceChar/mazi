@@ -10,9 +10,9 @@
  * 定价的时段倍率档（windowHoursUtc）不是目录事实，seed 只取 base 与 effectiveAt/version。
  */
 
+import type { ProviderConfig } from '../../config.js';
 import type { DriverConfig, ModelCapabilities, PricingRates, PricingTier } from './contract.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from './contract.js';
-import type { ProviderConfig } from '../../config.js';
 import type { ObservedCatalog, ObservedModel, ObservedProvider } from './sync.js';
 
 export interface SeedResult {

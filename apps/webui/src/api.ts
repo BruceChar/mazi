@@ -6,8 +6,8 @@ export const API_BASE = (query.get('api') || '').replace(/\/$/, '');
 export async function api(path: string, init?: RequestInit) {
     const started = Date.now();
     const full = API_BASE + path;
-    const label = `${init && init.method ? init.method : 'GET'} ${full}`;
-    let res;
+    const label = `${init?.method ? init.method : 'GET'} ${full}`;
+    let res: Response;
     try {
         res = await fetch(full, init);
     } catch (error) {

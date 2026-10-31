@@ -36,7 +36,7 @@ function encodeTime(now: number): string {
         time = lastTime + 1;
     }
     lastTime = time;
-    
+
     const chars = new Array<string>(TIME_LEN);
     for (let i = TIME_LEN - 1; i >= 0; i--) {
         chars[i] = ENCODING[time % 32];

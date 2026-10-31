@@ -1,11 +1,11 @@
-import { execFile } from 'child_process';
-import { promisify } from 'node:util';
+import { access, readFile, realpath, stat } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
-import { detectPackageManager } from './system-probe.js';
-import { CliCommandSpec } from '../config.js';
-import { stat, readFile, access, realpath } from 'node:fs/promises';
+import { promisify } from 'node:util';
 // import { type ToolCallResult } from '../config.js';
 import { ToolResult } from '@mazi/core';
+import { execFile } from 'child_process';
+import type { CliCommandSpec } from '../config.js';
+import { detectPackageManager } from './system-probe.js';
 
 const execFileAsync = promisify(execFile);
 
