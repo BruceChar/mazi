@@ -13,9 +13,7 @@ export class ProjectsController {
         const target = workspace || this.runtime.selectedWorkspaceRoot;
         if (!target) throw new ApiError(400, '项目黑板需要工作区');
         this.runtime.setWorkspaceRoot(target);
-        const board = await this.runtime.harness().projectBlackboard(
-            projectIdForWorkspace(target),
-        );
+        const board = await this.runtime.harness().projectBlackboard(projectIdForWorkspace(target));
         if (board === undefined) throw new ApiError(400, '项目黑板需要工作区');
         return { board };
     }
@@ -25,9 +23,9 @@ export class ProjectsController {
         const target = workspace || this.runtime.selectedWorkspaceRoot;
         if (!target) throw new ApiError(400, '项目黑板需要工作区');
         this.runtime.setWorkspaceRoot(target);
-        const board = await this.runtime.harness().reconcileProjectBlackboard(
-            projectIdForWorkspace(target),
-        );
+        const board = await this.runtime
+            .harness()
+            .reconcileProjectBlackboard(projectIdForWorkspace(target));
         if (board === undefined) throw new ApiError(400, '项目黑板需要工作区');
         return { board };
     }
