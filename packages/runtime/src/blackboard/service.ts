@@ -76,7 +76,19 @@ export class ProjectBlackboardService {
 
     async ensure(projectId: string, workspace: string): Promise<ProjectBlackboard> {
         const existing = await this.store.load(projectId);
-        if (existing !== undefined) return existing;
+        if (existing !== undefined) {
+            const marker = '项目源指纹变化，黑板章节需要在执行前复核';
+            if (
+                existing.sourceFingerprint !== this.fingerprint(workspace) &&
+                !existing.knownIssues.includes(marker)
+            ) {
+                uniquePush(existing.knownIssues, marker, 20);
+                existing.updatedAt = this.now();
+                existing.version += 1;
+                await this.store.save(existing);
+            }
+            return existing;
+        }
         const board = this.bootstrap(projectId, workspace);
         await this.store.save(board);
         return board;

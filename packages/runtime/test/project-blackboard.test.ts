@@ -104,8 +104,10 @@ describe('ProjectBlackboardService', () => {
         await service.ensure('p1', root);
         writeFileSync(join(root, 'package.json'), '{"name":"changed"}');
         expect(await service.isStale('p1', root)).toBe(true);
+        const stale = await service.ensure('p1', root);
+        expect(stale.knownIssues.join('\n')).toContain('源指纹变化');
         const reconciled = await service.reconcile('p1', root);
-        expect(reconciled.version).toBe(2);
+        expect(reconciled.version).toBe(3);
         expect(await service.isStale('p1', root)).toBe(false);
     });
 
