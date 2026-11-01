@@ -12,11 +12,11 @@ import type {
 import { authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
 import { buildQuestionView } from '@mazi/libs';
+import { SuperAgent, type SuperAgentDecision, type SuperAgentInput } from '../agent/index.js';
 import { type IterationStore, SqliteIterationStore } from '../analysis/iteration-store.js';
 import { IterationTracker } from '../analysis/iteration-tracker.js';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
-import { SuperAgent, type SuperAgentDecision, type SuperAgentInput } from '../agent/index.js';
 import { loadCommandPolicy } from '../auth/command-policy.js';
 import {
     MemoryBlackboardStore,
@@ -75,10 +75,10 @@ import { type MemoryItem, SqliteMemoryStore } from '../memory/store.js';
 import { exportMemoryBundle, importMemoryBundle, type MemoryBundle } from '../memory/transfer.js';
 import { BehaviorRecorder } from '../observability/behavior-recorder.js';
 import { maziHome, maziPaths } from '../paths.js';
+import { type PromptPack, PromptPackRegistry, type PromptRiskLevel } from '../prompts/index.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
-import { PromptPackRegistry, type PromptPack, type PromptRiskLevel } from '../prompts/index.js';
 import { type QuestionClassifier, QuestionLabeler } from '../question/labeler.js';
 import { loadQuestionTaxonomy, type QuestionTaxonomy } from '../question/taxonomy.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
@@ -891,8 +891,7 @@ export class HarnessRuntime {
                                 goalId: outcome.task.goalId,
                                 taskId: outcome.task.taskId,
                                 attributes: {
-                                    'harness.level':
-                                        report.state === 'failed' ? 'warn' : 'info',
+                                    'harness.level': report.state === 'failed' ? 'warn' : 'info',
                                 },
                                 payload: {
                                     verifierId: report.verifierId,
@@ -900,9 +899,7 @@ export class HarnessRuntime {
                                     failureCategory: report.failureCategory,
                                     semanticJudgeId: report.semanticJudgeId,
                                     acceptance: report.acceptance,
-                                    evidence: report.evidence.map((item) =>
-                                        item.slice(0, 1000),
-                                    ),
+                                    evidence: report.evidence.map((item) => item.slice(0, 1000)),
                                 },
                             }),
                         );
@@ -1612,10 +1609,7 @@ function riskLevelOfGoal(goal: Goal | undefined): PromptRiskLevel {
     ) {
         return 'external';
     }
-    if (
-        goal?.permissionCeiling === 'workspace-write' ||
-        goal?.permissionCeiling === 'draft'
-    ) {
+    if (goal?.permissionCeiling === 'workspace-write' || goal?.permissionCeiling === 'draft') {
         return 'workspace-write';
     }
     return 'read-only';

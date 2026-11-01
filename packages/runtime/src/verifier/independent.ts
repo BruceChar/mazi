@@ -103,9 +103,7 @@ export class IndependentVerifier implements TaskVerifier {
                               : 'unchecked',
                     detail: [
                         `judge:${this.semanticJudge.id}`,
-                        verdict.confidence !== undefined
-                            ? `confidence=${verdict.confidence}`
-                            : '',
+                        verdict.confidence !== undefined ? `confidence=${verdict.confidence}` : '',
                         verdict.reason ?? '',
                     ]
                         .filter((part) => part.length > 0)
@@ -122,9 +120,7 @@ export class IndependentVerifier implements TaskVerifier {
         const evaluated = conditions.filter((item) => item.status !== 'unchecked').length;
         const failed = conditions.some((item) => item.status === 'failed');
         const passed =
-            outcome.ok &&
-            !failed &&
-            conditions.every((item) => item.status === 'passed');
+            outcome.ok && !failed && conditions.every((item) => item.status === 'passed');
         const state = !outcome.ok || failed ? 'failed' : passed ? 'passed' : 'uncertain';
         const acceptance = {
             checkedAt: this.now(),
@@ -141,9 +137,7 @@ export class IndependentVerifier implements TaskVerifier {
                 ? { failureCategory: failureCategoryOf(outcome) }
                 : {}),
             evidence,
-            ...(this.semanticJudge !== undefined
-                ? { semanticJudgeId: this.semanticJudge.id }
-                : {}),
+            ...(this.semanticJudge !== undefined ? { semanticJudgeId: this.semanticJudge.id } : {}),
             checkedAt: acceptance.checkedAt,
         };
     }

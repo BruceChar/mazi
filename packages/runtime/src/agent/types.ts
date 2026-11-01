@@ -1,8 +1,4 @@
-import type {
-    PromptMatchResult,
-    PromptRiskLevel,
-    PromptTaskKind,
-} from '../prompts/types.js';
+import type { PromptMatchResult, PromptRiskLevel, PromptTaskKind } from '../prompts/types.js';
 
 export interface SuperAgentInput {
     userId?: string;

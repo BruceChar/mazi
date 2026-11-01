@@ -99,10 +99,7 @@ export class PromptPackRegistry {
             .map((pack) => structuredClone(pack));
     }
 
-    match(
-        context: PromptMatchContext,
-        options: PromptMatchOptions = {},
-    ): PromptMatchResult {
+    match(context: PromptMatchContext, options: PromptMatchOptions = {}): PromptMatchResult {
         const threshold = options.threshold ?? 0.3;
         const maxPacks = options.maxPacks ?? 2;
         const totalBudget = options.totalBudgetTokens ?? 1400;

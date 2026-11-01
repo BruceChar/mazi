@@ -1,9 +1,5 @@
 import 'reflect-metadata';
-import {
-    type PromptPack,
-    type PromptRiskLevel,
-    type PromptTaskKind,
-} from '@mazi/runtime';
+import { type PromptPack, type PromptRiskLevel, type PromptTaskKind } from '@mazi/runtime';
 import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
@@ -125,8 +121,7 @@ export class AgentController {
                 ? (body.taskKind as PromptTaskKind)
                 : undefined;
         const riskLevel =
-            typeof body.riskLevel === 'string' &&
-            RISK_LEVELS.has(body.riskLevel as PromptRiskLevel)
+            typeof body.riskLevel === 'string' && RISK_LEVELS.has(body.riskLevel as PromptRiskLevel)
                 ? (body.riskLevel as PromptRiskLevel)
                 : undefined;
         const decision = this.runtime.harness().previewSuperAgent({

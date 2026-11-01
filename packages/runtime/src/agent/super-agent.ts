@@ -20,17 +20,7 @@ const MEMORY_WORDS = ['上次', '以前', '之前', '继续', '那个项目', '�
 const DATA_WORDS = ['sql', '数据库', 'schema', '统计', '分析数据', 'dataset', 'analytics'];
 const RESEARCH_WORDS = ['调研', '研究', '搜索', '资料', '来源', 'benchmark', 'research'];
 const DEBUG_WORDS = ['bug', '失败', '报错', '修复', '测试失败', 'debug', 'fix'];
-const CODING_WORDS = [
-    '代码',
-    '实现',
-    '重构',
-    '测试',
-    '接口',
-    '组件',
-    'code',
-    'compile',
-    'build',
-];
+const CODING_WORDS = ['代码', '实现', '重构', '测试', '接口', '组件', 'code', 'compile', 'build'];
 
 function containsAny(text: string, words: readonly string[]): boolean {
     return words.some((word) => text.includes(word));
