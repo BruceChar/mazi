@@ -3,9 +3,9 @@ import type { PermissionLevel } from '@mazi/core';
 import {
     buildEvalReport,
     createRuntimeEvalExecutor,
+    type EvalReport,
     type EvalRunRecord,
     type EvalRunStore,
-    type EvalReport,
     type EvalTask,
     loadBaselineDataset,
     MemoryEvalRunStore,
@@ -35,16 +35,10 @@ export class EvalService implements OnApplicationShutdown {
     private readonly baseline = loadBaselineDataset();
     private readonly runs: EvalRunStore;
 
-    constructor(
-        private readonly apiRuntime: ApiRuntimeService,
-        runStore?: EvalRunStore,
-    ) {
+    constructor(private readonly apiRuntime: ApiRuntimeService) {
         const dbPath = apiRuntime.homePaths?.dbPath;
         this.runs =
-            runStore ??
-            (dbPath !== undefined
-                ? new SqliteEvalRunStore(dbPath)
-                : new MemoryEvalRunStore());
+            dbPath !== undefined ? new SqliteEvalRunStore(dbPath) : new MemoryEvalRunStore();
     }
 
     tasks(): EvalTask[] {
