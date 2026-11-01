@@ -10,6 +10,8 @@ import { PostStatus200Interceptor } from './common/post-status.interceptor.js';
 import { RuntimeModule } from './common/runtime.module.js';
 import { ConversationsController } from './conversations/conversations.controller.js';
 import { ConversationsService } from './conversations/conversations.service.js';
+import { EvalController } from './eval/eval.controller.js';
+import { EvalService } from './eval/eval.service.js';
 import { EventsController } from './events/events.controller.js';
 import { ExperimentsController } from './experiments/experiments.controller.js';
 import { ExperimentsService } from './experiments/experiments.service.js';
@@ -50,6 +52,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         SessionsController,
         GoalsController,
         ConversationsController,
+        EvalController,
         EventsController,
         WorkspacesController,
         ApprovalsController,
@@ -70,6 +73,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         SessionsService,
         GoalsService,
         ConversationsService,
+        EvalService,
         StorageService,
         IterationsService,
         UsersService,

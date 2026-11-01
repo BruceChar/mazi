@@ -35,6 +35,9 @@ importers:
       '@mazi/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@mazi/eval':
+        specifier: workspace:*
+        version: link:../../packages/eval
       '@mazi/libs':
         specifier: workspace:*
         version: link:../../packages/libs

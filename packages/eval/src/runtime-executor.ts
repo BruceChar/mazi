@@ -37,6 +37,9 @@ export function createRuntimeEvalExecutor(
             allowedTools: context.task.allowedTools,
             permissionCeiling: permissionOf(context),
             ...(context.modelId !== undefined ? { modelId: context.modelId } : {}),
+            ...(context.promptPackId !== undefined
+                ? { promptPackIds: [context.promptPackId] }
+                : {}),
             ...(context.task.budget?.maxSteps !== undefined
                 ? { maxSteps: context.task.budget.maxSteps }
                 : {}),

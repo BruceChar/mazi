@@ -12,6 +12,7 @@
   "exclude": ["src/**/*.test.ts", "test/**/*.test.ts"],
   "references": [
     { "path": "../../packages/core" },
+    { "path": "../../packages/eval" },
     { "path": "../../packages/runtime" }
   ]
 }
