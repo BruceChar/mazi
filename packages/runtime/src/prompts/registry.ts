@@ -114,13 +114,16 @@ export class PromptPackRegistry {
                     right.trace.score - left.trace.score ||
                     (right.pack.priority ?? 0) - (left.pack.priority ?? 0) ||
                     left.pack.id.localeCompare(right.pack.id),
-            )
-            .slice(0, maxPacks);
+            );
+        const minimal = scored.some((item) => item.pack.id !== 'general')
+            ? scored.filter((item) => item.pack.id !== 'general')
+            : scored;
+        const ranked = minimal.slice(0, maxPacks);
 
         const conflicts = new Set<string>();
         const selected: PromptPack[] = [];
         const trace: PromptPackTrace[] = [];
-        for (const item of scored) {
+        for (const item of ranked) {
             if (
                 selected.some(
                     (pack) =>
