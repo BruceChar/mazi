@@ -88,7 +88,13 @@ import { type MemoryItem, SqliteMemoryStore } from '../memory/store.js';
 import { exportMemoryBundle, importMemoryBundle, type MemoryBundle } from '../memory/transfer.js';
 import { BehaviorRecorder } from '../observability/behavior-recorder.js';
 import { maziHome, maziPaths } from '../paths.js';
-import { type PromptPack, PromptPackRegistry, type PromptRiskLevel } from '../prompts/index.js';
+import {
+    MemoryPromptPackStore,
+    type PromptPack,
+    PromptPackRegistry,
+    type PromptRiskLevel,
+    SqlitePromptPackStore,
+} from '../prompts/index.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
@@ -263,7 +269,12 @@ export class HarnessRuntime {
             config.authCommandPolicyFile ?? maziPaths().authCommandPolicyFile,
         ).policy;
         this.toolRegistry = new RuntimeToolRegistry([...BUILTIN_TOOL_PRESET, ...config.tools]);
-        this.promptPacks = new PromptPackRegistry();
+        this.promptPacks = new PromptPackRegistry(
+            undefined,
+            config.dbPath !== undefined
+                ? new SqlitePromptPackStore(config.dbPath)
+                : new MemoryPromptPackStore(),
+        );
         this.superAgent = new SuperAgent(this.promptPacks);
         this.verifier = new IndependentVerifier();
         this.delegationRoles = new AgentRoleRegistry();
@@ -463,6 +474,7 @@ export class HarnessRuntime {
         this.persistentMemoryStore?.close();
         this.effectStore.close();
         this.blackboard.close();
+        this.promptPacks.close();
         this.delegationStore.close();
         this.tocStore.close();
         this.iterationStore.close();

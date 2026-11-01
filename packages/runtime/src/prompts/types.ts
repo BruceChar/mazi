@@ -60,6 +60,7 @@ export interface PromptMatchResult {
 }
 
 export interface PromptPackStore {
-    load(): Promise<readonly PromptPack[]>;
-    save(packs: readonly PromptPack[]): Promise<void>;
+    load(): readonly PromptPack[];
+    save(pack: PromptPack): void;
+    close(): void;
 }

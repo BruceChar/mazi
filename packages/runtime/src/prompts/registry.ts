@@ -4,6 +4,7 @@ import type {
     PromptMatchContext,
     PromptMatchResult,
     PromptPack,
+    PromptPackStore,
     PromptPackTrace,
 } from './types.js';
 
@@ -78,18 +79,40 @@ function renderPack(pack: PromptPack, remaining: number): string {
 export class PromptPackRegistry {
     private readonly packs = new Map<string, PromptPack>();
 
-    constructor(initial: readonly PromptPack[] = DEFAULT_PROMPT_PACKS) {
-        for (const pack of initial) this.register(pack);
+    constructor(
+        initial: readonly PromptPack[] = DEFAULT_PROMPT_PACKS,
+        private readonly store?: PromptPackStore,
+    ) {
+        for (const pack of initial) this.storePack(pack);
+        for (const pack of store?.load() ?? []) this.storePack(pack);
     }
 
     register(pack: PromptPack): void {
-        if (pack.id.trim().length === 0) throw new Error('PromptPack id 必填');
-        if (pack.module.trim().length === 0) throw new Error(`PromptPack ${pack.id} 缺少 module`);
-        this.packs.set(pack.id, structuredClone(pack));
+        this.assertPack(pack);
+        this.store?.save(structuredClone(pack));
+        this.storePack(pack);
     }
 
     remove(id: string): boolean {
-        return this.packs.delete(id);
+        const existing = this.packs.get(id);
+        if (existing === undefined || existing.enabled === false) return false;
+        this.storePack({ ...existing, enabled: false });
+        this.store?.save(structuredClone({ ...existing, enabled: false }));
+        return true;
+    }
+
+    close(): void {
+        this.store?.close();
+    }
+
+    private assertPack(pack: PromptPack): void {
+        if (pack.id.trim().length === 0) throw new Error('PromptPack id 必填');
+        if (pack.module.trim().length === 0) throw new Error(`PromptPack ${pack.id} 缺少 module`);
+    }
+
+    private storePack(pack: PromptPack): void {
+        this.assertPack(pack);
+        this.packs.set(pack.id, structuredClone(pack));
     }
 
     list(): PromptPack[] {
