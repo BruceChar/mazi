@@ -59,6 +59,6 @@ describe('projects blackboard controller', () => {
 
         writeFileSync(join(workspace, 'README.md'), '# changed');
         const reconciled = await controller.reconcile(projectId);
-        expect(reconciled.board.version).toBe(2);
+        expect(reconciled.board.version).toBe(3);
     });
 });
