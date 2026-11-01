@@ -1,10 +1,6 @@
 import type { HarnessEvent } from '@mazi/core';
 import type { GoalRunResult, GoalTreeSnapshot, RunOptions } from '@mazi/runtime';
-import type {
-    EvalExecutionContext,
-    EvalObservation,
-    EvalTaskExecutor,
-} from './types.js';
+import type { EvalExecutionContext, EvalObservation, EvalTaskExecutor } from './types.js';
 
 export interface EvalRuntimePort {
     runGoalSession(
@@ -130,4 +126,3 @@ function observationOf(
         ...(last?.reason !== undefined ? { failureEvidence: [`executor:${last.reason}`] } : {}),
     };
 }
-
