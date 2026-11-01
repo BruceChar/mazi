@@ -4,6 +4,7 @@ import LineIcon from './assets/LineIcon.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import EvalLabPage from './components/EvalLabPage.vue';
 import ExperimentsPage from './components/ExperimentsPage.vue';
+import MemoryGovernancePage from './components/MemoryGovernancePage.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
@@ -245,6 +246,7 @@ const activeConversation = computed(() =>
 const headerTitle = computed(() => {
     if (ui.view === 'experiments') return 'AB实验室';
     if (ui.view === 'eval-lab') return 'Eval Lab';
+    if (ui.view === 'memory') return '个人记忆';
     if (ui.view === 'wiki') return '项目 Wiki';
     const title = conversationTitle(activeConversation.value) || '';
     return title.length > 12 ? title.slice(0, 12) + '…' : title;
@@ -936,6 +938,7 @@ onBeforeUnmount(() => {
                 @open-settings="openSettings"
                 @open-experiments="ui.view = 'experiments'"
                 @open-eval-lab="ui.view = 'eval-lab'"
+                @open-memory="ui.view = 'memory'"
                 @open-wiki="openProjectWiki"
             />
             </template>
@@ -1028,6 +1031,12 @@ onBeforeUnmount(() => {
                 v-else-if="ui.view === 'eval-lab'"
                 :models="modelOptions"
                 :workspace="headerWorkspace"
+                @close="backToChat"
+            />
+
+            <MemoryGovernancePage
+                v-else-if="ui.view === 'memory'"
+                :project-id="activeConversation?.projectId || ''"
                 @close="backToChat"
             />
 
