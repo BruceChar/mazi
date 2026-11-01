@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './assets/LineIcon.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
+import EvalLabPage from './components/EvalLabPage.vue';
 import ExperimentsPage from './components/ExperimentsPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
@@ -243,6 +244,7 @@ const activeConversation = computed(() =>
 /** 顶部栏会话名称：最多 12 个字符，超出以省略号截断。 */
 const headerTitle = computed(() => {
     if (ui.view === 'experiments') return 'AB实验室';
+    if (ui.view === 'eval-lab') return 'Eval Lab';
     if (ui.view === 'wiki') return '项目 Wiki';
     const title = conversationTitle(activeConversation.value) || '';
     return title.length > 12 ? title.slice(0, 12) + '…' : title;
@@ -933,6 +935,7 @@ onBeforeUnmount(() => {
                 @remove-conversation="removeConversation"
                 @open-settings="openSettings"
                 @open-experiments="ui.view = 'experiments'"
+                @open-eval-lab="ui.view = 'eval-lab'"
                 @open-wiki="openProjectWiki"
             />
             </template>
@@ -1020,6 +1023,13 @@ onBeforeUnmount(() => {
             </template>
 
             <ExperimentsPage v-else-if="ui.view === 'experiments'" />
+
+            <EvalLabPage
+                v-else-if="ui.view === 'eval-lab'"
+                :models="modelOptions"
+                :workspace="headerWorkspace"
+                @close="backToChat"
+            />
 
             <WikiPage
                 v-else-if="ui.view === 'wiki'"

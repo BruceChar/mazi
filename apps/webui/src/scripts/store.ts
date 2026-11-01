@@ -98,8 +98,8 @@ export function setTheme(value: 'dark' | 'light' | 'system'): void {
 applyTheme(theme.value);
 
 export interface UiState {
-    /** 主区视图：对话 / 系统设置 / 用户中心整页 / 实验台。 */
-    view: 'chat' | 'system-settings' | 'user-center' | 'experiments' | 'wiki';
+    /** 主区视图：对话 / 系统设置 / 用户中心整页 / 实验与分析页面。 */
+    view: 'chat' | 'system-settings' | 'user-center' | 'experiments' | 'wiki' | 'eval-lab';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;

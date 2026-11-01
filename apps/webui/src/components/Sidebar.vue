@@ -36,6 +36,7 @@ const emit = defineEmits([
     'remove-conversation',
     'open-settings',
     'open-experiments',
+    'open-eval-lab',
     'open-wiki',
 ]);
 
@@ -141,6 +142,10 @@ function latencyText() {
         <button class="lab-btn" title="AB 对照实验台：同一输入分臂运行，对比输出与 Trace" @click="emit('open-experiments')">
             <LineIcon name="hammer" size="15" />
             AB实验室
+        </button>
+        <button class="lab-btn" title="Agent 离线评测：任务成功率、工具准确率、成本与失败归因" @click="emit('open-eval-lab')">
+            <LineIcon name="observation" size="15" />
+            Eval Lab
         </button>
     </div>
     <div class="workspace-head">
@@ -316,6 +321,8 @@ function latencyText() {
 /* AB 实验室：独立一行（不与「系统设置」并列），紧贴「新会话」下方 */
 .sidebar-lab {
     padding: 0 12px 10px;
+    display: grid;
+    gap: 6px;
 }
 .lab-btn {
     width: 100%;
