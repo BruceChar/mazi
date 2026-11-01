@@ -56,6 +56,7 @@ import {
 } from '../memory/failure-ledger.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
 import { MemoryManager, turnsToMemory } from '../memory/memory.js';
+import { PersonalMemoryService } from '../memory/personal-memory.js';
 import {
     type QuestionLabelInput,
     type QuestionQuery,
@@ -159,6 +160,7 @@ export class HarnessRuntime {
     private readonly pendingSessionId = new Map<string, string>();
     /** 长期记忆调度组合根（有 dbPath 时跨进程持久化）。 */
     private readonly memoryManager: MemoryManager;
+    private readonly personalMemory: PersonalMemoryService;
     private readonly persistentMemoryStore?: SqliteMemoryStore;
     /** Reversible workspace effect journal (snapshots only explicitly scoped file writes). */
     private readonly effectStore: EffectStore;
@@ -259,6 +261,7 @@ export class HarnessRuntime {
         this.memoryManager = new MemoryManager(
             this.persistentMemoryStore !== undefined ? { store: this.persistentMemoryStore } : {},
         );
+        this.personalMemory = new PersonalMemoryService(this.memoryManager);
         this.effectStore =
             config.dbPath !== undefined
                 ? new SqliteEffectStore(config.dbPath)
@@ -420,6 +423,7 @@ export class HarnessRuntime {
             ...(opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {}),
             ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
             ...(workspaceId !== undefined ? { workspaceId } : {}),
+            ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
         };
         this.pendingMemoryContext.set(rootGoalId, memoryContext);
         if (opts.history !== undefined && opts.history.length > 0) {
@@ -746,6 +750,7 @@ export class HarnessRuntime {
                     memoryQuery: {
                         rootGoalId,
                         ...memoryContext,
+                        queryText: rootGoal?.statement ?? '',
                     },
                     memoryWriteContext: memoryContext,
                     ...(planProposal !== undefined ? { planProposal } : {}),
@@ -1292,6 +1297,10 @@ export class HarnessRuntime {
 
     listMemory(query = {}): Promise<readonly MemoryItem[]> {
         return this.memoryManager.recall(query);
+    }
+
+    personalMemoryService(): PersonalMemoryService {
+        return this.personalMemory;
     }
 
     async exportPortableBundle(rootGoalIds: readonly string[]): Promise<MemoryBundle> {

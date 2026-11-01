@@ -7,14 +7,29 @@
 
 import { DatabaseSync } from 'node:sqlite';
 
-export type MemoryKind = 'turn' | 'summary' | 'fact' | (string & {});
-export type MemoryStatus = 'active' | 'tombstoned';
+export type MemoryKind = 'turn' | 'summary' | 'fact' | 'preference' | (string & {});
+export type MemoryStatus = 'active' | 'deprecated' | 'tombstoned';
 
 export interface MemoryProvenance {
-    source: 'user' | 'system' | 'tool' | 'model';
+    source:
+        | 'user'
+        | 'user_explicit'
+        | 'user_confirmed'
+        | 'system'
+        | 'tool'
+        | 'model'
+        | 'model_inferred';
     ref?: string;
     confidence?: 'confirmed' | 'inferred' | 'pending_confirmation';
     trustTier?: 'T0' | 'T1' | 'T2' | 'T3';
+}
+
+export interface MemoryLinks {
+    projectIds?: readonly string[];
+    topicIds?: readonly string[];
+    sessionIds?: readonly string[];
+    taskIds?: readonly string[];
+    entityIds?: readonly string[];
 }
 
 /** 一条长期记忆的最小形态（与具体存储解耦）。 */
@@ -34,6 +49,12 @@ export interface MemoryItem {
     provenance?: MemoryProvenance;
     expiresAt?: number;
     status?: MemoryStatus;
+    importance?: number;
+    contentHash?: string;
+    version?: number;
+    supersedes?: readonly string[];
+    contradicts?: readonly string[];
+    links?: MemoryLinks;
 }
 
 export interface MemoryQuery {
@@ -44,6 +65,8 @@ export interface MemoryQuery {
     projectId?: string;
     tags?: readonly string[];
     status?: MemoryStatus | 'all';
+    /** Retrieval query text; stores ignore it and policies use it for ranking. */
+    queryText?: string;
     /** Also used by MemoryManager to union scoped recall queries. */
     unionScope?: boolean;
     /** 召回条数上限；token 预算由 memory 策略处理。 */

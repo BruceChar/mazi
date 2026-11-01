@@ -10,6 +10,7 @@ import {
     importMemoryBundle,
     MemoryManager,
     type MemoryItem,
+    PersonalMemoryService,
     recentMemoryPolicy,
     SqliteMemoryStore,
     turnsToMemory,
@@ -230,5 +231,82 @@ describe('MemoryManager', () => {
             auditTrails: [{ ...bundle.auditTrails![0]!, head: 'changed' }],
         };
         await expect(importMemoryBundle(target, auditTampered)).rejects.toThrow(/checksum/);
+    });
+
+    it('ranks query-relevant and project-linked memory ahead of unrelated recent memory', async () => {
+        const memory = new MemoryManager();
+        await memory.remember([
+            {
+                ...note('recent-unrelated', '午餐清单', 100),
+                createdAt: 100,
+                userId: 'u1',
+            },
+            {
+                ...note('project-migration', '数据库迁移项目使用 PostgreSQL', 1),
+                userId: 'u1',
+                projectId: 'project-db',
+                importance: 0.9,
+                provenance: { source: 'user_confirmed', confidence: 'confirmed' },
+            },
+        ]);
+        const recalled = await memory.recall({
+            userId: 'u1',
+            projectId: 'project-db',
+            queryText: '继续数据库迁移项目',
+            limit: 1,
+            unionScope: true,
+        });
+        expect(recalled[0]?.id).toBe('project-migration');
+    });
+});
+
+describe('PersonalMemoryService', () => {
+    it('deduplicates explicit memory and keeps model-derived memory pending', async () => {
+        const memory = new MemoryManager();
+        const service = new PersonalMemoryService(memory, () => 100);
+        const explicit = await service.rememberExplicit({
+            userId: 'u1',
+            kind: 'preference',
+            text: '回答保持简洁',
+        });
+        const duplicate = await service.rememberExplicit({
+            userId: 'u1',
+            kind: 'preference',
+            text: '回答保持简洁',
+        });
+        const candidate = await service.rememberCandidate({
+            userId: 'u1',
+            kind: 'preference',
+            text: '可能喜欢 Python',
+        });
+        expect(duplicate.id).toBe(explicit.id);
+        expect(explicit.provenance?.confidence).toBe('confirmed');
+        expect(candidate.provenance?.confidence).toBe('pending_confirmation');
+        expect(await memory.all()).toHaveLength(2);
+    });
+
+    it('confirms, corrects and tombstones memory with version history', async () => {
+        const memory = new MemoryManager();
+        const service = new PersonalMemoryService(memory, () => 100);
+        const candidate = await service.rememberCandidate({
+            userId: 'u1',
+            kind: 'fact',
+            text: '使用 MySQL',
+        });
+        const confirmed = await service.confirm(candidate.id);
+        expect(confirmed).toMatchObject({
+            status: 'active',
+            version: 2,
+            provenance: { confidence: 'confirmed', source: 'user_confirmed' },
+        });
+
+        const corrected = await service.correct(candidate.id, '使用 PostgreSQL');
+        expect(corrected?.supersedes).toEqual([candidate.id]);
+        expect(corrected?.provenance?.confidence).toBe('confirmed');
+        expect((await memory.recall({ status: 'all' })).find((item) => item.id === candidate.id))
+            .toMatchObject({ status: 'deprecated' });
+
+        await service.forget(corrected!.id);
+        expect(await memory.recall({ userId: 'u1' })).toHaveLength(0);
     });
 });

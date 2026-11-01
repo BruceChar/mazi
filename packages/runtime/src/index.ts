@@ -183,12 +183,14 @@ export type { GoalStore } from './memory/goal-store.js';
 export type {
     MemoryItem,
     MemoryKind,
+    MemoryLinks,
     MemoryPolicy,
     MemoryProvenance,
     MemoryQuery,
     MemoryStatus,
     MemoryStore,
     MemoryTurn,
+    MemoryWriteInput,
     RecallInput,
     RecentMemoryPolicyOptions,
     TurnsToMemoryOptions,
@@ -196,6 +198,7 @@ export type {
 export {
     InMemoryMemoryStore,
     MemoryManager,
+    PersonalMemoryService,
     recentMemoryPolicy,
     SqliteMemoryStore,
     turnsToMemory,

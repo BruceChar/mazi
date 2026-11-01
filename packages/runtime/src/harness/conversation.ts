@@ -17,6 +17,8 @@ export interface ConversationTurn {
 
 export interface RunOptions {
     userId?: string;
+    /** Stable project identity used by personal memory and project blackboard. */
+    projectId?: string;
     /** 本次 Goal 的权限档位（composer 选择）；缺省用配置默认。 */
     permissionCeiling?: PermissionLevel;
     /** 轮次上限（UI 运行设置 → GoalContract.terminationPolicy.maxSteps）。 */

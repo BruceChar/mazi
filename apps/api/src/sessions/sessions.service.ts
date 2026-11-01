@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { type EffectiveFeatures, ulid } from '@mazi/core';
 import { renderThinkingChain } from '@mazi/libs';
-import type { MemoryItem, PlannedTask } from '@mazi/runtime';
+import type { PlannedTask } from '@mazi/runtime';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import Logger from '../common/log.js';
@@ -63,6 +63,11 @@ export class SessionsService {
             targetContext?.workspace ?? bodyWorkspace ?? this.runtime.selectedWorkspaceRoot;
         const userId =
             (typeof body.userId === 'string' ? body.userId : undefined) ?? targetContext?.userId;
+        const projectId =
+            targetContext?.projectId ??
+            (typeof body.projectId === 'string' && body.projectId.trim()
+                ? body.projectId.trim()
+                : workspace);
         const goalBody =
             body.goal && typeof body.goal === 'object'
                 ? (body.goal as Record<string, unknown>)
@@ -111,6 +116,7 @@ export class SessionsService {
         const featureOptions = await this.featureRunOptions(reasoningLevel);
         const created = await this.runtime.harness().createGoalSession(input, {
             userId,
+            ...(projectId !== undefined ? { projectId } : {}),
             conversationId: sessionConversationId,
             ...(permissionCeiling ? { permissionCeiling } : {}),
             ...(maxSteps !== undefined ? { maxSteps } : {}),
@@ -123,15 +129,10 @@ export class SessionsService {
             ...(modelId ? { modelId } : {}),
             ...featureOptions,
         });
-        await this.rememberPreferences(created.rootGoalId, body, userId, workspace);
+        await this.rememberPreferences(created.rootGoalId, body, userId, workspace, projectId);
         this.logger.log(
             `createSession ${created.rootGoalId} input=${JSON.stringify(input.slice(0, 80))} user=${userId ?? '-'} workspace=${workspace ?? '-'}`,
         );
-        const projectId =
-            targetContext?.projectId ??
-            (typeof body.projectId === 'string' && body.projectId.trim()
-                ? body.projectId.trim()
-                : workspace);
         const run = {
             rootGoalId: created.rootGoalId,
             input,
@@ -203,6 +204,7 @@ export class SessionsService {
         body: Record<string, unknown>,
         userId: string | undefined,
         workspaceId: string | undefined,
+        projectId: string | undefined,
     ): Promise<void> {
         const raw =
             body.preferences && typeof body.preferences === 'object'
@@ -215,28 +217,22 @@ export class SessionsService {
             codeStyle: '代码风格',
             responseStyle: '回答风格',
         };
-        const items: MemoryItem[] = [];
+        const memory = this.runtime.harness().personalMemoryService();
         for (const [key, label] of Object.entries(labels)) {
             const value = typeof raw[key] === 'string' ? raw[key].trim() : '';
             if (value.length === 0) continue;
-            items.push({
+            await memory.rememberExplicit({
                 id: `preference:${userId ?? 'local'}:${key}`,
                 kind: 'preference',
                 text: `${label}：${value}`,
-                createdAt: Date.now(),
                 rootGoalId,
-                ...(userId !== undefined ? { userId } : {}),
+                userId: userId ?? 'local',
                 ...(workspaceId !== undefined ? { workspaceId } : {}),
+                ...(projectId !== undefined ? { projectId } : {}),
+                ...(projectId !== undefined ? { links: { projectIds: [projectId] } } : {}),
                 tags: ['preference', key],
-                provenance: {
-                    source: 'user',
-                    confidence: 'confirmed',
-                    trustTier: 'T1',
-                },
-                status: 'active',
             });
         }
-        if (items.length > 0) await this.runtime.harness().rememberMemory(items);
     }
 
     async rollback(sessionId: string): Promise<{ sessionId: string; effects: unknown[] }> {

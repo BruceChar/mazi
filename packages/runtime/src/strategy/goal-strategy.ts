@@ -178,6 +178,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         const contribution: ContextContribution = await memory.prepareContribution(
             {
                 rootGoalId: runId,
+                queryText: goal.statement,
                 ...(deps.memoryQuery ?? {}),
                 unionScope: true,
             },

@@ -45,6 +45,28 @@ export function recentMemoryPolicy(opts: RecentMemoryPolicyOptions = {}): Memory
             const ordered = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
             const limit = input.limit ?? maxItems;
             const budget = input.budgetTokens;
+            const queryText = input.queryText?.trim().toLowerCase();
+            if (queryText !== undefined && queryText.length > 0) {
+                const now = Math.max(...ordered.map((item) => item.createdAt), Date.now());
+                const candidates = ordered
+                    .map((item) => ({ item, score: memoryScore(item, input, queryText, now) }))
+                    .sort(
+                        (left, right) =>
+                            right.score - left.score ||
+                            right.item.createdAt - left.item.createdAt ||
+                            left.item.id.localeCompare(right.item.id),
+                    );
+                const selected: MemoryItem[] = [];
+                let used = 0;
+                for (const candidate of candidates) {
+                    if (selected.length >= limit) break;
+                    const cost = estimateTokens(candidate.item.text);
+                    if (budget !== undefined && budget > 0 && used + cost > budget) continue;
+                    selected.push(candidate.item);
+                    used += cost;
+                }
+                return selected.sort((a, b) => a.createdAt - b.createdAt);
+            }
             if (budget === undefined || budget <= 0) return ordered.slice(-limit);
             const kept: MemoryItem[] = [];
             let used = 0;
@@ -59,6 +81,46 @@ export function recentMemoryPolicy(opts: RecentMemoryPolicyOptions = {}): Memory
             return kept.reverse();
         },
     };
+}
+
+function queryTokens(text: string): Set<string> {
+    const normalized = text
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .trim();
+    const tokens = normalized.split(/\s+/).filter((token) => token.length > 0);
+    for (const chunk of normalized.replace(/\s+/g, '').matchAll(/[\p{Script=Han}]{2}/gu)) {
+        tokens.push(chunk[0]);
+    }
+    return new Set(tokens);
+}
+
+function memoryScore(item: MemoryItem, input: RecallInput, queryText: string, now: number): number {
+    const text = `${item.text} ${(item.tags ?? []).join(' ')}`.toLowerCase();
+    const query = queryTokens(queryText);
+    const content = queryTokens(text);
+    let overlap = 0;
+    for (const token of query) if (content.has(token)) overlap += 1;
+    const lexical = query.size === 0 ? 0 : overlap / query.size;
+    const ageDays = Math.max(0, now - item.createdAt) / 86_400_000;
+    const recency = 0.5 ** (ageDays / 30);
+    const importance = Math.max(0, Math.min(1, item.importance ?? 0.5));
+    const trust = item.provenance?.confidence === 'confirmed' ? 1 : 0.55;
+    const projectBoost =
+        input.projectId !== undefined &&
+        (item.projectId === input.projectId ||
+            item.links?.projectIds?.includes(input.projectId) === true)
+            ? 0.2
+            : 0;
+    const stalePenalty = item.provenance?.confidence === 'pending_confirmation' ? 0.15 : 0;
+    return (
+        lexical * 0.45 +
+        recency * 0.2 +
+        importance * 0.2 +
+        trust * 0.15 +
+        projectBoost -
+        stalePenalty
+    );
 }
 
 /** 会话轮次记忆的最小形态（与 ConversationTurn 同构）。 */
