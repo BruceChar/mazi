@@ -121,14 +121,16 @@ export class ConversationsService {
     }
 
     /** Resolve a root goal's conversation context for derived evaluation metadata. */
-    runContext(rootGoalId: string): {
-        conversationId: string;
-        title: string;
-        input: string;
-        userId?: string;
-        workspace?: string;
-        projectId?: string;
-    } | undefined {
+    runContext(rootGoalId: string):
+        | {
+              conversationId: string;
+              title: string;
+              input: string;
+              userId?: string;
+              workspace?: string;
+              projectId?: string;
+          }
+        | undefined {
         this.read();
         for (const conversation of this.state.conversations) {
             const run = conversation.runs.find((item) => item.rootGoalId === rootGoalId);

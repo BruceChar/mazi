@@ -76,7 +76,9 @@ export interface SessionEvaluationInput {
 function stableArguments(args: Record<string, unknown> | undefined): string {
     if (args === undefined) return '{}';
     return JSON.stringify(
-        Object.fromEntries(Object.entries(args).sort(([left], [right]) => left.localeCompare(right))),
+        Object.fromEntries(
+            Object.entries(args).sort(([left], [right]) => left.localeCompare(right)),
+        ),
     );
 }
 
@@ -169,9 +171,7 @@ export function projectSessionEvaluation(input: SessionEvaluationInput): Session
         }
         if (Array.isArray(payload.evidence)) {
             failureEvidence.push(
-                ...payload.evidence.filter(
-                    (item): item is string => typeof item === 'string',
-                ),
+                ...payload.evidence.filter((item): item is string => typeof item === 'string'),
             );
         }
     }
@@ -209,10 +209,7 @@ export function projectSessionEvaluation(input: SessionEvaluationInput): Session
         evaluationId: `${input.source ?? 'session'}:${input.rootGoalId}`,
         rootGoalId: input.rootGoalId,
         source: input.source ?? 'session',
-        title:
-            input.title ??
-            input.snapshot.goals[0]?.statement.slice(0, 120) ??
-            input.rootGoalId,
+        title: input.title ?? input.snapshot.goals[0]?.statement.slice(0, 120) ?? input.rootGoalId,
         status,
         success: status === 'success',
         startedAt,
@@ -221,9 +218,7 @@ export function projectSessionEvaluation(input: SessionEvaluationInput): Session
         ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
         ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
         ...(input.userId !== undefined ? { userId: input.userId } : {}),
-        ...(input.conversationId !== undefined
-            ? { conversationId: input.conversationId }
-            : {}),
+        ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
         ...(input.experimentId !== undefined ? { experimentId: input.experimentId } : {}),
         ...(input.arm !== undefined ? { arm: input.arm } : {}),
         ...(modelId !== undefined ? { modelId } : {}),

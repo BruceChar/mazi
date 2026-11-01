@@ -518,8 +518,9 @@ export class SessionsService {
         rootGoalId: string,
         result: Awaited<ReturnType<HarnessRuntime['executeGoalTree']>>,
     ): Promise<void> {
-        const context = this.conversations.runContext(rootGoalId);
+        if (this.evaluations === undefined) return;
         try {
+            const context = this.conversations.runContext?.(rootGoalId);
             await this.evaluations.recordSession({
                 harness: this.runtime.harness(),
                 rootGoalId,

@@ -3,7 +3,6 @@ import type { PermissionLevel } from '@mazi/core';
 import {
     buildEvalReport,
     createRuntimeEvalExecutor,
-    projectSessionEvaluation,
     type EvalReport,
     type EvalRunRecord,
     type EvalRunStore,
@@ -11,6 +10,7 @@ import {
     loadBaselineDataset,
     MemoryEvalRunStore,
     MemorySessionEvaluationStore,
+    projectSessionEvaluation,
     runEvalSuite,
     type SessionEvaluationFilter,
     type SessionEvaluationRecord,
@@ -45,7 +45,8 @@ export class EvalService implements OnApplicationShutdown {
 
     constructor(private readonly apiRuntime: ApiRuntimeService) {
         const dbPath = apiRuntime.homePaths?.dbPath;
-        this.runs = dbPath !== undefined ? new SqliteEvalRunStore(dbPath) : new MemoryEvalRunStore();
+        this.runs =
+            dbPath !== undefined ? new SqliteEvalRunStore(dbPath) : new MemoryEvalRunStore();
         this.sessionEvaluationStore =
             dbPath !== undefined
                 ? new SqliteSessionEvaluationStore(dbPath)
@@ -94,9 +95,7 @@ export class EvalService implements OnApplicationShutdown {
             ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
             ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
             ...(input.userId !== undefined ? { userId: input.userId } : {}),
-            ...(input.conversationId !== undefined
-                ? { conversationId: input.conversationId }
-                : {}),
+            ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
             ...(input.experimentId !== undefined ? { experimentId: input.experimentId } : {}),
             ...(input.arm !== undefined ? { arm: input.arm } : {}),
             ...(input.source !== undefined ? { source: input.source } : {}),
