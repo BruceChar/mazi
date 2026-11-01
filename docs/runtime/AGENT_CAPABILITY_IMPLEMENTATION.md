@@ -5,14 +5,15 @@
 
 ## P0 基础版（2026-11-02）
 
-- **评测 Harness**：新增 `@mazi/eval`，包含任务 schema、30 个分级任务、离线 suite runner、工具准确率/接管率/Token/成本/延迟指标、失败归因和 HarnessRuntime 轨迹投影。
+- **评测 Harness**：新增 `@mazi/eval`，包含任务 schema、30 个分级任务、离线 suite runner、工具准确率/接管率/Token/成本/延迟指标和失败归因。
+- **会话自动评测**：普通 Session、恢复运行和 AB 臂结束后，从 Goal/Task/Step 与事件事实自动投影 Session Eval；结果落 `session_evaluations`，不向 Trace 回写派生值。
 - **个人长期记忆**：增加 `PersonalMemoryService`，支持显式写入、模型候选、确认、纠正、deprecated/tombstone、内容去重、版本、项目关联和混合召回评分。
 - **项目黑板**：新增 `ProjectBlackboardService`，使用独立 SQLite 文档保存项目目的、架构、状态、已完成项、问题、决策、下一步、证据和源指纹。
 - **项目恢复**：项目内新会话注入黑板摘要和按需 `blackboard.read`；运行结束增量更新黑板，源指纹变化只标记复核，不自动全量重建。
 - **API**：新增 `/api/memory` 治理接口、`/api/eval/tasks|runs` 评测接口（运行记录落
   `mazi.db`），以及
   `/api/projects/blackboard(+reconcile)` / `/api/projects/:id/blackboard(+reconcile)` 项目黑板接口。
-- **WebUI**：新增 Eval Lab 和个人记忆治理页；项目黑板页支持查看章节、证据、版本与源漂移检查。
+- **WebUI**：新增 Eval Dashboard（全局/项目/会话）和个人记忆治理页；项目黑板页支持查看章节、证据、版本与源漂移检查。
 
 P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、记忆向量语义索引和黑板章节自动语义重写仍属于后续增强。
 
@@ -41,6 +42,8 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 已持久化到 `mazi.db`；`memoryPolicy: isolated` 已建模但尚未强隔离上下文。
 - **WebUI**：新增 Replan / 委派页，展示计划修订 diff、拒绝原因、证据摘要、持久化
   delegation edge 父子树，以及角色权限和预算。
+- **Lab**：AB 对照实验和固定 Benchmark 回归收进同一 Lab 的两个子集；两者都不再作为
+  Trace 页签或 Session Eval 主入口。
 
 ## 已落地
 
@@ -90,7 +93,10 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 
 新增端点：
 
-- `GET /api/eval/tasks`：读取 30 个 P0 基线任务。
+- `GET /api/eval/sessions`：查询由真实 Trace 派生的全局/项目/会话评测。
+- `GET /api/eval/sessions/:id`：查询单次 root goal 的派生评测。
+- `POST /api/eval/sessions/reconcile`：从已有 conversation → root goal → Trace 回填评测。
+- `GET /api/eval/tasks`：读取 30 个 P0 Benchmark 基线任务。
 - `POST /api/eval/runs`：运行指定 Eval Task 并返回报告；运行中、完成和失败状态均落 SQLite。
 - `GET /api/eval/runs` / `GET /api/eval/runs/:id/report`：查询运行和完整报告。
 - `DELETE /api/agent/roles/:id`：删除 Agent Role，并以 disabled 记录持久化。
@@ -113,12 +119,30 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 | 能力 | Headless/API 状态 | 仍需宿主提供 |
 | --- | --- | --- |
 | Eval Task / Run / Report | 支持，运行历史和完整报告持久化 | 模型 Provider、任务所需工作区与外部 fixture |
+| Session Eval | 普通会话、恢复运行、AB 臂自动派生并持久化 | 语义质量仍需 Semantic Judge/人工标注 |
 | 个人长期记忆 | 支持增删查改、确认、纠错、迁移与召回 | 用户身份解析策略 |
 | 项目黑板 | 支持读取、对账、会话自动更新与注入 | 高质量章节重写仍依赖模型/Harness |
 | PromptPack / SuperAgent | 支持注册、列表、预览和运行期选包；当前/删除状态持久化 | 历史版本档案 |
 | 独立 Verifier | 支持机械验收、失败归因和事件查询 | 校准后的 Semantic Judge |
 | Dynamic Replan | Runtime 与审计事件支持 | `ReplanPlanner` 注入；没有默认 LLM Replanner |
 | 多 Agent 委托 | 支持角色注册/删除、权限/预算校验、并行 handoff 和 edge 查询 | 角色历史版本档案 |
+
+## 分层边界
+
+```text
+Trace / Audit / Verifier      原始事实层：发生什么、证据是什么
+            ↓ 投影
+Session Eval                  派生业务层：一次运行表现如何
+            ↓ 聚合
+Eval Dashboard                全局 / 项目 / 会话趋势
+
+Lab
+├─ AB Experiment              受控干预对比
+└─ Benchmark                  固定任务回归
+```
+
+Session Eval 与 Dashboard 不重新采集事实；它们只读取 Trace、Verifier、成本和事件。
+Benchmark 使用独立固定任务集，不伪装成真实会话质量趋势。
 
 ## 验收门禁
 
