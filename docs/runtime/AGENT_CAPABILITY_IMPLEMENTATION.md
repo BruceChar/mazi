@@ -9,9 +9,11 @@
 - **个人长期记忆**：增加 `PersonalMemoryService`，支持显式写入、模型候选、确认、纠正、deprecated/tombstone、内容去重、版本、项目关联和混合召回评分。
 - **项目黑板**：新增 `ProjectBlackboardService`，使用独立 SQLite 文档保存项目目的、架构、状态、已完成项、问题、决策、下一步、证据和源指纹。
 - **项目恢复**：项目内新会话注入黑板摘要和按需 `blackboard.read`；运行结束增量更新黑板，源指纹变化只标记复核，不自动全量重建。
-- **API**：新增 `/api/memory` 治理接口和 `/api/projects/:id/blackboard(+reconcile)` 项目黑板接口。
+- **API**：新增 `/api/memory` 治理接口、`/api/eval/tasks|runs` 评测接口，以及
+  `/api/projects/blackboard(+reconcile)` / `/api/projects/:id/blackboard(+reconcile)` 项目黑板接口。
+- **WebUI**：新增 Eval Lab 和个人记忆治理页；项目黑板页支持查看章节、证据、版本与源漂移检查。
 
-P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、记忆语义索引/UI 治理、黑板章节自动语义重写仍属于后续增强。
+P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、记忆向量语义索引和黑板章节自动语义重写仍属于后续增强。
 
 ## P1 基础版（2026-11-02）
 
@@ -21,7 +23,9 @@ P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、
 - **失败归因**：覆盖 model/planning/tool_selection/tool_execution/context/memory/policy/environment/system；Verifier 结果通过 `verification.completed` 留痕，失败账本增加 `category`。
 - **API**：新增 `/api/agent/prompt-packs` 管理、`/api/agent/preview` SuperAgent 预览和 `/api/agent/verifier` 信息；会话创建支持显式 `promptPackIds`，但仍受最小匹配和权限隔离。
 
-P1 当前边界：PromptPack Registry 为进程内版；默认不内置校准 LLM Judge，需要外部注入；PromptPack UI、持久化版本仓库和更细粒度归因仍待增强。
+P1 当前边界：PromptPack Registry 为进程内版；默认不内置校准 LLM Judge，需要外部注入；持久化 PromptPack 版本仓库和更细粒度归因仍待增强。
+- **WebUI**：新增 Agent 编排页，可预览最小 PromptPack 匹配、查看角色/Verifier，并回放
+  `superagent.decision`、`prompt.pack.selected`、`verification.completed` 事件。
 
 ## P2 基础版（2026-11-02）
 
@@ -31,7 +35,9 @@ P1 当前边界：PromptPack Registry 为进程内版；默认不内置校准 LL
 - **并行与 handoff**：`delegate` 工具可一次提交多个子 Agent，并行执行独立子 Goal，结果沿工具 observation 回传；角色级工具、模型、Prompt 和预算在子会话生效。
 - **审计**：`delegation.started/completed/rejected` 事件和 `/api/agent/sessions/:id/delegations` 委托边查询。
 
-P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM Replanner；角色注册表为进程内状态；`memoryPolicy: isolated` 已建模但尚未强隔离上下文；委托树 WebUI 可视化尚未实现。
+P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM Replanner；角色注册表为进程内状态；`memoryPolicy: isolated` 已建模但尚未强隔离上下文。
+- **WebUI**：新增 Replan / 委派页，展示计划修订 diff、拒绝原因、证据摘要、持久化
+  delegation edge 父子树，以及角色权限和预算。
 
 ## 已落地
 
@@ -81,6 +87,9 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 
 新增端点：
 
+- `GET /api/eval/tasks`：读取 30 个 P0 基线任务。
+- `POST /api/eval/runs`：运行指定 Eval Task 并返回报告；运行记录保留在 API 进程内。
+- `GET /api/eval/runs` / `GET /api/eval/runs/:id/report`：查询运行和完整报告。
 - `GET /api/sessions/:id/effects`：读取副作用 journal。
 - `POST /api/sessions/:id/rollback`：逆序恢复可逆文件副作用。
 - `GET /api/sessions/:id/portable`：导出记忆 + 本会话审计链 bundle。
@@ -93,7 +102,19 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 - 语义验收仍标 `unchecked`，独立 LLM verifier 尚未接入。
 - 动态工具注册目前为进程内注册表，重启后从静态配置重建。
 - 自动回滚只覆盖可识别的文件路径副作用；外部发布、支付、邮件和任意 shell 命令仍需人工审批，不能撤销已发生的外部事实。
-- 记忆已有持久存储和迁移 bundle，但尚未提供独立的 WebUI 浏览、纠错、删除与暂停页面。
+- Eval 运行记录当前保存在 API 进程内，重启后丢失；后续应落 SQLite/JSON 报告仓。
+
+## Headless / API 支持矩阵
+
+| 能力 | Headless/API 状态 | 仍需宿主提供 |
+| --- | --- | --- |
+| Eval Task / Run / Report | 支持 | 模型 Provider、任务所需工作区与外部 fixture |
+| 个人长期记忆 | 支持增删查改、确认、纠错、迁移与召回 | 用户身份解析策略 |
+| 项目黑板 | 支持读取、对账、会话自动更新与注入 | 高质量章节重写仍依赖模型/Harness |
+| PromptPack / SuperAgent | 支持注册、列表、预览和运行期选包 | Registry 版本持久化 |
+| 独立 Verifier | 支持机械验收、失败归因和事件查询 | 校准后的 Semantic Judge |
+| Dynamic Replan | Runtime 与审计事件支持 | `ReplanPlanner` 注入；没有默认 LLM Replanner |
+| 多 Agent 委托 | 支持角色注册、权限/预算校验、并行 handoff 和 edge 查询 | 角色 Registry 持久化 |
 
 ## 验收门禁
 
