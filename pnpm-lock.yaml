@@ -100,6 +100,12 @@ importers:
 
   packages/core: {}
 
+  packages/eval:
+    dependencies:
+      '@mazi/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/libs: {}
 
   packages/provider:
