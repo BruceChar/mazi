@@ -4,7 +4,7 @@
 >
 > 范围：只规划 P0–P3。RL 部分只建设评测、轨迹和奖励数据接口，不在本项目实现 SFT/DPO/GRPO/PPO 等训练器。
 >
-> **实施状态（2026-11-02）**：P0-A/P0-B/P0-C 已完成基础版并分别提交；P1–P3 尚未开始。
+> **实施状态（2026-11-02）**：P0-A/P0-B/P0-C 与 P1-A/P1-B/P1-C/P1-D 已完成基础版并分别提交；P2–P3 尚未开始。
 
 ## 1. 设计结论
 
@@ -297,9 +297,9 @@ ProjectBlackboard {
 
 ---
 
-## 3. P1：SuperAgent、最小适配 Prompt 与独立 Verifier
+## 3. P1：SuperAgent、最小适配 Prompt 与独立 Verifier（已实现基础版）
 
-### P1-A SuperAgent
+### P1-A SuperAgent（已实现基础版）
 
 #### 职责
 
@@ -330,7 +330,7 @@ SuperAgentDecision {
 
 决策必须落事件并记录依据；不得只在模型隐藏推理中存在。
 
-### P1-B PromptPack：最小适配 Prompt
+### P1-B PromptPack：最小适配 Prompt（已实现基础版）
 
 #### 原则
 
@@ -402,7 +402,7 @@ PromptPack {
 - 冲突导致的任务失败率。
 - Cache hit 与 per-success token cost。
 
-### P1-C 独立 Verifier
+### P1-C 独立 Verifier（已实现基础版）
 
 Verifier 是与 Executor 分离的角色：
 
@@ -412,7 +412,7 @@ Verifier 是与 Executor 分离的角色：
 - Verifier 不能修改 Plan、不能调用高权限工具、不能自批。
 - 不确定结果进入人工确认或保守停止。
 
-### P1-D 失败归因
+### P1-D 失败归因（已实现基础版）
 
 统一分类：
 

@@ -13,6 +13,16 @@
 
 P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、记忆语义索引/UI 治理、黑板章节自动语义重写仍属于后续增强。
 
+## P1 基础版（2026-11-02）
+
+- **PromptPack**：增加默认 coding/research/data/memory/security/general 能力包，按 projectId、项目标签、任务类型、工具需求、风险与显式选择确定性匹配；L0 核心指令常驻，L1 只暴露索引，L2 只注入命中的模块，并受 1400 token 总预算约束。
+- **SuperAgent**：请求级识别任务类型、风险、项目、PromptPack、Planner、Verifier 及记忆/黑板计划；决策通过 `superagent.decision` 和 `prompt.pack.selected` 留痕，不改变工具权限。
+- **独立 Verifier**：`IndependentVerifier` 复用机械验收，并支持注入语义 Judge；输出 passed/failed/uncertain、逐条款结果、证据和失败分类。Verifier 不修改计划、不调用工具、不能自批。
+- **失败归因**：覆盖 model/planning/tool_selection/tool_execution/context/memory/policy/environment/system；Verifier 结果通过 `verification.completed` 留痕，失败账本增加 `category`。
+- **API**：新增 `/api/agent/prompt-packs` 管理、`/api/agent/preview` SuperAgent 预览和 `/api/agent/verifier` 信息；会话创建支持显式 `promptPackIds`，但仍受最小匹配和权限隔离。
+
+P1 当前边界：PromptPack Registry 为进程内版；默认不内置校准 LLM Judge，需要外部注入；PromptPack UI、持久化版本仓库和更细粒度归因仍待增强。
+
 ## 已落地
 
 | 能力 | 实现位置 | 当前语义 |
@@ -30,6 +40,9 @@ P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、
 | P0 评测 | `packages/eval` | 30 个任务、指标聚合、失败归因、Runtime 轨迹适配 |
 | P0 个人记忆 | `packages/runtime/src/memory/personal-memory.ts` | 确认/纠正/墓碑、去重、项目关联和查询相关召回 |
 | P0 项目黑板 | `packages/runtime/src/blackboard` | 结构化项目状态、增量更新、新会话注入和源漂移检测 |
+| P1 PromptPack | `packages/runtime/src/prompts` | 项目/任务/工具/风险确定性匹配，L0–L2 渐进注入与预算 |
+| P1 SuperAgent | `packages/runtime/src/agent` | 请求级 Planner/Verifier/PromptPack/记忆/黑板选择 |
+| P1 Verifier | `packages/runtime/src/verifier` | 独立机械验收、语义 Judge seam、uncertain 与失败归因 |
 
 ## API
 
