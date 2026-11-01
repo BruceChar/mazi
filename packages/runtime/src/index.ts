@@ -234,6 +234,7 @@ export * from './provider/catalog/index.js';
 export type { PricingSchedule } from './provider/pricing.js';
 export type { PricingPage, PricingPageAnalyst } from './provider/pricing-analyst.js';
 export { createPricingAnalyst } from './provider/pricing-analyst.js';
+export * from './prompts/index.js';
 // 问题标注：规则 + LLM seam（QQ-D）
 export type { QuestionClassifier } from './question/labeler.js';
 export { QuestionLabeler, ruleQuestionLabels, ruleSpeechAct } from './question/labeler.js';
