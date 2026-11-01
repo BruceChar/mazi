@@ -51,6 +51,8 @@ export interface RunOptions {
     flagTrace?: readonly { id: string; enabled: boolean; source: string }[];
     /** Optional hierarchical plan proposal; harness validates it before execution. */
     planProposal?: readonly PlannedTask[];
+    /** Explicit PromptPack ids. Matching still determines compatibility and budget. */
+    promptPackIds?: readonly string[];
 }
 
 /** ConversationTurn[] → LLMMessage[]（user/assistant 文本消息）。 */

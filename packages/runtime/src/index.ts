@@ -65,6 +65,7 @@ export {
     type TocRecord,
     type TocStore,
 } from './analysis/toc-store.js';
+export * from './agent/index.js';
 export type {
     AuthPolicyLoadResult,
     CommandPolicyValidation,

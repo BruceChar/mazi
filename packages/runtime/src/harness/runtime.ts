@@ -16,6 +16,7 @@ import { type IterationStore, SqliteIterationStore } from '../analysis/iteration
 import { IterationTracker } from '../analysis/iteration-tracker.js';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
+import { SuperAgent, type SuperAgentDecision, type SuperAgentInput } from '../agent/index.js';
 import { loadCommandPolicy } from '../auth/command-policy.js';
 import {
     MemoryBlackboardStore,
@@ -77,6 +78,7 @@ import { maziHome, maziPaths } from '../paths.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
+import { PromptPackRegistry, type PromptPack, type PromptRiskLevel } from '../prompts/index.js';
 import { type QuestionClassifier, QuestionLabeler } from '../question/labeler.js';
 import { loadQuestionTaxonomy, type QuestionTaxonomy } from '../question/taxonomy.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
@@ -163,6 +165,8 @@ export class HarnessRuntime {
     private readonly commandPolicy: authz.CommandPolicy;
     /** Versioned catalogue; each run pins one immutable snapshot. */
     private readonly toolRegistry: RuntimeToolRegistry;
+    private readonly promptPacks: PromptPackRegistry;
+    private readonly superAgent: SuperAgent;
     /** 待执行 Session 的 Conversation id（session 作用域审批匹配用） */
     private readonly pendingSessionId = new Map<string, string>();
     /** 长期记忆调度组合根（有 dbPath 时跨进程持久化）。 */
@@ -196,6 +200,7 @@ export class HarnessRuntime {
     private readonly pendingAllowedTools = new Map<string, readonly string[]>();
     /** Optional caller/model plan proposal; Task identity is created by the harness. */
     private readonly pendingPlanProposal = new Map<string, readonly PlannedTask[]>();
+    private readonly pendingPromptPackIds = new Map<string, readonly string[]>();
     private readonly pendingMemoryContext = new Map<
         string,
         {
@@ -232,6 +237,8 @@ export class HarnessRuntime {
             config.authCommandPolicyFile ?? maziPaths().authCommandPolicyFile,
         ).policy;
         this.toolRegistry = new RuntimeToolRegistry([...BUILTIN_TOOL_PRESET, ...config.tools]);
+        this.promptPacks = new PromptPackRegistry();
+        this.superAgent = new SuperAgent(this.promptPacks);
         configureTokenizer(config.tokenizerEncoding);
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
@@ -487,6 +494,9 @@ export class HarnessRuntime {
                 })),
             );
         }
+        if (opts.promptPackIds !== undefined) {
+            this.pendingPromptPackIds.set(rootGoalId, opts.promptPackIds);
+        }
         if (opts.flagOverrides !== undefined) {
             this.pendingFlags.set(rootGoalId, {
                 values: { ...opts.flagOverrides },
@@ -717,6 +727,8 @@ export class HarnessRuntime {
         this.pendingPlanProposal.delete(rootGoalId);
         const memoryContext = this.pendingMemoryContext.get(rootGoalId) ?? {};
         this.pendingMemoryContext.delete(rootGoalId);
+        const explicitPromptPackIds = this.pendingPromptPackIds.get(rootGoalId);
+        this.pendingPromptPackIds.delete(rootGoalId);
         const flags = this.pendingFlags.get(rootGoalId);
         this.pendingFlags.delete(rootGoalId);
         const model = this.resolver.resolveModelChoice(modelId);
@@ -748,6 +760,54 @@ export class HarnessRuntime {
             sessionId,
             allowedToolsOverride,
             blackboardContext?.projectId,
+        );
+        const decision = this.superAgent.decide({
+            ...(memoryContext.userId !== undefined ? { userId: memoryContext.userId } : {}),
+            ...(blackboardContext?.projectId !== undefined
+                ? { projectId: blackboardContext.projectId }
+                : {}),
+            ...(this.workspaceRoot !== undefined ? { workspace: this.workspaceRoot } : {}),
+            input: rootGoal?.statement ?? '',
+            tools: exec.allowedTools,
+            riskLevel: riskLevelOfGoal(rootGoal),
+            ...(explicitPromptPackIds !== undefined
+                ? { explicitPackIds: explicitPromptPackIds }
+                : {}),
+        });
+        const promptPackFragment = decision.promptMatch.prompt;
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'superagent.decision',
+                rootGoalId,
+                goalId,
+                attributes: { 'harness.level': 'info' },
+                payload: {
+                    taskKind: decision.taskKind,
+                    riskLevel: decision.riskLevel,
+                    promptPackIds: decision.promptPackIds,
+                    plannerId: decision.plannerId,
+                    verifierId: decision.verifierId,
+                    memoryPlan: decision.memoryPlan,
+                    blackboardRequired: decision.blackboardRequired,
+                    reason: decision.reason,
+                },
+            }),
+        );
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'prompt.pack.selected',
+                rootGoalId,
+                goalId,
+                attributes: { 'harness.level': 'info' },
+                payload: {
+                    selected: decision.promptMatch.selected.map((pack) => ({
+                        id: pack.id,
+                        version: pack.version,
+                    })),
+                    trace: decision.promptMatch.trace,
+                    estimatedTokens: decision.promptMatch.estimatedTokens,
+                },
+            }),
         );
         this.bus.emit(
             newHarnessEvent({
@@ -787,7 +847,12 @@ export class HarnessRuntime {
                         rootGoalId,
                         goalId,
                         requestedSkills,
-                        combinePromptFragments(promptFragment, wikiFragment, blackboardFragment),
+                        combinePromptFragments(
+                            promptFragment,
+                            wikiFragment,
+                            blackboardFragment,
+                            promptPackFragment,
+                        ),
                     ),
                     tools: exec.tools,
                     invoker: exec.invoker,
@@ -978,6 +1043,7 @@ export class HarnessRuntime {
             allowedTools?: readonly string[];
             flagOverrides?: Readonly<Record<string, boolean>>;
             flagTrace?: readonly { id: string; enabled: boolean; source: string }[];
+            promptPackIds?: readonly string[];
         } = {},
     ): Promise<GoalRunResult> {
         if (options.reasoningLevel !== undefined) {
@@ -1001,6 +1067,9 @@ export class HarnessRuntime {
                 values: { ...options.flagOverrides },
                 trace: (options.flagTrace ?? []).map((step) => ({ ...step })),
             });
+        }
+        if (options.promptPackIds !== undefined) {
+            this.pendingPromptPackIds.set(rootGoalId, options.promptPackIds);
         }
         this.bus.emit(newHarnessEvent({ type: 'run.resumed', rootGoalId, payload: {} }));
         await this.bus.flush();
@@ -1383,6 +1452,18 @@ export class HarnessRuntime {
         return this.personalMemory;
     }
 
+    promptPackRegistry(): PromptPackRegistry {
+        return this.promptPacks;
+    }
+
+    registerPromptPack(pack: PromptPack): void {
+        this.promptPacks.register(pack);
+    }
+
+    previewSuperAgent(input: SuperAgentInput): SuperAgentDecision {
+        return this.superAgent.decide(input);
+    }
+
     async projectBlackboard(projectId: string): Promise<ProjectBlackboard | undefined> {
         if (this.workspaceRoot === undefined) return undefined;
         return this.blackboard.ensure(projectId, this.workspaceRoot);
@@ -1460,13 +1541,32 @@ function combinePromptFragments(
     featureFragment: string | undefined,
     wikiFragment: string | undefined,
     blackboardFragment: string | undefined,
+    promptPackFragment: string | undefined,
 ): string | undefined {
     const parts = [
         featureFragment?.trim() ?? '',
         wikiFragment?.trim() ?? '',
         blackboardFragment?.trim() ?? '',
+        promptPackFragment?.trim() ?? '',
     ].filter((part) => part.length > 0);
     return parts.length > 0 ? parts.join('\n\n') : undefined;
+}
+
+function riskLevelOfGoal(goal: Goal | undefined): PromptRiskLevel {
+    if (goal?.contract.riskProfile.hasIrreversibleActions === true) return 'irreversible';
+    if (
+        goal?.contract.riskProfile.touchesNetwork === true ||
+        goal?.contract.riskProfile.touchesExternalApi === true
+    ) {
+        return 'external';
+    }
+    if (
+        goal?.permissionCeiling === 'workspace-write' ||
+        goal?.permissionCeiling === 'draft'
+    ) {
+        return 'workspace-write';
+    }
+    return 'read-only';
 }
 
 function blackboardToolConfigs(
