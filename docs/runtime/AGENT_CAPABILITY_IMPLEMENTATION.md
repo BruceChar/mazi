@@ -13,7 +13,8 @@
 - **API**：新增 `/api/memory` 治理接口、`/api/eval/tasks|runs` 评测接口（运行记录落
   `mazi.db`），以及
   `/api/projects/blackboard(+reconcile)` / `/api/projects/:id/blackboard(+reconcile)` 项目黑板接口。
-- **WebUI**：新增 Eval Dashboard（全局/项目/会话）和个人记忆治理页；项目黑板页支持查看章节、证据、版本与源漂移检查。
+- **WebUI**：新增 Eval Dashboard（全局/项目/会话）；个人记忆治理并入用户中心，项目黑板并入
+  原项目 Wiki，支持查看结构化知识、证据、版本与源漂移检查。
 
 P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、记忆向量语义索引和黑板章节自动语义重写仍属于后续增强。
 
@@ -27,8 +28,8 @@ P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、
 
 P1 当前边界：PromptPack 当前状态与删除状态持久化在 `mazi.db`，历史版本档案和更细粒度归因仍待增强；
 默认不内置校准 LLM Judge，需要外部注入。
-- **WebUI**：新增 Agent 编排页，可预览最小 PromptPack 匹配、查看角色/Verifier，并回放
-  `superagent.decision`、`prompt.pack.selected`、`verification.completed` 事件。
+- **WebUI**：SuperAgent、Planner 和 Verifier 不占主导航；PromptPack/角色模板与运行模式在
+  设置页的 Agent 分类中维护，实际编排由 Harness 自动执行。
 
 ## P2 基础版（2026-11-02）
 
@@ -40,8 +41,8 @@ P1 当前边界：PromptPack 当前状态与删除状态持久化在 `mazi.db`�
 
 P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM Replanner；Agent Role 当前状态与删除状态
 已持久化到 `mazi.db`；`memoryPolicy: isolated` 已建模但尚未强隔离上下文。
-- **WebUI**：新增 Replan / 委派页，展示计划修订 diff、拒绝原因、证据摘要、持久化
-  delegation edge 父子树，以及角色权限和预算。
+- **WebUI**：Replan 与委派不提供独立操作页；相关 diff、拒绝原因和 delegation edge 作为
+  Harness 审计事实存在于 Trace 数据中，由 Eval 派生层聚合。
 - **Lab**：AB 对照实验和固定 Benchmark 回归收进同一 Lab 的两个子集；两者都不再作为
   Trace 页签或 Session Eval 主入口。
 
@@ -143,6 +144,15 @@ Lab
 
 Session Eval 与 Dashboard 不重新采集事实；它们只读取 Trace、Verifier、成本和事件。
 Benchmark 使用独立固定任务集，不伪装成真实会话质量趋势。
+
+## Web 信息架构
+
+- 用户资产：用户中心（画像、记忆、问题、行为链、账本、用户设置）。
+- 项目资产：项目 Wiki（项目知识黑板、状态快照、变更日志、证据）。
+- 单次事实：Trace / Audit。
+- 派生业务：Eval Dashboard。
+- 受控实验：Lab（AB Experiment、Benchmark）。
+- Harness 内部机制：SuperAgent、Planner、Verifier、Replan、Delegation；只在设置中维护模板和模式。
 
 ## 验收门禁
 
