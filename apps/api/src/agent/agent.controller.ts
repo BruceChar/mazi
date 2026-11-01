@@ -1,5 +1,10 @@
 import 'reflect-metadata';
-import { type PromptPack, type PromptRiskLevel, type PromptTaskKind } from '@mazi/runtime';
+import {
+    type AgentRole,
+    type PromptPack,
+    type PromptRiskLevel,
+    type PromptTaskKind,
+} from '@mazi/runtime';
 import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
@@ -145,5 +150,35 @@ export class AgentController {
     @Get('verifier')
     verifier() {
         return this.runtime.harness().verifierInfo();
+    }
+
+    @Get('roles')
+    roles() {
+        return { roles: this.runtime.harness().agentRoles() };
+    }
+
+    @Post('roles')
+    registerRole(@Body() body: Record<string, unknown>) {
+        const roleId = typeof body.roleId === 'string' ? body.roleId.trim() : '';
+        const label = typeof body.label === 'string' ? body.label.trim() : '';
+        if (!roleId || !label) throw new ApiError(400, 'roleId/label 必填');
+        const role: AgentRole = {
+            roleId,
+            label,
+            ...(typeof body.modelId === 'string' ? { modelId: body.modelId } : {}),
+            ...(strings(body.tools) !== undefined ? { tools: strings(body.tools) } : {}),
+            ...(typeof body.systemPrompt === 'string' ? { systemPrompt: body.systemPrompt } : {}),
+            ...(typeof body.defaultCeiling === 'string'
+                ? { defaultCeiling: body.defaultCeiling as AgentRole['defaultCeiling'] }
+                : {}),
+            memoryPolicy: body.memoryPolicy === 'isolated' ? 'isolated' : 'inherit',
+        };
+        this.runtime.harness().registerAgentRole(role);
+        return { role };
+    }
+
+    @Get('sessions/:id/delegations')
+    async delegations(@Param('id') rootGoalId: string) {
+        return { edges: await this.runtime.harness().delegationEdges(rootGoalId) };
     }
 }

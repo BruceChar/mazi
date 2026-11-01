@@ -12,7 +12,19 @@ import type {
 import { authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
 import { buildQuestionView } from '@mazi/libs';
-import { SuperAgent, type SuperAgentDecision, type SuperAgentInput } from '../agent/index.js';
+import {
+    type AgentRole,
+    AgentRoleRegistry,
+    DelegationCoordinator,
+    type DelegationEdge,
+    type DelegationProposal,
+    type DelegationStore,
+    MemoryDelegationStore,
+    SqliteDelegationStore,
+    SuperAgent,
+    type SuperAgentDecision,
+    type SuperAgentInput,
+} from '../agent/index.js';
 import { type IterationStore, SqliteIterationStore } from '../analysis/iteration-store.js';
 import { IterationTracker } from '../analysis/iteration-tracker.js';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
@@ -175,6 +187,9 @@ export class HarnessRuntime {
     private readonly promptPacks: PromptPackRegistry;
     private readonly superAgent: SuperAgent;
     private readonly verifier: IndependentVerifier;
+    private readonly delegationRoles: AgentRoleRegistry;
+    private readonly delegationStore: DelegationStore;
+    private readonly delegationCoordinator: DelegationCoordinator;
     private replanPlanner?: ReplanPlanner;
     private maxReplans = 2;
     /** 待执行 Session 的 Conversation id（session 作用域审批匹配用） */
@@ -211,6 +226,7 @@ export class HarnessRuntime {
     /** Optional caller/model plan proposal; Task identity is created by the harness. */
     private readonly pendingPlanProposal = new Map<string, readonly PlannedTask[]>();
     private readonly pendingPromptPackIds = new Map<string, readonly string[]>();
+    private readonly pendingDelegationDepth = new Map<string, number>();
     private readonly pendingMemoryContext = new Map<
         string,
         {
@@ -250,6 +266,15 @@ export class HarnessRuntime {
         this.promptPacks = new PromptPackRegistry();
         this.superAgent = new SuperAgent(this.promptPacks);
         this.verifier = new IndependentVerifier();
+        this.delegationRoles = new AgentRoleRegistry();
+        this.delegationStore =
+            config.dbPath !== undefined
+                ? new SqliteDelegationStore(config.dbPath)
+                : new MemoryDelegationStore();
+        this.delegationCoordinator = new DelegationCoordinator(
+            this.delegationRoles,
+            this.delegationStore,
+        );
         configureTokenizer(config.tokenizerEncoding);
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
@@ -438,6 +463,7 @@ export class HarnessRuntime {
         this.persistentMemoryStore?.close();
         this.effectStore.close();
         this.blackboard.close();
+        this.delegationStore.close();
         this.tocStore.close();
         this.iterationStore.close();
         this.behaviorRecorder.close();
@@ -508,6 +534,7 @@ export class HarnessRuntime {
         if (opts.promptPackIds !== undefined) {
             this.pendingPromptPackIds.set(rootGoalId, opts.promptPackIds);
         }
+        this.pendingDelegationDepth.set(rootGoalId, Math.max(0, opts.delegationDepth ?? 0));
         if (opts.flagOverrides !== undefined) {
             this.pendingFlags.set(rootGoalId, {
                 values: { ...opts.flagOverrides },
@@ -740,6 +767,8 @@ export class HarnessRuntime {
         this.pendingMemoryContext.delete(rootGoalId);
         const explicitPromptPackIds = this.pendingPromptPackIds.get(rootGoalId);
         this.pendingPromptPackIds.delete(rootGoalId);
+        const delegationDepth = this.pendingDelegationDepth.get(rootGoalId) ?? 0;
+        this.pendingDelegationDepth.delete(rootGoalId);
         const flags = this.pendingFlags.get(rootGoalId);
         this.pendingFlags.delete(rootGoalId);
         const model = this.resolver.resolveModelChoice(modelId);
@@ -771,6 +800,9 @@ export class HarnessRuntime {
             sessionId,
             allowedToolsOverride,
             blackboardContext?.projectId,
+            rootGoal,
+            memoryContext.userId,
+            delegationDepth,
         );
         const decision = this.superAgent.decide({
             ...(memoryContext.userId !== undefined ? { userId: memoryContext.userId } : {}),
@@ -1283,6 +1315,9 @@ export class HarnessRuntime {
         sessionId?: string,
         allowedToolsOverride?: readonly string[],
         projectId?: string,
+        parentGoal?: Goal,
+        userId?: string,
+        delegationDepth = 0,
     ): {
         tools: ToolSchema[];
         invoker: GoalToolInvoker;
@@ -1300,6 +1335,11 @@ export class HarnessRuntime {
         }
         if (projectId !== undefined && this.workspaceRoot !== undefined) {
             merged.push(...blackboardToolConfigs(this.blackboard, projectId, this.workspaceRoot));
+        }
+        if (parentGoal !== undefined && delegationDepth < 2) {
+            merged.push(
+                this.delegateToolConfig(rootGoalId, parentGoal, projectId, userId, delegationDepth),
+            );
         }
         const gateway = new RuntimeToolGateway({
             rootGoalId,
@@ -1347,6 +1387,177 @@ export class HarnessRuntime {
             })),
             toolsetVersion: toolSnapshot.version,
             toolsetDigest: toolSnapshot.digest,
+        };
+    }
+
+    private delegateToolConfig(
+        rootGoalId: string,
+        parentGoal: Goal,
+        projectId: string | undefined,
+        userId: string | undefined,
+        delegationDepth: number,
+    ): ToolConfig {
+        return {
+            name: 'delegate',
+            description:
+                'Delegate independent sub-goals to specialized agents. All proposals are validated against parent permission and budget before parallel execution. Results return as observations.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    delegations: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                statement: { type: 'string' },
+                                roleId: {
+                                    type: 'string',
+                                    enum: this.delegationRoles.list().map((role) => role.roleId),
+                                },
+                                ceiling: { type: 'string' },
+                                budget: { type: 'object' },
+                            },
+                            required: ['statement', 'roleId'],
+                        },
+                    },
+                },
+                required: ['delegations'],
+            },
+            minPermission: 'read-only',
+            sideEffects: [],
+            impl: async (args) =>
+                this.delegateAgents(
+                    rootGoalId,
+                    parentGoal,
+                    args,
+                    projectId,
+                    userId,
+                    delegationDepth,
+                ),
+        };
+    }
+
+    private async delegateAgents(
+        rootGoalId: string,
+        parentGoal: Goal,
+        args: Record<string, unknown>,
+        projectId: string | undefined,
+        userId: string | undefined,
+        delegationDepth: number,
+    ): Promise<ToolCallResult> {
+        const raw = Array.isArray(args.delegations) ? args.delegations : [];
+        const proposals = raw
+            .map((item): DelegationProposal | undefined => {
+                if (typeof item !== 'object' || item === null) return undefined;
+                const value = item as Record<string, unknown>;
+                const statement = typeof value.statement === 'string' ? value.statement.trim() : '';
+                const roleId = typeof value.roleId === 'string' ? value.roleId.trim() : '';
+                if (!statement || !roleId) return undefined;
+                return {
+                    statement,
+                    roleId,
+                    ...(typeof value.ceiling === 'string'
+                        ? { ceiling: value.ceiling as PermissionLevel }
+                        : {}),
+                    ...(typeof value.budget === 'object' && value.budget !== null
+                        ? { budget: value.budget as DelegationProposal['budget'] }
+                        : {}),
+                };
+            })
+            .filter((item): item is DelegationProposal => item !== undefined);
+        if (proposals.length === 0) return { ok: false, error: '缺少有效 delegations' };
+
+        const delegated = await this.delegationCoordinator.delegate(
+            rootGoalId,
+            parentGoal,
+            proposals,
+            async (context) => {
+                this.bus.emit(
+                    newHarnessEvent({
+                        type: 'delegation.started',
+                        rootGoalId,
+                        goalId: parentGoal.goalId,
+                        attributes: { 'harness.level': 'info' },
+                        payload: {
+                            roleId: context.role.roleId,
+                            statement: context.proposal.statement,
+                            permissionCeiling: context.permissionCeiling,
+                            budget: context.budget,
+                            delegationDepth: delegationDepth + 1,
+                        },
+                    }),
+                );
+                const child = await this.createGoalSession(context.proposal.statement, {
+                    ...(projectId !== undefined ? { projectId } : {}),
+                    ...(userId !== undefined ? { userId } : {}),
+                    permissionCeiling: context.permissionCeiling,
+                    ...(context.role.modelId !== undefined
+                        ? { modelId: context.role.modelId }
+                        : {}),
+                    ...(context.role.systemPrompt !== undefined
+                        ? { promptFragment: context.role.systemPrompt }
+                        : {}),
+                    ...(context.role.tools !== undefined
+                        ? { allowedTools: context.role.tools }
+                        : {}),
+                    ...(context.budget?.maxSteps !== undefined
+                        ? { maxSteps: context.budget.maxSteps }
+                        : {}),
+                    ...(context.budget?.maxCostUsd !== undefined
+                        ? { maxCostUsd: context.budget.maxCostUsd }
+                        : {}),
+                    delegationDepth: delegationDepth + 1,
+                    parseIntent: false,
+                });
+                const result = await this.executeGoalTree(child.rootGoalId);
+                const last = result.tasks.at(-1);
+                this.bus.emit(
+                    newHarnessEvent({
+                        type: 'delegation.completed',
+                        rootGoalId,
+                        goalId: parentGoal.goalId,
+                        attributes: {
+                            'harness.level': result.ok ? 'info' : 'warn',
+                        },
+                        payload: {
+                            roleId: context.role.roleId,
+                            childGoalId: child.rootGoalId,
+                            ok: result.ok,
+                            summary: last?.finalMessage ?? last?.errorMessage ?? '',
+                        },
+                    }),
+                );
+                return { childGoalId: child.rootGoalId, result };
+            },
+            parentGoal.goalId,
+        );
+        if (delegated.violations.length > 0) {
+            this.bus.emit(
+                newHarnessEvent({
+                    type: 'delegation.rejected',
+                    rootGoalId,
+                    goalId: parentGoal.goalId,
+                    attributes: { 'harness.level': 'warn' },
+                    payload: { violations: delegated.violations },
+                }),
+            );
+            return {
+                ok: false,
+                error: delegated.violations.map((item) => item.message).join('; '),
+            };
+        }
+        const ok = delegated.results.every((item) => item.ok);
+        return {
+            ok,
+            content: JSON.stringify(delegated.results),
+            ...(!ok
+                ? {
+                      error: delegated.results
+                          .filter((item) => !item.ok)
+                          .map((item) => `${item.roleId}: ${item.error ?? 'failed'}`)
+                          .join('; '),
+                  }
+                : {}),
         };
     }
 
@@ -1534,6 +1745,18 @@ export class HarnessRuntime {
 
     previewSuperAgent(input: SuperAgentInput): SuperAgentDecision {
         return this.superAgent.decide(input);
+    }
+
+    agentRoles(): AgentRole[] {
+        return this.delegationRoles.list();
+    }
+
+    registerAgentRole(role: AgentRole): void {
+        this.delegationRoles.register(role);
+    }
+
+    delegationEdges(rootGoalId: string): Promise<DelegationEdge[]> {
+        return this.delegationCoordinator.edges(rootGoalId);
     }
 
     setSemanticJudge(judge?: SemanticJudge): void {

@@ -71,4 +71,20 @@ describe('agent controller', () => {
             semanticJudge: false,
         });
     });
+
+    it('exposes role registration and delegation edge queries', async () => {
+        const controller = setup();
+        expect(controller.roles().roles.map((role) => role.roleId)).toContain('reviewer');
+        const registered = controller.registerRole({
+            roleId: 'tester',
+            label: '测试 Agent',
+            tools: ['fs.read', 'shell.run'],
+            defaultCeiling: 'workspace-write',
+        });
+        expect(registered.role).toMatchObject({
+            roleId: 'tester',
+            memoryPolicy: 'inherit',
+        });
+        expect(await controller.delegations('missing')).toEqual({ edges: [] });
+    });
 });

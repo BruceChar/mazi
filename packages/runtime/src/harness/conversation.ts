@@ -53,6 +53,8 @@ export interface RunOptions {
     planProposal?: readonly PlannedTask[];
     /** Explicit PromptPack ids. Matching still determines compatibility and budget. */
     promptPackIds?: readonly string[];
+    /** Delegation depth. Root tasks are 0; runtime refuses deeper fanout at its cap. */
+    delegationDepth?: number;
 }
 
 /** ConversationTurn[] → LLMMessage[]（user/assistant 文本消息）。 */
