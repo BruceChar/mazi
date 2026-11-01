@@ -72,7 +72,7 @@ export class SuperAgent {
     decide(input: SuperAgentInput): SuperAgentDecision {
         const tools = input.tools ?? [];
         const riskLevel = input.riskLevel ?? 'read-only';
-        const taskKind = classifyTaskKind(input.input, tools, riskLevel);
+        const taskKind = input.taskKind ?? classifyTaskKind(input.input, tools, riskLevel);
         const match = this.promptPacks.match(
             {
                 ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),

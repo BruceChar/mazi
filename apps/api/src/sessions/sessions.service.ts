@@ -112,6 +112,7 @@ export class SessionsService {
                   : undefined;
         const history = conversationId ? await this.conversationHistory(conversationId) : [];
         const planProposal = planProposalOf(body, goalBody);
+        const promptPackIds = promptPackIdsOf(body, goalBody);
         // 新会话也先确定 id，使 session 作用域审批在后续续聊中可匹配。
         const sessionConversationId = conversationId ?? ulid();
         // 普通会话按全局 Feature 开关运行（实验台改用运行期 override 走 ExperimentRunner）。
@@ -127,6 +128,7 @@ export class SessionsService {
             parseIntent: true,
             ...(history.length > 0 ? { history } : {}),
             ...(planProposal !== undefined ? { planProposal } : {}),
+            ...(promptPackIds !== undefined ? { promptPackIds } : {}),
             ...(reasoningLevel ? { reasoningLevel } : {}),
             ...(modelId ? { modelId } : {}),
             ...featureOptions,
@@ -561,4 +563,14 @@ function planProposalOf(
         })
         .filter((item): item is PlannedTask => item !== undefined);
     return tasks.length > 0 ? tasks : undefined;
+}
+
+function promptPackIdsOf(
+    body: Record<string, unknown>,
+    goalBody: Record<string, unknown> | undefined,
+): string[] | undefined {
+    const raw = body.promptPackIds ?? goalBody?.promptPackIds;
+    if (!Array.isArray(raw)) return undefined;
+    const ids = raw.filter((item): item is string => typeof item === 'string');
+    return ids.length > 0 ? ids : undefined;
 }

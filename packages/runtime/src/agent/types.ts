@@ -9,6 +9,7 @@ export interface SuperAgentInput {
     projectId?: string;
     workspace?: string;
     input: string;
+    taskKind?: PromptTaskKind;
     tools?: readonly string[];
     riskLevel?: PromptRiskLevel;
     projectTags?: readonly string[];

@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ApprovalsController } from './approvals/approvals.controller.js';
+import { AgentController } from './agent/agent.controller.js';
 import { CapabilitiesController } from './capabilities/capabilities.controller.js';
 import { CatalogController } from './catalog/catalog.controller.js';
 import { ApiExceptionsFilter } from './common/api-error.js';
@@ -52,6 +53,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         EventsController,
         WorkspacesController,
         ApprovalsController,
+        AgentController,
         StorageController,
         IterationsController,
         UsersController,
