@@ -1,4 +1,5 @@
 import type { AgentRole } from './delegation-types.js';
+import type { AgentRoleStore, PersistedAgentRole } from './role-store.js';
 
 export const DEFAULT_AGENT_ROLES: readonly AgentRole[] = [
     {
@@ -36,28 +37,55 @@ export const DEFAULT_AGENT_ROLES: readonly AgentRole[] = [
 ];
 
 export class AgentRoleRegistry {
-    private readonly roles = new Map<string, AgentRole>();
+    private readonly roles = new Map<string, PersistedAgentRole>();
 
-    constructor(initial: readonly AgentRole[] = DEFAULT_AGENT_ROLES) {
-        for (const role of initial) this.register(role);
+    constructor(
+        initial: readonly AgentRole[] = DEFAULT_AGENT_ROLES,
+        private readonly store?: AgentRoleStore,
+    ) {
+        for (const role of initial) this.storeRole({ role, deleted: false });
+        for (const entry of store?.load() ?? []) this.storeRole(entry);
     }
 
     register(role: AgentRole): void {
-        if (role.roleId.trim().length === 0) throw new Error('roleId 必填');
-        this.roles.set(role.roleId, structuredClone(role));
+        this.assertRole(role);
+        const entry = { role: structuredClone(role), deleted: false } satisfies PersistedAgentRole;
+        this.store?.save(entry);
+        this.storeRole(entry);
     }
 
     remove(roleId: string): boolean {
-        return this.roles.delete(roleId);
+        const existing = this.roles.get(roleId);
+        if (existing === undefined || existing.deleted) return false;
+        const entry = { role: existing.role, deleted: true } satisfies PersistedAgentRole;
+        this.storeRole(entry);
+        this.store?.save(structuredClone(entry));
+        return true;
     }
 
     get(roleId: string): AgentRole | undefined {
-        return structuredClone(this.roles.get(roleId));
+        const entry = this.roles.get(roleId);
+        return entry === undefined || entry.deleted ? undefined : structuredClone(entry.role);
     }
 
     list(): AgentRole[] {
         return [...this.roles.values()]
+            .filter((entry) => !entry.deleted)
+            .map((entry) => entry.role)
             .sort((left, right) => left.roleId.localeCompare(right.roleId))
             .map((role) => structuredClone(role));
+    }
+
+    close(): void {
+        this.store?.close();
+    }
+
+    private assertRole(role: AgentRole): void {
+        if (role.roleId.trim().length === 0) throw new Error('roleId 必填');
+    }
+
+    private storeRole(entry: PersistedAgentRole): void {
+        this.assertRole(entry.role);
+        this.roles.set(entry.role.roleId, structuredClone(entry));
     }
 }

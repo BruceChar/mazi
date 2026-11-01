@@ -20,7 +20,9 @@ import {
     type DelegationProposal,
     type DelegationStore,
     MemoryDelegationStore,
+    MemoryAgentRoleStore,
     SqliteDelegationStore,
+    SqliteAgentRoleStore,
     SuperAgent,
     type SuperAgentDecision,
     type SuperAgentInput,
@@ -277,7 +279,12 @@ export class HarnessRuntime {
         );
         this.superAgent = new SuperAgent(this.promptPacks);
         this.verifier = new IndependentVerifier();
-        this.delegationRoles = new AgentRoleRegistry();
+        this.delegationRoles = new AgentRoleRegistry(
+            undefined,
+            config.dbPath !== undefined
+                ? new SqliteAgentRoleStore(config.dbPath)
+                : new MemoryAgentRoleStore(),
+        );
         this.delegationStore =
             config.dbPath !== undefined
                 ? new SqliteDelegationStore(config.dbPath)
@@ -475,6 +482,7 @@ export class HarnessRuntime {
         this.effectStore.close();
         this.blackboard.close();
         this.promptPacks.close();
+        this.delegationRoles.close();
         this.delegationStore.close();
         this.tocStore.close();
         this.iterationStore.close();
@@ -1765,6 +1773,10 @@ export class HarnessRuntime {
 
     registerAgentRole(role: AgentRole): void {
         this.delegationRoles.register(role);
+    }
+
+    removeAgentRole(roleId: string): boolean {
+        return this.delegationRoles.remove(roleId);
     }
 
     delegationEdges(rootGoalId: string): Promise<DelegationEdge[]> {

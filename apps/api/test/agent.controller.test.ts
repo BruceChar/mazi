@@ -85,6 +85,7 @@ describe('agent controller', () => {
             roleId: 'tester',
             memoryPolicy: 'inherit',
         });
+        expect(controller.removeRole('tester')).toEqual({ ok: true, removed: true });
         expect(await controller.delegations('missing')).toEqual({ edges: [] });
     });
 });

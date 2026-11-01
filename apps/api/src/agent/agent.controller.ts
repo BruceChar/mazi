@@ -177,6 +177,14 @@ export class AgentController {
         return { role };
     }
 
+    @Delete('roles/:id')
+    removeRole(@Param('id') roleId: string) {
+        if (!this.runtime.harness().removeAgentRole(roleId)) {
+            throw new ApiError(404, 'Agent role 不存在');
+        }
+        return { ok: true, removed: true };
+    }
+
     @Get('sessions/:id/delegations')
     async delegations(@Param('id') rootGoalId: string) {
         return { edges: await this.runtime.harness().delegationEdges(rootGoalId) };
