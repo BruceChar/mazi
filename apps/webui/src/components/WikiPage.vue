@@ -73,12 +73,10 @@ const boardSections = computed(() => {
         { title: '决策', items: value.decisions },
         { title: '下一步', items: value.nextActions },
         { title: '最近变化', items: value.recentChanges },
-    ]
-        .map((section) => ({
-            ...section,
-            items: (section.items ?? []).filter(Boolean),
-        }))
-        .filter((section) => section.items.length > 0);
+    ].map((section) => ({
+        ...section,
+        items: (section.items ?? []).filter(Boolean),
+    }));
 });
 
 async function reconcileBoard() {
@@ -110,7 +108,7 @@ function queryForWorkspace() {
             <div class="wiki-title">
                 <LineIcon name="observation" :size="16" />
                 <strong>项目 Wiki</strong>
-                <span v-if="view && !view.empty" class="wiki-meta">
+                <span v-if="view && (board || !view.empty)" class="wiki-meta">
                     {{ view.project }} · {{ view.workspace }}
                 </span>
             </div>
@@ -146,7 +144,7 @@ function queryForWorkspace() {
                 <div class="wiki-board-grid">
                     <section v-for="section in boardSections" :key="section.title">
                         <h4>{{ section.title }}</h4>
-                        <ul>
+                        <ul v-if="section.items.length">
                             <li
                                 v-for="(item, index) in section.items.slice(0, 12)"
                                 :key="section.title + ':' + index"
@@ -155,6 +153,7 @@ function queryForWorkspace() {
                                 {{ item }}
                             </li>
                         </ul>
+                        <p v-else class="wiki-muted">暂无</p>
                     </section>
                 </div>
                 <div class="wiki-evidence">
@@ -172,7 +171,7 @@ function queryForWorkspace() {
                 </div>
             </article>
 
-            <article v-if="!isEmpty" class="wiki-panel">
+            <article class="wiki-panel">
                 <h3>状态快照</h3>
                 <template v-if="sections.length">
                     <section v-for="section in sections" :key="section.title" class="wiki-section">
@@ -184,7 +183,7 @@ function queryForWorkspace() {
                 <p v-else class="wiki-muted">快照为空（尚未刷新）。</p>
             </article>
 
-            <article v-if="!isEmpty" class="wiki-panel">
+            <article class="wiki-panel">
                 <h3>变更日志</h3>
                 <ul v-if="entries.length" class="wiki-log">
                     <li v-for="(entry, index) in entries" :key="entry.ts + ':' + index">
@@ -221,10 +220,14 @@ function queryForWorkspace() {
     align-items: center;
     gap: 8px;
     color: var(--fg);
+    min-width: 0;
+    flex-wrap: wrap;
 }
 .wiki-meta {
     color: var(--fg-tertiary);
     font-size: 12px;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 .wiki-actions {
     display: flex;
@@ -253,13 +256,15 @@ function queryForWorkspace() {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    overflow-y: auto;
+    padding-right: 2px;
 }
 .wiki-panel {
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-md);
     background: var(--bg-panel);
     padding: 10px 12px;
-    overflow-y: auto;
+    overflow: visible;
     min-height: 0;
 }
 .wiki-board {
@@ -280,6 +285,8 @@ function queryForWorkspace() {
     color: var(--fg-secondary);
     font-size: 13px;
     line-height: 1.55;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 .wiki-board-grid {
     display: grid;
@@ -288,6 +295,7 @@ function queryForWorkspace() {
 }
 .wiki-board-grid section {
     min-width: 0;
+    overflow: hidden;
     padding: 8px;
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-sm);
@@ -305,6 +313,10 @@ function queryForWorkspace() {
 }
 .wiki-board-grid li.warn {
     color: var(--warn);
+}
+.wiki-board-grid li {
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 .wiki-evidence {
     margin-top: 10px;
@@ -351,10 +363,29 @@ function queryForWorkspace() {
     font-size: 12px;
     color: var(--fg-secondary);
 }
+.wiki-section {
+    min-width: 0;
+}
 .wiki-md {
     font-size: 13px;
     color: var(--fg-secondary);
     line-height: 1.6;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.wiki-md :deep(*) {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.wiki-md :deep(pre) {
+    overflow-x: auto;
+    white-space: pre-wrap;
+}
+.wiki-md :deep(code) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 .wiki-log {
     list-style: none;
@@ -371,11 +402,17 @@ function queryForWorkspace() {
     color: var(--fg-secondary);
     border-bottom: 1px dashed var(--border-soft);
     padding-bottom: 6px;
+    min-width: 0;
 }
 .wiki-log time {
     color: var(--fg-tertiary);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+}
+.wiki-log span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 .wiki-muted,
 .wiki-path {

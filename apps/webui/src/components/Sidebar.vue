@@ -318,11 +318,11 @@ function latencyText() {
 .sidebar-new {
     padding: 8px 12px 10px;
 }
-/* AB 实验室：独立一行（不与「系统设置」并列），紧贴「新会话」下方 */
+/* 顶部功能入口：普通导航样式，不使用独立按钮边框。 */
 .sidebar-lab {
-    padding: 0 12px 10px;
+    padding: 0 8px 8px;
     display: grid;
-    gap: 6px;
+    gap: 2px;
 }
 .lab-btn {
     width: 100%;
@@ -330,8 +330,8 @@ function latencyText() {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 10px;
-    border: 1px solid var(--border);
+    padding: 7px 10px;
+    border: none;
     border-radius: 6px;
     background: transparent;
     color: var(--fg-secondary);
