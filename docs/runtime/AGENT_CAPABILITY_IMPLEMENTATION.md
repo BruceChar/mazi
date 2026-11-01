@@ -3,6 +3,16 @@
 > 本文记录计划图、权限、审计链、上下文快照、持久记忆和可迁移 bundle 的当前实现边界。
 > 设计目标仍见 `README.md`、`docs/context_design.md` 与 `docs/core/`。
 
+## P0 基础版（2026-11-02）
+
+- **评测 Harness**：新增 `@mazi/eval`，包含任务 schema、30 个分级任务、离线 suite runner、工具准确率/接管率/Token/成本/延迟指标、失败归因和 HarnessRuntime 轨迹投影。
+- **个人长期记忆**：增加 `PersonalMemoryService`，支持显式写入、模型候选、确认、纠正、deprecated/tombstone、内容去重、版本、项目关联和混合召回评分。
+- **项目黑板**：新增 `ProjectBlackboardService`，使用独立 SQLite 文档保存项目目的、架构、状态、已完成项、问题、决策、下一步、证据和源指纹。
+- **项目恢复**：项目内新会话注入黑板摘要和按需 `blackboard.read`；运行结束增量更新黑板，源指纹变化只标记复核，不自动全量重建。
+- **API**：新增 `/api/memory` 治理接口和 `/api/projects/:id/blackboard(+reconcile)` 项目黑板接口。
+
+P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、记忆语义索引/UI 治理、黑板章节自动语义重写仍属于后续增强。
+
 ## 已落地
 
 | 能力 | 实现位置 | 当前语义 |
@@ -17,6 +27,9 @@
 | 持久记忆 | `packages/runtime/src/memory/store.ts` | SQLite 保存 user/workspace/project/conversation/task 作用域记录、provenance、TTL 与 tombstone。 |
 | 偏好同步 | `SessionsService` + WebUI | 用户设置随会话创建同步为 T1 confirmed preference；后续用户/工作区召回通过 SQLite 复用。 |
 | 可迁移 bundle | `packages/runtime/src/memory/transfer.ts` | 版本化 JSON bundle + SHA-256 checksum；记忆与 audit trail 分域保存。 |
+| P0 评测 | `packages/eval` | 30 个任务、指标聚合、失败归因、Runtime 轨迹适配 |
+| P0 个人记忆 | `packages/runtime/src/memory/personal-memory.ts` | 确认/纠正/墓碑、去重、项目关联和查询相关召回 |
+| P0 项目黑板 | `packages/runtime/src/blackboard` | 结构化项目状态、增量更新、新会话注入和源漂移检测 |
 
 ## API
 
