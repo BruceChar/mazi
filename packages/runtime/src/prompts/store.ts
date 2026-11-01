@@ -34,9 +34,9 @@ export class SqlitePromptPackStore implements PromptPackStore {
     }
 
     load(): PromptPack[] {
-        const rows = this.db
-            .prepare('SELECT json FROM prompt_packs ORDER BY id')
-            .all() as Array<{ json: string }>;
+        const rows = this.db.prepare('SELECT json FROM prompt_packs ORDER BY id').all() as Array<{
+            json: string;
+        }>;
         const packs: PromptPack[] = [];
         for (const row of rows) {
             try {

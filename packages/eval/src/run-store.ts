@@ -76,9 +76,9 @@ export class SqliteEvalRunStore implements EvalRunStore {
     }
 
     async get(runId: string): Promise<EvalRunRecord | undefined> {
-        const row = this.db
-            .prepare('SELECT json FROM eval_runs WHERE run_id = ?')
-            .get(runId) as { json: string } | undefined;
+        const row = this.db.prepare('SELECT json FROM eval_runs WHERE run_id = ?').get(runId) as
+            | { json: string }
+            | undefined;
         if (row === undefined) return undefined;
         try {
             return JSON.parse(row.json) as EvalRunRecord;
