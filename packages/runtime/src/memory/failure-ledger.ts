@@ -15,6 +15,8 @@ export interface FailureLedgerEntry {
     taskId?: string;
     /** 失败类别（TaskStopReason：max-steps / driver-error / blocked-tool …）。 */
     kind: string;
+    /** Independent Verifier 的失败归因。 */
+    category?: string;
     providerId?: string;
     modelId?: string;
     summary?: string;

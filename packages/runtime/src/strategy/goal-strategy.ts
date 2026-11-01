@@ -26,6 +26,7 @@ import {
     type MemoryQuery,
     turnsToMemory,
 } from '../memory/index.js';
+import type { TaskVerifier, VerificationReport } from '../verifier/index.js';
 
 /** 把一次 Task 的工具执行记录成 memory fact，供后续 Goal/会话判定“已执行过”。 */
 function toolMemoryFacts(steps: readonly Step[], rootGoalId: string): MemoryItem[] {
@@ -73,6 +74,9 @@ export interface GoalRunDeps {
     planTools?: readonly PlanTool[];
     /** Plan lifecycle observation for auditing/UI. */
     onPlan?: (taskCount: number, digest?: string, rejected?: readonly string[]) => void;
+    /** Independent verifier; absence keeps mechanical acceptance for lightweight callers. */
+    verifier?: TaskVerifier;
+    onVerification?: (report: VerificationReport, outcome: TaskOutcome) => void;
     /** 恢复模式：复用未终结 Task 并从已落库 Step 重放上下文。 */
     resume?: boolean;
     /** 轮次上限覆盖（缺省读 goal.contract.terminationPolicy.maxSteps）。 */
@@ -213,7 +217,13 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
             goal,
         );
         // 验收判定：评估器独立于 executor 产出事实并随 Task 落库（裁决 D8）
-        outcome.task.acceptanceResult = evaluateAcceptance(goal, outcome);
+        if (deps.verifier !== undefined) {
+            const report = await deps.verifier.verify(goal, outcome);
+            outcome.task.acceptanceResult = report.acceptance;
+            deps.onVerification?.(report, outcome);
+        } else {
+            outcome.task.acceptanceResult = evaluateAcceptance(goal, outcome);
+        }
         await deps.store.saveTask(outcome.task);
         outcomes.push(outcome);
         if (!outcome.ok) break;

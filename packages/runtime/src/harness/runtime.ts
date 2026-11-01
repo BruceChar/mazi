@@ -89,6 +89,12 @@ import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
 import { permissionForTool, RuntimeToolGateway } from '../tool-gateway/permission.js';
 import { RuntimePolicyAuditSink } from '../tool-gateway/policy-audit.js';
 import { RuntimeToolRegistry } from '../tool-gateway/registry.js';
+import {
+    IndependentVerifier,
+    type SemanticJudge,
+    type VerificationFailureCategory,
+    type VerificationReport,
+} from '../verifier/index.js';
 import { WikiService } from '../wiki/index.js';
 import type { FeedbackInput, RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
@@ -167,6 +173,7 @@ export class HarnessRuntime {
     private readonly toolRegistry: RuntimeToolRegistry;
     private readonly promptPacks: PromptPackRegistry;
     private readonly superAgent: SuperAgent;
+    private readonly verifier: IndependentVerifier;
     /** 待执行 Session 的 Conversation id（session 作用域审批匹配用） */
     private readonly pendingSessionId = new Map<string, string>();
     /** 长期记忆调度组合根（有 dbPath 时跨进程持久化）。 */
@@ -239,6 +246,7 @@ export class HarnessRuntime {
         this.toolRegistry = new RuntimeToolRegistry([...BUILTIN_TOOL_PRESET, ...config.tools]);
         this.promptPacks = new PromptPackRegistry();
         this.superAgent = new SuperAgent(this.promptPacks);
+        this.verifier = new IndependentVerifier();
         configureTokenizer(config.tokenizerEncoding);
         this.workspaceRoot = options.workspaceRoot;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
@@ -834,6 +842,7 @@ export class HarnessRuntime {
         if (flags !== undefined && Object.keys(flags.values).length > 0) {
             this.emitFlagEvent(rootGoalId, goalId, flags.values, flags.trace);
         }
+        const verificationByTask = new Map<string, VerificationReport>();
         const controller = new AbortController();
         this.running.set(rootGoalId, controller);
         let result: GoalRunResult;
@@ -872,6 +881,32 @@ export class HarnessRuntime {
                         : {}),
                     ...(resume ? { resume: true } : {}),
                     signal: controller.signal,
+                    verifier: this.verifier,
+                    onVerification: (report, outcome) => {
+                        verificationByTask.set(outcome.task.taskId, report);
+                        this.bus.emit(
+                            newHarnessEvent({
+                                type: 'verification.completed',
+                                rootGoalId,
+                                goalId: outcome.task.goalId,
+                                taskId: outcome.task.taskId,
+                                attributes: {
+                                    'harness.level':
+                                        report.state === 'failed' ? 'warn' : 'info',
+                                },
+                                payload: {
+                                    verifierId: report.verifierId,
+                                    state: report.state,
+                                    failureCategory: report.failureCategory,
+                                    semanticJudgeId: report.semanticJudgeId,
+                                    acceptance: report.acceptance,
+                                    evidence: report.evidence.map((item) =>
+                                        item.slice(0, 1000),
+                                    ),
+                                },
+                            }),
+                        );
+                    },
                     onStep: (step) => {
                         this.stepEvents.emitStep(rootGoalId, step);
                         this.wiki.observeStep(step);
@@ -945,6 +980,12 @@ export class HarnessRuntime {
                 goalId: outcome.task.goalId,
                 taskId: outcome.task.taskId,
                 kind: outcome.reason,
+                ...(verificationByTask.get(outcome.task.taskId)?.failureCategory !== undefined
+                    ? {
+                          category: verificationByTask.get(outcome.task.taskId)
+                              ?.failureCategory as VerificationFailureCategory,
+                      }
+                    : {}),
                 ...(model !== undefined
                     ? { providerId: model.providerId, modelId: model.modelId }
                     : {}),
@@ -1462,6 +1503,17 @@ export class HarnessRuntime {
 
     previewSuperAgent(input: SuperAgentInput): SuperAgentDecision {
         return this.superAgent.decide(input);
+    }
+
+    setSemanticJudge(judge?: SemanticJudge): void {
+        this.verifier.setSemanticJudge(judge);
+    }
+
+    verifierInfo(): { id: string; semanticJudge: boolean } {
+        return {
+            id: this.verifier.id,
+            semanticJudge: this.verifier.hasSemanticJudge,
+        };
     }
 
     async projectBlackboard(projectId: string): Promise<ProjectBlackboard | undefined> {

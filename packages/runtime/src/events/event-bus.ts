@@ -29,6 +29,7 @@ const TASK_SCOPED: ReadonlySet<HarnessEventType> = new Set<HarnessEventType>([
     'budget.reallocation',
     'budget.exceeded',
     'reflection.verdict',
+    'verification.completed',
     'rollback.executed',
 ]);
 

@@ -264,6 +264,7 @@ export type {
 export { ApprovalBroker, DEFAULT_APPROVAL_TTL_MS } from './tool-gateway/approval.js';
 export { RuntimeToolGateway } from './tool-gateway/permission.js';
 export { RuntimePolicyAuditSink } from './tool-gateway/policy-audit.js';
+export * from './verifier/index.js';
 // 项目 wiki（runtime 事实/契约层；设计见 docs/项目wiki设计.md §2.1/§6）
 export {
     buildWikiInjection,
