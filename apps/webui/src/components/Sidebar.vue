@@ -40,6 +40,7 @@ const emit = defineEmits([
     'open-memory',
     'open-blackboard',
     'open-agent',
+    'open-plan-delegation',
     'open-wiki',
 ]);
 
@@ -161,6 +162,10 @@ function latencyText() {
         <button class="lab-btn" title="SuperAgent、PromptPack、Verifier 与运行事件" @click="emit('open-agent')">
             <LineIcon name="cpu" size="15" />
             Agent 编排
+        </button>
+        <button class="lab-btn" title="动态 Replan、计划 diff 与多 Agent 委派树" @click="emit('open-plan-delegation')">
+            <LineIcon name="thinking" size="15" />
+            Replan / 委派
         </button>
     </div>
     <div class="workspace-head">

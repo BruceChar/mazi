@@ -116,7 +116,8 @@ export interface UiState {
         | 'eval-lab'
         | 'memory'
         | 'blackboard'
-        | 'agent';
+        | 'agent'
+        | 'plan-delegation';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;

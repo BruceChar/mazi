@@ -6,6 +6,7 @@ import ConfirmDialog from './components/ConfirmDialog.vue';
 import EvalLabPage from './components/EvalLabPage.vue';
 import ExperimentsPage from './components/ExperimentsPage.vue';
 import MemoryGovernancePage from './components/MemoryGovernancePage.vue';
+import PlanDelegationPage from './components/PlanDelegationPage.vue';
 import ProjectBlackboardPage from './components/ProjectBlackboardPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
@@ -251,6 +252,7 @@ const headerTitle = computed(() => {
     if (ui.view === 'memory') return '个人记忆';
     if (ui.view === 'blackboard') return '项目黑板';
     if (ui.view === 'agent') return 'Agent 编排';
+    if (ui.view === 'plan-delegation') return 'Replan / 委派';
     if (ui.view === 'wiki') return '项目 Wiki';
     const title = conversationTitle(activeConversation.value) || '';
     return title.length > 12 ? title.slice(0, 12) + '…' : title;
@@ -945,6 +947,7 @@ onBeforeUnmount(() => {
                 @open-memory="ui.view = 'memory'"
                 @open-blackboard="ui.view = 'blackboard'"
                 @open-agent="ui.view = 'agent'"
+                @open-plan-delegation="ui.view = 'plan-delegation'"
                 @open-wiki="openProjectWiki"
             />
             </template>
@@ -1057,6 +1060,12 @@ onBeforeUnmount(() => {
                 :root-goal-id="current || runs.at(-1)?.rootGoalId || ''"
                 :project-id="activeConversation?.projectId || ''"
                 :workspace="headerWorkspace"
+                @close="backToChat"
+            />
+
+            <PlanDelegationPage
+                v-else-if="ui.view === 'plan-delegation'"
+                :root-goal-id="current || runs.at(-1)?.rootGoalId || ''"
                 @close="backToChat"
             />
 
