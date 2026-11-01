@@ -17,6 +17,13 @@ import { IterationTracker } from '../analysis/iteration-tracker.js';
 import { TocAnalyst } from '../analysis/toc-analyst.js';
 import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
 import { loadCommandPolicy } from '../auth/command-policy.js';
+import {
+    MemoryBlackboardStore,
+    type ProjectBlackboard,
+    ProjectBlackboardService,
+    projectIdForWorkspace,
+    SqliteBlackboardStore,
+} from '../blackboard/index.js';
 import type { SkillProvider } from '../capabilities/runtime.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import {
@@ -164,6 +171,7 @@ export class HarnessRuntime {
     private readonly persistentMemoryStore?: SqliteMemoryStore;
     /** Reversible workspace effect journal (snapshots only explicitly scoped file writes). */
     private readonly effectStore: EffectStore;
+    private readonly blackboard: ProjectBlackboardService;
     /** 用户行为流权威库（SQLite；缺 dbPath 时进程内）。 */
     private readonly behaviorStore: BehaviorStore;
     /** 用户行为指令记录器（输入/反馈/审批；行为流 append-only）。 */
@@ -196,6 +204,10 @@ export class HarnessRuntime {
             workspaceId?: string;
             projectId?: string;
         }
+    >();
+    private readonly pendingBlackboard = new Map<
+        string,
+        { projectId: string; workspace: string }
     >();
     /** 待执行 Session 的开关审计（flag.evaluated：值 + 求值痕迹） */
     private readonly pendingFlags = new Map<
@@ -266,6 +278,11 @@ export class HarnessRuntime {
             config.dbPath !== undefined
                 ? new SqliteEffectStore(config.dbPath)
                 : new MemoryEffectStore();
+        this.blackboard = new ProjectBlackboardService(
+            config.dbPath !== undefined
+                ? new SqliteBlackboardStore(config.dbPath)
+                : new MemoryBlackboardStore(),
+        );
         this.llmProviders = buildLlmProviders(config, options);
         this.resolver = new ModelResolver(config, this.llmProviders);
         this.stepEvents = new StepEventEmitter(this.bus);
@@ -402,6 +419,7 @@ export class HarnessRuntime {
         this.goalStoreDb.close();
         this.persistentMemoryStore?.close();
         this.effectStore.close();
+        this.blackboard.close();
         this.tocStore.close();
         this.iterationStore.close();
         this.behaviorRecorder.close();
@@ -419,13 +437,23 @@ export class HarnessRuntime {
             this.pendingSessionId.set(rootGoalId, opts.conversationId);
         }
         const workspaceId = opts.workspaceRoot ?? this.workspaceRoot;
+        const projectId =
+            opts.projectId ??
+            (workspaceId !== undefined ? projectIdForWorkspace(workspaceId) : undefined);
         const memoryContext = {
             ...(opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {}),
             ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
             ...(workspaceId !== undefined ? { workspaceId } : {}),
-            ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
+            ...(projectId !== undefined ? { projectId } : {}),
         };
         this.pendingMemoryContext.set(rootGoalId, memoryContext);
+        if (projectId !== undefined && workspaceId !== undefined) {
+            this.pendingBlackboard.set(rootGoalId, {
+                projectId,
+                workspace: workspaceId,
+            });
+            await this.blackboard.ensure(projectId, workspaceId);
+        }
         if (opts.history !== undefined && opts.history.length > 0) {
             await this.memoryManager.remember(
                 turnsToMemory(opts.history, {
@@ -696,12 +724,30 @@ export class HarnessRuntime {
         this.pendingSessionId.delete(rootGoalId);
         const rootGoal = goals.find((goal) => goal.goalId === rootGoalId) ?? goals[0];
         const goalId = rootGoal?.goalId ?? rootGoalId;
+        const blackboardContext =
+            this.pendingBlackboard.get(rootGoalId) ??
+            (this.workspaceRoot !== undefined
+                ? {
+                      projectId: projectIdForWorkspace(this.workspaceRoot),
+                      workspace: this.workspaceRoot,
+                  }
+                : undefined);
+        const board =
+            blackboardContext !== undefined
+                ? await this.blackboard.ensure(
+                      blackboardContext.projectId,
+                      blackboardContext.workspace,
+                  )
+                : undefined;
+        const blackboardFragment =
+            board !== undefined ? this.blackboard.promptFragment(board) : undefined;
         const exec = this.goalExecutionConfig(
             rootGoalId,
             goalId,
             rootGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
             sessionId,
             allowedToolsOverride,
+            blackboardContext?.projectId,
         );
         this.bus.emit(
             newHarnessEvent({
@@ -741,7 +787,7 @@ export class HarnessRuntime {
                         rootGoalId,
                         goalId,
                         requestedSkills,
-                        combinePromptFragments(promptFragment, wikiFragment),
+                        combinePromptFragments(promptFragment, wikiFragment, blackboardFragment),
                     ),
                     tools: exec.tools,
                     invoker: exec.invoker,
@@ -864,6 +910,36 @@ export class HarnessRuntime {
                 }),
             );
         }
+        if (blackboardContext !== undefined) {
+            const changedPaths = result.tasks.flatMap((outcome) =>
+                outcome.steps
+                    .filter(
+                        (step): step is Extract<Step, { kind: 'invocation' }> =>
+                            step.kind === 'invocation' && step.status === 'succeeded',
+                    )
+                    .flatMap((step) =>
+                        typeof step.payload.arguments?.path === 'string'
+                            ? [step.payload.arguments.path]
+                            : [],
+                    ),
+            );
+            await this.blackboard.updateFromRun(
+                blackboardContext.projectId,
+                blackboardContext.workspace,
+                {
+                    rootGoalId,
+                    statement: rootGoal?.statement ?? '',
+                    ok: result.ok,
+                    reason: result.rejected?.join(';') || (result.ok ? 'completed' : 'failed'),
+                    ...(result.tasks.at(-1)?.finalMessage !== undefined
+                        ? { finalMessage: result.tasks.at(-1)?.finalMessage }
+                        : {}),
+                    taskTitles: result.tasks.map((outcome) => outcome.task.title),
+                    changedPaths: [...new Set(changedPaths)],
+                },
+            );
+        }
+        this.pendingBlackboard.delete(rootGoalId);
         // 回合收尾：把本次运行的改动写成『时间 | 功能级改动』条目（无改动零成本）。
         await this.wiki.flushRun({
             ...(sessionId !== undefined ? { sessionId } : {}),
@@ -1065,6 +1141,7 @@ export class HarnessRuntime {
         level: PermissionLevel,
         sessionId?: string,
         allowedToolsOverride?: readonly string[],
+        projectId?: string,
     ): {
         tools: ToolSchema[];
         invoker: GoalToolInvoker;
@@ -1079,6 +1156,9 @@ export class HarnessRuntime {
         // 项目 wiki 内置工具（wiki.read 只读免审批；wiki.update 归写能力，走既有判权）。
         if (this.wiki.enabled) {
             merged.push(...wikiToolConfigs(this.wiki));
+        }
+        if (projectId !== undefined && this.workspaceRoot !== undefined) {
+            merged.push(...blackboardToolConfigs(this.blackboard, projectId, this.workspaceRoot));
         }
         const gateway = new RuntimeToolGateway({
             rootGoalId,
@@ -1303,6 +1383,16 @@ export class HarnessRuntime {
         return this.personalMemory;
     }
 
+    async projectBlackboard(projectId: string): Promise<ProjectBlackboard | undefined> {
+        if (this.workspaceRoot === undefined) return undefined;
+        return this.blackboard.ensure(projectId, this.workspaceRoot);
+    }
+
+    async reconcileProjectBlackboard(projectId: string): Promise<ProjectBlackboard | undefined> {
+        if (this.workspaceRoot === undefined) return undefined;
+        return this.blackboard.reconcile(projectId, this.workspaceRoot);
+    }
+
     async exportPortableBundle(rootGoalIds: readonly string[]): Promise<MemoryBundle> {
         const auditTrails = rootGoalIds.map((rootGoalId) => {
             const verification = this.bus.verifyChain(rootGoalId);
@@ -1369,11 +1459,54 @@ export class HarnessRuntime {
 function combinePromptFragments(
     featureFragment: string | undefined,
     wikiFragment: string | undefined,
+    blackboardFragment: string | undefined,
 ): string | undefined {
-    const parts = [featureFragment?.trim() ?? '', wikiFragment?.trim() ?? ''].filter(
-        (part) => part.length > 0,
-    );
+    const parts = [
+        featureFragment?.trim() ?? '',
+        wikiFragment?.trim() ?? '',
+        blackboardFragment?.trim() ?? '',
+    ].filter((part) => part.length > 0);
     return parts.length > 0 ? parts.join('\n\n') : undefined;
+}
+
+function blackboardToolConfigs(
+    blackboard: ProjectBlackboardService,
+    projectId: string,
+    workspace: string,
+): ToolConfig[] {
+    return [
+        {
+            name: 'blackboard.read',
+            description:
+                'Read the current project blackboard. Use summary/architecture/status/issues/decisions for the relevant section instead of rescanning the entire repository.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    section: {
+                        type: 'string',
+                        enum: ['summary', 'architecture', 'status', 'issues', 'decisions', 'all'],
+                    },
+                },
+            },
+            minPermission: 'read-only',
+            sideEffects: [],
+            impl: async (args) => {
+                const board = await blackboard.ensure(projectId, workspace);
+                const section =
+                    args.section === 'summary' ||
+                    args.section === 'architecture' ||
+                    args.section === 'status' ||
+                    args.section === 'issues' ||
+                    args.section === 'decisions'
+                        ? args.section
+                        : 'all';
+                return {
+                    ok: true,
+                    content: blackboard.read(board, section),
+                };
+            },
+        },
+    ];
 }
 
 function assertInsideWorkspace(workspaceRoot: string, path: string): void {

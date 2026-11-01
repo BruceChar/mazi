@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { type EffectiveFeatures, ulid } from '@mazi/core';
 import { renderThinkingChain } from '@mazi/libs';
-import type { PlannedTask } from '@mazi/runtime';
+import { type PlannedTask, projectIdForWorkspace } from '@mazi/runtime';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import Logger from '../common/log.js';
@@ -67,7 +67,9 @@ export class SessionsService {
             targetContext?.projectId ??
             (typeof body.projectId === 'string' && body.projectId.trim()
                 ? body.projectId.trim()
-                : workspace);
+                : workspace !== undefined
+                  ? projectIdForWorkspace(workspace)
+                  : undefined);
         const goalBody =
             body.goal && typeof body.goal === 'object'
                 ? (body.goal as Record<string, unknown>)

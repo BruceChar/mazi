@@ -21,6 +21,7 @@ import { IterationsService } from './iterations/iterations.service.js';
 import { LedgerController } from './ledger/ledger.controller.js';
 import { LedgerService } from './ledger/ledger.service.js';
 import { MemoryController } from './memory/memory.controller.js';
+import { ProjectsController } from './projects/projects.controller.js';
 import { QuestionsController } from './questions/questions.controller.js';
 import { QuestionsService } from './questions/questions.service.js';
 import { RunsController } from './runs/runs.controller.js';
@@ -57,6 +58,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         LedgerController,
         MemoryController,
         QuestionsController,
+        ProjectsController,
         SystemController,
         WikiController,
     ],
