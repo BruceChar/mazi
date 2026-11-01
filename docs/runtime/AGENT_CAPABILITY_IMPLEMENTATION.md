@@ -13,8 +13,8 @@
 - **API**：新增 `/api/memory` 治理接口、`/api/eval/tasks|runs` 评测接口（运行记录落
   `mazi.db`），以及
   `/api/projects/blackboard(+reconcile)` / `/api/projects/:id/blackboard(+reconcile)` 项目黑板接口。
-- **WebUI**：新增 Eval Dashboard（全局/项目/会话）；个人记忆治理并入用户中心，项目黑板并入
-  原项目 Wiki，支持查看结构化知识、证据、版本与源漂移检查。
+- **WebUI**：新增 Eval Dashboard（全局/项目/会话）；个人记忆治理并入用户中心，项目黑板通过
+  `GET /api/wiki` 并入原项目 Wiki，支持查看结构化知识、证据、版本与源漂移检查。
 
 P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、记忆向量语义索引和黑板章节自动语义重写仍属于后续增强。
 
@@ -100,6 +100,8 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 - `GET /api/eval/tasks`：读取 30 个 P0 Benchmark 基线任务。
 - `POST /api/eval/runs`：运行指定 Eval Task 并返回报告；运行中、完成和失败状态均落 SQLite。
 - `GET /api/eval/runs` / `GET /api/eval/runs/:id/report`：查询运行和完整报告。
+- `GET /api/wiki`：项目 Wiki 复合视图（Wiki 快照、变更日志、项目黑板）。
+- `POST /api/wiki/reconcile`：从项目 Wiki 入口执行项目知识源漂移检查。
 - `DELETE /api/agent/roles/:id`：删除 Agent Role，并以 disabled 记录持久化。
 - `GET /api/sessions/:id/effects`：读取副作用 journal。
 - `POST /api/sessions/:id/rollback`：逆序恢复可逆文件副作用。

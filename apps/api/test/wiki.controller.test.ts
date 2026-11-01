@@ -63,6 +63,8 @@ describe('项目 wiki 接口（docs/项目wiki设计.md §10）', () => {
         expect(body.entries[0].ts).toBe('2026-10-16 02:13:40');
         expect(body.path).toBe(join(h.home, 'wiki', project, 'wiki.md'));
         expect(body.updatedAt).toBe('2026-10-16T02:13:40+08:00');
+        expect(body.blackboard.projectId).toBeTruthy();
+        expect(body.blackboard.workspaceRef).toBe(workspace);
     });
 
     it('W2 未产生 wiki 的工作区：200 空态', async () => {
@@ -75,6 +77,16 @@ describe('项目 wiki 接口（docs/项目wiki设计.md §10）', () => {
         expect(body.empty).toBe(true);
         expect(body.snapshot).toBeNull();
         expect(body.entries).toEqual([]);
+        expect(body.blackboard).toBeTruthy();
+    });
+
+    it('W4 POST /api/wiki/reconcile：项目知识对账仍从 Wiki 入口完成', async () => {
+        const res = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/wiki/reconcile?workspace=' + encodeURIComponent(workspace),
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json().blackboard.projectId).toBeTruthy();
     });
 
     it('W3 GET /api/wiki/list：项目清单含条目数与工作区', async () => {

@@ -39,12 +39,9 @@ async function load() {
         const query = targetWorkspace.value
             ? '?workspace=' + encodeURIComponent(targetWorkspace.value)
             : '';
-        const [wiki, blackboard] = await Promise.all([
-            api('/api/wiki' + query),
-            api('/api/projects/blackboard' + query),
-        ]);
+        const wiki = await api('/api/wiki' + query);
         view.value = wiki;
-        board.value = blackboard.board;
+        board.value = wiki.blackboard;
     } catch (err) {
         error.value = String(err);
         view.value = null;
@@ -88,10 +85,10 @@ async function reconcileBoard() {
     loading.value = true;
     error.value = '';
     try {
-        const data = await api('/api/projects/blackboard/reconcile' + queryForWorkspace(), {
+        const data = await api('/api/wiki/reconcile' + queryForWorkspace(), {
             method: 'POST',
         });
-        board.value = data.board;
+        board.value = data.blackboard;
         reconciledAt.value = Date.now();
     } catch (err) {
         error.value = String(err);
