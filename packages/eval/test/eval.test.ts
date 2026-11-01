@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     aggregateResults,
     buildEvalReport,
+    createRuntimeEvalExecutor,
     loadEvalDataset,
     runEvalSuite,
     type EvalObservation,
@@ -106,5 +107,123 @@ describe('P0 eval harness', () => {
         expect(report.generatedAt).toBe(42);
         expect(report.overall.successRate).toBe(1);
         expect(report.byDifficulty.simple?.tasks).toBe(3);
+    });
+
+    it('projects a real runtime run into evaluation metrics', async () => {
+        const tasks = loadEvalDataset(join(import.meta.dirname, '../tasks/p0-baseline.json'));
+        const task = tasks[0]!;
+        const runtime = {
+            async runGoalSession() {
+                return {
+                    rootGoalId: 'r1',
+                    result: {
+                        rootGoalId: 'r1',
+                        ok: true,
+                        tasks: [
+                            {
+                                ok: true,
+                                reason: 'final-answer',
+                                finalMessage: 'done',
+                                steps: [],
+                                task: {
+                                    taskId: 't1',
+                                    goalId: 'g1',
+                                    title: 'read',
+                                    acceptance: { conditions: ['answer'] },
+                                    status: 'succeeded',
+                                    acceptanceResult: {
+                                        checkedAt: 1,
+                                        passed: true,
+                                        evaluated: 1,
+                                        total: 1,
+                                        conditions: [
+                                            { conditionId: 'answer', status: 'passed' },
+                                        ],
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                    snapshot: {
+                        goals: [
+                            {
+                                tasks: [
+                                    {
+                                        steps: [
+                                            {
+                                                stepId: 's1',
+                                                goalId: 'g1',
+                                                taskId: 't1',
+                                                kind: 'deliberation',
+                                                status: 'succeeded',
+                                                startedAt: 1,
+                                                usage: {
+                                                    roundId: 'round1',
+                                                    raw: { inputTokens: 10, outputTokens: 5 },
+                                                    cost: {
+                                                        inputCostUsd: 0.01,
+                                                        outputCostUsd: 0.01,
+                                                        cacheWriteCostUsd: 0,
+                                                        cacheReadCostUsd: 0,
+                                                        reasoningCostUsd: 0,
+                                                        totalCostUsd: 0.02,
+                                                    },
+                                                },
+                                            },
+                                            {
+                                                stepId: 's2',
+                                                goalId: 'g1',
+                                                taskId: 't1',
+                                                kind: 'invocation',
+                                                status: 'succeeded',
+                                                startedAt: 1,
+                                                toolName: 'fs.read',
+                                                toolArguments: { path: 'README.md' },
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                };
+            },
+            async goalSnapshot() {
+                throw new Error('unused');
+            },
+            eventBus: {
+                replay: () => [
+                    {
+                        eventId: 'e1',
+                        type: 'plan.created',
+                        rootGoalId: 'r1',
+                        timestamp: 1,
+                        attributes: {},
+                    },
+                    {
+                        eventId: 'e2',
+                        type: 'approval.requested',
+                        rootGoalId: 'r1',
+                        timestamp: 2,
+                        attributes: {},
+                    },
+                ],
+            },
+        };
+        const result = await runEvalSuite(
+            [task],
+            createRuntimeEvalExecutor(runtime as never),
+        );
+        expect(result[0]).toMatchObject({
+            success: true,
+            toolCallAccuracy: 1,
+            failureEvidence: [],
+        });
+        expect(result[0]?.observation).toMatchObject({
+            interventions: 1,
+            inputTokens: 10,
+            outputTokens: 5,
+            costUsd: 0.02,
+        });
     });
 });

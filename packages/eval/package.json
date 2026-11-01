@@ -20,6 +20,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@mazi/core": "workspace:*"
+    "@mazi/core": "workspace:*",
+    "@mazi/runtime": "workspace:*"
   }
 }

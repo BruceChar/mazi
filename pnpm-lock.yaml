@@ -105,6 +105,9 @@ importers:
       '@mazi/core':
         specifier: workspace:*
         version: link:../core
+      '@mazi/runtime':
+        specifier: workspace:*
+        version: link:../runtime
 
   packages/libs: {}
 
