@@ -107,17 +107,7 @@ applyTheme(theme.value);
 
 export interface UiState {
     /** 主区视图：对话 / 系统设置 / 用户中心整页 / 实验与分析页面。 */
-    view:
-        | 'chat'
-        | 'system-settings'
-        | 'user-center'
-        | 'wiki'
-        | 'evals'
-        | 'lab'
-        | 'memory'
-        | 'blackboard'
-        | 'agent'
-        | 'plan-delegation';
+    view: 'chat' | 'system-settings' | 'user-center' | 'wiki' | 'evals' | 'lab';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;

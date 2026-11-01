@@ -5,6 +5,7 @@ import LineIcon from '../assets/LineIcon.vue';
 
 const props = defineProps({
     projectId: { type: String, default: '' },
+    embedded: { type: Boolean, default: false },
 });
 const emit = defineEmits(['close']);
 
@@ -142,8 +143,8 @@ function provenanceLabel(item) {
 </script>
 
 <template>
-    <section class="memory-page">
-        <header class="memory-head">
+    <section class="memory-page" :class="{ embedded }">
+        <header v-if="!embedded" class="memory-head">
             <div class="memory-title">
                 <LineIcon name="lightbulb" :size="17" />
                 <strong>个人长期记忆</strong>
@@ -291,6 +292,12 @@ function provenanceLabel(item) {
     padding: 12px 16px 16px;
     gap: 10px;
     overflow: hidden;
+}
+.memory-page.embedded {
+    padding: 0;
+}
+.memory-page.embedded .memory-layout {
+    grid-template-columns: 250px minmax(0, 1fr);
 }
 .memory-head,
 .memory-title,

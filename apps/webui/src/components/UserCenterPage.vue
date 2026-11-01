@@ -11,6 +11,7 @@ import { userPreferences } from '../scripts/store.ts';
 import { USER_CENTER_TABS, userCenterTabOf } from '../scripts/user-center.ts';
 import BehaviorPage from './BehaviorPage.vue';
 import LedgerPage from './LedgerPage.vue';
+import MemoryGovernancePage from './MemoryGovernancePage.vue';
 import ProfilePage from './ProfilePage.vue';
 import QuestionsPage from './QuestionsPage.vue';
 import UserPreferencesPage from './UserPreferencesPage.vue';
@@ -18,6 +19,7 @@ import UserPreferencesPage from './UserPreferencesPage.vue';
 const props = defineProps({
     /** 当前 tab（外部持有，便于返回后保持原位）。 */
     tab: { type: String, default: 'profile' },
+    projectId: { type: String, default: '' },
 });
 const emit = defineEmits(['update:tab', 'close']);
 
@@ -53,6 +55,11 @@ const displayName = computed(() => userPreferences.displayName?.trim() || '本�
 
         <section class="uc-body">
             <ProfilePage v-if="activeTab === 'profile'" />
+            <MemoryGovernancePage
+                v-else-if="activeTab === 'memory'"
+                embedded
+                :project-id="projectId"
+            />
             <QuestionsPage v-else-if="activeTab === 'questions'" />
             <BehaviorPage v-else-if="activeTab === 'behavior'" />
             <LedgerPage v-else-if="activeTab === 'ledger'" />

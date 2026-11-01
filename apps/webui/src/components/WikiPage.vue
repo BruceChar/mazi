@@ -22,8 +22,10 @@ const props = defineProps({
 const emit = defineEmits(['close']);
 
 const view = ref(null);
+const board = ref(null);
 const loading = ref(false);
 const error = ref('');
+const reconciledAt = ref(0);
 
 /** 目标工作区：跟随顶部栏（项目会话 = 会话工作区；随心聊 = 已选/默认工作区）。 */
 const targetWorkspace = computed(
@@ -37,7 +39,12 @@ async function load() {
         const query = targetWorkspace.value
             ? '?workspace=' + encodeURIComponent(targetWorkspace.value)
             : '';
-        view.value = await api('/api/wiki' + query);
+        const [wiki, blackboard] = await Promise.all([
+            api('/api/wiki' + query),
+            api('/api/projects/blackboard' + query),
+        ]);
+        view.value = wiki;
+        board.value = blackboard.board;
     } catch (err) {
         error.value = String(err);
         view.value = null;
@@ -54,6 +61,50 @@ watch(targetWorkspace, () => {
 const sections = computed(() => snapshotSections(view.value?.snapshot ?? null));
 const entries = computed(() => recentEntries(view.value?.entries, 50));
 const isEmpty = computed(() => view.value === null || view.value.empty === true);
+const boardSections = computed(() => {
+    const value = board.value;
+    if (!value) return [];
+    return [
+        { title: '架构', items: [value.architectureSummary] },
+        { title: '技术栈', items: value.stack },
+        { title: '核心模块', items: value.coreModules },
+        { title: '接口', items: value.interfaces },
+        { title: '约束', items: value.constraints },
+        { title: '进行中', items: value.activeGoals },
+        { title: '已完成', items: value.completedMilestones },
+        { title: '已知问题', items: value.knownIssues, tone: 'warn' },
+        { title: '决策', items: value.decisions },
+        { title: '下一步', items: value.nextActions },
+        { title: '最近变化', items: value.recentChanges },
+    ]
+        .map((section) => ({
+            ...section,
+            items: (section.items ?? []).filter(Boolean),
+        }))
+        .filter((section) => section.items.length > 0);
+});
+
+async function reconcileBoard() {
+    loading.value = true;
+    error.value = '';
+    try {
+        const data = await api('/api/projects/blackboard/reconcile' + queryForWorkspace(), {
+            method: 'POST',
+        });
+        board.value = data.board;
+        reconciledAt.value = Date.now();
+    } catch (err) {
+        error.value = String(err);
+    } finally {
+        loading.value = false;
+    }
+}
+
+function queryForWorkspace() {
+    return targetWorkspace.value
+        ? '?workspace=' + encodeURIComponent(targetWorkspace.value)
+        : '';
+}
 </script>
 
 <template>
@@ -71,6 +122,9 @@ const isEmpty = computed(() => view.value === null || view.value.empty === true)
                     更新于 {{ wikiUpdatedLabel(view?.updatedAt) }} ·
                     {{ entryCountLabel(view?.entries?.length ?? 0) }}
                 </span>
+                <button type="button" :disabled="loading" @click="reconcileBoard">
+                    检查源漂移
+                </button>
                 <button type="button" :disabled="loading" @click="load">
                     {{ loading ? '刷新中…' : '刷新' }}
                 </button>
@@ -79,11 +133,49 @@ const isEmpty = computed(() => view.value === null || view.value.empty === true)
         </header>
 
         <p v-if="error" class="wiki-error">{{ error }}</p>
-        <div v-if="isEmpty && !error" class="wiki-empty">
+        <p v-if="reconciledAt" class="wiki-notice">
+            已检查项目源指纹；结构化知识不会被自动全量重写。
+        </p>
+        <div v-if="isEmpty && !board && !error" class="wiki-empty">
             {{ wikiEmptyText(targetWorkspace) }}
         </div>
         <div v-else-if="!error" class="wiki-body">
-            <article class="wiki-panel">
+            <article v-if="board" class="wiki-panel wiki-board">
+                <div class="wiki-board-head">
+                    <h3>项目知识</h3>
+                    <span>v{{ board.version }} · {{ board.status }}</span>
+                </div>
+                <p class="wiki-purpose">{{ board.purpose || '尚未形成项目目的摘要。' }}</p>
+                <div class="wiki-board-grid">
+                    <section v-for="section in boardSections" :key="section.title">
+                        <h4>{{ section.title }}</h4>
+                        <ul>
+                            <li
+                                v-for="(item, index) in section.items.slice(0, 12)"
+                                :key="section.title + ':' + index"
+                                :class="section.tone"
+                            >
+                                {{ item }}
+                            </li>
+                        </ul>
+                    </section>
+                </div>
+                <div class="wiki-evidence">
+                    <strong>证据与源指纹</strong>
+                    <code>{{ board.sourceFingerprint }}</code>
+                    <ul>
+                        <li
+                            v-for="evidence in board.evidenceRefs.slice(-12).reverse()"
+                            :key="evidence.ref"
+                        >
+                            <span>{{ evidence.kind }}</span>
+                            <code>{{ evidence.ref }}</code>
+                        </li>
+                    </ul>
+                </div>
+            </article>
+
+            <article v-if="!isEmpty" class="wiki-panel">
                 <h3>状态快照</h3>
                 <template v-if="sections.length">
                     <section v-for="section in sections" :key="section.title" class="wiki-section">
@@ -95,7 +187,7 @@ const isEmpty = computed(() => view.value === null || view.value.empty === true)
                 <p v-else class="wiki-muted">快照为空（尚未刷新）。</p>
             </article>
 
-            <article class="wiki-panel">
+            <article v-if="!isEmpty" class="wiki-panel">
                 <h3>变更日志</h3>
                 <ul v-if="entries.length" class="wiki-log">
                     <li v-for="(entry, index) in entries" :key="entry.ts + ':' + index">
@@ -161,8 +253,8 @@ const isEmpty = computed(() => view.value === null || view.value.empty === true)
 .wiki-body {
     flex: 1;
     min-height: 0;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-direction: column;
     gap: 12px;
 }
 .wiki-panel {
@@ -172,6 +264,85 @@ const isEmpty = computed(() => view.value === null || view.value.empty === true)
     padding: 10px 12px;
     overflow-y: auto;
     min-height: 0;
+}
+.wiki-board {
+    flex: 0 0 auto;
+}
+.wiki-board-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.wiki-board-head span {
+    color: var(--fg-tertiary);
+    font-size: 11px;
+}
+.wiki-purpose {
+    margin: 8px 0 10px;
+    color: var(--fg-secondary);
+    font-size: 13px;
+    line-height: 1.55;
+}
+.wiki-board-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 8px;
+}
+.wiki-board-grid section {
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+}
+.wiki-board-grid h4 {
+    margin: 0 0 5px;
+}
+.wiki-board-grid ul {
+    margin: 0;
+    padding-left: 16px;
+    color: var(--fg-secondary);
+    font-size: 11px;
+    line-height: 1.5;
+}
+.wiki-board-grid li.warn {
+    color: var(--warn);
+}
+.wiki-evidence {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-soft);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 5px 10px;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.wiki-evidence > code {
+    color: var(--fg-secondary);
+}
+.wiki-evidence ul {
+    grid-column: 1 / -1;
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+}
+.wiki-evidence li {
+    display: grid;
+    grid-template-columns: 50px minmax(0, 1fr);
+    gap: 6px;
+    padding: 2px 0;
+}
+.wiki-evidence li code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.wiki-notice {
+    margin: 0;
+    color: var(--ok);
+    font-size: 12px;
 }
 .wiki-panel h3 {
     margin: 0 0 8px;

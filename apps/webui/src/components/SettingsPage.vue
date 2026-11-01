@@ -5,6 +5,7 @@ import { runSettings, saveRunSettings } from '../scripts/run-settings.ts';
 import { backfillUserBehaviors, exportUserBehaviors } from '../scripts/store.ts';
 import FeaturesPanel from './FeaturesPanel.vue';
 import SkillsPanel from './SkillsPanel.vue';
+import AgentSettingsPanel from './AgentSettingsPanel.vue';
 
 /** Update one run-default field and persist it. */
 function updateRun(key, value) {
@@ -581,6 +582,11 @@ watch(
         <!-- About -->
         <template v-else-if="activeTab === 'skills'">
             <SkillsPanel />
+        </template>
+
+        <template v-else-if="activeTab === 'agent'">
+            <h1 class="settings-title">Agent</h1>
+            <AgentSettingsPanel />
         </template>
 
         <template v-else-if="activeTab === 'features'">

@@ -1,13 +1,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './assets/LineIcon.vue';
-import AgentOrchestrationPage from './components/AgentOrchestrationPage.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import EvalDashboardPage from './components/EvalDashboardPage.vue';
 import LabPage from './components/LabPage.vue';
-import MemoryGovernancePage from './components/MemoryGovernancePage.vue';
-import PlanDelegationPage from './components/PlanDelegationPage.vue';
-import ProjectBlackboardPage from './components/ProjectBlackboardPage.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
@@ -249,10 +245,6 @@ const activeConversation = computed(() =>
 const headerTitle = computed(() => {
     if (ui.view === 'evals') return '评测';
     if (ui.view === 'lab') return 'Lab';
-    if (ui.view === 'memory') return '个人记忆';
-    if (ui.view === 'blackboard') return '项目黑板';
-    if (ui.view === 'agent') return 'Agent 编排';
-    if (ui.view === 'plan-delegation') return 'Replan / 委派';
     if (ui.view === 'wiki') return '项目 Wiki';
     const title = conversationTitle(activeConversation.value) || '';
     return title.length > 12 ? title.slice(0, 12) + '…' : title;
@@ -963,10 +955,6 @@ onBeforeUnmount(() => {
                 @open-settings="openSettings"
                 @open-evals="ui.view = 'evals'"
                 @open-lab="ui.view = 'lab'"
-                @open-memory="ui.view = 'memory'"
-                @open-blackboard="ui.view = 'blackboard'"
-                @open-agent="ui.view = 'agent'"
-                @open-plan-delegation="ui.view = 'plan-delegation'"
                 @open-wiki="openProjectWiki"
             />
             </template>
@@ -1066,32 +1054,6 @@ onBeforeUnmount(() => {
                 @close="backToChat"
             />
 
-            <MemoryGovernancePage
-                v-else-if="ui.view === 'memory'"
-                :project-id="activeConversation?.projectId || ''"
-                @close="backToChat"
-            />
-
-            <ProjectBlackboardPage
-                v-else-if="ui.view === 'blackboard'"
-                :workspace="headerWorkspace"
-                @close="backToChat"
-            />
-
-            <AgentOrchestrationPage
-                v-else-if="ui.view === 'agent'"
-                :root-goal-id="current || runs.at(-1)?.rootGoalId || ''"
-                :project-id="activeConversation?.projectId || ''"
-                :workspace="headerWorkspace"
-                @close="backToChat"
-            />
-
-            <PlanDelegationPage
-                v-else-if="ui.view === 'plan-delegation'"
-                :root-goal-id="current || runs.at(-1)?.rootGoalId || ''"
-                @close="backToChat"
-            />
-
             <WikiPage
                 v-else-if="ui.view === 'wiki'"
                 :workspace="wikiWorkspace"
@@ -1101,6 +1063,7 @@ onBeforeUnmount(() => {
             <UserCenterPage
                 v-else-if="ui.view === 'user-center'"
                 :tab="userCenterTab"
+                :project-id="activeConversation?.projectId || ''"
                 @update:tab="userCenterTab = $event"
                 @close="backToChat"
             />

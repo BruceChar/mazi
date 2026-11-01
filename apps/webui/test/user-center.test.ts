@@ -6,9 +6,10 @@ import {
 } from '../src/scripts/user-center.ts';
 
 describe('user-center（用户中心 tab IA）', () => {
-    it('tab 顺序为 画像/问题/行为链/账本/用户设置', () => {
+    it('tab 顺序为 画像/记忆/问题/行为链/账本/用户设置', () => {
         expect(USER_CENTER_TABS.map((tab) => tab.id)).toEqual([
             'profile',
+            'memory',
             'questions',
             'behavior',
             'ledger',

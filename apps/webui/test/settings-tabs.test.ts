@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { SETTINGS_TABS } from '../src/scripts/settings-tabs.ts';
 
 describe('settings-tabs（系统设置 IA）', () => {
-    it('分类顺序：General / Model / Providers / Auth / About', () => {
+    it('分类顺序包含 Agent 模板配置', () => {
         expect(SETTINGS_TABS.map((tab) => tab.id)).toEqual([
             'general',
             'model',
+            'agent',
             'providers',
             'auth',
             'storage',
