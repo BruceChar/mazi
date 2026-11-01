@@ -23,6 +23,16 @@ P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、
 
 P1 当前边界：PromptPack Registry 为进程内版；默认不内置校准 LLM Judge，需要外部注入；PromptPack UI、持久化版本仓库和更细粒度归因仍待增强。
 
+## P2 基础版（2026-11-02）
+
+- **动态 Replan**：Verifier/Executor 失败后由可注入 `ReplanPlanner` 提出新 DAG；harness 保留已完成 Task，校验冻结契约、权限、预算、依赖和重复计划，限制最大 Replan 次数并记录 `plan.revised` / `replan.rejected` 与计划 diff。
+- **多 Agent 角色**：内置 planner/executor/reviewer/researcher，可配置模型、工具、系统提示和权限上限。
+- **委托治理**：SQLite delegation edge、父权限/预算单调递减、未知角色与预算溢出拒绝、最大委托深度。
+- **并行与 handoff**：`delegate` 工具可一次提交多个子 Agent，并行执行独立子 Goal，结果沿工具 observation 回传；角色级工具、模型、Prompt 和预算在子会话生效。
+- **审计**：`delegation.started/completed/rejected` 事件和 `/api/agent/sessions/:id/delegations` 委托边查询。
+
+P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM Replanner；角色注册表为进程内状态；`memoryPolicy: isolated` 已建模但尚未强隔离上下文；委托树 WebUI 可视化尚未实现。
+
 ## 已落地
 
 | 能力 | 实现位置 | 当前语义 |
@@ -43,6 +53,8 @@ P1 当前边界：PromptPack Registry 为进程内版；默认不内置校准 LL
 | P1 PromptPack | `packages/runtime/src/prompts` | 项目/任务/工具/风险确定性匹配，L0–L2 渐进注入与预算 |
 | P1 SuperAgent | `packages/runtime/src/agent` | 请求级 Planner/Verifier/PromptPack/记忆/黑板选择 |
 | P1 Verifier | `packages/runtime/src/verifier` | 独立机械验收、语义 Judge seam、uncertain 与失败归因 |
+| P2 Replan | `packages/runtime/src/gts/replan.ts` | 有界计划修订、保留已完成 Task、diff 与重复计划检测 |
+| P2 Multi-Agent | `packages/runtime/src/agent/delegation*` | 角色、委托边、并行扇出、权限预算校验和 handoff |
 
 ## API
 

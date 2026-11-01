@@ -4,7 +4,7 @@
 >
 > 范围：只规划 P0–P3。RL 部分只建设评测、轨迹和奖励数据接口，不在本项目实现 SFT/DPO/GRPO/PPO 等训练器。
 >
-> **实施状态（2026-11-02）**：P0-A/P0-B/P0-C 与 P1-A/P1-B/P1-C/P1-D 已完成基础版并分别提交；P2–P3 尚未开始。
+> **实施状态（2026-11-02）**：P0、P1 与 P2-A/P2-B 已完成基础版并分别提交；P3 尚未开始。
 
 ## 1. 设计结论
 
@@ -433,9 +433,9 @@ context | memory | policy | environment | system
 
 ---
 
-## 4. P2：动态 Replan 与多 Agent
+## 4. P2：动态 Replan 与多 Agent（已实现基础版）
 
-### P2-A 动态 Replan
+### P2-A 动态 Replan（已实现基础版）
 
 ```text
 Observe
@@ -454,7 +454,7 @@ Observe
 - Plan diff、触发证据和原因必须落审计。
 - 检测计划漂移、循环调用和上下文污染。
 
-### P2-B 多 Agent 与 Handoff
+### P2-B 多 Agent 与 Handoff（已实现基础版）
 
 实现已有 [多 Agent 设计](./AHF_RUNTIME_MULTI_AGENT.md)：
 
