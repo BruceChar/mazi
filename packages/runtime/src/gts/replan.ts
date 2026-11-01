@@ -104,9 +104,6 @@ export async function createPlanRevision(input: {
     if (rejected.length > 0) return { rejected: [...new Set(rejected)] };
     const completedIds = new Set(completed.map((task) => task.taskId));
     const newIds = new Set(compiled.tasks.map((task) => task.taskId));
-    const previousIds = new Set(
-        [...completed, input.request.failedTask].map((task) => task.taskId),
-    );
     return {
         revision: {
             revision: input.request.revision + 1,
