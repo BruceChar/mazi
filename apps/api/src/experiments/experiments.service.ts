@@ -7,6 +7,7 @@ import {
     ExperimentSpecError,
     listExperiments,
     loadExperiment,
+    projectIdForWorkspace,
     specOfExperiment,
     summarizeExperiment,
     validateExperimentSpec,
@@ -15,6 +16,7 @@ import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
+import { EvalService } from '../eval/eval.service.js';
 
 function asRecord(value: unknown): Record<string, unknown> {
     return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
@@ -41,7 +43,10 @@ function verdictOf(value: unknown): 'A' | 'B' | 'tie' | 'inconclusive' {
 export class ExperimentsService {
     private readonly logger = new Logger('experiments');
 
-    constructor(private readonly runtime: ApiRuntimeService) {}
+    constructor(
+        private readonly runtime: ApiRuntimeService,
+        private readonly evaluations: EvalService,
+    ) {}
 
     /** GET /api/experiments：历史列表（轻量投影，createdAt 倒序）。 */
     async list(): Promise<{ experiments: ExperimentSummary[] }> {
@@ -69,7 +74,10 @@ export class ExperimentsService {
      */
     async execute(experimentId: string): Promise<ExperimentView> {
         const view = await this.detail(experimentId);
-        if (view.arms.every((arm) => arm.metrics !== undefined)) return view;
+        if (view.arms.every((arm) => arm.metrics !== undefined)) {
+            await this.recordEvaluations(view);
+            return view;
+        }
         const runner = await this.runner(view.workspace);
         const started = Date.now();
         const done = await this.runtime.runExperimentExclusive(() => runner.execute(experimentId));
@@ -78,6 +86,7 @@ export class ExperimentsService {
                 .map((arm) => arm.status)
                 .join('/')} ms=${Date.now() - started}`,
         );
+        await this.recordEvaluations(done);
         return done;
     }
 
@@ -195,5 +204,32 @@ export class ExperimentsService {
         if (spec.workspace !== undefined) return spec;
         const current = this.runtime.selectedWorkspaceRoot ?? this.runtime.freeChatWorkspace;
         return { ...spec, workspace: current };
+    }
+
+    private async recordEvaluations(view: ExperimentView): Promise<void> {
+        const projectId =
+            view.workspace !== undefined ? projectIdForWorkspace(view.workspace) : undefined;
+        for (const arm of view.arms) {
+            if (arm.rootGoalId === undefined) continue;
+            const workspace = view.workspace;
+            try {
+                await this.evaluations.recordSession({
+                    harness: this.runtime.experimentHarness(workspace),
+                    rootGoalId: arm.rootGoalId,
+                    title: view.title,
+                    source: 'ab',
+                    experimentId: view.experimentId,
+                    arm: arm.label,
+                    ...(projectId !== undefined ? { projectId } : {}),
+                    ...(workspace !== undefined ? { workspace } : {}),
+                });
+            } catch (error) {
+                this.logger.warn(
+                    `record experiment evaluation ${view.experimentId}/${arm.label} failed: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+            }
+        }
     }
 }

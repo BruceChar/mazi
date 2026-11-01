@@ -77,7 +77,12 @@ function setup(dbPath = ':memory:') {
         homePaths: { dbPath },
     } as unknown as ApiRuntimeService;
     const service = new EvalService(runtime);
-    return { controller: new EvalController(service), service };
+    return {
+        controller: new EvalController(service, {
+            allRuns: () => [],
+        } as never),
+        service,
+    };
 }
 
 describe('eval controller', () => {

@@ -111,6 +111,18 @@ describe('对照实验接口', () => {
         expect(done.comparison.metrics.some((m: { key: string }) => m.key === 'costUsd')).toBe(
             true,
         );
+        const evaluations = await h.fastify.inject({
+            method: 'GET',
+            url: '/api/eval/sessions?source=ab',
+        });
+        expect(
+            evaluations
+                .json()
+                .sessions.filter(
+                    (record: { experimentId: string }) =>
+                        record.experimentId === experimentId,
+                ),
+        ).toHaveLength(2);
 
         const again = await h.fastify.inject({
             method: 'POST',

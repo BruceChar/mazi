@@ -288,6 +288,39 @@ describe('sessions（Goal 坐标系：sessionId = rootGoalId）', () => {
         expect(Array.isArray(body.tasks)).toBe(true);
     });
 
+    it('automatically derives and persists a session evaluation after each run', async () => {
+        const created = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '读取 README.md 并汇报', userId: 'eval-user' },
+        });
+        const { sessionId } = created.json();
+        await fastify.inject({
+            method: 'POST',
+            url: `/api/sessions/${sessionId}/run`,
+            headers: { 'content-type': 'application/json' },
+            payload: '{}',
+        });
+        const evaluation = await fastify.inject({
+            method: 'GET',
+            url: `/api/eval/sessions/${sessionId}`,
+        });
+        expect(evaluation.statusCode).toBe(200);
+        expect(evaluation.json()).toMatchObject({
+            rootGoalId: sessionId,
+            source: 'session',
+            status: expect.stringMatching(/failed|unverified/),
+        });
+        const list = await fastify.inject({
+            method: 'GET',
+            url: '/api/eval/sessions?source=session',
+        });
+        expect(
+            list.json().sessions.some((record: { rootGoalId: string }) => record.rootGoalId === sessionId),
+        ).toBe(true);
+    });
+
     it('POST /api/run 缺 input → 400；带 input → 200（runGoalSession 一站式）', async () => {
         const missing = await fastify.inject({
             method: 'POST',

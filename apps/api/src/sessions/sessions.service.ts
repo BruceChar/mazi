@@ -1,12 +1,13 @@
 import 'reflect-metadata';
 import { type EffectiveFeatures, ulid } from '@mazi/core';
 import { renderThinkingChain } from '@mazi/libs';
-import { type PlannedTask, projectIdForWorkspace } from '@mazi/runtime';
+import { type HarnessRuntime, type PlannedTask, projectIdForWorkspace } from '@mazi/runtime';
 import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
+import { EvalService } from '../eval/eval.service.js';
 
 /** Conversation 续聊时携带的最大历史轮数（防止上下文无界增长）。 */
 const HISTORY_MAX_RUNS = 10;
@@ -25,6 +26,7 @@ export class SessionsService {
     constructor(
         private readonly runtime: ApiRuntimeService,
         private readonly conversations: ConversationsService,
+        private readonly evaluations: EvalService,
     ) {}
 
     /**
@@ -382,6 +384,7 @@ export class SessionsService {
         const result = await this.runtime.runExclusive(() =>
             this.runtime.harness().runGoalSession(input, { userId }),
         );
+        await this.recordEvaluation(result.rootGoalId, result.result);
         this.logger.log(
             `runOnce done ${result.rootGoalId} ms=${Date.now() - started} ok=${result.result.ok} tasks=${result.result.tasks.length}`,
         );
@@ -395,6 +398,7 @@ export class SessionsService {
         const result = await this.runtime.runExclusive(() =>
             this.runtime.harness().executeGoalTree(sessionId),
         );
+        await this.recordEvaluation(sessionId, result);
         const last = result.tasks[result.tasks.length - 1];
         this.logger.log(
             `executeSession done ${sessionId} ms=${Date.now() - started} ok=${result.ok} tasks=${result.tasks.length} reason=${last?.reason ?? '-'} error=${JSON.stringify((last?.errorMessage ?? '').slice(0, 160))}`,
@@ -443,6 +447,7 @@ export class SessionsService {
                 ...featureOptions,
             }),
         );
+        await this.recordEvaluation(sessionId, result);
         const last = result.tasks[result.tasks.length - 1];
         this.logger.log(
             `resumeSession done ${sessionId} ms=${Date.now() - started} ok=${result.ok} tasks=${result.tasks.length} reason=${last?.reason ?? '-'} rejected=${JSON.stringify(result.rejected ?? [])}`,
@@ -507,6 +512,33 @@ export class SessionsService {
             `recordFeedback ${sessionId} type=${feedback.type} rating=${feedback.rating ?? '-'} content=${JSON.stringify((feedback.content ?? '').slice(0, 120))}`,
         );
         return { ok: true };
+    }
+
+    private async recordEvaluation(
+        rootGoalId: string,
+        result: Awaited<ReturnType<HarnessRuntime['executeGoalTree']>>,
+    ): Promise<void> {
+        const context = this.conversations.runContext(rootGoalId);
+        try {
+            await this.evaluations.recordSession({
+                harness: this.runtime.harness(),
+                rootGoalId,
+                result,
+                ...(context?.title !== undefined ? { title: context.title } : {}),
+                ...(context?.projectId !== undefined ? { projectId: context.projectId } : {}),
+                ...(context?.workspace !== undefined ? { workspace: context.workspace } : {}),
+                ...(context?.userId !== undefined ? { userId: context.userId } : {}),
+                ...(context?.conversationId !== undefined
+                    ? { conversationId: context.conversationId }
+                    : {}),
+            });
+        } catch (error) {
+            this.logger.warn(
+                `recordEvaluation ${rootGoalId} failed: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+        }
     }
 }
 

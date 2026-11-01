@@ -3,15 +3,22 @@ import type { PermissionLevel } from '@mazi/core';
 import {
     buildEvalReport,
     createRuntimeEvalExecutor,
+    projectSessionEvaluation,
     type EvalReport,
     type EvalRunRecord,
     type EvalRunStore,
     type EvalTask,
     loadBaselineDataset,
     MemoryEvalRunStore,
+    MemorySessionEvaluationStore,
     runEvalSuite,
+    type SessionEvaluationFilter,
+    type SessionEvaluationRecord,
+    type SessionEvaluationStore,
     SqliteEvalRunStore,
+    SqliteSessionEvaluationStore,
 } from '@mazi/eval';
+import type { GoalRunResult, HarnessRuntime } from '@mazi/runtime';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
@@ -34,11 +41,15 @@ function strings(value: unknown): string[] | undefined {
 export class EvalService implements OnApplicationShutdown {
     private readonly baseline = loadBaselineDataset();
     private readonly runs: EvalRunStore;
+    private readonly sessionEvaluationStore: SessionEvaluationStore;
 
     constructor(private readonly apiRuntime: ApiRuntimeService) {
         const dbPath = apiRuntime.homePaths?.dbPath;
-        this.runs =
-            dbPath !== undefined ? new SqliteEvalRunStore(dbPath) : new MemoryEvalRunStore();
+        this.runs = dbPath !== undefined ? new SqliteEvalRunStore(dbPath) : new MemoryEvalRunStore();
+        this.sessionEvaluationStore =
+            dbPath !== undefined
+                ? new SqliteSessionEvaluationStore(dbPath)
+                : new MemorySessionEvaluationStore();
     }
 
     tasks(): EvalTask[] {
@@ -58,6 +69,85 @@ export class EvalService implements OnApplicationShutdown {
     async report(runId: string): Promise<EvalReport> {
         const run = await this.runDetail(runId);
         return run.report ?? this.incompleteReport(runId);
+    }
+
+    async recordSession(input: {
+        harness: HarnessRuntime;
+        rootGoalId: string;
+        result?: GoalRunResult;
+        title?: string;
+        projectId?: string;
+        workspace?: string;
+        userId?: string;
+        conversationId?: string;
+        experimentId?: string;
+        arm?: string;
+        source?: 'session' | 'ab';
+    }): Promise<SessionEvaluationRecord> {
+        const snapshot = await input.harness.goalSnapshot(input.rootGoalId);
+        const record = projectSessionEvaluation({
+            rootGoalId: input.rootGoalId,
+            snapshot,
+            events: input.harness.eventBus.replay(input.rootGoalId),
+            ...(input.result !== undefined ? { result: input.result } : {}),
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
+            ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
+            ...(input.userId !== undefined ? { userId: input.userId } : {}),
+            ...(input.conversationId !== undefined
+                ? { conversationId: input.conversationId }
+                : {}),
+            ...(input.experimentId !== undefined ? { experimentId: input.experimentId } : {}),
+            ...(input.arm !== undefined ? { arm: input.arm } : {}),
+            ...(input.source !== undefined ? { source: input.source } : {}),
+        });
+        await this.sessionEvaluationStore.save(record);
+        return record;
+    }
+
+    sessionEvaluations(filter: SessionEvaluationFilter = {}): Promise<SessionEvaluationRecord[]> {
+        return this.sessionEvaluationStore.list(filter);
+    }
+
+    async sessionEvaluation(rootGoalId: string): Promise<SessionEvaluationRecord> {
+        const record = await this.sessionEvaluationStore.get(rootGoalId);
+        if (record === undefined) throw new ApiError(404, '会话评测不存在');
+        return record;
+    }
+
+    async reconcileSessions(
+        conversations: ReadonlyArray<{
+            rootGoalId: string;
+            conversationId: string;
+            title: string;
+            userId?: string;
+            workspace?: string;
+            projectId?: string;
+        }>,
+    ): Promise<{ reconciled: number; skipped: number }> {
+        let reconciled = 0;
+        let skipped = 0;
+        for (const conversation of conversations) {
+            try {
+                await this.recordSession({
+                    harness: this.apiRuntime.harness(),
+                    rootGoalId: conversation.rootGoalId,
+                    title: conversation.title,
+                    conversationId: conversation.conversationId,
+                    ...(conversation.userId !== undefined ? { userId: conversation.userId } : {}),
+                    ...(conversation.workspace !== undefined
+                        ? { workspace: conversation.workspace }
+                        : {}),
+                    ...(conversation.projectId !== undefined
+                        ? { projectId: conversation.projectId }
+                        : {}),
+                });
+                reconciled += 1;
+            } catch {
+                skipped += 1;
+            }
+        }
+        return { reconciled, skipped };
     }
 
     async run(body: Record<string, unknown>): Promise<EvalRunRecord> {
@@ -127,5 +217,6 @@ export class EvalService implements OnApplicationShutdown {
 
     onApplicationShutdown(): void {
         this.runs.close();
+        this.sessionEvaluationStore.close();
     }
 }

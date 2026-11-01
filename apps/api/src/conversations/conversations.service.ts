@@ -120,6 +120,61 @@ export class ConversationsService {
         };
     }
 
+    /** Resolve a root goal's conversation context for derived evaluation metadata. */
+    runContext(rootGoalId: string): {
+        conversationId: string;
+        title: string;
+        input: string;
+        userId?: string;
+        workspace?: string;
+        projectId?: string;
+    } | undefined {
+        this.read();
+        for (const conversation of this.state.conversations) {
+            const run = conversation.runs.find((item) => item.rootGoalId === rootGoalId);
+            if (run === undefined) continue;
+            return {
+                conversationId: conversation.conversationId,
+                title: conversation.title,
+                input: run.input,
+                ...(conversation.userId !== undefined ? { userId: conversation.userId } : {}),
+                ...(conversation.workspace !== undefined
+                    ? { workspace: conversation.workspace }
+                    : {}),
+                ...(conversation.projectId !== undefined
+                    ? { projectId: conversation.projectId }
+                    : {}),
+            };
+        }
+        return undefined;
+    }
+
+    /** All persisted root goals with conversation metadata, used to backfill Eval. */
+    allRuns(): Array<{
+        rootGoalId: string;
+        conversationId: string;
+        title: string;
+        userId?: string;
+        workspace?: string;
+        projectId?: string;
+    }> {
+        this.read();
+        return this.state.conversations.flatMap((conversation) =>
+            conversation.runs.map((run) => ({
+                rootGoalId: run.rootGoalId,
+                conversationId: conversation.conversationId,
+                title: conversation.title,
+                ...(conversation.userId !== undefined ? { userId: conversation.userId } : {}),
+                ...(conversation.workspace !== undefined
+                    ? { workspace: conversation.workspace }
+                    : {}),
+                ...(conversation.projectId !== undefined
+                    ? { projectId: conversation.projectId }
+                    : {}),
+            })),
+        );
+    }
+
     /** 读取 Conversation 的 run 引用（按时间顺序），供续聊时组装共享上下文。 */
     runs(conversationId: string): GoalRunRef[] {
         this.read();
