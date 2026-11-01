@@ -38,6 +38,7 @@ const emit = defineEmits([
     'open-experiments',
     'open-eval-lab',
     'open-memory',
+    'open-blackboard',
     'open-wiki',
 ]);
 
@@ -151,6 +152,10 @@ function latencyText() {
         <button class="lab-btn" title="个人长期记忆：查看、确认、纠正和删除" @click="emit('open-memory')">
             <LineIcon name="lightbulb" size="15" />
             记忆
+        </button>
+        <button class="lab-btn" title="项目黑板：项目知识、当前状态、决策和证据" @click="emit('open-blackboard')">
+            <LineIcon name="folder" size="15" />
+            项目黑板
         </button>
     </div>
     <div class="workspace-head">

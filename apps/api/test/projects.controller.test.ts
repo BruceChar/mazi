@@ -60,5 +60,10 @@ describe('projects blackboard controller', () => {
         writeFileSync(join(workspace, 'README.md'), '# changed');
         const reconciled = await controller.reconcile(projectId);
         expect(reconciled.board.version).toBe(3);
+
+        const byWorkspace = await controller.workspaceBlackboard(workspace);
+        expect(byWorkspace.board.projectId).toBe(projectId);
+        const workspaceReconciled = await controller.reconcileWorkspaceBlackboard(workspace);
+        expect(workspaceReconciled.board.projectId).toBe(projectId);
     });
 });

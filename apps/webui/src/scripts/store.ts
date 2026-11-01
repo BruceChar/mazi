@@ -106,7 +106,8 @@ export interface UiState {
         | 'experiments'
         | 'wiki'
         | 'eval-lab'
-        | 'memory';
+        | 'memory'
+        | 'blackboard';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;
