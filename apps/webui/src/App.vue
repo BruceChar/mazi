@@ -192,7 +192,7 @@ const modelOptions = computed(() => {
     return providers.flatMap((p) =>
         (p.models || []).map((m) => ({
             id: m.id,
-            label: m.name || m.id,
+            label: m.modelVersion || m.name || m.id,
             providerId: p.id,
         })),
     );

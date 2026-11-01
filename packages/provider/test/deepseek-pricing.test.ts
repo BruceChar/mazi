@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     buildPricingAnalysisPrompt,
+    deepseekPricingVersion,
     extractJsonObject,
     parseAgentPricingJson,
     parseDeepseekPricingPage,
@@ -11,6 +12,7 @@ import {
 const SAMPLE = `
 <html><body><div>
 模型 deepseek-flash (1) deepseek-v4-pro (2) BASE URL
+模型版本 DeepSeek-V4.1-Flash-1017 DeepSeek-V4-Pro-0813
 价格 (3) 百万tokens输入 （缓存命中） 空闲时段 0.02元 0.15元 高峰时段 0.04元 0.30元
 百万tokens输入 （缓存未命中） 空闲时段 1元 4.5元 高峰时段 2元 9.0元
 百万tokens输出 空闲时段 4元 13.5元 高峰时段 8元 27.0元 并发限制
@@ -24,6 +26,9 @@ describe('parseDeepseekPricingPage', () => {
         const flash = parsed?.models.find((m) => m.tier === 'flash');
         const pro = parsed?.models.find((m) => m.tier === 'pro');
         expect(flash?.id).toBe('deepseek-flash');
+        expect(flash?.modelVersion).toBe('DeepSeek-V4.1-Flash-1017');
+        expect(pro?.id).toBe('deepseek-v4-pro');
+        expect(pro?.modelVersion).toBe('DeepSeek-V4-Pro-0813');
         expect(flash?.idle).toMatchObject({
             inputPerMTok: 1,
             cacheReadPerMTok: 0.02,
@@ -46,6 +51,29 @@ describe('parseDeepseekPricingPage', () => {
             outputPerMTok: 27,
         });
         if (flash) expect(peakMultiplierOf(flash)).toBe(2);
+    });
+
+    it('derives a stable pricing snapshot version from official content', () => {
+        const parsed = parseDeepseekPricingPage(SAMPLE, 'https://example.test/pricing');
+        if (!parsed) throw new Error('sample did not parse');
+        const version = deepseekPricingVersion(parsed);
+        expect(version).toMatch(/^deepseek-[0-9a-f]{8}$/);
+        expect(version).not.toBe('deepseek-2026-09');
+        expect(deepseekPricingVersion({ ...parsed, sourceUrl: 'https://mirror.test' })).toBe(
+            version,
+        );
+        const changed = {
+            ...parsed,
+            models: parsed.models.map((model) =>
+                model.tier === 'flash'
+                    ? {
+                          ...model,
+                          idle: { ...model.idle, outputPerMTok: 5 },
+                      }
+                    : model,
+            ),
+        };
+        expect(deepseekPricingVersion(changed)).not.toBe(version);
     });
 
     it('returns null when the table is absent', () => {
@@ -81,6 +109,7 @@ describe('parseAgentPricingJson', () => {
             models: [
                 {
                     id: 'deepseek-flash',
+                    modelVersion: 'DeepSeek-V4.1-Flash-1017',
                     tier: 'flash',
                     idle: { inputPerMTok: 1, cacheReadPerMTok: 0.02, outputPerMTok: 4 },
                     peak: { inputPerMTok: 2, cacheReadPerMTok: 0.04, outputPerMTok: 8 },
@@ -98,6 +127,7 @@ describe('parseAgentPricingJson', () => {
         expect(parsed?.models).toHaveLength(2);
         const flash = parsed?.models.find((m) => m.id === 'deepseek-flash');
         expect(flash?.tier).toBe('flash');
+        expect(flash?.modelVersion).toBe('DeepSeek-V4.1-Flash-1017');
         expect(flash?.peak.outputPerMTok).toBe(8);
         // 未给 peak → 回退 idle；tier 由 id 推断为 pro
         const pro = parsed?.models.find((m) => m.id === 'deepseek-v4-pro');

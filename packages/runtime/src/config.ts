@@ -50,6 +50,8 @@ export interface ProviderConfig {
     tags?: string[];
     models?: Array<{
         id: string;
+        /** 厂商实际部署版本（如 DeepSeek-V4.1-Flash-1017）；id 仍为 API 调用名。 */
+        modelVersion?: string;
         name?: string;
         contextWindow?: number;
         maxTokens?: number;

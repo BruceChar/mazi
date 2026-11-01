@@ -76,6 +76,8 @@ export interface ProviderPricingView {
 
 export interface ProviderModel {
     id: string;
+    /** 厂商实际部署版本；与调用 id 分离（如 deepseek-flash → DeepSeek-V4.1-Flash-1017）。 */
+    modelVersion?: string;
     name?: string;
     contextWindow?: number;
     maxTokens?: number;

@@ -28,7 +28,7 @@ export {
     type CatalogModel,
     DEEPSEEK_PEAK_TIERS,
     DEEPSEEK_PRICING_SOURCE,
-    DEEPSEEK_PRICING_VERSION,
+    deepseekPricingVersion,
     type DiscoverModelsOptions,
     deepseekTierOf,
     discoverModels,

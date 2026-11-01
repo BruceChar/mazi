@@ -285,6 +285,7 @@ export function configOverview(): {
                     return {
                         id: m.id,
                         name: m.name,
+                        ...(m.modelVersion !== undefined ? { modelVersion: m.modelVersion } : {}),
                         ...(m.contextWindow !== undefined
                             ? { contextWindow: m.contextWindow }
                             : {}),

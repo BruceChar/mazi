@@ -57,7 +57,7 @@ function selectPermission(level) {
 function currentModelLabel() {
     for (const p of props.cfg?.providers || []) {
         const m = (p.models || []).find((m) => m.id === props.selectedModel);
-        if (m) return m.name || m.id;
+        if (m) return m.modelVersion || m.name || m.id;
     }
     return props.selectedModel || 'Model';
 }
@@ -227,7 +227,7 @@ function doExitWorkspace() {
                                         :class="{ active: m.id === selectedModel }"
                                         @click="selectModel(m.id)"
                                     >
-                                        {{ m.name || m.id }}
+                                        {{ m.modelVersion || m.name || m.id }}
                                     </div>
                                 </template>
                             </div>

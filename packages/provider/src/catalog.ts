@@ -16,7 +16,6 @@ import { deepseekAdapter, knownDeepseekModels } from './from-config.js';
  * 来源：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
  */
 export const DEEPSEEK_PRICING_SOURCE = 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/';
-export const DEEPSEEK_PRICING_VERSION = 'deepseek-2026-09';
 /**
  * 高峰时段 tier（×2）：北京时间周一至周五 9:00-12:00、14:00-18:00。
  * 换算 UTC 小时 = 1:00-4:00 与 6:00-10:00；UTC 星期 1-5（这些窗口不跨 UTC 日界）。

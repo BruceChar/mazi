@@ -25,7 +25,7 @@ import {
     createPricingAnalyst,
     DEEPSEEK_PEAK_TIERS,
     DEEPSEEK_PRICING_SOURCE,
-    DEEPSEEK_PRICING_VERSION,
+    deepseekPricingVersion,
     deepseekTierOf,
     discoverModels,
     type ExperimentStore,
@@ -98,11 +98,7 @@ function applyCatalogPricing(
     const currency = (pricing.currency ?? 'USD') as 'USD' | 'CNY';
     // 官网抓取的官方人民币价优先：目录价（USD）不得覆盖已落地的官方价，
     // 否则手动/周期性模型同步会把官方价回退成 pi-ai 目录价。
-    if (
-        current.currency === 'CNY' &&
-        current.version === DEEPSEEK_PRICING_VERSION &&
-        currency !== 'CNY'
-    ) {
+    if (current.currency === 'CNY' && currency !== 'CNY') {
         return false;
     }
     const next = {
@@ -129,7 +125,10 @@ function applyCatalogPricing(
                   ? DEEPSEEK_PEAK_TIERS
                   : [],
         effectiveAt: current.effectiveAt ?? 0,
-        version: currency === 'CNY' ? DEEPSEEK_PRICING_VERSION : (current.version ?? 'catalog'),
+        version:
+            currency === 'CNY'
+                ? (current.version ?? 'deepseek-official')
+                : (current.version ?? 'catalog'),
     };
     if (JSON.stringify(next) === JSON.stringify(current)) {
         return false;
@@ -142,7 +141,11 @@ function applyCatalogPricing(
  * 由官网解析结果构造 CNY 价目表（空闲时段为 base，高峰时段为 tiers）。
  * rates 未变时沿用 previous.effectiveAt，避免每次同步都刷新时间戳（触发无谓重建）。
  */
-function buildCnySchedule(entry: ParsedModelPricing, previous?: PricingSchedule): PricingSchedule {
+function buildCnySchedule(
+    entry: ParsedModelPricing,
+    version: string,
+    previous?: PricingSchedule,
+): PricingSchedule {
     const base = {
         inputPerMTok: entry.idle.inputPerMTok ?? 0,
         outputPerMTok: entry.idle.outputPerMTok ?? 0,
@@ -155,7 +158,6 @@ function buildCnySchedule(entry: ParsedModelPricing, previous?: PricingSchedule)
     const unchanged =
         previous !== undefined &&
         previous.currency === 'CNY' &&
-        previous.version === DEEPSEEK_PRICING_VERSION &&
         JSON.stringify(previous.base) === JSON.stringify(base) &&
         JSON.stringify(previous.tiers) === JSON.stringify(tiers);
     return {
@@ -163,17 +165,17 @@ function buildCnySchedule(entry: ParsedModelPricing, previous?: PricingSchedule)
         base,
         tiers,
         effectiveAt: unchanged ? (previous.effectiveAt ?? Date.now()) : Date.now(),
-        version: DEEPSEEK_PRICING_VERSION,
+        version,
     };
 }
 
 /**
- * provider 是否已落官方人民币价目（version = DEEPSEEK_PRICING_VERSION）。
+ * provider 是否已落官方人民币价目。
  * 官网是模型清单与价格的权威：已落官方价后，pi-ai 目录（可能含已下线 id）不得再覆盖。
  */
 function hasOfficialPricing(provider: Record<string, unknown>): boolean {
-    const pricing = provider.pricing as { currency?: unknown; version?: unknown } | undefined;
-    return pricing?.currency === 'CNY' && pricing?.version === DEEPSEEK_PRICING_VERSION;
+    const pricing = provider.pricing as { currency?: unknown } | undefined;
+    return pricing?.currency === 'CNY';
 }
 
 /** provider 条目的厂商（vendor）：显式 vendor → driver.provider。 */
@@ -1084,6 +1086,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
             }
             // 过滤页面标注为「已下线」的旧模型名（防目录/解析把陈旧 id 写进来）。
             const deprecated = new Set(parsed.deprecatedModels ?? []);
+            const pricingVersion = deepseekPricingVersion(parsed);
             const vendorModelIds = parsed.models
                 .map((model) => model.id)
                 .filter((id) => !deprecated.has(id));
@@ -1117,7 +1120,15 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                         model.maxTokens = parsed.maxOutputTokens;
                         changed = true;
                     }
-                    const next = buildCnySchedule(entry, model.pricing);
+                    if (
+                        entry.modelVersion !== undefined &&
+                        model.modelVersion !== entry.modelVersion
+                    ) {
+                        model.modelVersion = entry.modelVersion;
+                        model.name = entry.modelVersion;
+                        changed = true;
+                    }
+                    const next = buildCnySchedule(entry, pricingVersion, model.pricing);
                     if (JSON.stringify(next) !== JSON.stringify(model.pricing)) {
                         model.pricing = next;
                         changed = true;
@@ -1129,7 +1140,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                         (m) => m.tier === deepseekTierOf(driverModelOf(record) ?? ''),
                     ) ?? parsed.models[0];
                 if (defaultEntry !== undefined) {
-                    const next = buildCnySchedule(defaultEntry, provider.pricing);
+                    const next = buildCnySchedule(defaultEntry, pricingVersion, provider.pricing);
                     if (JSON.stringify(next) !== JSON.stringify(provider.pricing)) {
                         provider.pricing = next;
                         changed = true;

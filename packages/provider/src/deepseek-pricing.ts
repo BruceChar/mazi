@@ -13,6 +13,8 @@ import type { ProviderModelPricing } from '@mazi/core';
 export interface ParsedModelPricing {
     /** 页面上的模型名，如 deepseek-flash / deepseek-v4-pro。 */
     id: string;
+    /** 页面标注的实际部署版本，如 DeepSeek-V4.1-Flash-1017；与 API 调用 id 分离。 */
+    modelVersion?: string;
     tier: 'flash' | 'pro';
     idle: ProviderModelPricing;
     peak: ProviderModelPricing;
@@ -64,6 +66,14 @@ export function parseDeepseekPricingPage(
     const flashId = models.find((id) => /flash/i.test(id));
     const proId = models.find((id) => /pro|reasoner/i.test(id));
     if (!flashId || !proId) return null;
+    // 模型版本名列与 API 模型名列是两个独立概念，例如：
+    //   模型 deepseek-flash deepseek-v4-pro
+    //   模型版本 DeepSeek-V4.1-Flash-1017 DeepSeek-V4-Pro-0813
+    const versionMatch = text.match(
+        /模型版本\s+(DeepSeek-[a-z0-9.-]+)(?:\s+(DeepSeek-[a-z0-9.-]+))?/i,
+    );
+    const flashVersion = versionMatch?.[1];
+    const proVersion = versionMatch?.[2];
 
     const re = new RegExp(
         `缓存命中）\\s*空闲时段\\s*${NUM}元\\s*${NUM}元\\s*高峰时段\\s*${NUM}元\\s*${NUM}元` +
@@ -104,12 +114,14 @@ export function parseDeepseekPricingPage(
         models: [
             {
                 id: flashId,
+                ...(flashVersion !== undefined ? { modelVersion: flashVersion } : {}),
                 tier: 'flash',
                 idle: price(n[4] as number, n[0] as number, n[8] as number),
                 peak: price(n[6] as number, n[2] as number, n[10] as number),
             },
             {
                 id: proId,
+                ...(proVersion !== undefined ? { modelVersion: proVersion } : {}),
                 tier: 'pro',
                 idle: price(n[5] as number, n[1] as number, n[9] as number),
                 peak: price(n[7] as number, n[3] as number, n[11] as number),
@@ -133,7 +145,7 @@ export function buildPricingAnalysisPrompt(pageText: string, sourceUrl: string):
     return [
         '你是计费配置抽取器。下面是模型厂商官方价目页的纯文本，请抽取每个模型的价格（元 / 百万 tokens）。',
         '只输出一个 JSON 对象，不要任何解释文字，也不要用 Markdown 代码块。JSON 结构：',
-        '{"currency":"CNY","contextWindowTokens":<数>,"maxOutputTokens":<数>,"models":[{"id":"<模型id>","tier":"flash|pro","idle":{"inputPerMTok":<数>,"cacheReadPerMTok":<数>,"outputPerMTok":<数>},"peak":{"inputPerMTok":<数>,"cacheReadPerMTok":<数>,"outputPerMTok":<数>}}]}',
+        '{"currency":"CNY","contextWindowTokens":<数>,"maxOutputTokens":<数>,"models":[{"id":"<模型id>","modelVersion":"<实际模型版本，缺失则省略>","tier":"flash|pro","idle":{"inputPerMTok":<数>,"cacheReadPerMTok":<数>,"outputPerMTok":<数>},"peak":{"inputPerMTok":<数>,"cacheReadPerMTok":<数>,"outputPerMTok":<数>}}]}',
         '说明：空闲时段价填 idle，高峰时段价填 peak；页面只给单一价格时 peak 与 idle 相同。数字不要带单位或千分位（1M = 1000000）。',
         `来源：${sourceUrl}`,
         '页面文本：',
@@ -222,13 +234,23 @@ export function parseAgentPricingJson(
         const idle = priceFromUnknown(entry.idle);
         if (idle === undefined) continue;
         const peak = priceFromUnknown(entry.peak) ?? idle;
+        const modelVersion =
+            typeof entry.modelVersion === 'string' && entry.modelVersion.trim().length > 0
+                ? entry.modelVersion.trim()
+                : undefined;
         const tier: 'flash' | 'pro' =
             entry.tier === 'pro' || entry.tier === 'flash'
                 ? entry.tier
                 : /pro|reasoner/i.test(id)
                   ? 'pro'
                   : 'flash';
-        models.push({ id, tier, idle, peak });
+        models.push({
+            id,
+            ...(modelVersion !== undefined ? { modelVersion } : {}),
+            tier,
+            idle,
+            peak,
+        });
     }
     if (models.length === 0) return null;
     const contextWindowTokens = numberOrUndefined(record.contextWindowTokens);
@@ -240,6 +262,31 @@ export function parseAgentPricingJson(
         ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
         models,
     };
+}
+
+/**
+ * 官网价目快照版本：由模型版本、上下文和全部价格内容派生。
+ * 相同内容保持同一版本；任何官方数据变化都会得到新版本，不再依赖人工维护的日期常量。
+ */
+export function deepseekPricingVersion(parsed: ParsedDeepseekPricing): string {
+    const canonical = JSON.stringify({
+        currency: parsed.currency,
+        contextWindowTokens: parsed.contextWindowTokens ?? null,
+        maxOutputTokens: parsed.maxOutputTokens ?? null,
+        models: parsed.models.map((model) => ({
+            id: model.id,
+            modelVersion: model.modelVersion ?? null,
+            tier: model.tier,
+            idle: model.idle,
+            peak: model.peak,
+        })),
+    });
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < canonical.length; index += 1) {
+        hash ^= canonical.charCodeAt(index);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return `deepseek-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
 /** 高峰/空闲倍率（用于生成 PricingSchedule.tiers）；各成分一致时返回该倍率，否则 null。 */

@@ -109,7 +109,7 @@ onMounted(reload);
             <select v-model="filters.modelId" @change="reload">
                 <option value="">全部模型</option>
                 <option v-for="model in modelOptions" :key="model.id" :value="model.id">
-                    {{ model.name || model.id }}
+                    {{ model.modelVersion || model.name || model.id }}
                 </option>
             </select>
             <input v-model="filters.from" type="date" title="起始日期" @change="reload" />

@@ -7,6 +7,7 @@ import { ApiRuntimeService } from '../src/common/runtime.service.js';
 
 const PAGE = `<html><body>
 模型 deepseek-flash (1) deepseek-v4-pro (2) 上下文长度 1M 输出长度 最大 384K BASE URL
+模型版本 DeepSeek-V4.1-Flash-1017 DeepSeek-V4-Pro-0813
 价格 (3) 百万tokens输入 （缓存命中） 空闲时段 0.02元 0.15元 高峰时段 0.04元 0.30元
 百万tokens输入 （缓存未命中） 空闲时段 1元 4.5元 高峰时段 2元 9.0元
 百万tokens输出 空闲时段 4元 13.5元 高峰时段 8元 27.0元
@@ -17,6 +18,8 @@ interface ProvidersFile {
         id: string;
         models: Array<{
             id: string;
+            name?: string;
+            modelVersion?: string;
             contextWindow?: number;
             pricing?: { currency?: string; base?: { inputPerMTok?: number } };
         }>;
@@ -98,7 +101,8 @@ describe('ApiRuntimeService 官网价目抓取', () => {
         const ds = readProviders(home).providers[0];
         expect(ds.pricing?.currency).toBe('CNY');
         expect(ds.pricing?.base?.inputPerMTok).toBe(1);
-        expect(ds.pricing?.version).toBe('deepseek-2026-09');
+        expect(ds.pricing?.version).toMatch(/^deepseek-[0-9a-f]{8}$/);
+        expect(ds.pricing?.version).not.toBe('deepseek-2026-09');
         expect(ds.pricing?.tiers?.length).toBeGreaterThan(0);
         // 官网模型清单为权威：陈旧 id 被移除
         expect(ds.models.map((model) => model.id)).toEqual([
@@ -108,6 +112,13 @@ describe('ApiRuntimeService 官网价目抓取', () => {
         // 逐模型价目：pro 用 pro 的官方单价，而非回落到 flash
         const pro = ds.models.find((model) => model.id === 'deepseek-v4-pro');
         expect(pro?.pricing?.base?.inputPerMTok).toBe(4.5);
+        const flash = ds.models.find((model) => model.id === 'deepseek-flash');
+        expect(flash?.modelVersion).toBe('DeepSeek-V4.1-Flash-1017');
+        expect(flash?.name).toBe('DeepSeek-V4.1-Flash-1017');
+        expect(pro?.modelVersion).toBe('DeepSeek-V4-Pro-0813');
+        expect(service.overview().providers[0]?.models[0]?.modelVersion).toBe(
+            'DeepSeek-V4.1-Flash-1017',
+        );
         // 页面标注的上下文窗口写入每个模型（否则占比按 64K 误算）
         expect(ds.models.every((model) => model.contextWindow === 1_000_000)).toBe(true);
     });
@@ -166,7 +177,7 @@ describe('ApiRuntimeService 官网价目抓取', () => {
 
         const ds = readProviders(home).providers[0];
         expect(ds.pricing?.currency).toBe('CNY');
-        expect(ds.pricing?.version).toBe('deepseek-2026-09');
+        expect(ds.pricing?.version).toMatch(/^deepseek-[0-9a-f]{8}$/);
     });
 
     it('价目源按 vendor 配置：overview 暴露、持久化、可定向更新并记录同步状态', async () => {

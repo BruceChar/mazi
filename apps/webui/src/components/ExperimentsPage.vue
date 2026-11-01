@@ -109,7 +109,7 @@ const modelOptions = computed(() => {
     return providers.flatMap((provider) =>
         (provider.models || []).map((model) => ({
             id: model.id,
-            label: (model.name || model.id) + ' · ' + provider.id,
+            label: (model.modelVersion || model.name || model.id) + ' · ' + provider.id,
         })),
     );
 });

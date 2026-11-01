@@ -362,7 +362,7 @@ watch(
                     </div>
                     <select :value="selectedModel" @change="emit('update:selectedModel', $event.target.value)" class="setting-select">
                         <template v-for="p in cfg?.providers || []" :key="p.id">
-                            <option v-for="m in p.models || []" :key="m.id" :value="m.id">{{ p.vendor || p.id }} / {{ m.name || m.id }}</option>
+                            <option v-for="m in p.models || []" :key="m.id" :value="m.id">{{ p.vendor || p.id }} / {{ m.modelVersion || m.name || m.id }}</option>
                         </template>
                     </select>
                 </div>
@@ -423,11 +423,12 @@ watch(
                         <div class="setting-name">{{ p.id }}<span v-if="p.vendor && p.vendor !== p.id" class="setting-name-sub"> · {{ p.vendor }}</span></div>
                         <div v-for="m in p.models || []" :key="m.id" class="model-block">
                             <div class="model-meta">
-                                <span class="model-id">{{ m.name || m.id }}</span>
+                                <span class="model-id">{{ m.modelVersion || m.name || m.id }}</span>
+                                <span v-if="(m.modelVersion || m.name) && (m.modelVersion || m.name) !== m.id" class="model-tag">API {{ m.id }}</span>
                                 <span v-if="m.contextWindow" class="model-tag">{{ Math.round(m.contextWindow / 1000) }}K ctx</span>
                                 <span v-if="m.capabilities?.supportsReasoning" class="model-tag">reasoning</span>
                                 <span v-if="m.capabilities?.supportsVision" class="model-tag">vision</span>
-                                <span v-if="m.pricing?.version" class="model-tag">{{ m.pricing.version }}</span>
+                                <span v-if="m.pricing?.version" class="model-tag">价格 {{ m.pricing.version }}</span>
                             </div>
                             <div v-if="m.pricing" class="model-price">
                                 <span class="price-badge idle">
