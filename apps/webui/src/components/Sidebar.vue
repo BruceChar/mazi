@@ -39,6 +39,7 @@ const emit = defineEmits([
     'open-eval-lab',
     'open-memory',
     'open-blackboard',
+    'open-agent',
     'open-wiki',
 ]);
 
@@ -156,6 +157,10 @@ function latencyText() {
         <button class="lab-btn" title="项目黑板：项目知识、当前状态、决策和证据" @click="emit('open-blackboard')">
             <LineIcon name="folder" size="15" />
             项目黑板
+        </button>
+        <button class="lab-btn" title="SuperAgent、PromptPack、Verifier 与运行事件" @click="emit('open-agent')">
+            <LineIcon name="cpu" size="15" />
+            Agent 编排
         </button>
     </div>
     <div class="workspace-head">

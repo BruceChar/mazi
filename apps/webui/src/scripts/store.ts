@@ -51,6 +51,14 @@ const LIVE_EVENT_TYPES = [
     // 契约协商：异步 triage 落地后必须刷新快照，否则协商问题永远到不了 UI
     'goal.negotiation.requested',
     'goal.contract-revised',
+    'superagent.decision',
+    'prompt.pack.selected',
+    'verification.completed',
+    'plan.revised',
+    'replan.rejected',
+    'delegation.started',
+    'delegation.completed',
+    'delegation.rejected',
 ] as const;
 const REFRESH_EVENT_TYPES = new Set<string>([
     'session.ended',
@@ -107,7 +115,8 @@ export interface UiState {
         | 'wiki'
         | 'eval-lab'
         | 'memory'
-        | 'blackboard';
+        | 'blackboard'
+        | 'agent';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;

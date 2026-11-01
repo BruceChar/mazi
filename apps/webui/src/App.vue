@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './assets/LineIcon.vue';
+import AgentOrchestrationPage from './components/AgentOrchestrationPage.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import EvalLabPage from './components/EvalLabPage.vue';
 import ExperimentsPage from './components/ExperimentsPage.vue';
@@ -249,6 +250,7 @@ const headerTitle = computed(() => {
     if (ui.view === 'eval-lab') return 'Eval Lab';
     if (ui.view === 'memory') return '个人记忆';
     if (ui.view === 'blackboard') return '项目黑板';
+    if (ui.view === 'agent') return 'Agent 编排';
     if (ui.view === 'wiki') return '项目 Wiki';
     const title = conversationTitle(activeConversation.value) || '';
     return title.length > 12 ? title.slice(0, 12) + '…' : title;
@@ -942,6 +944,7 @@ onBeforeUnmount(() => {
                 @open-eval-lab="ui.view = 'eval-lab'"
                 @open-memory="ui.view = 'memory'"
                 @open-blackboard="ui.view = 'blackboard'"
+                @open-agent="ui.view = 'agent'"
                 @open-wiki="openProjectWiki"
             />
             </template>
@@ -1045,6 +1048,14 @@ onBeforeUnmount(() => {
 
             <ProjectBlackboardPage
                 v-else-if="ui.view === 'blackboard'"
+                :workspace="headerWorkspace"
+                @close="backToChat"
+            />
+
+            <AgentOrchestrationPage
+                v-else-if="ui.view === 'agent'"
+                :root-goal-id="current || runs.at(-1)?.rootGoalId || ''"
+                :project-id="activeConversation?.projectId || ''"
                 :workspace="headerWorkspace"
                 @close="backToChat"
             />
