@@ -28,8 +28,8 @@ export {
     type CatalogModel,
     DEEPSEEK_PEAK_TIERS,
     DEEPSEEK_PRICING_SOURCE,
-    deepseekPricingVersion,
     type DiscoverModelsOptions,
+    deepseekPricingVersion,
     deepseekTierOf,
     discoverModels,
     htmlToText,
@@ -40,6 +40,7 @@ export {
     parseDeepseekPricingPage,
     peakMultiplierOf,
 } from '@mazi/provider';
+export * from './agent/index.js';
 // 系统迭代记录（分析报告 → 系统改动的闭环；状态机 + 版本快照由 API 层注入）
 export {
     type IterationStore,
@@ -65,7 +66,6 @@ export {
     type TocRecord,
     type TocStore,
 } from './analysis/toc-store.js';
-export * from './agent/index.js';
 export type {
     AuthPolicyLoadResult,
     CommandPolicyValidation,
@@ -147,6 +147,7 @@ export {
     topologicalTaskOrder,
     validatePlanGraph,
 } from './gts/plan-graph.js';
+export * from './gts/replan.js';
 export {
     type ContextAssistantTurn,
     type ContextContribution,
@@ -230,12 +231,12 @@ export {
     maziHome,
     maziPaths,
 } from './paths.js';
+export * from './prompts/index.js';
 // 模型目录与计费数据架构（catalog）：目录事实 / 同步 / 快照 / 路由 / 账本
 export * from './provider/catalog/index.js';
 export type { PricingSchedule } from './provider/pricing.js';
 export type { PricingPage, PricingPageAnalyst } from './provider/pricing-analyst.js';
 export { createPricingAnalyst } from './provider/pricing-analyst.js';
-export * from './prompts/index.js';
 // 问题标注：规则 + LLM seam（QQ-D）
 export type { QuestionClassifier } from './question/labeler.js';
 export { QuestionLabeler, ruleQuestionLabels, ruleSpeechAct } from './question/labeler.js';

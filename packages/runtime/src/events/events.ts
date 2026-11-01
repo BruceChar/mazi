@@ -11,6 +11,8 @@
 export const RUNTIME_EVENT_TYPES = [
     'plan.created',
     'plan.invalid',
+    'plan.revised',
+    'replan.rejected',
     'capacity.assembled',
     'capacity.degraded',
     'toolset.assembled',

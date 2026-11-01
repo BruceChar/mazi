@@ -18,6 +18,13 @@ import {
     topologicalTaskOrder,
     validatePlanGraph,
 } from '../gts/plan-graph.js';
+import {
+    createPlanRevision,
+    failureFromOutcome,
+    type PlanRevision,
+    type ReplanOption,
+    type ReplanRequest,
+} from '../gts/replan.js';
 import type { ContextContribution } from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
 import {
@@ -77,6 +84,9 @@ export interface GoalRunDeps {
     /** Independent verifier; absence keeps mechanical acceptance for lightweight callers. */
     verifier?: TaskVerifier;
     onVerification?: (report: VerificationReport, outcome: TaskOutcome) => void;
+    /** Bounded dynamic replanning after verifier/executor failure. */
+    replan?: ReplanOption;
+    onReplan?: (revision?: PlanRevision, rejected?: readonly string[]) => void;
     /** 恢复模式：复用未终结 Task 并从已落库 Step 重放上下文。 */
     resume?: boolean;
     /** 轮次上限覆盖（缺省读 goal.contract.terminationPolicy.maxSteps）。 */
@@ -90,6 +100,7 @@ export interface GoalRunResult {
     tasks: TaskOutcome[];
     ok: boolean;
     rejected?: string[];
+    planRevisions?: PlanRevision[];
 }
 
 export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<GoalRunResult> {
@@ -167,9 +178,13 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
     }
     deps.onPlan?.(tasks.length, planDigest);
     const goalById = new Map(executable.map((goal) => [goal.goalId, goal]));
-    const ordered = topologicalTaskOrder(tasks);
-    for (const task of ordered) {
-        if (resume && task.status === 'succeeded') continue;
+    let queue = topologicalTaskOrder(tasks);
+    let cursor = 0;
+    const planRevisions: PlanRevision[] = [];
+    while (cursor < queue.length) {
+        const task = queue[cursor];
+        cursor += 1;
+        if (task === undefined || task.status === 'succeeded') continue;
         const goal = goalById.get(task.goalId);
         if (goal === undefined) {
             return {
@@ -217,8 +232,10 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
             goal,
         );
         // 验收判定：评估器独立于 executor 产出事实并随 Task 落库（裁决 D8）
+        let verificationReport: VerificationReport | undefined;
         if (deps.verifier !== undefined) {
             const report = await deps.verifier.verify(goal, outcome);
+            verificationReport = report;
             outcome.task.acceptanceResult = report.acceptance;
             deps.onVerification?.(report, outcome);
         } else {
@@ -226,7 +243,64 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         }
         await deps.store.saveTask(outcome.task);
         outcomes.push(outcome);
-        if (!outcome.ok) break;
+        const shouldReplan = !outcome.ok || verificationReport?.state === 'failed';
+        if (shouldReplan) {
+            const maxReplans = deps.replan?.maxReplans ?? 2;
+            if (deps.replan === undefined || planRevisions.length >= maxReplans) break;
+            const failure = failureFromOutcome(outcome, verificationReport);
+            const request: ReplanRequest = {
+                goal,
+                revision: planRevisions.length,
+                completedTasks: outcomes
+                    .slice(0, -1)
+                    .filter((candidate) => candidate.ok)
+                    .map((candidate) => candidate.task),
+                failedTask: outcome.task,
+                failureReason: failure.failureReason,
+                ...(failure.failureCategory !== undefined
+                    ? { failureCategory: failure.failureCategory }
+                    : {}),
+                evidence: failure.evidence,
+                remainingBudget: goal.budget,
+            };
+            try {
+                const proposal = await deps.replan.planner(request);
+                if (proposal === undefined) {
+                    deps.onReplan?.(undefined, ['ReplanPlanner 未返回计划']);
+                    break;
+                }
+                const revised = await createPlanRevision({
+                    request,
+                    proposal,
+                    ...(deps.replan.availableTools !== undefined
+                        ? { availableTools: deps.replan.availableTools }
+                        : {}),
+                    priorDigests: [
+                        ...(planDigest !== undefined ? [planDigest] : []),
+                        ...planRevisions.map((revision) => revision.digest),
+                    ],
+                });
+                if (revised.revision === undefined) {
+                    deps.onReplan?.(undefined, revised.rejected ?? ['Replan 被拒绝']);
+                    break;
+                }
+                outcomes.pop();
+                tasks = revised.revision.tasks;
+                for (const nextTask of tasks) {
+                    if (nextTask.status !== 'succeeded') await deps.store.saveTask(nextTask);
+                }
+                planRevisions.push(revised.revision);
+                deps.onReplan?.(revised.revision);
+                queue = topologicalTaskOrder(tasks);
+                cursor = 0;
+                continue;
+            } catch (error) {
+                deps.onReplan?.(undefined, [
+                    error instanceof Error ? error.message : String(error),
+                ]);
+                break;
+            }
+        }
         // Task 之间共享上下文：本 Goal 的输入、最终回答与工具执行事实写入长期记忆，供后续 Goal/会话召回
         const items: MemoryItem[] = turnsToMemory(
             [
@@ -246,5 +320,6 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         rootGoalId: runId,
         tasks: outcomes,
         ok: outcomes.every((o) => o.ok),
+        ...(planRevisions.length > 0 ? { planRevisions } : {}),
     };
 }

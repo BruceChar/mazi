@@ -49,6 +49,7 @@ import {
     planNegotiation,
 } from '../gts/negotiation.js';
 import type { PlannedTask, PlanTool } from '../gts/plan-graph.js';
+import type { ReplanPlanner } from '../gts/replan.js';
 import {
     type BehaviorMigrationResult,
     type BehaviorStore,
@@ -174,6 +175,8 @@ export class HarnessRuntime {
     private readonly promptPacks: PromptPackRegistry;
     private readonly superAgent: SuperAgent;
     private readonly verifier: IndependentVerifier;
+    private replanPlanner?: ReplanPlanner;
+    private maxReplans = 2;
     /** 待执行 Session 的 Conversation id（session 作用域审批匹配用） */
     private readonly pendingSessionId = new Map<string, string>();
     /** 长期记忆调度组合根（有 dbPath 时跨进程持久化）。 */
@@ -882,6 +885,15 @@ export class HarnessRuntime {
                     ...(resume ? { resume: true } : {}),
                     signal: controller.signal,
                     verifier: this.verifier,
+                    ...(this.replanPlanner !== undefined
+                        ? {
+                              replan: {
+                                  planner: this.replanPlanner,
+                                  availableTools: exec.planTools,
+                                  maxReplans: this.maxReplans,
+                              },
+                          }
+                        : {}),
                     onVerification: (report, outcome) => {
                         verificationByTask.set(outcome.task.taskId, report);
                         this.bus.emit(
@@ -901,6 +913,28 @@ export class HarnessRuntime {
                                     acceptance: report.acceptance,
                                     evidence: report.evidence.map((item) => item.slice(0, 1000)),
                                 },
+                            }),
+                        );
+                    },
+                    onReplan: (revision, rejected) => {
+                        this.bus.emit(
+                            newHarnessEvent({
+                                type: revision !== undefined ? 'plan.revised' : 'replan.rejected',
+                                rootGoalId,
+                                goalId,
+                                attributes: {
+                                    'harness.level': revision !== undefined ? 'info' : 'warn',
+                                },
+                                payload:
+                                    revision !== undefined
+                                        ? {
+                                              revision: revision.revision,
+                                              diff: revision.diff,
+                                              reason: revision.reason,
+                                              evidence: revision.evidence,
+                                              digest: revision.digest,
+                                          }
+                                        : { rejected },
                             }),
                         );
                     },
@@ -1504,6 +1538,11 @@ export class HarnessRuntime {
 
     setSemanticJudge(judge?: SemanticJudge): void {
         this.verifier.setSemanticJudge(judge);
+    }
+
+    setReplanPlanner(planner?: ReplanPlanner, maxReplans = 2): void {
+        this.replanPlanner = planner;
+        this.maxReplans = Math.max(0, maxReplans);
     }
 
     verifierInfo(): { id: string; semanticJudge: boolean } {
