@@ -4,4 +4,5 @@ export * from './dataset.js';
 export * from './metrics.js';
 export * from './runner.js';
 export * from './runtime-executor.js';
+export * from './run-store.js';
 export * from './types.js';

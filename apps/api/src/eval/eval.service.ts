@@ -3,12 +3,16 @@ import type { PermissionLevel } from '@mazi/core';
 import {
     buildEvalReport,
     createRuntimeEvalExecutor,
+    type EvalRunRecord,
+    type EvalRunStore,
     type EvalReport,
     type EvalTask,
     loadBaselineDataset,
+    MemoryEvalRunStore,
     runEvalSuite,
+    SqliteEvalRunStore,
 } from '@mazi/eval';
-import { Injectable } from '@nestjs/common';
+import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 
@@ -19,21 +23,6 @@ const PERMISSION_CEILINGS = new Set<PermissionLevel>([
     'approved',
 ]);
 
-export type EvalRunStatus = 'running' | 'completed' | 'failed';
-
-export interface EvalRunView {
-    runId: string;
-    status: EvalRunStatus;
-    taskIds: string[];
-    startedAt: number;
-    completedAt?: number;
-    modelId?: string;
-    promptPackId?: string;
-    workspace?: string;
-    report?: EvalReport;
-    error?: string;
-}
-
 function strings(value: unknown): string[] | undefined {
     if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
         return undefined;
@@ -42,33 +31,42 @@ function strings(value: unknown): string[] | undefined {
 }
 
 @Injectable()
-export class EvalService {
+export class EvalService implements OnApplicationShutdown {
     private readonly baseline = loadBaselineDataset();
-    private readonly runs = new Map<string, EvalRunView>();
+    private readonly runs: EvalRunStore;
 
-    constructor(private readonly apiRuntime: ApiRuntimeService) {}
+    constructor(
+        private readonly apiRuntime: ApiRuntimeService,
+        runStore?: EvalRunStore,
+    ) {
+        const dbPath = apiRuntime.homePaths?.dbPath;
+        this.runs =
+            runStore ??
+            (dbPath !== undefined
+                ? new SqliteEvalRunStore(dbPath)
+                : new MemoryEvalRunStore());
+    }
 
     tasks(): EvalTask[] {
         return this.baseline.map((task) => structuredClone(task));
     }
 
-    listRuns(): EvalRunView[] {
-        return [...this.runs.values()]
-            .sort((left, right) => right.startedAt - left.startedAt)
-            .map((run) => this.summary(run));
+    async listRuns(): Promise<EvalRunRecord[]> {
+        return (await this.runs.list()).map((run) => this.summary(run));
     }
 
-    runDetail(runId: string): EvalRunView {
-        const run = this.runs.get(runId);
+    async runDetail(runId: string): Promise<EvalRunRecord> {
+        const run = await this.runs.get(runId);
         if (run === undefined) throw new ApiError(404, '评测运行不存在');
         return structuredClone(run);
     }
 
-    report(runId: string): EvalReport {
-        return this.runDetail(runId).report ?? this.incompleteReport(runId);
+    async report(runId: string): Promise<EvalReport> {
+        const run = await this.runDetail(runId);
+        return run.report ?? this.incompleteReport(runId);
     }
 
-    async run(body: Record<string, unknown>): Promise<EvalRunView> {
+    async run(body: Record<string, unknown>): Promise<EvalRunRecord> {
         const taskIds = strings(body.taskIds);
         const selected = this.selectTasks(taskIds);
         const modelId = typeof body.modelId === 'string' ? body.modelId.trim() : '';
@@ -80,7 +78,7 @@ export class EvalService {
         }
         if (workspace) this.apiRuntime.setWorkspaceRoot(workspace);
 
-        const run: EvalRunView = {
+        const run: EvalRunRecord = {
             runId: randomUUID(),
             status: 'running',
             taskIds: selected.map((task) => task.id),
@@ -89,7 +87,7 @@ export class EvalService {
             ...(promptPackId ? { promptPackId } : {}),
             ...(workspace ? { workspace } : {}),
         };
-        this.runs.set(run.runId, run);
+        await this.runs.save(run);
 
         try {
             const executor = createRuntimeEvalExecutor(this.apiRuntime.harness(), {
@@ -102,11 +100,13 @@ export class EvalService {
             run.report = buildEvalReport(results);
             run.status = 'completed';
             run.completedAt = Date.now();
+            await this.runs.save(run);
             return structuredClone(run);
         } catch (error) {
             run.status = 'failed';
             run.completedAt = Date.now();
             run.error = error instanceof Error ? error.message : String(error);
+            await this.runs.save(run);
             throw error;
         }
     }
@@ -120,7 +120,7 @@ export class EvalService {
         return [...new Set(taskIds)].map((taskId) => byId.get(taskId) as EvalTask);
     }
 
-    private summary(run: EvalRunView): EvalRunView {
+    private summary(run: EvalRunRecord): EvalRunRecord {
         return {
             ...run,
             ...(run.report !== undefined ? { report: { ...run.report, results: [] } } : {}),
@@ -128,8 +128,10 @@ export class EvalService {
     }
 
     private incompleteReport(runId: string): never {
-        const run = this.runs.get(runId);
-        if (run === undefined) throw new ApiError(404, '评测运行不存在');
-        throw new ApiError(409, `评测运行尚未完成：${run.status}`);
+        throw new ApiError(409, `评测运行尚未产生报告：${runId}`);
+    }
+
+    onApplicationShutdown(): void {
+        this.runs.close();
     }
 }

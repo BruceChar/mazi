@@ -22,17 +22,17 @@ export class EvalController {
     }
 
     @Get('runs')
-    runs() {
-        return { runs: this.evaluations.listRuns() };
+    async runs() {
+        return { runs: await this.evaluations.listRuns() };
     }
 
     @Get('runs/:id')
-    runDetail(@Param('id') runId: string) {
+    async runDetail(@Param('id') runId: string) {
         return this.evaluations.runDetail(runId);
     }
 
     @Get('runs/:id/report')
-    report(@Param('id') runId: string) {
+    async report(@Param('id') runId: string) {
         return this.evaluations.report(runId);
     }
 }

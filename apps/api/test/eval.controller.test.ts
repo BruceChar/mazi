@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { EvalService } from '../src/eval/eval.service.js';
 import { EvalController } from '../src/eval/eval.controller.js';
 import { describe, expect, it } from 'vitest';
@@ -67,23 +70,27 @@ function harness() {
     };
 }
 
-function setup(): EvalController {
+function setup(dbPath = ':memory:') {
     const runtime = {
         harness,
         setWorkspaceRoot: () => undefined,
+        homePaths: { dbPath },
     } as unknown as ApiRuntimeService;
-    return new EvalController(new EvalService(runtime));
+    const service = new EvalService(runtime);
+    return { controller: new EvalController(service), service };
 }
 
 describe('eval controller', () => {
     it('lists the 30-task baseline dataset', () => {
-        const result = setup().tasks();
+        const { controller, service } = setup();
+        const result = controller.tasks();
         expect(result.dataset).toBe('p0-baseline');
         expect(result.tasks).toHaveLength(30);
+        service.onApplicationShutdown();
     });
 
     it('runs selected tasks and returns a persisted report', async () => {
-        const controller = setup();
+        const { controller, service } = setup();
         const run = await controller.run({
             taskIds: ['read-report'],
             modelId: 'faux-model',
@@ -95,11 +102,26 @@ describe('eval controller', () => {
             successes: 1,
             successRate: 1,
         });
-        expect(controller.report(run.runId).results).toHaveLength(1);
-        expect(controller.runs().runs[0]?.runId).toBe(run.runId);
+        expect((await controller.report(run.runId)).results).toHaveLength(1);
+        expect((await controller.runs()).runs[0]?.runId).toBe(run.runId);
+        service.onApplicationShutdown();
     });
 
     it('rejects unknown tasks before starting a run', async () => {
-        await expect(setup().run({ taskIds: ['missing'] })).rejects.toThrow(/未知评测任务/);
+        const { controller, service } = setup();
+        await expect(controller.run({ taskIds: ['missing'] })).rejects.toThrow(/未知评测任务/);
+        service.onApplicationShutdown();
+    });
+
+    it('loads completed runs after the service is recreated', async () => {
+        const dbPath = join(mkdtempSync(join(tmpdir(), 'mazi-eval-store-')), 'mazi.db');
+        const first = setup(dbPath);
+        const run = await first.controller.run({ taskIds: ['read-report'] });
+        first.service.onApplicationShutdown();
+
+        const second = setup(dbPath);
+        expect((await second.controller.runDetail(run.runId)).report?.results).toHaveLength(1);
+        expect((await second.controller.runs()).runs[0]?.runId).toBe(run.runId);
+        second.service.onApplicationShutdown();
     });
 });
