@@ -35,8 +35,8 @@ const emit = defineEmits([
     'archive-conversation',
     'remove-conversation',
     'open-settings',
-    'open-experiments',
-    'open-eval-lab',
+    'open-evals',
+    'open-lab',
     'open-memory',
     'open-blackboard',
     'open-agent',
@@ -143,13 +143,13 @@ function latencyText() {
         </button>
     </div>
     <div class="sidebar-lab">
-        <button class="lab-btn" title="AB 对照实验台：同一输入分臂运行，对比输出与 Trace" @click="emit('open-experiments')">
-            <LineIcon name="hammer" size="15" />
-            AB实验室
-        </button>
-        <button class="lab-btn" title="Agent 离线评测：任务成功率、工具准确率、成本与失败归因" @click="emit('open-eval-lab')">
+        <button class="lab-btn" title="从真实 Trace 派生的全局、项目和会话评测" @click="emit('open-evals')">
             <LineIcon name="observation" size="15" />
-            Eval Lab
+            评测
+        </button>
+        <button class="lab-btn" title="受控实验：AB 对照与固定 Benchmark 回归" @click="emit('open-lab')">
+            <LineIcon name="hammer" size="15" />
+            Lab
         </button>
         <button class="lab-btn" title="个人长期记忆：查看、确认、纠正和删除" @click="emit('open-memory')">
             <LineIcon name="lightbulb" size="15" />

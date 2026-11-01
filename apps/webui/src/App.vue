@@ -3,8 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import LineIcon from './assets/LineIcon.vue';
 import AgentOrchestrationPage from './components/AgentOrchestrationPage.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
-import EvalLabPage from './components/EvalLabPage.vue';
-import ExperimentsPage from './components/ExperimentsPage.vue';
+import EvalDashboardPage from './components/EvalDashboardPage.vue';
+import LabPage from './components/LabPage.vue';
 import MemoryGovernancePage from './components/MemoryGovernancePage.vue';
 import PlanDelegationPage from './components/PlanDelegationPage.vue';
 import ProjectBlackboardPage from './components/ProjectBlackboardPage.vue';
@@ -247,8 +247,8 @@ const activeConversation = computed(() =>
 
 /** 顶部栏会话名称：最多 12 个字符，超出以省略号截断。 */
 const headerTitle = computed(() => {
-    if (ui.view === 'experiments') return 'AB实验室';
-    if (ui.view === 'eval-lab') return 'Eval Lab';
+    if (ui.view === 'evals') return '评测';
+    if (ui.view === 'lab') return 'Lab';
     if (ui.view === 'memory') return '个人记忆';
     if (ui.view === 'blackboard') return '项目黑板';
     if (ui.view === 'agent') return 'Agent 编排';
@@ -460,6 +460,24 @@ function onSelectConversation() {
     drawerTab.value = 'trace';
 }
 
+/** Eval 是 Trace 上层派生视图：从评测会话回到其事实链。 */
+async function openEvaluationTrace(record) {
+    const conversation = conversations.value.find(
+        (item) =>
+            item.conversationId === record?.conversationId ||
+            item.runs?.some((run) => run.rootGoalId === record?.rootGoalId),
+    );
+    if (conversation === undefined) {
+        ui.err = '该评测的来源会话已不存在';
+        return;
+    }
+    ui.view = 'chat';
+    await openConversation(conversation.conversationId);
+    if (record.rootGoalId) await openRun(record.rootGoalId);
+    drawerTab.value = 'trace';
+    ui.rightOpen = true;
+}
+
 /** Whether the right panel is maximized over the workspace. */
 const panelMaximized = ref(false);
 const settingsTab = ref('general');
@@ -617,7 +635,8 @@ function onKeydown(event) {
     if (
         ui.view === 'user-center' ||
         ui.view === 'system-settings' ||
-        ui.view === 'experiments' ||
+        ui.view === 'evals' ||
+        ui.view === 'lab' ||
         ui.view === 'wiki'
     ) {
         backToChat();
@@ -942,8 +961,8 @@ onBeforeUnmount(() => {
                 @archive-conversation="archiveConversation"
                 @remove-conversation="removeConversation"
                 @open-settings="openSettings"
-                @open-experiments="ui.view = 'experiments'"
-                @open-eval-lab="ui.view = 'eval-lab'"
+                @open-evals="ui.view = 'evals'"
+                @open-lab="ui.view = 'lab'"
                 @open-memory="ui.view = 'memory'"
                 @open-blackboard="ui.view = 'blackboard'"
                 @open-agent="ui.view = 'agent'"
@@ -1034,10 +1053,14 @@ onBeforeUnmount(() => {
                 />
             </template>
 
-            <ExperimentsPage v-else-if="ui.view === 'experiments'" />
+            <EvalDashboardPage
+                v-else-if="ui.view === 'evals'"
+                @open-trace="openEvaluationTrace"
+                @close="backToChat"
+            />
 
-            <EvalLabPage
-                v-else-if="ui.view === 'eval-lab'"
+            <LabPage
+                v-else-if="ui.view === 'lab'"
                 :models="modelOptions"
                 :workspace="headerWorkspace"
                 @close="backToChat"

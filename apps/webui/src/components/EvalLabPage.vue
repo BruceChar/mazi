@@ -6,6 +6,7 @@ import LineIcon from '../assets/LineIcon.vue';
 const props = defineProps({
     models: { type: Array, default: () => [] },
     workspace: { type: String, default: '' },
+    embedded: { type: Boolean, default: false },
 });
 const emit = defineEmits(['close']);
 
@@ -156,11 +157,11 @@ function statusTone(result) {
 </script>
 
 <template>
-    <section class="eval-page">
-        <header class="eval-head">
+    <section class="eval-page" :class="{ embedded }">
+        <header v-if="!embedded" class="eval-head">
             <div class="eval-title">
                 <LineIcon name="observation" :size="17" />
-                <strong>Eval Lab</strong>
+                <strong>Benchmark</strong>
                 <span>P0 基线 · {{ tasks.length }} 个任务</span>
             </div>
             <div class="eval-actions">
@@ -396,6 +397,9 @@ function statusTone(result) {
     padding: 12px 16px 16px;
     gap: 10px;
     overflow: hidden;
+}
+.eval-page.embedded {
+    padding: 10px 16px 16px;
 }
 .eval-head,
 .eval-actions,
