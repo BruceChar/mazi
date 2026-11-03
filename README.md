@@ -372,6 +372,7 @@ mazi/
 | [项目 Wiki 设计](./docs/项目wiki设计.md)                                   | 项目级状态快照 + `时间 \| 改动` 变更日志；runtime 事实层 + 用户级技能策略层 + 插件扩展层 |
 | [Agent 能力实现状态](<./docs/runtime/AGENT_CAPABILITY_IMPLEMENTATION.md>) | Task DAG、工具快照、审计链、上下文 epoch、SQLite 记忆与可迁移 bundle 的实现边界 |
 | [Agent P0–P3 实施清单](<./docs/runtime/AGENT_P0_P3_IMPLEMENTATION_PLAN.md>) | 评测、个人记忆、项目黑板、SuperAgent、PromptPack、Verifier、Replan、MCP 与 RL-ready 评测 |
+| [评测与长任务可靠性审计](<./docs/runtime/EVALUATION_AND_LONG_TASK_RELIABILITY.md>) | Eval/Langfuse 差距、超时、取消、重试、恢复、幂等现状与业界标准 |
 
 ---
 
