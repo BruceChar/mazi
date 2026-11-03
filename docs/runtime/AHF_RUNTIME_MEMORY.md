@@ -2,6 +2,7 @@
 
 **状态**：实现对齐稿
 **范围**：packages/runtime/src/memory/。定义 memory（调度策略）与 store（持久化端口）的边界，并把“长期记忆 ↔ context”的调度接到上一轮的 ContextManager。
+**演进设计**：事实记忆、人格画像、用户认知过程画像和异步抽取的完整目标态见 [AHF_RUNTIME_MEMORY_SYSTEM_DESIGN.md](./AHF_RUNTIME_MEMORY_SYSTEM_DESIGN.md)；实施顺序见 [AHF_RUNTIME_MEMORY_IMPLEMENTATION_TASKS.md](./AHF_RUNTIME_MEMORY_IMPLEMENTATION_TASKS.md)。
 
 ## 1. 概念边界
 

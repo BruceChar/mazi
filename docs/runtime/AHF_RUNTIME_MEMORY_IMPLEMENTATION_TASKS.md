@@ -1,8 +1,8 @@
-# AHF Runtime 长期记忆与用户画像实施待办
+# AHF Runtime 长期记忆、人格与认知过程画像实施待办
 
-> 版本：v1.0  
-> 状态：待排期  
-> 日期：2026-11-04  
+> 版本：v1.1
+> 状态：待排期
+> 日期：2026-11-04
 > 设计依据：`docs/runtime/AHF_RUNTIME_MEMORY_SYSTEM_DESIGN.md`
 
 ## 1. 使用规则
@@ -16,11 +16,11 @@
 
 ## 2. P0 阻断项
 
-这些项目未完成前，不进入自动抽取和人格画像生产化。
+这些项目未完成前，不进入自动抽取、人格画像和认知过程画像生产化。
 
 ### [ ] MEM-P0-01 统一可信身份与租户作用域
 
-**目标**：Memory、Persona 和 Behavior 使用服务端可信身份，不接受客户端任意指定记录所有权。
+**目标**：Memory、Persona、Cognitive Profile 和 Behavior 使用服务端可信身份，不接受客户端任意指定记录所有权。
 
 **交付**：
 
@@ -468,7 +468,159 @@
 
 **依赖**：MEM-P1-14。
 
-## 6. P2 检索与冲突
+## 6. P1 用户认知过程画像
+
+本节实现“用户可观测认知过程”分析。现有 TOC 冻结的是模型 thinking 链，不能作为本节数据源。
+
+### [ ] MEM-P1-18 定义 CognitiveEpisode 与语义切分
+
+**目标**：把长对话和项目过程组织为可重放的问题解决 Episode。
+
+**交付**：
+
+- 定义 CognitiveEpisode、阶段枚举和来源引用；
+- 按问题完成、项目/主题切换、Goal/Run 完成和根本约束变化切分；
+- 固定轮数仅作为兜底；
+- 保留用户输入、反馈、纠正、决策、Task/Step 证据的顺序；
+- 明确不读取模型隐藏 thinking。
+
+**验收**：
+
+- 同一长对话可按实际阶段还原，而不是固定切片。
+- Episode 证据引用全部可解析。
+- 模型 TOC 不会进入 Episode 用户证据。
+- 用户、租户和项目边界正确。
+
+**依赖**：MEM-P0-02、MEM-P1-04。
+
+### [ ] MEM-P1-19 定义 CognitiveObservation 与分类法
+
+**目标**：保存一次 Episode 内可观测的认知策略证据。
+
+**交付**：
+
+- 定义 problem framing、entry angle、decomposition、exploration、evidence、hypothesis、blocker handling、self-correction、convergence、decision criteria、transfer 等维度；
+- 输出 behavior、phase、context、confidence 和 sourceRefs；
+- 维度注册表版本化；
+- 禁止输出能力评分和内在心理判断。
+
+**验收**：
+
+- 每条观察可追溯到用户行为或任务事实。
+- 单次 Episode 只生成 candidate。
+- 认知维度 schema 可机械校验。
+- 敏感和能力评价类输出被拒绝。
+
+**依赖**：MEM-P1-18。
+
+### [ ] MEM-P1-20 实现异步 CognitiveAnalyst
+
+**目标**：在后台分析已完成 Episode，不阻塞当前对话。
+
+**交付**：
+
+- 注册 `cognitive-analyze` job；
+- 输入只包含不可变 Episode 快照、有效问题标签和项目已验证事实；
+- 使用 deterministic fake 与真实模型适配；
+- 输出 observations 和 stateChanges；
+- 记录 analyzer/prompt 版本、耗时和失败原因。
+
+**验收**：
+
+- 用户回答等待时间不因认知分析增加。
+- Worker 重启后可恢复任务。
+- 重复分析幂等。
+- 分析失败不影响 Task 和主对话。
+
+**依赖**：MEM-P1-02、MEM-P1-18、MEM-P1-19。
+
+### [ ] MEM-P1-21 实现 CognitiveStrategyAggregator
+
+**目标**：从多个 Episode 中提取有适用边界的认知策略。
+
+**交付**：
+
+- 区分 global、project、topic、taskKind 适用范围；
+- 支持 candidate、established、superseded、tombstoned；
+- 计算 evidenceCount、distinctEpisodes、distinctContexts 和 confidence；
+- 支持半衰期、相反证据和用户明确确认；
+- 项目特定策略不得自动升级为全局。
+
+**验收**：
+
+- 单 Episode 不建立全局策略。
+- 同一用户不同领域的策略可以并存。
+- 删除证据后策略可重建。
+- 聚合结果可回到 Episode。
+
+**依赖**：MEM-P1-20。
+
+### [ ] MEM-P1-22 实现 ProjectCognitiveState
+
+**目标**：维护用户对具体项目当前理解的可版本化快照。
+
+**交付**：
+
+- knownConcepts、openQuestions、activeHypotheses、acceptedDecisions；
+- possibleMisconceptions 和 unresolvedConflicts；
+- 每项带证据和置信度；
+- 项目事实变化、用户纠正或证据删除时触发复核；
+- 保留历史版本以解释认知变化。
+
+**验收**：
+
+- 不得把可能误解写成确定事实。
+- 项目黑板更新后，旧认知状态不会继续作为当前结论注入。
+- 用户纠正后产生新版本且保留演化历史。
+- 状态与当前已验证项目事实冲突时有明确标记。
+
+**依赖**：MEM-P1-21。
+
+### [ ] MEM-P1-23 认知画像注入与协作适配
+
+**目标**：用认知策略和项目认知状态改善解释、提问和执行方式。
+
+**交付**：
+
+- 独立 cognitive contribution；
+- 跨项目策略 ≤ 250 tokens；
+- 项目认知状态 ≤ 300 tokens；
+- 只注入 established、explicit 或当前项目内明确标记的 candidate；
+- 出现项目事实冲突时优先当前事实；
+- 不在回答中主动暴露画像。
+
+**验收**：
+
+- 单 Episode candidate 不跨会话注入。
+- 注入不导致认知画像原话泄漏。
+- 关闭认知画像后系统正常运行。
+- 模型 TOC 不进入认知 contribution。
+
+**依赖**：MEM-P0-04、MEM-P1-21、MEM-P1-22。
+
+### [ ] MEM-P1-24 认知画像治理 API/UI
+
+**目标**：用户可查看、纠正、删除和关闭认知过程学习。
+
+**交付**：
+
+- 查看认知策略、适用范围、证据和置信度；
+- 查看项目认知状态及版本变化；
+- 确认/纠正 candidate；
+- 删除 Episode、观察、策略或整个项目认知状态；
+- 暂停/恢复认知学习；
+- 导出和重建。
+
+**验收**：
+
+- 删除传播到策略、状态和索引。
+- 用户不会看到“能力评分”或心理诊断。
+- 客户端无法读取其他用户认知画像。
+- 能区分事实记忆、人格画像和认知过程画像。
+
+**依赖**：MEM-P1-18 至 MEM-P1-23。
+
+## 7. P2 检索与冲突
 
 ### [ ] MEM-P2-01 引入可组合检索接口
 
@@ -587,7 +739,7 @@
 
 **依赖**：MEM-P2-04。
 
-## 7. P2 反思与遗忘
+## 8. P2 反思与遗忘
 
 ### [ ] MEM-P2-07 实现 MemoryCurator 任务
 
@@ -668,7 +820,7 @@
 
 **依赖**：MEM-P2-06。
 
-## 8. P2 评测与回归
+## 9. P2 评测与回归
 
 ### [ ] MEM-EVAL-01 建立事实记忆黄金集
 
@@ -731,7 +883,10 @@
 - conflictInjected；
 - tokenCost；
 - extractionFailure；
-- persona误升级。
+- persona 误升级；
+- cognitiveOvergeneralization；
+- projectCognitiveStateMismatch；
+- tocUsedAsUserEvidence。
 
 **验收**：
 
@@ -760,7 +915,33 @@
 
 **依赖**：MEM-P2-04、MEM-EVAL-04。
 
-## 9. 完成定义
+### [ ] MEM-EVAL-06 建立认知过程黄金集
+
+覆盖：
+
+- 长对话多阶段问题解决；
+- 风险、业务、数据、架构等不同切入角度；
+- 广度探索与深度排查；
+- 假设生成和排除；
+- 遇到阻塞后的重试、缩小范围、换路径和请求确认；
+- 用户自我纠偏与方案转向；
+- 收敛证据和决策标准；
+- 同用户不同项目/领域的策略差异；
+- 单 Episode 不升级全局策略；
+- 项目事实变化后认知状态重算；
+- 删除 Episode 后认知策略重建；
+- 模型 TOC 不进入用户认知证据；
+- 禁止能力评分和敏感属性推断。
+
+**验收**：
+
+- 每个样本包含期望 Episode 边界、阶段序列和认知观察。
+- 报告包含边界准确率、维度覆盖率、过度泛化率和 TOC 混用次数。
+- deterministic fake 可在 CI 中完整运行。
+
+**依赖**：MEM-P1-18 至 MEM-P1-24。
+
+## 10. 完成定义
 
 一个记忆或画像功能项只有同时满足以下条件才算完成：
 
@@ -775,7 +956,7 @@
 - [ ] UI/API 行为与后端状态一致。
 - [ ] 变更独立提交，提交信息引用本清单 ID。
 
-## 10. 里程碑门禁
+## 11. 里程碑门禁
 
 ### M0：安全底座
 
@@ -787,11 +968,13 @@
 - MEM-P1-01 至 MEM-P1-10 全部完成。
 - 会话不被抽取阻塞，Worker 可恢复，重复抽取幂等。
 
-### M2：人格画像
+### M2：人格与认知过程画像
 
-- MEM-P1-11 至 MEM-P1-17 全部完成。
+- MEM-P1-11 至 MEM-P1-24 全部完成。
 - 感谢、闲聊、生气和批评可产生证据。
 - 单次情绪不升级稳定画像，用户可以治理。
+- 长对话可重建问题建构、切入角度、推进、纠错和收敛过程。
+- 单 Episode 不升级全局认知策略，模型 TOC 不进入用户认知证据。
 
 ### M3：混合检索与冲突
 
@@ -800,10 +983,10 @@
 
 ### M4：反思、遗忘与外部评测
 
-- MEM-P2-07 至 MEM-P2-10、MEM-EVAL-01 至 MEM-EVAL-05 全部完成。
+- MEM-P2-07 至 MEM-P2-10、MEM-EVAL-01 至 MEM-EVAL-06 全部完成。
 - 记忆质量、成本、隐私和长期演化均可观测、可回归。
 
-## 11. 明确不做
+## 12. 明确不做
 
 - [ ] 不把全部对话原文直接写入长期向量库。
 - [ ] 不让交互 Agent 无限制自主新增、覆盖、删除记忆。
@@ -813,3 +996,7 @@
 - [ ] 不让 LLM 自己决定数据库归属和权限。
 - [ ] 不自动上线程序性规则或改写 system prompt。
 - [ ] 不在缺少证据时生成高置信度画像。
+- [ ] 不把模型 TOC/thinking 链当成用户思维链或用户认知证据。
+- [ ] 不从单次长对话直接推断稳定认知策略。
+- [ ] 不输出用户智力、理性程度或认知能力评分。
+- [ ] 不把一个项目的解题策略无边界迁移成用户全局画像。
