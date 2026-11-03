@@ -251,13 +251,17 @@ const headerTitle = computed(() => {
 });
 /**
  * 顶部栏会话工作区。
- * 项目会话用会话自身记录的 `workspace`（即当前项目工作空间），
- * 随心聊才回退到已选工作区 / 随心聊默认工作区。
+ * 项目会话用会话自身记录的 `workspace`（即当前项目工作空间）；
+ * 随心聊（无 workspace 归属）显示随心聊默认工作区 —— 不再回退到上次选中的项目路径。
+ * 仅当没有活跃会话（欢迎页 / Lab / Wiki）时才用已选工作区兜底。
  */
-const headerWorkspace = computed(
-    () =>
-        activeConversation.value?.workspace || workspaceRoot.value || freeChatWorkspace.value,
-);
+const headerWorkspace = computed(() => {
+    const conversation = activeConversation.value;
+    if (conversation) {
+        return conversation.workspace || freeChatWorkspace.value;
+    }
+    return workspaceRoot.value || freeChatWorkspace.value;
+});
 const runs = computed(() => activeConversation.value?.runs || []);
 
 
@@ -706,9 +710,12 @@ async function submitPrompt() {
         return;
     }
     prompt.value = '';
-    // New conversations run in the workspace currently shown in the composer;
-    // continuing a conversation keeps using the selected workspace too.
-    const workspacePath = workspaceRoot.value || undefined;
+    // 新会话在输入框当前显示的工作区运行；续聊跟随会话自身的工作区
+    // （随心聊会话无 workspace → 不传，后端落在随心聊默认工作区，
+    //   避免把上次选中的项目路径带进自由聊天）。
+    const workspacePath = currentConversation.value
+        ? activeConversation.value?.workspace || undefined
+        : workspaceRoot.value || undefined;
     await createAndRunGoal(
         goalFromRunSettings(text, sessionPermission.value),
         workspacePath,
