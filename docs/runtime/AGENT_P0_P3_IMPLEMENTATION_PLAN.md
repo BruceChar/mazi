@@ -62,7 +62,7 @@ P0 是本计划共同依赖。评测体系负责证明记忆和黑板确实提�
 
 #### 交付
 
-- 新建 `packages/eval`，提供可复用的离线评测执行器。
+- 评测执行器并入 `packages/runtime/src/eval`（原独立包 `@mazi/eval` 已并入 runtime），提供可复用的离线评测执行器。
 - 首批建立 **30–50 个任务**；后续扩展到 100+。
 - 任务至少分为：simple / medium / hard / long-horizon / memory / security。
 - 每个任务包含用户输入、初始环境、允许工具、预期副作用、验收条件、预算和难度。

@@ -5,7 +5,7 @@
 
 ## P0 基础版（2026-11-02）
 
-- **评测 Harness**：新增 `@mazi/eval`，包含任务 schema、30 个分级任务、离线 suite runner、工具准确率/接管率/Token/成本/延迟指标和失败归因。
+- **评测 Harness**：并入 runtime 的 eval 模块（`packages/runtime/src/eval`，原 `@mazi/eval`），包含任务 schema、30 个分级任务、离线 suite runner、工具准确率/接管率/Token/成本/延迟指标和失败归因。
 - **会话自动评测**：普通 Session、恢复运行和 AB 臂结束后，从 Goal/Task/Step 与事件事实自动投影 Session Eval；结果落 `session_evaluations`，不向 Trace 回写派生值。
 - **个人长期记忆**：增加 `PersonalMemoryService`，支持显式写入、模型候选、确认、纠正、deprecated/tombstone、内容去重、版本、项目关联和混合召回评分。
 - **项目黑板**：新增 `ProjectBlackboardService`，使用独立 SQLite 文档保存项目目的、架构、状态、已完成项、问题、决策、下一步、证据和源指纹。
@@ -60,7 +60,7 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 | 持久记忆 | `packages/runtime/src/memory/store.ts` | SQLite 保存 user/workspace/project/conversation/task 作用域记录、provenance、TTL 与 tombstone。 |
 | 偏好同步 | `SessionsService` + WebUI | 用户设置随会话创建同步为 T1 confirmed preference；后续用户/工作区召回通过 SQLite 复用。 |
 | 可迁移 bundle | `packages/runtime/src/memory/transfer.ts` | 版本化 JSON bundle + SHA-256 checksum；记忆与 audit trail 分域保存。 |
-| P0 评测 | `packages/eval` | 30 个任务、指标聚合、失败归因、Runtime 轨迹适配 |
+| P0 评测 | `packages/runtime/src/eval` | 30 个任务、指标聚合、失败归因、Runtime 轨迹适配 |
 | P0 个人记忆 | `packages/runtime/src/memory/personal-memory.ts` | 确认/纠正/墓碑、去重、项目关联和查询相关召回 |
 | P0 项目黑板 | `packages/runtime/src/blackboard` | 结构化项目状态、增量更新、新会话注入和源漂移检测 |
 | P1 PromptPack | `packages/runtime/src/prompts` | 项目/任务/工具/风险确定性匹配，L0–L2 渐进注入与预算 |

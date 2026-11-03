@@ -120,6 +120,8 @@ export {
     SqliteEffectStore,
     snapshotFiles,
 } from './effects/effect-store.js';
+// 评测（任务 schema / 指标 / 失败归因 / suite runner / 会话评测；原 @mazi/eval 并入 runtime）
+export * from './eval/index.js';
 // 观测层（事件总线；apps 直接消费）
 export type { ChainVerification, EventBusOptions, NewEventInput } from './events/event-bus.js';
 export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './events/event-bus.js';

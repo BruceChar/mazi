@@ -6,7 +6,7 @@ import type { GoalRunResult, GoalTreeSnapshot } from '@mazi/runtime';
 import {
     projectSessionEvaluation,
     SqliteSessionEvaluationStore,
-} from '../src/index.js';
+} from '../../src/eval/index.js';
 
 const snapshot: GoalTreeSnapshot = {
     rootGoalId: 'root-1',

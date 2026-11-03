@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PermissionLevel } from '@mazi/core';
+import type { GoalRunResult, HarnessRuntime } from '@mazi/runtime';
 import {
     buildEvalReport,
     createRuntimeEvalExecutor,
@@ -17,8 +18,7 @@ import {
     type SessionEvaluationStore,
     SqliteEvalRunStore,
     SqliteSessionEvaluationStore,
-} from '@mazi/eval';
-import type { GoalRunResult, HarnessRuntime } from '@mazi/runtime';
+} from '@mazi/runtime';
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';

@@ -13,7 +13,8 @@
   },
   "files": [
     "dist",
-    "builtin-skills"
+    "builtin-skills",
+    "tasks"
   ],
   "scripts": {
     "build": "tsc -b tsconfig.json",

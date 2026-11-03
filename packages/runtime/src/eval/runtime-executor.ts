@@ -1,5 +1,7 @@
 import type { HarnessEvent } from '@mazi/core';
-import type { GoalRunResult, GoalTreeSnapshot, RunOptions } from '@mazi/runtime';
+import type { GoalTreeSnapshot } from '@mazi/libs';
+import type { RunOptions } from '../harness/conversation.js';
+import type { GoalRunResult } from '../strategy/goal-strategy.js';
 import type { EvalExecutionContext, EvalObservation, EvalTaskExecutor } from './types.js';
 
 export interface EvalRuntimePort {

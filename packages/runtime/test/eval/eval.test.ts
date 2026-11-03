@@ -7,7 +7,7 @@ import {
     loadEvalDataset,
     runEvalSuite,
     type EvalObservation,
-} from '../src/index.js';
+} from '../../src/eval/index.js';
 
 function observation(over: Partial<EvalObservation> = {}): EvalObservation {
     return {
@@ -34,7 +34,7 @@ function observation(over: Partial<EvalObservation> = {}): EvalObservation {
 
 describe('P0 eval harness', () => {
     it('loads and validates the 30-task baseline dataset', () => {
-        const tasks = loadEvalDataset(join(import.meta.dirname, '../tasks/p0-baseline.json'));
+        const tasks = loadEvalDataset(join(import.meta.dirname, '../../tasks/p0-baseline.json'));
         expect(tasks).toHaveLength(30);
         expect(new Set(tasks.map((task) => task.difficulty))).toEqual(
             new Set(['simple', 'medium', 'hard', 'long-horizon']),
@@ -42,7 +42,7 @@ describe('P0 eval harness', () => {
     });
 
     it('runs a suite and aggregates success, tools, intervention and cost', async () => {
-        const tasks = loadEvalDataset(join(import.meta.dirname, '../tasks/p0-baseline.json')).slice(
+        const tasks = loadEvalDataset(join(import.meta.dirname, '../../tasks/p0-baseline.json')).slice(
             0,
             2,
         );
@@ -65,7 +65,7 @@ describe('P0 eval harness', () => {
     });
 
     it('attributes tool execution and selection failures', async () => {
-        const tasks = loadEvalDataset(join(import.meta.dirname, '../tasks/p0-baseline.json'));
+        const tasks = loadEvalDataset(join(import.meta.dirname, '../../tasks/p0-baseline.json'));
         const execution = await runEvalSuite([tasks[0]!], async () =>
             observation({
                 ok: false,
@@ -98,7 +98,7 @@ describe('P0 eval harness', () => {
     });
 
     it('builds a report grouped by difficulty', async () => {
-        const tasks = loadEvalDataset(join(import.meta.dirname, '../tasks/p0-baseline.json')).slice(
+        const tasks = loadEvalDataset(join(import.meta.dirname, '../../tasks/p0-baseline.json')).slice(
             0,
             3,
         );
@@ -110,7 +110,7 @@ describe('P0 eval harness', () => {
     });
 
     it('projects a real runtime run into evaluation metrics', async () => {
-        const tasks = loadEvalDataset(join(import.meta.dirname, '../tasks/p0-baseline.json'));
+        const tasks = loadEvalDataset(join(import.meta.dirname, '../../tasks/p0-baseline.json'));
         const task = tasks[0]!;
         const runtime = {
             async runGoalSession() {

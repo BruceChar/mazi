@@ -1,5 +1,6 @@
 import type { HarnessEvent } from '@mazi/core';
-import type { GoalRunResult, GoalTreeSnapshot } from '@mazi/runtime';
+import type { GoalTreeSnapshot } from '@mazi/libs';
+import type { GoalRunResult } from '../strategy/goal-strategy.js';
 import type { FailureCategory } from './types.js';
 
 export type SessionEvaluationStatus = 'success' | 'failed' | 'aborted' | 'unverified';

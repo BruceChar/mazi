@@ -8,11 +8,19 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "test/**/*.test.ts"],
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "test/**/*.test.ts"
+  ],
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/eval" },
-    { "path": "../../packages/runtime" }
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/runtime"
+    }
   ]
 }

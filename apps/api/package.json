@@ -7,7 +7,6 @@
   "dependencies": {
     "@fastify/cors": "^11",
     "@mazi/core": "workspace:*",
-    "@mazi/eval": "workspace:*",
     "@mazi/libs": "workspace:*",
     "@mazi/runtime": "workspace:*",
     "@nestjs/common": "^12",
