@@ -1,4 +1,3 @@
-
 ---
 name: project-wiki
 description: 项目知识库(wiki/)的读写与维护协议。检索项目背景、确认事实、

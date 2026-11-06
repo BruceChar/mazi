@@ -20,7 +20,8 @@ import re
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+import tempfile
+from pathlib import Path, PurePosixPath
 
 __version__ = "1.0.0"
 
@@ -79,8 +80,21 @@ def dump_claims(claims: dict) -> str:
 
 
 def atomic_write(path: Path, content: str):
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = (path.stat().st_mode & 0o777) if path.exists() else 0o644
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=path.name + ".",
+        suffix=".tmp",
+        delete=False,
+    ) as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+        tmp = Path(handle.name)
+    tmp.chmod(mode)
     tmp.replace(path)
 
 
@@ -133,43 +147,65 @@ def working_oid(repo: str, rel: str):
 
 
 def index_oids(repo: str) -> dict:
-    out = run_git(["ls-files", "-s"], cwd=repo).stdout
+    out = run_git(["ls-files", "-s", "-z"], cwd=repo).stdout
     m = {}
-    for line in out.splitlines():
-        parts = line.split(None, 3)
-        if len(parts) == 4:
-            m[parts[3]] = parts[1]
+    for record in out.split("\0"):
+        if not record:
+            continue
+        meta, rel = record.split("\t", 1)
+        _mode, oid, stage = meta.split()
+        m[rel] = oid if stage == "0" else None
     return m
 
 
 def staged_files(repo: str) -> set:
-    out = run_git(["diff", "--cached", "--name-only", "-z"], cwd=repo).stdout
+    out = run_git(["diff", "--cached", "--name-only", "--no-renames", "-z"],
+                  cwd=repo).stdout
     return {x for x in out.split("\0") if x}
 
 
 def status_files(repo: str) -> set:
-    out = run_git(["status", "--porcelain"], cwd=repo).stdout
+    out = run_git(["status", "--porcelain=v1", "-z"], cwd=repo).stdout
     files = set()
-    for line in out.splitlines():
-        if len(line) < 4:
+    records = [record for record in out.split("\0") if record]
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if len(record) < 4:
             continue
-        p = line[3:].strip()
-        if " -> " in p:
-            p = p.split(" -> ", 1)[1]
-        files.add(p.strip('"'))
+        state = record[:2]
+        rel = record[3:]
+        files.add(rel)
+        if ("R" in state or "C" in state) and index < len(records):
+            files.add(records[index])
+            index += 1
     return files
 
 
-def auto_commit(repo: str, rel_wiki: str, message: str, allow: bool = True):
+def within_path(path: str, prefix: str) -> bool:
+    candidate = PurePosixPath(path)
+    root = PurePosixPath(prefix)
+    return candidate == root or root in candidate.parents
+
+
+def auto_commit(repo: str, paths, message: str, allow: bool = True):
     if not allow:
         return
-    run_git(["add", "--", rel_wiki], cwd=repo, check=False)
-    st = run_git(["commit", "-m", message, "--", rel_wiki], cwd=repo, check=False)
+    if isinstance(paths, str):
+        paths = [paths]
+    targets = [path for path in dict.fromkeys(paths) if path]
+    if not targets:
+        return
+    st = run_git(["add", "--", *targets], cwd=repo, check=False)
+    if st.returncode != 0:
+        die(f"wiki 暂存失败：{(st.stderr or st.stdout).strip()}", 1)
+    st = run_git(["commit", "-m", message, "--", *targets], cwd=repo, check=False)
     if st.returncode != 0:
         blob = (st.stdout + st.stderr).lower()
         if "nothing to commit" in blob or "no changes" in blob:
             return
-        print(f"⚠ wiki 自动 commit 未完成：{(st.stderr or st.stdout).strip()}")
+        die(f"wiki 自动 commit 失败：{(st.stderr or st.stdout).strip()}", 1)
 
 
 # ------------------------------------------------------------ root utils ---
@@ -183,7 +219,7 @@ def find_wiki_root() -> Path:
 
 
 def rel_wiki_of(root: Path) -> str:
-    return os.path.relpath(root / "wiki", root).replace(os.sep, "/")
+    return os.path.relpath(root / "wiki", repo_of(root)).replace(os.sep, "/")
 
 
 def load_context():
@@ -205,9 +241,15 @@ def save_and_commit(repo, root, claims_path, claims, msg, no_commit):
 
 
 def all_roots(repo: str) -> list:
-    out = run_git(["ls-files", "--", "*/wiki/claims.toml", "wiki/claims.toml"],
+    out = run_git(["ls-files", "--cached", "--others", "--exclude-standard", "-z",
+                   "--", "*/wiki/claims.toml", "wiki/claims.toml"],
                   cwd=repo).stdout
-    roots = {str((Path(repo) / line).parent.parent) for line in out.splitlines() if line}
+    roots = {
+        Path(repo) / line
+        for line in out.split("\0")
+        if line and (line == "wiki/claims.toml" or line.endswith("/wiki/claims.toml"))
+    }
+    roots = {path.parent.parent for path in roots if path.is_file()}
     return sorted(roots)
 
 
@@ -282,6 +324,8 @@ def summarize(claims, findings, warns):
 
 
 def cmd_doctor(args):
+    import tomllib
+
     root, repo, data, _ = load_context()
     claims = data.get("claims", {})
     mode = ("staged" if args.staged else "git_status" if args.git_status
@@ -291,7 +335,7 @@ def cmd_doctor(args):
 
     if args.git_status:
         changed = {f for f in status_files(repo)
-                   if not f.startswith(rel_wiki_of(root))}
+                   if not within_path(f, rel_wiki_of(root))}
         by_file = {}
         for cid, c in claims.items():
             if c.get("status") == "retracted":
@@ -313,19 +357,25 @@ def cmd_doctor(args):
         if not staged:
             print("summary: 暂存区为空，门禁通过")
             return
-        findings = collect_findings(repo, claims, source="index", staged=staged)
-        print_findings(findings)
-        missing, _ = summarize(claims, findings, [])
+        findings = []
+        for candidate in all_roots(repo):
+            candidate_claims_path = candidate / "wiki" / "claims.toml"
+            candidate_data = tomllib.loads(candidate_claims_path.read_text(encoding="utf-8"))
+            candidate_claims = candidate_data.get("claims", {})
+            current = collect_findings(repo, candidate_claims, source="index", staged=staged)
+            if current:
+                print(f"--- root: {candidate}")
+                print_findings(current)
+            findings.extend(current)
         if findings:
             die("提交门禁：以上 evidence 与 claim 声明不一致"
                 "（重新 git add，或 wiki.py claim verify/update）", 1)
         print("✓ 提交门禁通过：staged 内容与 claims 声明一致")
         return
 
-    if args.all_roots:
+    if args.all_roots or args.ci:
         total_missing = 0
-        for r in all_roots(repo):
-            rr = Path(r)
+        for rr in all_roots(repo):
             print(f"--- root: {rr}")
             d = tomllib.loads((rr / "wiki" / "claims.toml").read_text(encoding="utf-8"))
             cl = d.get("claims", {})
@@ -334,7 +384,11 @@ def cmd_doctor(args):
             print_findings(fnd + warns)
             m, _ = summarize(cl, fnd, warns)
             total_missing += m
-        sys.exit(1 if total_missing else 0)
+        if args.ci and total_missing:
+            sys.exit(1)
+        if args.all_roots and total_missing:
+            sys.exit(1)
+        return
 
     only = {args.claim} if args.claim else None
     if only and args.claim not in claims:
@@ -374,6 +428,9 @@ def cmd_claim_add(args, no_commit):
         die("claim id 只允许 [A-Za-z0-9_-]")
     if args.id in claims:
         die(f"claim 已存在: {args.id}（用 claim update）")
+    text = args.text.strip()
+    if not text:
+        die("claim text 不能为空")
     evs = ev_zip([normalize_path(repo, e) for e in args.ev], args.hint)
     for e in evs:
         oid = working_oid(repo, e["file"])
@@ -381,12 +438,12 @@ def cmd_claim_add(args, no_commit):
             die(f"evidence 文件不存在: {e['file']}")
         e["oid"] = oid
     today = datetime.date.today().isoformat()
-    c = {"text": args.text, "status": "active", "evidence": evs,
+    c = {"text": text, "status": "active", "evidence": evs,
          "established": today, "verified": today}
     if args.claim_oid:
         c["claim_oid"] = compute_claim_oid(c)
     claims[args.id] = c
-    save_and_commit(repo, root, path, data,
+    save_and_commit(repo, root, path, claims,
                      f"wiki(claim): add {args.id}", no_commit)
 
 
@@ -396,6 +453,17 @@ def cmd_claim_verify(args, no_commit):
     targets = claims if args.all else {args.id: claims.get(args.id)}
     if not args.all and targets.get(args.id) is None:
         die(f"claim 不存在: {args.id}")
+    missing = []
+    for cid, c in targets.items():
+        if c.get("status") == "retracted":
+            continue
+        for ev in c.get("evidence", []):
+            if working_oid(repo, ev["file"]) is None:
+                missing.append((cid, ev["file"]))
+    if missing:
+        for cid, file in missing:
+            print(f"✗ {cid}: evidence 缺失: {file}", file=sys.stderr)
+        die("verify 失败：evidence 缺失时必须先 update 重挂证据或 retract", 1)
     today = datetime.date.today().isoformat()
     changed = 0
     for cid, c in targets.items():
@@ -406,9 +474,6 @@ def cmd_claim_verify(args, no_commit):
         touched = False
         for ev in c.get("evidence", []):
             oid = working_oid(repo, ev["file"])
-            if oid is None:
-                print(f"⚠ {cid}: evidence 缺失，未刷新: {ev['file']}")
-                continue
             if oid != ev.get("oid"):
                 ev["oid"] = oid
                 touched = True
@@ -421,7 +486,7 @@ def cmd_claim_verify(args, no_commit):
         elif not args.all:
             print(f"✓ {cid}: 无变化，verified 已标记")
     if changed or not args.all:
-        save_and_commit(repo, root, path, data,
+        save_and_commit(repo, root, path, claims,
                          f"wiki(claim): verify{' --all' if args.all else ' ' + args.id}",
                          no_commit)
 
@@ -433,7 +498,10 @@ def cmd_claim_update(args, no_commit):
     if c is None:
         die(f"claim 不存在: {args.id}（用 claim add）")
     if args.text:
-        c["text"] = args.text
+        text = args.text.strip()
+        if not text:
+            die("claim text 不能为空")
+        c["text"] = text
     if args.ev:
         evs = ev_zip([normalize_path(repo, e) for e in args.ev], args.hint)
         for e in evs:
@@ -445,13 +513,14 @@ def cmd_claim_update(args, no_commit):
     else:
         for ev in c.get("evidence", []):
             oid = working_oid(repo, ev["file"])
-            if oid is not None:
-                ev["oid"] = oid
+            if oid is None:
+                die(f"evidence 缺失: {ev['file']}（用 --ev 重挂证据）")
+            ev["oid"] = oid
     c["status"] = "active"
     c["verified"] = datetime.date.today().isoformat()
     if args.claim_oid:
         c["claim_oid"] = compute_claim_oid(c)
-    save_and_commit(repo, root, path, data,
+    save_and_commit(repo, root, path, claims,
                      f"wiki(claim): update {args.id}", no_commit)
 
 
@@ -461,10 +530,13 @@ def cmd_claim_retract(args, no_commit):
     c = claims.get(args.id)
     if c is None:
         die(f"claim 不存在: {args.id}")
+    reason = args.reason.strip()
+    if not reason:
+        die("retract reason 不能为空")
     c["status"] = "retracted"
     c["retracted_at"] = datetime.date.today().isoformat()
-    c["retracted_reason"] = args.reason
-    save_and_commit(repo, root, path, data,
+    c["retracted_reason"] = reason
+    save_and_commit(repo, root, path, claims,
                      f"wiki(claim): retract {args.id}", no_commit)
     print(f"- {args.id}: evidence 保留作历史参照，不再参与校验")
 
@@ -482,7 +554,7 @@ def cmd_update(args):
         out = run_git(["diff", "--name-only", ckpt, "HEAD"], cwd=repo).stdout
         files |= {l for l in out.splitlines() if l}
     files |= status_files(repo)
-    files = {f for f in files if not f.startswith(rel_wiki)}
+    files = {f for f in files if not within_path(f, rel_wiki)}
     by_file = {}
     for cid, c in claims.items():
         if c.get("status") == "retracted":
@@ -490,6 +562,8 @@ def cmd_update(args):
         for ev in c.get("evidence", []):
             by_file.setdefault(ev["file"], []).append(cid)
     hits = sorted({cid for f in files for cid in by_file.get(f, [])})
+    findings = collect_findings(repo, claims, source="worktree")
+    hits = sorted(set(hits) | {cid for _level, cid, _msg in findings})
     if not hits:
         print("✓ 自上次 checkpoint 以来没有触及任何 claim，无需修复")
         return
@@ -506,7 +580,7 @@ def cmd_update(args):
                 verdicts.append(f"stale   {e['file']}")
         detail = "；".join(verdicts) if verdicts else "oid 无变化（提交历史变化）"
         print(f"- {cid}: {c.get('text', '')}\n    evidence: {evs}\n    状态: {detail}")
-    print("\n完成后执行 python3 wiki.py checkpoint")
+    print(f"\n完成后执行 python3 {Path(__file__).resolve()} checkpoint")
 
 
 # ------------------------------------------------------------ checkpoint ---
@@ -527,33 +601,51 @@ def refresh_recent(root: Path, repo: str, rel_wiki: str):
 
 
 def cmd_checkpoint(args, no_commit):
-    root, repo, data, _ = load_context()
-    claims = data.get("claims", {})
-    rel_wiki = rel_wiki_of(root)
+    import tomllib
 
-    findings = collect_findings(repo, claims, source="worktree")
+    root, repo, data, _ = load_context()
+    roots = all_roots(repo) if root.resolve() == Path(repo).resolve() else [root]
+    claims_by_root = {}
+    findings = []
+    for candidate in roots:
+        candidate_claims = tomllib.loads(
+            (candidate / "wiki" / "claims.toml").read_text(encoding="utf-8")
+        ).get("claims", {})
+        claims_by_root[candidate] = candidate_claims
+        current = collect_findings(repo, candidate_claims, source="worktree")
+        if current:
+            print(f"--- root: {candidate}")
+        findings.extend(current)
     if findings and not args.force:
         print_findings(findings)
         die("存在未修复漂移，拒绝打点。先跑 update --plan 修复，或 --force 带漂移打点", 1)
 
-    dirty = {f for f in status_files(repo) if not f.startswith(rel_wiki)}
+    wiki_prefixes = [rel_wiki_of(candidate) for candidate in roots]
+    dirty = {
+        path
+        for path in status_files(repo)
+        if not any(within_path(path, prefix) for prefix in wiki_prefixes)
+    }
     if dirty:
-        ev_files = {e["file"] for c in claims.values()
-                    if c.get("status") != "retracted"
-                    for e in c.get("evidence", [])}
-        hit_claims = sorted({cid for f in dirty for cid in
-                             {cid for cid, c in claims.items()
-                              if c.get("status") != "retracted"
-                              for e in c.get("evidence", []) if e["file"] == f}})
+        hit_claims = sorted({
+            cid
+            for candidate_claims in claims_by_root.values()
+            for f in dirty
+            for cid, c in candidate_claims.items()
+            if c.get("status") != "retracted"
+            for e in c.get("evidence", [])
+            if e["file"] == f
+        })
         if hit_claims:
             print(f"⚠ 未 commit 的工作区改动涉及 {len(hit_claims)} 条 claims: "
                   f"{', '.join(hit_claims)}")
             print("  （报告不代劳：请自行决定代码的提交时机）")
 
-    refresh_recent(root, repo, rel_wiki)
-    auto_commit(repo, rel_wiki, "wiki(checkpoint): sync state & index",
+    for candidate in roots:
+        refresh_recent(candidate, repo, rel_wiki_of(candidate))
+    auto_commit(repo, wiki_prefixes, "wiki(checkpoint): sync state & index",
                 allow=not no_commit)
-    head = run_git(["log", "-1", "--format=%h %s", "--", rel_wiki],
+    head = run_git(["log", "-1", "--format=%h %s", "--", *wiki_prefixes],
                    cwd=repo, check=False).stdout.strip()
     print(f"✓ checkpoint 完成: {head or '(wiki 无变更)'}")
     print("  下次会话从该点继续（INDEX.md 最近更新块已刷新）")
@@ -564,6 +656,7 @@ def cmd_checkpoint(args, no_commit):
 INDEX_TPL = """# {name}
 
 > 一句话：TODO（做什么、给谁用、当前阶段）
+> 技术栈：{stack}
 
 ## 速查
 | 想知道 | 去哪 |
@@ -693,7 +786,21 @@ def extract_commands(repo: Path) -> str:
             sections.append("### just\n" +
                             "\n".join(f"- `just {t}`" for t in recipes[:25]))
     if (repo / "Taskfile.yml").is_file():
-        sections.append("### Task\nTODO（检测到 Taskfile.yml，请手填常用任务）")
+        tasks = []
+        in_tasks = False
+        for line in (repo / "Taskfile.yml").read_text(errors="replace").splitlines():
+            if re.match(r"^tasks:\s*$", line):
+                in_tasks = True
+                continue
+            if in_tasks and line and not line.startswith(" "):
+                break
+            match = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line) if in_tasks else None
+            if match:
+                tasks.append(match.group(1))
+        if tasks:
+            sections.append("### Task\n" + "\n".join(f"- `task {name}`" for name in tasks))
+        else:
+            sections.append("### Task\nTODO（检测到 Taskfile.yml，请手填常用任务）")
     return "\n\n".join(sections) or "TODO（未检测到任务定义文件，请手填常用命令）"
 
 
@@ -741,6 +848,21 @@ def detect_modules(repo: Path) -> list:
                         rel = hit.relative_to(repo).as_posix()
                         if rel not in mods:
                             mods.append(rel)
+    f = repo / "go.work"
+    if f.is_file():
+        text = f.read_text(errors="replace")
+        go_uses = re.findall(r"^\s*use\s+([^\s(]+)", text, re.M)
+        block_match = re.search(r"^\s*use\s*\((.*?)^\s*\)", text, re.M | re.S)
+        if block_match:
+            go_uses.extend(
+                re.findall(r"^\s*([^\s()]+)", block_match.group(1), re.M)
+            )
+        for value in go_uses:
+            hit = (repo / value.strip().strip('"')).resolve()
+            if hit.is_dir() and hit.is_relative_to(repo):
+                rel = hit.relative_to(repo).as_posix()
+                if rel not in mods:
+                    mods.append(rel)
     return mods
 
 
@@ -753,15 +875,32 @@ def write_if_missing(path: Path, content: str) -> bool:
 
 
 def install_hook(root: Path) -> str:
-    gd = run_git(["rev-parse", "--git-dir"], cwd=str(root)).stdout.strip()
-    git_dir = Path(gd) if Path(gd).is_absolute() else (root / gd)
-    hook = git_dir / "hooks" / "pre-commit"
+    configured = run_git(["config", "--get", "core.hooksPath"],
+                         cwd=str(root), check=False).stdout.strip()
+    husky_script = root / ".husky" / "pre-commit"
+    if husky_script.is_file():
+        hook = husky_script
+    elif configured:
+        hooks_dir = Path(configured)
+        if not hooks_dir.is_absolute():
+            hooks_dir = root / hooks_dir
+        hook = hooks_dir / "pre-commit"
+    else:
+        gd = run_git(["rev-parse", "--git-dir"], cwd=str(root)).stdout.strip()
+        git_dir = Path(gd) if Path(gd).is_absolute() else (root / gd)
+        hook = git_dir / "hooks" / "pre-commit"
     line = f'"{sys.executable}" "{Path(__file__).resolve()}" doctor --staged'
     hook.parent.mkdir(parents=True, exist_ok=True)
     if hook.exists():
         text = hook.read_text(encoding="utf-8", errors="replace")
-        if "project-wiki" in text:
+        pattern = re.escape(HOOK_MARK) + r"\n[^\n]*"
+        updated = re.sub(pattern, f"{HOOK_MARK}\n{line}", text, count=1)
+        if updated == text and HOOK_MARK in text:
             return "already"
+        if HOOK_MARK in text:
+            atomic_write(hook, updated)
+            hook.chmod(0o755)
+            return "updated"
         atomic_write(hook, text.rstrip() + f"\n{HOOK_MARK}\n{line}\n")
     else:
         atomic_write(hook, f"#!/bin/sh\n{HOOK_MARK}\n{line}\n")
@@ -793,7 +932,39 @@ def update_agents_md(root: Path) -> str:
     if agents.exists():
         text = agents.read_text(encoding="utf-8", errors="replace")
         if AGENTS_MARK_START in text:
-            return "already"
+            pattern = re.escape(AGENTS_MARK_START) + r".*?" + re.escape(AGENTS_MARK_END)
+            updated = re.sub(pattern, block.rstrip(), text, flags=re.S)
+            if updated == text:
+                return "already"
+            atomic_write(agents, updated)
+            return "updated"
+        atomic_write(agents, text.rstrip() + "\n\n" + block)
+        return "appended"
+    atomic_write(agents, block)
+    return "created"
+
+
+MODULE_AGENTS_BLOCK = """{mark_start}
+# Agent 指南（project-wiki）
+- 本模块知识库在 wiki/INDEX.md，改代码前先查
+- 全局知识库与协议见仓库根 AGENTS.md
+{mark_end}
+"""
+
+
+def update_module_agents(mod_root: Path) -> str:
+    agents = mod_root / "AGENTS.md"
+    block = MODULE_AGENTS_BLOCK.format(mark_start=AGENTS_MARK_START,
+                                       mark_end=AGENTS_MARK_END)
+    if agents.exists():
+        text = agents.read_text(encoding="utf-8", errors="replace")
+        if AGENTS_MARK_START in text:
+            pattern = re.escape(AGENTS_MARK_START) + r".*?" + re.escape(AGENTS_MARK_END)
+            updated = re.sub(pattern, block.rstrip(), text, flags=re.S)
+            if updated == text:
+                return "already"
+            atomic_write(agents, updated)
+            return "updated"
         atomic_write(agents, text.rstrip() + "\n\n" + block)
         return "appended"
     atomic_write(agents, block)
@@ -801,20 +972,26 @@ def update_agents_md(root: Path) -> str:
 
 
 def gen_module_wiki(mod_root: Path, repo_root: Path):
+    created_wiki = []
+    created_agents = []
     rel = mod_root.relative_to(repo_root).as_posix()
-    write_if_missing(mod_root / "wiki" / "INDEX.md",
-                     f"# {mod_root.name}\n\n> 模块 wiki（上级全局: "
-                     f"{os.path.relpath(repo_root / 'wiki' / 'INDEX.md', mod_root)}）\n\n"
-                     "## 模块速查\nTODO\n")
-    write_if_missing(mod_root / "wiki" / "claims.toml", CLAIMS_TPL)
-    write_if_missing(mod_root / "wiki" / "overview" / "architecture.md",
-                     f"# {rel} 架构\nTODO\n")
-    write_if_missing(mod_root / "wiki" / "state" / "current.md", CURRENT_TPL)
-    ag = mod_root / "AGENTS.md"
-    if not ag.exists():
-        atomic_write(ag,
-                     f"- 本模块知识库: wiki/INDEX.md（协议见仓库根 AGENTS.md）\n"
-                     f"- 全局模块地图: {os.path.relpath(repo_root / 'wiki' / 'INDEX.md', mod_root)}\n")
+    files = {
+        "wiki/INDEX.md": (
+            f"# {mod_root.name}\n\n> 模块 wiki（上级全局: "
+            f"{os.path.relpath(repo_root / 'wiki' / 'INDEX.md', mod_root)}）\n\n"
+            "## 模块速查\nTODO\n"
+        ),
+        "wiki/claims.toml": CLAIMS_TPL,
+        "wiki/overview/architecture.md": f"# {rel} 架构\nTODO\n",
+        "wiki/state/current.md": CURRENT_TPL,
+        "wiki/state/lessons/README.md": LESSONS_TPL,
+    }
+    for relative, content in files.items():
+        if write_if_missing(mod_root / relative, content):
+            created_wiki.append((mod_root / relative).relative_to(repo_root).as_posix())
+    if update_module_agents(mod_root) != "already":
+        created_agents.append((mod_root / "AGENTS.md").relative_to(repo_root).as_posix())
+    return created_wiki, created_agents
 
 
 def cmd_init(args, no_commit):
@@ -823,17 +1000,23 @@ def cmd_init(args, no_commit):
     wiki = root / "wiki"
 
     created = []
+    created_wiki_paths = []
+    created_agent_paths = []
     name = root.name
+    stack = detect_stack(root)
     mods = detect_modules(root)
     module_map = ""
     if mods:
-        rows = "\n".join(f"| {m} | TODO | TODO | [AGENTS.md]({m}/AGENTS.md) |"
-                         for m in mods)
+        rows = "\n".join(
+            f"| {m} | TODO | TODO | "
+            f"{('[AGENTS.md](../' + m + '/AGENTS.md)') if args.per_module else '未初始化'} |"
+            for m in mods
+        )
         module_map = ("\n## 模块地图\n| 路径 | 职责 | 技术栈 | 模块 wiki |\n"
                       "|---|---|---|---|\n" + rows + "\n")
 
     for rel, content in [
-        ("wiki/INDEX.md", INDEX_TPL.format(name=name, module_map=module_map)),
+        ("wiki/INDEX.md", INDEX_TPL.format(name=name, stack=stack, module_map=module_map)),
         ("wiki/overview/architecture.md", ARCH_TPL),
         ("wiki/overview/conventions.md", CONV_TPL),
         ("wiki/overview/commands.md",
@@ -842,30 +1025,32 @@ def cmd_init(args, no_commit):
          DEPLOY_TPL.format(deploy_hint=detect_deploy(root))),
         ("wiki/overview/decisions/README.md", ADR_TPL),
         ("wiki/state/current.md", CURRENT_TPL),
-        ("wiki/state/lessons.md", LESSONS_TPL),
+        ("wiki/state/lessons/README.md", LESSONS_TPL),
         ("wiki/claims.toml", CLAIMS_TPL),
     ]:
         if write_if_missing(root / rel, content):
             created.append(rel)
+            created_wiki_paths.append(rel)
 
     if args.per_module and mods:
         for m in mods:
-            gen_module_wiki(root / m, root)
-            created.append(f"{m}/wiki/")
+            wiki_paths, agent_paths = gen_module_wiki(root / m, root)
+            created_wiki_paths.extend(wiki_paths)
+            created_agent_paths.extend(agent_paths)
+            created.extend(wiki_paths + agent_paths)
 
     ag = update_agents_md(root)
+    if ag != "already":
+        created_agent_paths.append("AGENTS.md")
     hk = install_hook(root)
     if os.name == "nt":
         print("⚠ Windows 下 git hook 依赖 Git for Windows 的 sh；"
               "建议同时以 CI doctor --ci 兜底")
 
-    auto_commit(repo, "wiki", "wiki(init): scaffold knowledge base",
-                allow=not no_commit)
-    if not no_commit and (root / "AGENTS.md").exists():
-        run_git(["add", "--", "AGENTS.md"], cwd=repo, check=False)
-        st = run_git(["commit", "-m", "wiki(init): AGENTS.md pointer",
-                      "--", "AGENTS.md"], cwd=repo, check=False)
-        _ = st
+    if not no_commit and created_wiki_paths:
+        auto_commit(repo, created_wiki_paths, "wiki(init): scaffold knowledge base")
+    if not no_commit and created_agent_paths:
+        auto_commit(repo, created_agent_paths, "wiki(init): add AGENTS.md pointers")
 
     print(f"\n✓ init 完成：新建 {len(created)} 项；"
           f"AGENTS.md: {ag}；pre-commit hook: {hk}")

@@ -26,3 +26,5 @@ events-demo/
 *.tgz
 .env
 .obsidian/
+__pycache__/
+*.py[cod]
