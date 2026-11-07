@@ -63,3 +63,14 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-07
+
+[claims.project-wiki-run-activity]
+text = "Project runs with Project context deterministically append request, outcome, and summary to state/current.md through wiki.py record before completion, while test runs skip writes unless explicitly enabled."
+status = "active"
+evidence = [
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "8e81ece29bb7256b5a1c2139ac122b484521e5aa" },
+  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "79d07bd9946d8742d41ab9401a01559e828790d8" },
+  { file = "packages/runtime/test/wiki-runtime-integration.test.ts", oid = "470afc0991aa9aa4516cc09919f5abb7fcba30dc" },
+]
+established = 2026-11-07
+verified = 2026-11-07
