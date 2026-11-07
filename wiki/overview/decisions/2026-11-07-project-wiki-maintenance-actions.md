@@ -15,6 +15,8 @@
 - 后台 operation 只保存在 API 进程内，WebUI 轮询状态并展示摘要或错误。
 - 后台 Goal 的 trace 事件、最后心跳和运行时长随 operation 返回；右侧任务卡可直接
   判断仍在运行、等待模型/审批或疑似停滞。
+- WebUI 还独立订阅后台 Goal 的 SSE，复用主会话实时投影显示 reasoning/text
+  stream、工具参数与结果；审批卡内直接调用 `/api/approvals/:id` 完成人审。
 - 后台工具面只保留只读工具和受限 `project_wiki`；后者既调用 wiki.py 也允许
   `mode=write_doc` 替换 `wiki/**/*.md`。不暴露 shell.run，避免 `rm` / `git checkout`，
   wiki/ 外写入也被拒绝；真正出现审批时 Trace 显示等待审批。

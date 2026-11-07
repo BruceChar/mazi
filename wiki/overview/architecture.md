@@ -24,4 +24,4 @@ TODO
 - update 以最近 wiki checkpoint、git diff 和 current status 反查 evidence，只核验受影响 claims，
   不完整重读项目。
 - Wiki 页在 KPI 下方展示完整 `state/current.md`；有效/待核验 KPI 可打开事实与 evidence
-  明细；右侧显示后台任务 Trace 和停滞提示。
+  明细；右侧独立订阅后台 Goal SSE，显示 reasoning/text stream、工具参数与输出、审批操作。

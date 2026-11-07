@@ -26,3 +26,4 @@
 - 后台维护只暴露只读工具和受限 `project_wiki`；不再使用 shell.run，因此不会因 rm/git checkout 卡审批。
 - `project_wiki.write_doc` 可维护 wiki/ Markdown；init/update 自身也写入活动记录。
 - update 使用 checkpoint diff + git status + evidence 反查，只读取受影响文件。
+- 后台 Trace 使用独立 SSE 展示模型流式思考、工具调用参数/结果，并可直接批准或拒绝审批。
