@@ -28,12 +28,12 @@
 
 ## 最近更新
 <!-- recent:start -->
-- bf5a3c3 2026-11-07 wiki(claim): add webui-trace-contract-behavior-panel
-- b1ce55d 2026-11-07 wiki(claim): add webui-exec-stream-rendering
-- 14fca7b 2026-11-07 wiki(checkpoint): sync state & index
-- 32ab9bd 2026-11-07 wiki(claim): verify wiki-ui-repository-view
-- 6cbdc3e 2026-11-07 wiki(checkpoint): sync state & index
-- 1f19da9 2026-11-07 wiki(claim): add wiki-init-domain-neutral-template
-- a1ca9a7 2026-11-07 wiki(claim): update wiki-ui-three-pane
-- c4b1ec7 2026-11-07 wiki(claim): update wiki-ui-repository-view
+- 634cf5e 2026-11-07 wiki(claim): verify wiki-init-domain-neutral-template
+- 4520a9f 2026-11-07 wiki(claim): add project-wiki-run-activity
+- d730cfc 2026-11-07 wiki(claim): add wiki-entry-syncs-workspace
+- f1444de 2026-11-07 wiki(run): record session activity
+- 6cf8640 2026-11-07 wiki(run): record session activity
+- bc1a130 2026-11-07 wiki(run): record session activity
+- c46c3a4 2026-11-07 wiki(run): record session activity
+- 990f28f 2026-11-07 wiki(run): record session activity
 <!-- recent:end -->
