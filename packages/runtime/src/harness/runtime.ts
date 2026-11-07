@@ -77,6 +77,7 @@ import {
     createLlmTaskPlanner,
     DEFAULT_MAX_PLAN_TASKS,
     type TaskPlanner,
+    type TaskPlannerHistoryEntry,
 } from '../gts/task-planner.js';
 import {
     type BehaviorMigrationResult,
@@ -124,6 +125,7 @@ import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
 import { permissionForTool, RuntimeToolGateway } from '../tool-gateway/permission.js';
 import { RuntimePolicyAuditSink } from '../tool-gateway/policy-audit.js';
 import { RuntimeToolRegistry } from '../tool-gateway/registry.js';
+import { createConditionEnvironment } from '../verifier/environment.js';
 import {
     IndependentVerifier,
     type SemanticJudge,
@@ -251,6 +253,10 @@ export class HarnessRuntime {
     /** Optional caller/model plan proposal; Task identity is created by the harness. */
     private readonly pendingPlanProposal = new Map<string, readonly PlannedTask[]>();
     private readonly pendingTaskPlanning = new Map<string, boolean>();
+    /** In-flight async triage for a freshly created session (planning must see the full contract). */
+    private readonly pendingTriage = new Map<string, Promise<void>>();
+    /** Conversation turns from the previous session, forwarded to the Task Planner. */
+    private readonly pendingHistory = new Map<string, readonly TaskPlannerHistoryEntry[]>();
     private readonly pendingPromptPackIds = new Map<string, readonly string[]>();
     private readonly pendingDelegationDepth = new Map<string, number>();
     private readonly pendingMemoryContext = new Map<
@@ -298,7 +304,10 @@ export class HarnessRuntime {
                 : new MemoryPromptPackStore(),
         );
         this.superAgent = new SuperAgent(this.promptPacks);
-        this.verifier = new IndependentVerifier();
+        this.verifier = new IndependentVerifier({
+            // Lazy workspace lookup: the root is assigned a few lines below.
+            environment: createConditionEnvironment(() => this.workspaceRoot),
+        });
         this.delegationRoles = new AgentRoleRegistry(
             undefined,
             config.dbPath !== undefined
@@ -552,6 +561,12 @@ export class HarnessRuntime {
                     provenance: { source: 'user', confidence: 'confirmed', trustTier: 'T1' },
                 }),
             );
+            // Planner needs the same conversation context triage gets: a short input
+            // such as "A" is only meaningful relative to the previous turns.
+            this.pendingHistory.set(
+                rootGoalId,
+                opts.history.map((turn) => ({ role: turn.role, text: turn.text })),
+            );
         }
         if (opts.reasoningLevel) {
             this.pendingReasoning.set(rootGoalId, opts.reasoningLevel);
@@ -644,16 +659,27 @@ export class HarnessRuntime {
             }),
         );
         await this.bus.flush();
-        // 异步 triage：不 await。落地后以「读改写」合并进契约（对正在跑的 run 只做加法）。
+        // 异步 triage：创建请求不等待；执行入口会 await 尚未落地的 triage，保证
+        // Task Planner 看到的是完整契约（含 goals/constraints 与 route）。
         if (opts.parseIntent === true) {
-            this.scheduleIntentTriage(rootGoalId, input, opts);
+            this.pendingTriage.set(rootGoalId, this.scheduleIntentTriage(rootGoalId, input, opts));
         }
         return { rootGoalId, goalId: rootGoalId };
     }
 
     /** 异步 triage：失败/超时只是不协商，绝不影响会话创建与执行。 */
-    private scheduleIntentTriage(rootGoalId: string, statement: string, opts: RunOptions): void {
-        void this.applyIntentTriage(rootGoalId, statement, opts).catch(() => undefined);
+    private scheduleIntentTriage(
+        rootGoalId: string,
+        statement: string,
+        opts: RunOptions,
+    ): Promise<void> {
+        const task = this.applyIntentTriage(rootGoalId, statement, opts)
+            .catch(() => undefined)
+            .finally(() => {
+                // 完成后即可移除：契约已落库，execute 重新加载 Goal 就能看到。
+                this.pendingTriage.delete(rootGoalId);
+            });
+        return task;
     }
 
     /**
@@ -669,7 +695,17 @@ export class HarnessRuntime {
         const plan = planNegotiation(parsed);
         const goal = await this.goalStoreDb.loadGoal(rootGoalId);
         if (goal === undefined || goal.negotiation !== undefined) return;
-        const added = plan.conditions.filter((condition) => condition.checkType === 'semantic');
+        // 基线两条机械条款在创建时已冻结；triage 只会新增：
+        // - semantic 条款（需 judge），
+        // - 带结构化 check 的 deterministic 条款（P2：file/git/命令输出可机械判定）。
+        // 不能只留 semantic，否则 triage 产出的机械检查会被静默丢弃。
+        const added = plan.conditions.filter(
+            (condition) =>
+                condition.checkType === 'semantic' ||
+                (condition.check !== undefined &&
+                    condition.check.kind !== 'final-answer' &&
+                    condition.check.kind !== 'no-failed-steps'),
+        );
         goal.contract = {
             ...goal.contract,
             successConditions: [...goal.contract.successConditions, ...added],
@@ -799,6 +835,16 @@ export class HarnessRuntime {
         rootGoalId: string,
         options: { resume?: boolean } = {},
     ): Promise<GoalRunResult> {
+        // Planning must not race the async triage: wait for the in-flight triage
+        // (bounded by TRIAGE_TIMEOUT_MS inside parseIntent) so the contract,
+        // route and semantic conditions are final before a plan is generated.
+        const triage = this.pendingTriage.get(rootGoalId);
+        if (triage !== undefined) {
+            await triage;
+            this.pendingTriage.delete(rootGoalId);
+        }
+        const history = this.pendingHistory.get(rootGoalId);
+        this.pendingHistory.delete(rootGoalId);
         const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
         if (goals.length === 0) {
             throw new Error(`Goal 树不存在：${rootGoalId}`);
@@ -947,6 +993,7 @@ export class HarnessRuntime {
                       rootGoal,
                       model ?? this.triageModel(),
                       reasoningLevel,
+                      history,
                       exec.planTools,
                       promptFragment,
                   )
@@ -1059,7 +1106,7 @@ export class HarnessRuntime {
                         this.stepEvents.emitStep(rootGoalId, step);
                         if (!projectWikiSkillActive) this.wiki.observeStep(step);
                     },
-                    onPlan: (taskCount, digest, rejected) => {
+                    onPlan: (taskCount, digest, rejected, tasks) => {
                         this.bus.emit(
                             newHarnessEvent({
                                 type: rejected === undefined ? 'plan.created' : 'plan.invalid',
@@ -1070,7 +1117,16 @@ export class HarnessRuntime {
                                 },
                                 payload:
                                     rejected === undefined
-                                        ? { taskCount, digest }
+                                        ? {
+                                              taskCount,
+                                              digest,
+                                              // 计划可观测：Task 标题/依赖让 UI 与复盘能审计 TaskPlan。
+                                              tasks: (tasks ?? []).map((task) => ({
+                                                  taskId: task.taskId,
+                                                  title: task.title,
+                                                  dependsOn: task.dependsOn ?? [],
+                                              })),
+                                          }
                                         : { taskCount, rejected },
                             }),
                         );
@@ -1718,6 +1774,7 @@ export class HarnessRuntime {
         goal: Goal | undefined,
         model: { providerId: string; modelId: string } | undefined,
         reasoningLevel: string | undefined,
+        history: readonly TaskPlannerHistoryEntry[] | undefined,
         availableTools: readonly PlanTool[],
         promptFragment: string | undefined,
     ): Promise<PlannedTask[] | undefined> {
@@ -1761,6 +1818,7 @@ export class HarnessRuntime {
                 goal,
                 availableTools,
                 ...(sessionContext.length > 0 ? { sessionContext } : {}),
+                ...(history !== undefined && history.length > 0 ? { history } : {}),
                 maxTasks,
             });
             if (proposals === undefined || proposals.length === 0) return undefined;

@@ -80,7 +80,12 @@ export interface GoalRunDeps {
     /** Available tool catalogue used by plan preflight. */
     planTools?: readonly PlanTool[];
     /** Plan lifecycle observation for auditing/UI. */
-    onPlan?: (taskCount: number, digest?: string, rejected?: readonly string[]) => void;
+    onPlan?: (
+        taskCount: number,
+        digest?: string,
+        rejected?: readonly string[],
+        tasks?: readonly Task[],
+    ) => void;
     /** Independent verifier; absence keeps mechanical acceptance for lightweight callers. */
     verifier?: TaskVerifier;
     onVerification?: (report: VerificationReport, outcome: TaskOutcome) => void;
@@ -181,7 +186,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         tasks = planned.tasks;
         planDigest = planned.graph?.digest;
     }
-    deps.onPlan?.(tasks.length, planDigest);
+    deps.onPlan?.(tasks.length, planDigest, undefined, tasks);
     const goalById = new Map(executable.map((goal) => [goal.goalId, goal]));
     let queue = topologicalTaskOrder(tasks);
     let cursor = 0;
