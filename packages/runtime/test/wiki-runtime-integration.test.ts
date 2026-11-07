@@ -117,6 +117,8 @@ describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
             await runtime.executeGoalTree(created.rootGoalId);
 
             expect(systems[0]).toContain('项目 Wiki');
+            expect(systems[0]).toContain('## Session Context');
+            expect(systems[0]).toContain(`- Workspace: ${workspace}`);
             expect(systems[0]).toContain('## 项目 Wiki 尚未初始化');
             expect(systems[0]).toContain('/builtin/project-wiki/scripts/wiki.py');
             expect(systems[0]).not.toContain('## 项目 wiki（');

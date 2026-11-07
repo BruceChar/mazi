@@ -38,10 +38,12 @@ a silent guess. The user's stated intent is always the default path;
 alternatives live only in questions.
 Commit gate — first condition hit decides the block:
 
-- Read-only project status — "current project status", "这个项目现在什么状态" and
-  equivalent refer to the active workspace, not an unidentified project. If the
-  status dimension is omitted, choose a broad progress/changes/tests/risks
-  summary; absence of a requested dimension is not ambiguity → confirmed.
+- Session context — resolve "this project", "当前项目", "这里" and equivalent
+  deictic references against the supplied active workspace. Do not negotiate to
+  ask for information already established by session metadata or history. When
+  an omitted detail has one safe, reversible interpretation, infer it and
+  proceed; negotiate only when alternatives materially change outcome, cost,
+  risk, or irreversibility.
 - Ambiguity — two or more reasonable interpretations → negotiate
 - Missing information — execution would guess (includes a statement with no
   prior intent in history) → negotiate

@@ -12,10 +12,16 @@ import type { RuntimeConfig } from '../src/config.js';
 import { HarnessRuntime } from '../src/harness/index.js';
 
 /** 脚本化 provider：按调用顺序返回预置文本（第 1 次 = triage，之后 = 执行轮）。 */
-function scriptedProvider(replies: string[]): { provider: LLMProvider; calls: string[] } {
+function scriptedProvider(replies: string[]): {
+    provider: LLMProvider;
+    calls: string[];
+    requests: LLMRequest[];
+} {
     const calls: string[] = [];
+    const requests: LLMRequest[] = [];
     const pick = (): string => replies[Math.min(calls.length - 1, replies.length - 1)] ?? '';
     const record = (request: LLMRequest): void => {
+        requests.push(request);
         calls.push(
             request.messages
                 .map((message) =>
@@ -45,7 +51,7 @@ function scriptedProvider(replies: string[]): { provider: LLMProvider; calls: st
             yield { type: 'finish', finishReason: 'stop' };
         },
     };
-    return { provider, calls };
+    return { provider, calls, requests };
 }
 
 function configIn(dir: string): RuntimeConfig {
@@ -80,7 +86,7 @@ afterEach(() => {
 function makeRuntime(
     replies: string[],
     workspace?: string,
-): { runtime: HarnessRuntime; calls: string[] } {
+): { runtime: HarnessRuntime; calls: string[]; requests: LLMRequest[] } {
     const dir = mkdtempSync(join(tmpdir(), 'mazi-negotiate-'));
     dirs.push(dir);
     const scripted = scriptedProvider(replies);
@@ -88,7 +94,7 @@ function makeRuntime(
         llmProviders: { default: scripted.provider },
         ...(workspace !== undefined ? { workspaceRoot: workspace } : {}),
     });
-    return { runtime, calls: scripted.calls };
+    return { runtime, calls: scripted.calls, requests: scripted.requests };
 }
 
 /** 异步 triage 落地：轮询直到 Goal 带上 negotiation（或超时）。 */
@@ -102,29 +108,35 @@ async function waitForTriage(runtime: HarnessRuntime, rootGoalId: string): Promi
 }
 
 describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () => {
-    it('当前项目状态：使用活动 workspace 自动确认汇总，不调用 triage 协商模型', async () => {
-        const workspace = mkdtempSync(join(tmpdir(), 'agentwin-status-'));
+    it('triage 收到统一 Session Context 与会话历史，无需用户重复当前项目', async () => {
+        const workspace = mkdtempSync(join(tmpdir(), 'agentwin-session-'));
         dirs.push(workspace);
-        const { runtime, calls } = makeRuntime(['完成。'], workspace);
-        const requested: HarnessEvent[] = [];
-        runtime.eventBus.subscribe(
-            { types: ['goal.negotiation.requested'] },
-            { id: 'status-observer', handle: (event) => requested.push(event) },
-        );
+        const { runtime, requests } = makeRuntime([negotiateReply], workspace);
         try {
-            const created = await runtime.createGoalSession('项目当前什么状态', {
+            const created = await runtime.createGoalSession('这个项目接下来怎么推进？', {
                 parseIntent: true,
+                history: [
+                    { role: 'user', text: '我们在分析 agentwin 的行情与策略模块' },
+                    { role: 'assistant', text: '已确认当前讨论的是 agentwin。' },
+                ],
             });
             await waitForTriage(runtime, created.rootGoalId);
-            const snap = await runtime.goalSnapshot(created.rootGoalId);
-            expect(snap.goals[0]?.negotiation?.route).toBe('confirmed');
-            expect(snap.goals[0]?.negotiation?.questions).toEqual([]);
-            expect(snap.goals[0]?.negotiation?.triggers).toEqual([
-                'workspace context resolved',
-                'read-only status query',
-            ]);
-            expect(calls).toHaveLength(0);
-            expect(requested).toEqual([]);
+            const triage = requests[0];
+            const system = typeof triage?.system === 'string' ? triage.system : '';
+            expect(system).toContain('## Session Context');
+            expect(system).toContain(`Workspace: ${workspace}`);
+            expect(system).toContain(`Project: ${workspace.split('/').at(-1)}`);
+            expect(system).toContain('Do not ask the user to repeat information');
+            expect(
+                triage?.messages.some(
+                    (message) =>
+                        message.content.some(
+                            (block) =>
+                                block.type === 'text' &&
+                                block.text.includes('当前讨论的是 agentwin'),
+                        ),
+                ),
+            ).toBe(true);
         } finally {
             await runtime.close();
         }
