@@ -16,8 +16,8 @@ verified = 2026-11-07
 text = "The project wiki UI projects v2 repository documents into a document navigation, Markdown body, and status/claims evidence layout, collapsing to a vertical flow on narrow screens."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "63544a60838e67c04817b1e73a95f2d69fcf8742" },
-  { file = "apps/webui/src/scripts/wiki.ts", oid = "27cb706224e3a56fc2e061f25cdd8d82fb988d29" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "6ffcadc70fe65df638363ef9ff4fef8fe07f1c8c" },
+  { file = "apps/webui/src/scripts/wiki.ts", oid = "a1c930b86fa6a6cc25376c946aa9d4d1f667c6e0" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
