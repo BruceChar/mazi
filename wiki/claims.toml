@@ -77,15 +77,15 @@ established = 2026-11-07
 verified = 2026-11-07
 
 [claims.project-wiki-maintenance-actions]
-text = "Wiki init, update and SessionEnd sync run as hidden background Agent goals with read tools plus restricted project_wiki script/write_doc tools; wiki Markdown writes are confined to wiki/, maintenance operations are recorded, and the Wiki panel subscribes to the hidden Goal SSE to stream reasoning, tool arguments/results and settle approvals inline through the approvals API."
+text = "Wiki init and explicit update run as hidden background Agent goals with read tools plus restricted project_wiki script/write_doc tools; SessionEnd always runs the deterministic wiki.py session-end stage and only starts a bounded semantic Agent when affected claims are detected. Wiki Markdown writes are confined to wiki/, operations are recorded, and the Wiki panel streams Goal reasoning, tool arguments/results and inline approvals when an Agent runs."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "a72407f7e6751a14865febaacc47103bde6a38dc" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "501c606098ed1616981e51a48b923fd3c60bdafb" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
   { file = "apps/api/src/wiki/wiki.controller.ts", oid = "e8bb54fb610de58083cc167659cc38de6dd71bcc" },
   { file = "apps/api/src/events/events.controller.ts", oid = "4a847d15822a6ec14eb1056079b5f653ed8e6a1f" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "e56c66871d1173065948c8706c5fcbd3879e9fff" },
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "debc6b1a8c684af9dff8f6129915710c7270d7ce" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "30328e264d4756b7414412adfcf95ef63bb5cc2a" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "709e14fbeaef9094f9fd2c7261ef43842893c0e3" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
