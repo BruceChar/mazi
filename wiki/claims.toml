@@ -1,0 +1,4 @@
+# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
+# status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
+
+[claims]
