@@ -97,3 +97,15 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-07
+
+[claims.contract-mechanical-checks-v2]
+text = "Goal contracts support deterministic checks final-answer/no-failed-steps/file-exists/file-contains/git-has-commit/command-output-contains; triage can emit structured checks and the verifier evaluates them through an injected ConditionEnvironment."
+status = "active"
+evidence = [
+  { file = "packages/core/src/gts.ts", oid = "75094b85de62738856db6872d71301eed01e36b8" },
+  { file = "packages/runtime/src/gts/acceptance.ts", oid = "4462217539171d8b5783e0197a60ea2e170c31b3" },
+  { file = "packages/runtime/src/templates/prompts/goal-parser.prompt.ts", oid = "b72a1b406f0f2738726ab4acda0e039df5ee5a4e" },
+  { file = "docs/core/AHF_CORE_GTS.md", oid = "24c648e85166c3a302192c10ebfa18a440e71791" },
+]
+established = 2026-11-07
+verified = 2026-11-07
