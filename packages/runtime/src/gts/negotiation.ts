@@ -13,6 +13,7 @@ import type {
     NegotiationRoute,
 } from '@mazi/core';
 import { ulid } from '@mazi/core';
+import { basename } from 'node:path';
 
 /** goal-parser 模板约定的 block（字段按 route 收窄；解析期只做形状校验）。 */
 export interface ParsedBlock {
@@ -37,6 +38,60 @@ export interface NegotiationPlan {
     negotiation: GoalNegotiation;
     /** 冻结（或默认路径）条款：基线机械条款 + 解析出的语义条款 */
     conditions: CheckableCondition[];
+}
+
+const PROJECT_STATUS_TERMS = /(状态|进度|进展|近况|情况|status|progress|state of|where .*stand)/i;
+const PROJECT_REFERENCE_TERMS =
+    /(项目|仓库|代码库|当前|目前|现在|这个|这里|repo|repository|project|current|this workspace)/i;
+const WRITE_OR_HIGH_RISK_TERMS =
+    /(修改|删除|部署|提交|发布|购买|执行|修复|迁移|change|modify|delete|deploy|commit|release|buy|migrate|fix)/i;
+
+/**
+ * 这是只读状态查询，不是可协商契约。当前 workspace 就是用户所说的“项目”；
+ * 状态维度缺省时采用广泛项目汇总，而不是要求用户先选择维度。
+ */
+export function inferWorkspaceStatusIntent(
+    statement: string,
+    workspace: string | undefined,
+): ParsedGoalPlan | undefined {
+    const text = statement.trim();
+    if (text.length === 0 || workspace === undefined || workspace.trim().length === 0) {
+        return undefined;
+    }
+    if (
+        !PROJECT_STATUS_TERMS.test(text) ||
+        !PROJECT_REFERENCE_TERMS.test(text) ||
+        WRITE_OR_HIGH_RISK_TERMS.test(text)
+    ) {
+        return undefined;
+    }
+    const project = basename(workspace);
+    const goal =
+        `基于当前活动项目 ${project} 的本地工作区，汇总项目当前状态；` +
+        '按可用证据覆盖当前进展、未提交改动、最近工作、测试情况、主要风险和下一步。';
+    return {
+        trace: {
+            classification: 'question',
+            triggers: ['workspace context resolved', 'read-only status query'],
+        },
+        blocks: [
+            {
+                route: 'confirmed',
+                goals: [goal],
+                constraints: ['只读调查；除非用户继续要求修改，否则不改变项目。'],
+                understanding: [
+                    `“当前项目”解析为活动工作区 ${workspace}。`,
+                    '“状态”未指定维度时，默认综合汇报，不要求用户选择维度。',
+                ],
+                defaultPath: [goal],
+                approach: {
+                    decomposition: 'single-shot',
+                    explorationBudget: 2,
+                    outputForm: 'concise project status report with evidence and next actions',
+                },
+            },
+        ],
+    };
 }
 
 const PARSER_ROUTES: ReadonlySet<string> = new Set([

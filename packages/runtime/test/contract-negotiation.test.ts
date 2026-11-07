@@ -77,12 +77,16 @@ afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function makeRuntime(replies: string[]): { runtime: HarnessRuntime; calls: string[] } {
+function makeRuntime(
+    replies: string[],
+    workspace?: string,
+): { runtime: HarnessRuntime; calls: string[] } {
     const dir = mkdtempSync(join(tmpdir(), 'mazi-negotiate-'));
     dirs.push(dir);
     const scripted = scriptedProvider(replies);
     const runtime = new HarnessRuntime(configIn(dir), {
         llmProviders: { default: scripted.provider },
+        ...(workspace !== undefined ? { workspaceRoot: workspace } : {}),
     });
     return { runtime, calls: scripted.calls };
 }
@@ -98,6 +102,34 @@ async function waitForTriage(runtime: HarnessRuntime, rootGoalId: string): Promi
 }
 
 describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () => {
+    it('当前项目状态：使用活动 workspace 自动确认汇总，不调用 triage 协商模型', async () => {
+        const workspace = mkdtempSync(join(tmpdir(), 'agentwin-status-'));
+        dirs.push(workspace);
+        const { runtime, calls } = makeRuntime(['完成。'], workspace);
+        const requested: HarnessEvent[] = [];
+        runtime.eventBus.subscribe(
+            { types: ['goal.negotiation.requested'] },
+            { id: 'status-observer', handle: (event) => requested.push(event) },
+        );
+        try {
+            const created = await runtime.createGoalSession('项目当前什么状态', {
+                parseIntent: true,
+            });
+            await waitForTriage(runtime, created.rootGoalId);
+            const snap = await runtime.goalSnapshot(created.rootGoalId);
+            expect(snap.goals[0]?.negotiation?.route).toBe('confirmed');
+            expect(snap.goals[0]?.negotiation?.questions).toEqual([]);
+            expect(snap.goals[0]?.negotiation?.triggers).toEqual([
+                'workspace context resolved',
+                'read-only status query',
+            ]);
+            expect(calls).toHaveLength(0);
+            expect(requested).toEqual([]);
+        } finally {
+            await runtime.close();
+        }
+    });
+
     it('negotiate：默认路径立即执行（回归：协商不得吞掉模型输出），答复后修订契约', async () => {
         const { runtime, calls } = makeRuntime([negotiateReply, '完成。']);
         const observed: HarnessEvent[] = [];

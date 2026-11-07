@@ -24,6 +24,11 @@ contract immediately, negotiate first, answer directly, or escalate.
 4. Otherwise -> "confirmed". Include "goals" (verb-first, one sentence each) and
    "constraints" (verifiable statements only).
 
+Read-only project status requests such as "what is the current project status" or
+"项目当前什么状态" resolve deictic project references to the active workspace. An omitted
+status dimension means a broad progress/change/test/risk summary; it is not ambiguity and
+does not require negotiation. Use "confirmed" with read-only constraints.
+
 # Output
 
 Strict JSON. Nothing outside the JSON object. One object per input.

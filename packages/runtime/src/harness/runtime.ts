@@ -59,6 +59,7 @@ import type { GoalToolInvoker } from '../gts/goal-executor.js';
 import {
     applyNegotiationAnswers,
     baselineConditions,
+    inferWorkspaceStatusIntent,
     type ParsedGoalPlan,
     parseGoalParserOutput,
     planNegotiation,
@@ -637,7 +638,9 @@ export class HarnessRuntime {
         statement: string,
         opts: RunOptions,
     ): Promise<void> {
-        const parsed = await this.parseIntent(statement, rootGoalId, opts);
+        const parsed =
+            inferWorkspaceStatusIntent(statement, this.workspaceRoot) ??
+            (await this.parseIntent(statement, rootGoalId, opts));
         const plan = planNegotiation(parsed);
         const goal = await this.goalStoreDb.loadGoal(rootGoalId);
         if (goal === undefined || goal.negotiation !== undefined) return;
@@ -687,7 +690,21 @@ export class HarnessRuntime {
                 {
                     model,
                     messages: [{ role: 'user', content: [{ type: 'text', text: statement }] }],
-                    systemPrompt: GOAL_PARSER_PROMPT,
+                    systemPrompt:
+                        GOAL_PARSER_PROMPT +
+                        (this.workspaceRoot !== undefined
+                            ? [
+                                  '',
+                                  '## Active workspace context',
+                                  'workspace: ' + this.workspaceRoot,
+                                  'project: ' + (this.workspaceRoot.split(/[\\/]/).at(-1) ?? ''),
+                                  'Resolve deictic references such as "current project", "this repo",',
+                                  '"这个项目" and "当前项目" to this active workspace.',
+                                  'A read-only project status request with an unspecified dimension',
+                                  'defaults to a broad project summary. Do not negotiate only because the',
+                                  'dimension was omitted; use confirmed unless the action is high-risk.',
+                              ].join('\n')
+                            : ''),
                     tools: [],
                 },
                 opts.reasoningLevel,

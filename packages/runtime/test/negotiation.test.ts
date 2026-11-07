@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     applyNegotiationAnswers,
+    inferWorkspaceStatusIntent,
     parseGoalParserOutput,
     planNegotiation,
 } from '../src/gts/negotiation.js';
@@ -17,6 +18,27 @@ const confirmedRaw = JSON.stringify({
 });
 
 describe('negotiation（契约协商的机械侧）', () => {
+    it('当前项目状态：解析到活动工作区并直接确认广泛汇总，不协商', () => {
+        const inferred = inferWorkspaceStatusIntent(
+            '项目当前什么状态',
+            '/Users/bruce/nodejs/agentwin',
+        );
+        const plan = planNegotiation(inferred);
+        expect(plan.negotiation.route).toBe('confirmed');
+        expect(plan.negotiation.questions).toEqual([]);
+        expect(plan.negotiation.triggers).toEqual([
+            'workspace context resolved',
+            'read-only status query',
+        ]);
+        expect(plan.conditions.map((condition) => condition.description)).toContain(
+            '只读调查；除非用户继续要求修改，否则不改变项目。',
+        );
+        expect(
+            inferWorkspaceStatusIntent('部署当前项目', '/Users/bruce/nodejs/agentwin'),
+        ).toBeUndefined();
+        expect(inferWorkspaceStatusIntent('项目当前什么状态', undefined)).toBeUndefined();
+    });
+
     it('严格解析：合法 JSON → blocks；非 JSON / 未知 route → undefined', () => {
         expect(parseGoalParserOutput(confirmedRaw)?.blocks).toHaveLength(1);
         expect(parseGoalParserOutput('not json')).toBeUndefined();
