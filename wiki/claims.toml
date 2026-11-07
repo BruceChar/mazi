@@ -76,13 +76,13 @@ established = 2026-11-07
 verified = 2026-11-07
 
 [claims.project-wiki-maintenance-actions]
-text = "The Wiki page starts hidden workspace-write Agent goals for init and update, polls operation status, and refreshes repository content after completion; update explicitly verifies or rewrites claims and evidence oids."
+text = "The Wiki page starts hidden workspace-write Agent goals for init and update while ordinary project SessionEnd events enqueue independent background sync queues; operations and the latest background sync are observable through the Wiki API and UI."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "ea418638bd90060b9797ed71bddd97cdde717ef9" },
-  { file = "apps/api/src/sessions/sessions.service.ts", oid = "68e7fef1b53788e3e48162bbce95b4b657f77adb" },
-  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "1e7b2381ef0f34bc16d5bc120c41a3d2ad6aca51" },
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "6ffcadc70fe65df638363ef9ff4fef8fe07f1c8c" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "952bb6cf4054843c1c9c168d8377770d6dc1feef" },
+  { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
+  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "e8bb54fb610de58083cc167659cc38de6dd71bcc" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "46cafa964c500ad8a4e54bd948678f5665b95141" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
