@@ -33,13 +33,14 @@ established = 2026-11-07
 verified = 2026-11-07
 
 [claims.webui-exec-stream-rendering]
-text = "ExecStream renders bare-code answers as one code block, collapses deliberation reasoning to one line by default (live reasoning one line), hides the contract card and task block for direct-route answers, and places approval/authorization behavior rows inline in the gated tool Step via time-window placement."
+text = "ExecStream renders bare-code answers as one code block, hides the contract card and task block for direct-route answers, keeps completed settled steps expanded while live execution rows are expandable/collapsible (only the active streaming reasoning is one line), and places approval/authorization behavior rows inline in the gated tool Step."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/ExecStream.vue", oid = "4530eddf5639d3886d0f8e13b1634ddb69b539be" },
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "de4f180b8f930e810bad04c0ad79d713b7b3caa2" },
+  { file = "apps/webui/src/scripts/exec-tree.ts", oid = "1454c6b42dd10de6a3c3fa28dc6a734db7f18950" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
-  { file = "apps/webui/src/scripts/exec-tree.ts", oid = "382e854af9618a6c71ac23dddc4cde766deaea6a" },
   { file = "apps/webui/src/scripts/behavior-placement.ts", oid = "8c500d77c8039b573e8d38aab6584e0398dacd11" },
+  { file = "apps/webui/test/exec-tree.test.ts", oid = "8e1ce8b71b40f9d8f1a392c105a145c6fad91ccf" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
@@ -90,12 +91,12 @@ established = 2026-11-07
 verified = 2026-11-07
 
 [claims.runtime-task-planning-triage-order]
-text = "HarnessRuntime awaits the in-flight async triage before generating a Task plan, forwards conversation history into the planner prompt, and plan.created events carry task titles plus dependencies for auditing."
+text = "HarnessRuntime awaits the in-flight async triage before generating a Task plan, forwards conversation history into the planner prompt, retries with a strict-split hint when a multi-artifact goal collapses into one task, and plan.created events carry task titles plus dependencies for auditing."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "707400b671cf96a5a496c2919d38c5c95f0a2217" },
-  { file = "packages/runtime/src/gts/task-planner.ts", oid = "f5b84326f9e86809aba770cd3e7c15a0a47535b0" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "21b6cd6a89fb682103d3c3e7673c13851a7d3ec8" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "85e2244f7290f0a533773d6ff2f5d511a21a587c" },
+  { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "d8a1c79aabb3ad04aca7b448d20ca11d8d8eac11" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
@@ -113,11 +114,11 @@ established = 2026-11-07
 verified = 2026-11-07
 
 [claims.runtime-tool-failure-signals]
-text = "shell.run runs under bash pipefail and mutating CLI tools (sd) return an error when the target file did not change, so swallowed command failures surface as tool errors and can trigger replan."
+text = "shell.run runs under bash pipefail, downstream SIGPIPE (exit 141) is treated as success, and mutating CLI tools (sd) return an error when the target file did not change, so swallowed command failures surface as tool errors and can trigger replan."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/harness/tool-executor.ts", oid = "edd2e13d66d1ab94719893f5de51fb27c0df483d" },
-  { file = "packages/runtime/test/tool-executor.test.ts", oid = "6718b754a7ac44a4f0bc2005783f8cd4e0a40425" },
+  { file = "packages/runtime/src/harness/tool-executor.ts", oid = "e146df8a431fe6a3624e5d153a31c7365d482d72" },
+  { file = "packages/runtime/test/tool-executor.test.ts", oid = "796ea0702515fbb8199ba596ce041c682176ea5a" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
@@ -141,6 +142,17 @@ evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "a72407f7e6751a14865febaacc47103bde6a38dc" },
   { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "caa1b370f78d7e2e73397918059753faf36d4a42" },
   { file = "apps/api/test/wiki-maintenance.service.test.ts", oid = "67d35ce0dc4a6bded82d6095b8e5f297483e2a30" },
+]
+established = 2026-11-07
+verified = 2026-11-07
+
+[claims.runtime-acceptance-failure-replan]
+text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass; verification failures mark the task and goal failed and trigger a bounded default LLM replan that sequences the remaining work, while aborted tasks stay resumable."
+status = "active"
+evidence = [
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "85e2244f7290f0a533773d6ff2f5d511a21a587c" },
+  { file = "packages/runtime/src/gts/replan.ts", oid = "0b4ae77b2a2ae95644ae42716e8264f936a9ce58" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "d8a1c79aabb3ad04aca7b448d20ca11d8d8eac11" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
