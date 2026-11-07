@@ -28,12 +28,12 @@
 
 ## 最近更新
 <!-- recent:start -->
+- 89aa205 2026-11-07 22:44:36 wiki(claim): verify wiki-init-domain-neutral-template
+- 75c4268 2026-11-07 22:44:32 wiki(claim): verify wiki-ui-current-status-facts-trace
+- 220dc69 2026-11-07 22:44:28 wiki(claim): verify wiki-ui-three-pane
+- 1e94784 2026-11-07 22:44:24 wiki(claim): verify project-wiki-run-activity
+- 11d1ab8 2026-11-07 22:44:20 wiki(claim): verify project-wiki-maintenance-actions
+- d0410aa 2026-11-07 22:44:15 wiki(claim): add project-wiki-incremental-preflight
+- 71c35a6 2026-11-07 22:33:20 wiki(checkpoint): sync state & index
 - 5ecd0de 2026-11-07 22:33:12 wiki(claim): verify wiki-ui-three-pane
-- 7cfdddd 2026-11-07 22:33:08 wiki(claim): update wiki-ui-current-status-facts-trace
-- 597415b 2026-11-07 22:33:04 wiki(claim): update project-wiki-maintenance-actions
-- 926bd05 2026-11-07 22:24:47 wiki(checkpoint): sync state & index
-- 866b62c 2026-11-07 22:24:40 wiki(claim): verify wiki-ui-current-status-facts-trace
-- 89b5b72 2026-11-07 22:24:36 wiki(claim): verify wiki-init-domain-neutral-template
-- 84d423c 2026-11-07 22:24:32 wiki(claim): verify project-wiki-run-activity
-- 489e81a 2026-11-07 22:24:27 wiki(claim): update project-wiki-maintenance-actions
 <!-- recent:end -->
