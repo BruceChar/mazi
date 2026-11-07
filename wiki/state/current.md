@@ -18,3 +18,8 @@
 - 验收 failed 时 Task/Goal/goal.ended 均记失败（aborted 保持可恢复）；失败分类账记录验收失败
 - 默认 LLM Replan：失败后补剩余 Task 继续执行（maxReplans 上限）；Task Planner 对多产物单 Task 计划用 strictSplit 重试
 - shell.run SIGPIPE(141) 视为成功，避免 git log|head 之类的误报失败
+
+## 会话活动
+<!-- activity:start -->
+- 2026-11-08 00:00:56 | 成功 | 重构项目 Wiki 的 SessionEnd 与增量更新工作流 | 确定性 session-end、按需语义更新、批量 oid 核验和 Python 3.9 兼容已实现，全量 1083 项测试通过
+<!-- activity:end -->
