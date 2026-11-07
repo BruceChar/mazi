@@ -25,4 +25,5 @@
 - 2026-11-07 20:40:14 | 失败 | 读取 README.md 并汇报 | 没有可用 provider：default
 - 2026-11-07 20:40:14 | 失败 | 简单介绍一下 mazi | 没有可用 provider：default
 - 2026-11-07 20:40:14 | 失败 | 简单介绍一下 mazi | 没有可用 provider：default
+- 2026-11-07 20:40:14 | 失败 | 检查并汇报 | 没有可用 provider：faux
 <!-- activity:end -->
