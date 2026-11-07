@@ -16,7 +16,7 @@ verified = 2026-11-07
 text = "The project wiki UI projects v2 repository documents into a document navigation, Markdown body, and status/claims evidence layout, collapsing to a vertical flow on narrow screens."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "debc6b1a8c684af9dff8f6129915710c7270d7ce" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "709e14fbeaef9094f9fd2c7261ef43842893c0e3" },
   { file = "apps/webui/src/scripts/wiki.ts", oid = "b270425daf032a7ccaef88aea7c012e2682cd1d1" },
 ]
 established = 2026-11-07
@@ -26,8 +26,8 @@ verified = 2026-11-07
 text = "wiki.py init keeps existing overview file paths but uses domain-neutral titles and a shared boundary/current/constraint/evidence structure for software and non-software projects."
 status = "active"
 evidence = [
-  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "caa1b370f78d7e2e73397918059753faf36d4a42" },
-  { file = "packages/runtime/test/project-wiki-skill.test.ts", oid = "81168b0625d5e3c873a3980436967bac4fd23275" },
+  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "2e8c4f4e65ef764a7661387fd8d10423a64f7d68" },
+  { file = "packages/runtime/test/project-wiki-skill.test.ts", oid = "07b1aaaefd9d051ecdbf2d5e01910ece8947c397" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
@@ -127,10 +127,10 @@ verified = 2026-11-07
 text = "The project Wiki UI places the complete state/current document below the KPI row, opens claim/evidence details from fact counts, shows second-level times, and renders a live background Goal trace with reasoning/text streams, tool arguments/results and inline approval actions."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "debc6b1a8c684af9dff8f6129915710c7270d7ce" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "709e14fbeaef9094f9fd2c7261ef43842893c0e3" },
   { file = "apps/webui/src/scripts/wiki.ts", oid = "b270425daf032a7ccaef88aea7c012e2682cd1d1" },
   { file = "apps/webui/src/scripts/arm-live.ts", oid = "361435a430e5e59a8060d1d8aaeb2563fcb0cfec" },
-  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "35da8af26c636642cb88f44d879a2a0c653201c1" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "2fff60a6c2527215dfc0899111674b22ea17ef82" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
