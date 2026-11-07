@@ -26,8 +26,8 @@ verified = 2026-11-07
 text = "wiki.py init keeps existing overview file paths but uses domain-neutral titles and a shared boundary/current/constraint/evidence structure for software and non-software projects."
 status = "active"
 evidence = [
-  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "79d07bd9946d8742d41ab9401a01559e828790d8" },
-  { file = "packages/runtime/test/project-wiki-skill.test.ts", oid = "ddad33f3f6cacc579ec7f66dca73769b2b5920c4" },
+  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "c9c904e306e7741760687e57b443f07931e2c794" },
+  { file = "packages/runtime/test/project-wiki-skill.test.ts", oid = "81168b0625d5e3c873a3980436967bac4fd23275" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
