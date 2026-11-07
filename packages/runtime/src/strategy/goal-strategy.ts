@@ -103,6 +103,11 @@ export interface GoalRunResult {
     planRevisions?: PlanRevision[];
 }
 
+function minDefined(...values: Array<number | undefined>): number | undefined {
+    const defined = values.filter((value): value is number => value !== undefined);
+    return defined.length > 0 ? Math.min(...defined) : undefined;
+}
+
 export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<GoalRunResult> {
     const memory = deps.memory ?? new MemoryManager();
     const runId = goals[0]?.goalId ?? '';
@@ -205,12 +210,20 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         );
         const resumeSteps = resume ? await deps.store.listSteps(task.taskId) : undefined;
         // 契约 → 执行上限：终止策略与预算来自 Goal 冻结契约；运行级 deps 显式覆盖
-        const maxSteps =
-            deps.maxSteps ?? goal.contract.terminationPolicy.maxSteps ?? goal.budget.maxSteps;
-        const maxCostUsd =
-            deps.maxCostUsd ??
-            goal.contract.budget.maxCostUsd ??
-            goal.contract.terminationPolicy.maxCostUsd;
+        const maxSteps = minDefined(
+            deps.maxSteps,
+            task.budget?.maxSteps,
+            goal.contract.terminationPolicy.maxSteps,
+            goal.contract.budget.maxSteps,
+            goal.budget.maxSteps,
+        );
+        const maxCostUsd = minDefined(
+            deps.maxCostUsd,
+            task.budget?.maxCostUsd,
+            goal.contract.budget.maxCostUsd,
+            goal.contract.terminationPolicy.maxCostUsd,
+            goal.budget.maxCostUsd,
+        );
         const outcome = await executeTask(
             {
                 store: deps.store,
@@ -227,6 +240,21 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                 ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
                 ...(maxSteps !== undefined ? { maxSteps } : {}),
                 ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
+                ...(task.dependsOn !== undefined && task.dependsOn.length > 0
+                    ? {
+                          precedingTaskResults: outcomes
+                              .filter((item) => task.dependsOn?.includes(item.task.taskId))
+                              .map((item) => ({
+                                  title: item.task.title,
+                                  ...(item.finalMessage !== undefined
+                                      ? { finalMessage: item.finalMessage }
+                                      : {}),
+                                  ...(item.errorMessage !== undefined
+                                      ? { errorMessage: item.errorMessage }
+                                      : {}),
+                              })),
+                      }
+                    : {}),
             },
             task,
             goal,

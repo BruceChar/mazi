@@ -22,6 +22,7 @@ P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、
 
 - **PromptPack**：增加默认 coding/research/data/memory/security/general 能力包，按 projectId、项目标签、任务类型、工具需求、风险与显式选择确定性匹配；L0 核心指令常驻，L1 只暴露索引，L2 只注入命中的模块，并受 1400 token 总预算约束。
 - **SuperAgent**：请求级识别任务类型、风险、项目、PromptPack、Planner、Verifier 及记忆/黑板计划；决策通过 `superagent.decision` 和 `prompt.pack.selected` 留痕，不改变工具权限。
+- **默认 Task Planner**：当调用方没有提交 `planProposal`、工具面非空且 Goal 非 direct 直答时，模型按 Goal、Session Context、契约和可用工具生成 1–6 个 Task DAG；harness 机械校验依赖、权限、工具、验收和预算，失败自动回退单 Task。每个 Task 获得明确的当前阶段与前置结果；Goal 的执行轮次和成本上限按 Task 分摊，不会因拆分放大。
 - **独立 Verifier**：`IndependentVerifier` 复用机械验收，并支持注入语义 Judge；输出 passed/failed/uncertain、逐条款结果、证据和失败分类。Verifier 不修改计划、不调用工具、不能自批。
 - **失败归因**：覆盖 model/planning/tool_selection/tool_execution/context/memory/policy/environment/system；Verifier 结果通过 `verification.completed` 留痕，失败账本增加 `category`。
 - **API**：新增 `/api/agent/prompt-packs` 管理、`/api/agent/preview` SuperAgent 预览和 `/api/agent/verifier` 信息；会话创建支持显式 `promptPackIds`，但仍受最小匹配和权限隔离。
@@ -51,6 +52,7 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 | 能力 | 实现位置 | 当前语义 |
 | --- | --- | --- |
 | 分层 Task 图 | `packages/runtime/src/gts/plan-graph.ts` | 模型/调用方提交 `PlannedTask[]`，harness 编译 Task DAG；执行前校验环、孤儿依赖、权限上限、预算、工具供给和验收条件。 |
+| Task Planner | `packages/runtime/src/gts/task-planner.ts` | 默认 LLM 生成 1–6 个语义 Task 与依赖；Goal 预算/轮次按 Task 分摊，Task 注入当前阶段与依赖结果，非法图回退单 Task。 |
 | 拓扑执行与恢复 | `packages/runtime/src/strategy/goal-strategy.ts` | Task 按稳定拓扑序执行；旧版本 Task 在 resume 时归一化验收字段并继续使用原 `taskId`。 |
 | 工具权限与参数分类 | `packages/runtime/src/tool-gateway/` | `git` argv 进入命令分类器；HTTP 写方法切到 `net.send`；runtime 未注入审批 seam 时 gated 调用 fail-closed。 |
 | 动态工具注册 | `packages/runtime/src/tool-gateway/registry.ts` | `registerTool/unregisterTool` 修改下一运行快照；已开始的运行固定工具版本与 digest。 |
@@ -111,7 +113,7 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 
 ## 仍需继续
 
-- 模型自动生成计划提案尚未替代调用方显式 plan；当前是“模型可提议、harness 强校验”的接入口。
+- Task Planner 已默认生成计划；显式 `planProposal` 仍可覆盖，用于实验、重放和调用方指定计划。
 - 语义验收仍标 `unchecked`，独立 LLM verifier 尚未接入。
 - 动态工具注册目前为进程内注册表，重启后从静态配置重建。
 - 自动回滚只覆盖可识别的文件路径副作用；外部发布、支付、邮件和任意 shell 命令仍需人工审批，不能撤销已发生的外部事实。
@@ -128,6 +130,7 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 | PromptPack / SuperAgent | 支持注册、列表、预览和运行期选包；当前/删除状态持久化 | 历史版本档案 |
 | 独立 Verifier | 支持机械验收、失败归因和事件查询 | 校准后的 Semantic Judge |
 | Dynamic Replan | Runtime 与审计事件支持 | `ReplanPlanner` 注入；没有默认 LLM Replanner |
+| Task Planner | 默认 LLM Planner + 机械 DAG 校验 + 单 Task 降级 | 模型 Provider；自定义宿主可覆盖 `TaskPlanner` |
 | 多 Agent 委托 | 支持角色注册/删除、权限/预算校验、并行 handoff 和 edge 查询 | 角色历史版本档案 |
 
 ## 分层边界

@@ -144,6 +144,7 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         expect(captured[0]?.reasoningLevel).toBe('high');
         expect(captured[0]?.modelId).toBe('deepseek-v4-pro');
         expect(captured[0]?.parseIntent).toBe(false);
+        expect(captured[0]?.taskPlanning).toBe(false);
         expect(captured[0]?.allowedTools).toEqual([]);
         expect(String(captured[0]?.promptFragment)).toContain('随心聊模式');
         // No client hint → the backend resolves the scoped effective permission.
@@ -173,6 +174,7 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         const service = new SessionsService(runtime as never, conversations as never);
         await service.createSession({ input: '分析项目', workspacePath: '/project' });
         expect(captured[0]?.parseIntent).toBe(true);
+        expect(captured[0]?.taskPlanning).toBe(true);
         expect(captured[0]).not.toHaveProperty('allowedTools');
         expect(String(captured[0]?.promptFragment ?? '')).not.toContain('随心聊模式');
     });

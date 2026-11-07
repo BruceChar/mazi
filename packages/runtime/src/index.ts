@@ -142,6 +142,8 @@ export {
 } from './gts/deterministic-finalize.js';
 export {
     compileTaskPlan,
+    DEFAULT_GOAL_MAX_STEPS,
+    effectiveGoalLimits,
     type PlanGraph,
     type PlannedTask,
     type PlanTool,
@@ -150,6 +152,7 @@ export {
     validatePlanGraph,
 } from './gts/plan-graph.js';
 export * from './gts/replan.js';
+export * from './gts/task-planner.js';
 export {
     type ContextAssistantTurn,
     type ContextContribution,

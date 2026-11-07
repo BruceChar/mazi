@@ -15,6 +15,7 @@ import {
 } from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
 import { decideFinalize } from './deterministic-finalize.js';
+import { DEFAULT_GOAL_MAX_STEPS } from './plan-graph.js';
 import type { ExecutorRoundContext, RoundResult } from './round-types.js';
 
 export interface GoalToolInvoker {
@@ -57,6 +58,12 @@ export interface GoalExecutorDeps {
     resumeSteps?: readonly Step[];
     /** 在上下文窗口占用达到阈值时压缩完整工具轮（默认 0.9）。 */
     contextCompactThreshold?: number;
+    /** Direct summaries from prerequisite Tasks, available even if memory recall is sparse. */
+    precedingTaskResults?: readonly {
+        title: string;
+        finalMessage?: string;
+        errorMessage?: string;
+    }[];
 }
 
 export type TaskStopReason =
@@ -304,7 +311,7 @@ export async function executeTask(
         await deps.store.saveTask(task);
     };
     // 真实模型对项目类任务往往需要多轮工具调用后才收敛，默认上限放宽到 50
-    const maxSteps = deps.maxSteps ?? 50;
+    const maxSteps = deps.maxSteps ?? DEFAULT_GOAL_MAX_STEPS;
     // 成本闸门：累计已花费（vendor 计价口径；无计价表时回落估算口径）
     const maxCostUsd = deps.maxCostUsd;
     let spentUsd = 0;
@@ -319,6 +326,23 @@ export async function executeTask(
         ...(deps.redactor !== undefined ? { redactor: deps.redactor } : {}),
     });
     context.appendUser(goal.statement);
+    const preceding = (deps.precedingTaskResults ?? [])
+        .map((item) => {
+            const result = item.finalMessage ?? item.errorMessage ?? '（无最终输出）';
+            return `- ${item.title}：${result.slice(0, 2000)}`;
+        })
+        .join('\n');
+    const taskScope = [
+        '## Current Task',
+        `Goal：${goal.statement}`,
+        `Task：${task.title}`,
+        ...(preceding.length > 0 ? ['已完成的前置 Task：', preceding] : []),
+        '只完成当前 Task；不要把后续 Task 提前执行。',
+    ].join('\n');
+    context.addContribution({
+        id: 'task-scope',
+        systemPrompt: () => taskScope,
+    });
     // 恢复执行时 steps 从历史开始累积，使 outcome 携带完整执行事实（memory 写入用）。
     const steps: Step[] = [...(deps.resumeSteps ?? [])];
     // 已成功执行过的调用（tool+args 指纹 → 结果）：重复调用不再真正执行，避免空结果重试循环

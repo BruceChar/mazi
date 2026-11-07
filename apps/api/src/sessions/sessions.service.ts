@@ -141,6 +141,7 @@ export class SessionsService {
             ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
             // 项目会话跑契约 triage；随心聊是纯对话，不协商契约。
             parseIntent: !chatMode,
+            taskPlanning: !chatMode,
             ...(history.length > 0 ? { history } : {}),
             ...(planProposal !== undefined ? { planProposal } : {}),
             ...(promptPackIds !== undefined ? { promptPackIds } : {}),

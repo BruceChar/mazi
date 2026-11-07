@@ -9,6 +9,33 @@
 import type { BudgetAllocation, Goal, PermissionLevel, Task, ULID } from '@mazi/core';
 import { ulid } from '@mazi/core';
 
+/** Default execution envelope for one Goal when the contract does not specify maxSteps. */
+export const DEFAULT_GOAL_MAX_STEPS = 50;
+
+function minDefined(...values: Array<number | undefined>): number | undefined {
+    const defined = values.filter((value): value is number => value !== undefined);
+    return defined.length > 0 ? Math.min(...defined) : undefined;
+}
+
+/** Effective hard limits across the frozen contract and the Goal budget copy. */
+export function effectiveGoalLimits(goal: Goal): {
+    maxSteps?: number;
+    maxCostUsd?: number;
+} {
+    return {
+        maxSteps: minDefined(
+            goal.contract.terminationPolicy.maxSteps,
+            goal.contract.budget.maxSteps,
+            goal.budget.maxSteps,
+        ),
+        maxCostUsd: minDefined(
+            goal.contract.budget.maxCostUsd,
+            goal.contract.terminationPolicy.maxCostUsd,
+            goal.budget.maxCostUsd,
+        ),
+    };
+}
+
 export interface PlannedTask {
     /** Stable key local to the proposal; remapped to a Task ULID after compilation. */
     key: string;
@@ -62,6 +89,10 @@ const LEVEL_RANK: Record<PermissionLevel, number> = {
 
 function sumCost(tasks: readonly Task[]): number {
     return tasks.reduce((sum, task) => sum + (task.budget?.maxCostUsd ?? 0), 0);
+}
+
+function sumSteps(tasks: readonly Task[]): number {
+    return tasks.reduce((sum, task) => sum + (task.budget?.maxSteps ?? 0), 0);
 }
 
 function cycleNodes(tasks: readonly Task[]): string[] {
@@ -132,20 +163,32 @@ export function validatePlanGraph(
 
     for (const goal of goals) {
         const children = tasks.filter((task) => task.goalId === goal.goalId);
+        const limits = effectiveGoalLimits(goal);
         if (
-            goal.budget.maxCostUsd !== undefined &&
-            sumCost(children) > goal.budget.maxCostUsd + Number.EPSILON
+            limits.maxCostUsd !== undefined &&
+            sumCost(children) > limits.maxCostUsd + Number.EPSILON
         ) {
             rejected.push(`Goal ${goal.goalId} 子 Task 成本预算之和超过父预算`);
+        }
+        if (limits.maxSteps !== undefined && sumSteps(children) > limits.maxSteps) {
+            rejected.push(`Goal ${goal.goalId} 子 Task 轮次预算之和超过父预算`);
         }
         for (const task of children) {
             const taskCost = task.budget?.maxCostUsd;
             if (
                 taskCost !== undefined &&
-                goal.budget.maxCostUsd !== undefined &&
-                taskCost > goal.budget.maxCostUsd + Number.EPSILON
+                limits.maxCostUsd !== undefined &&
+                taskCost > limits.maxCostUsd + Number.EPSILON
             ) {
                 rejected.push(`Task ${task.taskId} 单项预算超过 Goal 预算`);
+            }
+            const taskSteps = task.budget?.maxSteps;
+            if (
+                taskSteps !== undefined &&
+                limits.maxSteps !== undefined &&
+                taskSteps > limits.maxSteps
+            ) {
+                rejected.push(`Task ${task.taskId} 单项轮次预算超过 Goal 预算`);
             }
         }
     }

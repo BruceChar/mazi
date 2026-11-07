@@ -1,5 +1,6 @@
 import type { LLMMessage, LLMProvider, PermissionLevel } from '@mazi/core';
 import type { PlannedTask } from '../gts/plan-graph.js';
+import type { TaskPlanner } from '../gts/task-planner.js';
 
 /** 用户反馈载荷 */
 export interface FeedbackInput {
@@ -51,6 +52,10 @@ export interface RunOptions {
     flagTrace?: readonly { id: string; enabled: boolean; source: string }[];
     /** Optional hierarchical plan proposal; harness validates it before execution. */
     planProposal?: readonly PlannedTask[];
+    /** Runtime-level Task Planner override (tests / custom hosts). Defaults to the LLM planner. */
+    taskPlanner?: TaskPlanner;
+    /** Enable automatic Task planning for this run. Product sessions default it on. */
+    taskPlanning?: boolean;
     /** Explicit PromptPack ids. Matching still determines compatibility and budget. */
     promptPackIds?: readonly string[];
     /** Delegation depth. Root tasks are 0; runtime refuses deeper fanout at its cap. */

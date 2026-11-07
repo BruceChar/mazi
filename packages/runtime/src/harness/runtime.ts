@@ -65,8 +65,19 @@ import {
     parseGoalParserOutput,
     planNegotiation,
 } from '../gts/negotiation.js';
-import type { PlannedTask, PlanTool } from '../gts/plan-graph.js';
+import {
+    compileTaskPlan,
+    effectiveGoalLimits,
+    type PlannedTask,
+    type PlanTool,
+} from '../gts/plan-graph.js';
 import type { ReplanPlanner } from '../gts/replan.js';
+import {
+    allocateTaskBudgets,
+    createLlmTaskPlanner,
+    DEFAULT_MAX_PLAN_TASKS,
+    type TaskPlanner,
+} from '../gts/task-planner.js';
 import {
     type BehaviorMigrationResult,
     type BehaviorStore,
@@ -120,11 +131,7 @@ import {
     type VerificationReport,
 } from '../verifier/index.js';
 import { WikiService } from '../wiki/index.js';
-import {
-    conversationMessages,
-    type FeedbackInput,
-    type RunOptions,
-} from './conversation.js';
+import { conversationMessages, type FeedbackInput, type RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
@@ -207,6 +214,8 @@ export class HarnessRuntime {
     private readonly delegationStore: DelegationStore;
     private readonly delegationCoordinator: DelegationCoordinator;
     private replanPlanner?: ReplanPlanner;
+    private taskPlanner?: TaskPlanner;
+    private taskPlanningByDefault: boolean;
     private maxReplans = 2;
     /** 待执行 Session 的 Conversation id（session 作用域审批匹配用） */
     private readonly pendingSessionId = new Map<string, string>();
@@ -241,6 +250,7 @@ export class HarnessRuntime {
     private readonly pendingAllowedTools = new Map<string, readonly string[]>();
     /** Optional caller/model plan proposal; Task identity is created by the harness. */
     private readonly pendingPlanProposal = new Map<string, readonly PlannedTask[]>();
+    private readonly pendingTaskPlanning = new Map<string, boolean>();
     private readonly pendingPromptPackIds = new Map<string, readonly string[]>();
     private readonly pendingDelegationDepth = new Map<string, number>();
     private readonly pendingMemoryContext = new Map<
@@ -305,6 +315,9 @@ export class HarnessRuntime {
         );
         configureTokenizer(config.tokenizerEncoding);
         this.workspaceRoot = options.workspaceRoot;
+        this.taskPlanner = options.taskPlanner;
+        this.taskPlanningByDefault =
+            options.taskPlanning === true || options.taskPlanner !== undefined;
         this.bus = new DefaultEventBus({ eventDir: config.eventDir });
         // 问题/行为统一入 SQLite 权威库；JSONL 目录降级为导出/迁移来源。
         this.behaviorStore =
@@ -564,6 +577,9 @@ export class HarnessRuntime {
                 })),
             );
         }
+        if (opts.taskPlanning !== undefined) {
+            this.pendingTaskPlanning.set(rootGoalId, opts.taskPlanning);
+        }
         if (opts.promptPackIds !== undefined) {
             this.pendingPromptPackIds.set(rootGoalId, opts.promptPackIds);
         }
@@ -803,6 +819,8 @@ export class HarnessRuntime {
         this.pendingAllowedTools.delete(rootGoalId);
         const planProposal = this.pendingPlanProposal.get(rootGoalId);
         this.pendingPlanProposal.delete(rootGoalId);
+        const taskPlanning = this.pendingTaskPlanning.get(rootGoalId) ?? this.taskPlanningByDefault;
+        this.pendingTaskPlanning.delete(rootGoalId);
         const memoryContext = this.pendingMemoryContext.get(rootGoalId) ?? {};
         this.pendingMemoryContext.delete(rootGoalId);
         const explicitPromptPackIds = this.pendingPromptPackIds.get(rootGoalId);
@@ -918,6 +936,21 @@ export class HarnessRuntime {
         const projectWikiFragment = projectWikiSkillActive
             ? this.projectWikiPromptFragment(rootGoalId, goalId, skillIds)
             : undefined;
+        const effectivePlanProposal =
+            planProposal ??
+            (!resume &&
+            taskPlanning &&
+            exec.allowedTools.length > 0 &&
+            rootGoal?.negotiation?.route !== 'direct'
+                ? await this.generateTaskPlan(
+                      rootGoalId,
+                      rootGoal,
+                      model ?? this.triageModel(),
+                      reasoningLevel,
+                      exec.planTools,
+                      promptFragment,
+                  )
+                : undefined);
         // 挂载是用户级开关；每次运行在边界发能力事件，审计锚定本次 run。
         // 运行级 skillIds 覆盖（实验臂）优先于全局挂载状态。
         for (const skillId of skillIds) {
@@ -958,7 +991,9 @@ export class HarnessRuntime {
                         queryText: rootGoal?.statement ?? '',
                     },
                     memoryWriteContext: memoryContext,
-                    ...(planProposal !== undefined ? { planProposal } : {}),
+                    ...(effectivePlanProposal !== undefined
+                        ? { planProposal: effectivePlanProposal }
+                        : {}),
                     planTools: exec.planTools,
                     ...(model ? { model } : {}),
                     ...(this.workspaceRoot !== undefined
@@ -1677,6 +1712,79 @@ export class HarnessRuntime {
         ].join('\n');
     }
 
+    /** Generate and mechanically validate a Task DAG; any failure falls back to single-Task MVP. */
+    private async generateTaskPlan(
+        rootGoalId: string,
+        goal: Goal | undefined,
+        model: { providerId: string; modelId: string } | undefined,
+        reasoningLevel: string | undefined,
+        availableTools: readonly PlanTool[],
+        promptFragment: string | undefined,
+    ): Promise<PlannedTask[] | undefined> {
+        if (goal === undefined) return undefined;
+        const configuredSteps = effectiveGoalLimits(goal).maxSteps;
+        const maxTasks = Math.max(
+            1,
+            Math.min(
+                DEFAULT_MAX_PLAN_TASKS,
+                configuredSteps !== undefined
+                    ? Math.floor(configuredSteps)
+                    : DEFAULT_MAX_PLAN_TASKS,
+            ),
+        );
+        const sessionContext = [this.sessionContextFragment(), promptFragment]
+            .filter((part): part is string => part !== undefined && part.trim().length > 0)
+            .join('\n\n');
+        try {
+            const planner =
+                this.taskPlanner ??
+                createLlmTaskPlanner(async (prompt) => {
+                    if (model === undefined) throw new Error('没有可用于 Task Planner 的模型');
+                    const round = await withTriageTimeout(
+                        this.roundRunner.requestRound(
+                            rootGoalId,
+                            {
+                                model,
+                                messages: [
+                                    { role: 'user', content: [{ type: 'text', text: prompt }] },
+                                ],
+                                tools: [],
+                            },
+                            reasoningLevel,
+                        ),
+                        TRIAGE_TIMEOUT_MS,
+                    );
+                    if (round === undefined) throw new Error('Task Planner 超时');
+                    return round.text;
+                });
+            const proposals = await planner({
+                goal,
+                availableTools,
+                ...(sessionContext.length > 0 ? { sessionContext } : {}),
+                maxTasks,
+            });
+            if (proposals === undefined || proposals.length === 0) return undefined;
+            const normalized = allocateTaskBudgets(goal, proposals);
+            const compiled = compileTaskPlan({
+                goals: [goal],
+                proposals: normalized,
+                availableTools,
+            });
+            if (!compiled.validation.ok) {
+                this.warn(
+                    `Task Planner 输出被拒绝，回退单 Task：${compiled.validation.rejected.join('；')}`,
+                );
+                return undefined;
+            }
+            return normalized;
+        } catch (error) {
+            this.warn(
+                `Task Planner 失败，回退单 Task：${error instanceof Error ? error.message : error}`,
+            );
+            return undefined;
+        }
+    }
+
     /** SessionStart 确定性初始化：项目会话挂载 project-wiki 时直接建立 wiki/。 */
     private async ensureProjectWikiInitialized(
         rootGoalId: string,
@@ -1935,6 +2043,11 @@ export class HarnessRuntime {
     setReplanPlanner(planner?: ReplanPlanner, maxReplans = 2): void {
         this.replanPlanner = planner;
         this.maxReplans = Math.max(0, maxReplans);
+    }
+
+    setTaskPlanner(planner?: TaskPlanner): void {
+        this.taskPlanner = planner;
+        if (planner !== undefined) this.taskPlanningByDefault = true;
     }
 
     verifierInfo(): { id: string; semanticJudge: boolean } {

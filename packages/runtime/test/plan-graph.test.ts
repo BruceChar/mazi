@@ -91,6 +91,7 @@ describe('plan graph', () => {
 
     it('rejects cycles, budget overflow, unknown tools and permission escalation', () => {
         const target = goal();
+        target.contract.terminationPolicy.maxSteps = 4;
         const condition = target.contract.successConditions[0]!.id;
         const ids = [ulid(), ulid(), ulid()];
         let cursor = 0;
@@ -104,7 +105,7 @@ describe('plan graph', () => {
                     dependsOn: ['b'],
                     acceptanceConditionIds: [condition],
                     permissionCeiling: 'autonomous',
-                    budget: { maxCostUsd: 8 },
+                    budget: { maxCostUsd: 8, maxSteps: 3 },
                     requiredTools: ['host.x'],
                 },
                 {
@@ -113,7 +114,7 @@ describe('plan graph', () => {
                     title: 'B',
                     dependsOn: ['a'],
                     acceptanceConditionIds: [condition],
-                    budget: { maxCostUsd: 8 },
+                    budget: { maxCostUsd: 8, maxSteps: 3 },
                 },
                 {
                     key: 'c',
@@ -131,6 +132,7 @@ describe('plan graph', () => {
         expect(compiled.validation.rejected.join('\n')).toContain('计划存在环');
         expect(compiled.validation.rejected.join('\n')).toContain('权限超过 Goal 上限');
         expect(compiled.validation.rejected.join('\n')).toContain('成本预算之和超过父预算');
+        expect(compiled.validation.rejected.join('\n')).toContain('轮次预算之和超过父预算');
         expect(compiled.validation.rejected.join('\n')).toContain('未注册工具');
         expect(compiled.validation.rejected.join('\n')).toContain('不在 Goal 契约中');
     });
