@@ -1,4 +1,13 @@
 # wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
 
-[claims]
+
+[claims.wiki-ui-repository-view]
+text = "GET /api/wiki returns a repository-backed v2 document and claim view while preserving legacy fields."
+status = "active"
+evidence = [
+  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "898df3485d3d5df3de5c76eaaa2461cc87e1aaf7" },
+  { file = "apps/api/src/wiki/repository.ts", oid = "b8bf7e197e1f7afc98337a504bdd76fb4d065f0e" },
+]
+established = 2026-11-07
+verified = 2026-11-07
