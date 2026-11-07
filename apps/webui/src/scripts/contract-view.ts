@@ -155,6 +155,8 @@ export interface ContractTraceTask {
 /** 一个 Goal 的契约视图：条款 + 上限 + 验收 + 协商轨迹。 */
 export interface ContractTraceView {
     goalId: string;
+    /** 所属 run（Session）的 rootGoalId：窄栏契约区只展示当前 run 的承诺。 */
+    rootGoalId: string;
     statement: string;
     goalStatus: string;
     /** 协商轨迹；未经协商的旧数据为 null。 */
@@ -194,8 +196,12 @@ export function contractStateLabel(status?: ContractStatusView | null): string {
 /**
  * Goal 快照 → Trace 面板的契约区数据。
  * 条款判定状态按 Task 的 acceptanceResult 合并：failed 优先于 passed，优先于 unchecked。
+ * rootGoalId 是该快照所属 run 的标识（旧调用方可不传，归属未知时留空）。
  */
-export function contractTraceOf(goals?: GoalNodeView[] | null): ContractTraceView[] {
+export function contractTraceOf(
+    goals?: GoalNodeView[] | null,
+    rootGoalId = '',
+): ContractTraceView[] {
     return asArray(goals).map((goal) => {
         const statusById = new Map<string, 'passed' | 'failed' | 'unchecked'>();
         const detailById = new Map<string, string>();
@@ -213,6 +219,7 @@ export function contractTraceOf(goals?: GoalNodeView[] | null): ContractTraceVie
         const summary = contractSummaryOf(goal.contract);
         return {
             goalId: goal.goalId,
+            rootGoalId,
             statement: goal.statement,
             goalStatus: goal.status,
             negotiation: goal.negotiation ?? null,
@@ -238,6 +245,26 @@ export function contractTraceOf(goals?: GoalNodeView[] | null): ContractTraceVie
             })),
         };
     });
+}
+
+/**
+ * 契约区展示范围：窄栏（未最大化）只展示当前 run 的契约，最大化保留全部 run 的对照。
+ *
+ * - maximized → 全部；
+ * - 当前 run 未知（rootGoalId 为空：旧数据 / 快照尚未加载）→ 全部，不隐藏事实；
+ * - 条目自身缺 rootGoalId（旧数据）→ 视为归属未知并保留。
+ * 当前 run 的契约确实为空时返回空数组（窄栏不借用其他 run 的承诺占位）。
+ */
+export function contractsForRun(
+    contracts: readonly ContractTraceView[] | null | undefined,
+    rootGoalId?: string | null,
+    maximized = false,
+): ContractTraceView[] {
+    const list = asArray(contracts);
+    if (maximized) return [...list];
+    const target = typeof rootGoalId === 'string' ? rootGoalId.trim() : '';
+    if (target.length === 0) return [...list];
+    return list.filter((entry) => !entry.rootGoalId || entry.rootGoalId === target);
 }
 
 /**

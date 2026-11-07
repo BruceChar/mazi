@@ -11,6 +11,7 @@ import type {
     StepPricingUsage,
     StepRuntimeUsage,
     StepUsage,
+    UserBehaviorView,
 } from '../types.ts';
 import { type ContractTraceView, contractTraceOf } from './contract-view.ts';
 
@@ -254,6 +255,48 @@ export interface AuditTaskRow {
     stepCount: number;
 }
 
+/** 行为详情里的审批发起锚点（harness 记录的用户所见审批请求）。 */
+export interface AuditBehaviorApproval {
+    /** 触发审批的工具调用 id（授权行只在这一层与执行轨迹相连）。 */
+    invocationId?: string;
+    capability?: string;
+    /** 审批请求原文摘要。 */
+    summary?: string;
+    /** 本次授权可覆盖的作用域（once / session …）。 */
+    allowedScopes?: string[];
+}
+
+/** 行为详情里的用户授权决策。 */
+export interface AuditBehaviorAuthorization {
+    /** granted / denied（线协议原值；展示层映射为允许 / 拒绝）。 */
+    decision?: string;
+    scope?: string;
+    latencyMs?: number;
+}
+
+/** 审批 / 授权 / 反馈的 Trace 详情（issue 5：点击对话流行为行后看该次行为的事实与结果）。 */
+export interface AuditBehaviorView {
+    /** 行为事件 id（流内唯一时间戳）。 */
+    ts: number;
+    type: 'approval' | 'authorization' | 'feedback';
+    /** 行为发生时刻（epoch ms，与 ts 相同；供统一时间轴展示）。 */
+    at: number;
+    /** 行为类型中文标签。 */
+    label: string;
+    /** 一行摘要（审批内容 / 授权决策 / 反馈内容）。 */
+    summary: string;
+    /**
+     * 归属字段：行为线协议本身不带 Goal / Task id，保留给后续按行为定位
+     * （当前仅在行为所在 run 可由 behaviorRootGoalId 得知，故留空）。
+     */
+    goalId?: string;
+    taskId?: string;
+    /** 配对审批：选中 authorization 时由 ref.ts 反查。 */
+    approval: AuditBehaviorApproval | null;
+    /** 配对授权：选中 approval 时反向查找引用它的 authorization。 */
+    authorization: AuditBehaviorAuthorization | null;
+}
+
 /** 面板视图。 */
 export interface AuditView {
     kind: 'step' | 'task' | 'conversation' | 'none';
@@ -300,6 +343,13 @@ export interface AuditView {
     tool: AuditToolView | null;
     /** 会话级契约区（Trace 面板）：每个 Goal 的条款 / 上限 / 验收 / 协商轨迹 */
     contracts?: ContractTraceView[];
+    /**
+     * 视图覆盖的 run（rootGoalId）：step / task 取其所属 run，选中行为取其 run；
+     * 会话汇总结算为 undefined。窄栏契约区据此只展示当前 run。
+     */
+    rootGoalId?: string;
+    /** 行为详情（审批 / 授权 / 反馈行）；非行为目标为 null。 */
+    behavior: AuditBehaviorView | null;
 }
 
 /** 一个 run（Session）及其快照，按 Conversation 内时间顺序。 */
@@ -316,6 +366,10 @@ export interface AuditInput {
     liveSteps?: AuditLiveStep[];
     stepId?: string;
     taskId?: string;
+    /** 选中的行为事件 ts（审批 / 授权 / 反馈行；与 stepId / taskId 互斥）。 */
+    behaviorTs?: number;
+    /** 选中行为所属 run（rootGoalId）；缺省时在该 Conversation 全部 run 中查找。 */
+    behaviorRootGoalId?: string;
     /** Conversation 展示名（会话汇总用）。 */
     conversationTitle?: string;
 }
@@ -1230,12 +1284,157 @@ const EMPTY_USAGE: AggregatedUsage = {
     timing: null,
 };
 
+/** 授权决策 → 中文标签（允许 / 拒绝；未知值原样展示）。 */
+export function behaviorDecisionLabel(decision?: string | null): string {
+    if (decision === 'granted') return '允许';
+    if (decision === 'denied') return '拒绝';
+    return decision || '-';
+}
+
+const BEHAVIOR_TYPE_LABEL: Record<AuditBehaviorView['type'], string> = {
+    approval: '审批（系统）',
+    authorization: '授权',
+    feedback: '反馈',
+};
+
+function textOf(value: unknown): string {
+    return typeof value === 'string' ? value : '';
+}
+
+/** 行为类型收窄：执行流只渲染审批 / 授权 / 反馈三种。 */
+function behaviorTypeOf(behavior: UserBehaviorView): AuditBehaviorView['type'] | null {
+    if (
+        behavior.type === 'approval' ||
+        behavior.type === 'authorization' ||
+        behavior.type === 'feedback'
+    ) {
+        return behavior.type;
+    }
+    return null;
+}
+
+function behaviorSummaryOf(behavior: UserBehaviorView, type: AuditBehaviorView['type']): string {
+    if (type === 'approval') {
+        return textOf(behavior.data.summary) || textOf(behavior.data.capability) || '待审批';
+    }
+    if (type === 'authorization') {
+        const decision = textOf(behavior.data.decision);
+        const parts = [
+            decision ? behaviorDecisionLabel(decision) : '',
+            textOf(behavior.data.scope),
+            typeof behavior.data.latencyMs === 'number' ? behavior.data.latencyMs + 'ms' : '',
+        ].filter((part) => part.length > 0);
+        return parts.join(' · ');
+    }
+    const kind = textOf(behavior.data.kind);
+    if (kind === 'rating') return '评分 ' + String(behavior.data.rating ?? '-');
+    if (kind === 'interrupt') return '主动中断';
+    return textOf(behavior.data.text) || kind;
+}
+
+function approvalViewOf(behavior?: UserBehaviorView | null): AuditBehaviorApproval | null {
+    if (behavior?.type !== 'approval') return null;
+    const data = behavior.data;
+    const allowedScopes = Array.isArray(data.allowedScopes)
+        ? data.allowedScopes.filter((item): item is string => typeof item === 'string')
+        : undefined;
+    return {
+        ...(textOf(data.invocationId) ? { invocationId: textOf(data.invocationId) } : {}),
+        ...(textOf(data.capability) ? { capability: textOf(data.capability) } : {}),
+        ...(textOf(data.summary) ? { summary: textOf(data.summary) } : {}),
+        ...(allowedScopes !== undefined ? { allowedScopes } : {}),
+    };
+}
+
+function authorizationViewOf(
+    behavior?: UserBehaviorView | null,
+): AuditBehaviorAuthorization | null {
+    if (behavior?.type !== 'authorization') return null;
+    const data = behavior.data;
+    return {
+        ...(textOf(data.decision) ? { decision: textOf(data.decision) } : {}),
+        ...(textOf(data.scope) ? { scope: textOf(data.scope) } : {}),
+        ...(typeof data.latencyMs === 'number' && Number.isFinite(data.latencyMs)
+            ? { latencyMs: data.latencyMs }
+            : {}),
+    };
+}
+
+/** 行为事件 + 所属 run；按 rootGoalId 限定 run，缺省时全局（该 Conversation 的全部 run）。 */
+interface ResolvedBehavior {
+    behavior: UserBehaviorView;
+    rootGoalId: string;
+}
+
+function collectBehaviors(input: AuditInput, rootGoalId?: string): ResolvedBehavior[] {
+    const runs: AuditRunInput[] =
+        input.runs && input.runs.length > 0
+            ? input.runs
+            : [{ rootGoalId: '', input: '', snapshot: input.snapshot ?? null }];
+    const out: ResolvedBehavior[] = [];
+    for (const run of runs) {
+        // run 数组缺 rootGoalId（单 snapshot 调用）时回退快照自身的归属。
+        const runRootGoalId = run.rootGoalId || run.snapshot?.rootGoalId || '';
+        if (rootGoalId && runRootGoalId !== rootGoalId) continue;
+        const behaviors = run.snapshot?.behaviors;
+        if (!Array.isArray(behaviors)) continue;
+        for (const behavior of behaviors) {
+            if (!behavior || typeof behavior.ts !== 'number') continue;
+            out.push({ behavior, rootGoalId: runRootGoalId });
+        }
+    }
+    return out;
+}
+
+/**
+ * 选中行为 → Trace 详情：按 ts（可用 behaviorRootGoalId 限定 run）查找，
+ * authorization 依 ref.ts 配对其 approval；选中 approval 时反向找配对 authorization。
+ * 找不到（或类型不在执行流渲染范围）→ null，由调用方返回 stale 空视图。
+ */
+function behaviorViewOf(input: AuditInput): AuditBehaviorView | null {
+    const ts = input.behaviorTs;
+    if (ts === undefined) return null;
+    const entries = collectBehaviors(input, input.behaviorRootGoalId);
+    const found = entries.find((entry) => entry.behavior.ts === ts);
+    if (found === undefined) return null;
+    const behavior = found.behavior;
+    const type = behaviorTypeOf(behavior);
+    if (type === null) return null;
+    const pairedApproval =
+        type === 'authorization'
+            ? (entries.find(
+                  (entry) =>
+                      entry.behavior.type === 'approval' && entry.behavior.ts === behavior.ref?.ts,
+              )?.behavior ?? null)
+            : null;
+    const pairedAuthorization =
+        type === 'approval'
+            ? (entries.find(
+                  (entry) =>
+                      entry.behavior.type === 'authorization' &&
+                      entry.behavior.ref?.ts === behavior.ts,
+              )?.behavior ?? null)
+            : null;
+    return {
+        ts: behavior.ts,
+        type,
+        at: behavior.ts,
+        label: BEHAVIOR_TYPE_LABEL[type],
+        summary: behaviorSummaryOf(behavior, type),
+        approval: approvalViewOf(type === 'approval' ? behavior : pairedApproval),
+        authorization: authorizationViewOf(
+            type === 'authorization' ? behavior : pairedAuthorization,
+        ),
+    };
+}
+
 function noneView(stale: boolean): AuditView {
     return {
         kind: 'none',
         stale,
         title: stale ? '目标已失效' : '未选择',
         subtitle: stale ? '请重新选择 Step 或 Task' : '点击对话流中的 Step 或 Task 查看审计',
+        behavior: null,
         status: '',
         taskStatus: '',
         tasks: [],
@@ -1293,6 +1492,18 @@ function spanOf(rows: ResolvedStep[]): { startedAt: number | null; endedAt: numb
     return { startedAt, endedAt };
 }
 
+/**
+ * run 序号（R#，1-based）→ 该 run 的 rootGoalId（run 数组是窄栏契约过滤的权威归属）；
+ * 行序号越界（实时 run 尚未进数组）或无归属时回退行自身的 rootGoalId。
+ */
+function runRootGoalIdOf(
+    runs: readonly AuditRunInput[],
+    runIndex: number,
+    fallback: string,
+): string {
+    return runs[runIndex - 1]?.rootGoalId || fallback;
+}
+
 /** 目标解析：step 优先于 task；两者都无 → 会话汇总。 */
 export function buildAuditView(input: AuditInput): AuditView {
     const rows = collectRows(input);
@@ -1303,10 +1514,17 @@ export function buildAuditView(input: AuditInput): AuditView {
         ? rows.find((row) => row.stepId === stepId || row.aliasStepIds?.includes(stepId))
         : undefined;
     const taskRows = taskId ? rows.filter((row) => row.taskId === taskId) : [];
-    const snapshots =
+    const runs: AuditRunInput[] =
         input.runs && input.runs.length > 0
-            ? input.runs.map((run) => run.snapshot)
-            : [input.snapshot ?? null];
+            ? input.runs
+            : [{ rootGoalId: '', input: '', snapshot: input.snapshot ?? null }];
+    const snapshots = runs.map((run) => run.snapshot);
+    // 行为目标是独立选择（点对话流审批 / 授权 / 反馈行），与 Step/Task 互斥；
+    // 找不到时沿用「目标已失效」语义，避免展示过期的行为事实。
+    const behavior = behaviorViewOf(input);
+    if (input.behaviorTs !== undefined && behavior === null) {
+        return noneView(true);
+    }
     const taskExists = snapshots.some((snapshot) =>
         (snapshot?.goals ?? []).some((goal) =>
             (goal.tasks ?? []).some((task) => task.taskId === taskId),
@@ -1334,6 +1552,8 @@ export function buildAuditView(input: AuditInput): AuditView {
         return {
             kind: 'step',
             stale: false,
+            rootGoalId: runRootGoalIdOf(runs, selected.runIndex, selected.rootGoalId),
+            behavior,
             title: `R#${selected.runIndex}·T#${selected.taskIndex}·S#${selected.index} · ${kindLabel(selected.kind)}${toolSuffix}`,
             subtitle: formatDuration(selected.durationMs) + statusSuffix,
             status: selected.status,
@@ -1371,6 +1591,10 @@ export function buildAuditView(input: AuditInput): AuditView {
         return {
             kind: 'task',
             stale: false,
+            rootGoalId: taskRows[0]
+                ? runRootGoalIdOf(runs, taskRows[0].runIndex, taskRows[0].rootGoalId)
+                : '',
+            behavior,
             title: `R#${runIndex}·T#${index} · ${title}`,
             subtitle: `${taskRows.length} steps · ${formatDuration(usage.timing?.totalMs ?? null)}`,
             status: '',
@@ -1398,11 +1622,16 @@ export function buildAuditView(input: AuditInput): AuditView {
     const runtime = usage.runtime;
     const runCount = input.runs && input.runs.length > 0 ? input.runs.length : 1;
     const span = spanOf(rows);
-    const contracts = snapshots.flatMap((snapshot) => contractTraceOf(snapshot?.goals));
+    const contracts = runs.flatMap((run) => contractTraceOf(run.snapshot?.goals, run.rootGoalId));
     return {
         kind: 'conversation',
         contracts,
         stale: false,
+        // 选中行为时用其所属 run 收窄窄栏契约区；纯会话汇总保持「当前 run」由展示层决定。
+        ...(input.behaviorTs !== undefined && input.behaviorRootGoalId
+            ? { rootGoalId: input.behaviorRootGoalId }
+            : {}),
+        behavior,
         title: '会话汇总',
         subtitle: (input.conversationTitle ?? '').trim() || `${runCount} 轮 · ${rows.length} 步`,
         status: '',

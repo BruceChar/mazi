@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ContractView } from '@mazi/libs';
+import type { ContractTraceView, ContractView, GoalNodeView } from '@mazi/libs';
 import {
     acceptanceBadge,
     acceptanceRows,
@@ -7,6 +7,7 @@ import {
     contractStateTone,
     contractSummaryOf,
     contractTraceOf,
+    contractsForRun,
     pendingNegotiationOf,
 } from '../src/scripts/contract-view.ts';
 
@@ -297,5 +298,48 @@ describe('contract-view（契约与验收的展示投影）', () => {
         expect(
             acceptanceBadge({ checkedAt: 1, passed: true, evaluated: 1, total: 2, conditions: [] }),
         ).toEqual({ label: '已判 1/2 · 其余需 judge', tone: 'muted' });
+    });
+
+    it('契约 Trace：rootGoalId 逐 Goal 透传（窄栏过滤的依据）', () => {
+        const goal = (goalId: string): GoalNodeView => ({
+            goalId,
+            status: 'active',
+            statement: '目标 ' + goalId,
+            contract: contract(),
+            tasks: [],
+        });
+        const [entry] = contractTraceOf([goal('g1')], 'root-1');
+        expect(entry?.rootGoalId).toBe('root-1');
+        // 旧签名（不传 rootGoalId）仍可用：归属未知时留空，展示层兜底全留。
+        const [legacy] = contractTraceOf([goal('g1')]);
+        expect(legacy?.rootGoalId).toBe('');
+    });
+
+    it('契约区范围：窄栏只留当前 run；最大化保留全部 run；归属未知兜底', () => {
+        const goal = (goalId: string): GoalNodeView => ({
+            goalId,
+            status: 'active',
+            statement: '目标 ' + goalId,
+            contract: contract(),
+            tasks: [],
+        });
+        const run1 = contractTraceOf([goal('g1')], 'r1');
+        const run2 = contractTraceOf([goal('g2')], 'r2');
+        const all = [...run1, ...run2];
+
+        // 最大化：跨 run 全量对照
+        expect(contractsForRun(all, 'r2', true).map((row) => row.goalId)).toEqual(['g1', 'g2']);
+        // 窄栏：只留当前选中 Step/Task 所属 run
+        expect(contractsForRun(all, 'r2', false).map((row) => row.goalId)).toEqual(['g2']);
+        expect(contractsForRun(all, 'r1', false).map((row) => row.goalId)).toEqual(['g1']);
+        // 当前 run 未知（旧数据 / 尚未加载）：不隐藏事实
+        expect(contractsForRun(all, '', false).map((row) => row.goalId)).toEqual(['g1', 'g2']);
+        expect(contractsForRun(all, null, false)).toHaveLength(2);
+        expect(contractsForRun(all, undefined, false)).toHaveLength(2);
+        expect(contractsForRun(null, 'r1', false)).toEqual([]);
+
+        // 旧数据条目缺 rootGoalId：归属未知，兜底保留
+        const legacy: ContractTraceView = { ...(run1[0] as ContractTraceView), rootGoalId: '' };
+        expect(contractsForRun([legacy], 'r2', false).map((row) => row.goalId)).toEqual(['g1']);
     });
 });

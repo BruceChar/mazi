@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { GoalTreeSnapshot, StepUsage } from '../src/types.ts';
+import type { GoalTreeSnapshot, StepUsage, UserBehaviorView } from '../src/types.ts';
 import {
     aggregateUsage,
     buildAuditView,
@@ -658,6 +658,180 @@ describe('audit buildAuditView', () => {
         expect(live.kind).toBe('step');
         expect(live.rows).toHaveLength(0);
         expect(live.usage.vendor?.total).toBe(120);
+    });
+});
+
+describe('audit buildAuditView · 契约区与行为详情', () => {
+    /** 每个 run 一个 Goal + 冻结契约（会话契约区范围测试）。 */
+    function contractSnapshot(rootGoalId: string, goalId: string): GoalTreeSnapshot {
+        return {
+            rootGoalId,
+            taskCount: 0,
+            stepCount: 0,
+            goals: [
+                {
+                    goalId,
+                    status: 'active',
+                    statement: '目标 ' + goalId,
+                    contract: {
+                        successConditions: [
+                            {
+                                id: 'c1',
+                                checkType: 'deterministic',
+                                description: '产出最终回答',
+                                check: { kind: 'final-answer' },
+                            },
+                        ],
+                        failureConditions: [],
+                        forbiddenResources: [],
+                        budget: {},
+                        terminationPolicy: {},
+                        riskProfile: {
+                            hasIrreversibleActions: false,
+                            touchesNetwork: false,
+                            touchesExternalApi: false,
+                        },
+                        deterministicRatio: 1,
+                    },
+                    tasks: [],
+                },
+            ],
+        };
+    }
+
+    function approvalOf(ts: number): UserBehaviorView {
+        return {
+            ts,
+            type: 'approval',
+            data: {
+                summary: 'shell.run: rm -rf build',
+                capability: 'shell.run',
+                invocationId: 'inv-1',
+                allowedScopes: ['once', 'session'],
+            },
+        };
+    }
+
+    function authorizationOf(ts: number, refTs: number): UserBehaviorView {
+        return {
+            ts,
+            type: 'authorization',
+            ref: { ts: refTs },
+            data: { decision: 'granted', scope: 'once', latencyMs: 4500 },
+        };
+    }
+
+    function behaviorSnapshot(rootGoalId: string, behaviors: UserBehaviorView[]): GoalTreeSnapshot {
+        return {
+            ...contractSnapshot(rootGoalId, 'g1'),
+            behaviors,
+        };
+    }
+
+    it('会话契约：逐 run 打上 rootGoalId，step/task 视图带所属 run', () => {
+        const conversation = buildAuditView({
+            runs: [
+                { rootGoalId: 'r1', input: 'q1', snapshot: contractSnapshot('r1', 'g1') },
+                { rootGoalId: 'r2', input: 'q2', snapshot: contractSnapshot('r2', 'g2') },
+            ],
+        });
+        expect(conversation.kind).toBe('conversation');
+        expect(conversation.contracts?.map((entry) => [entry.goalId, entry.rootGoalId])).toEqual([
+            ['g1', 'r1'],
+            ['g2', 'r2'],
+        ]);
+        expect(conversation.rootGoalId).toBeUndefined();
+
+        const run1 = snapshotOf([stepView('a1', 'deliberation', 1, stepUsage())]);
+        const run2 = snapshotOf(
+            [stepView('b1', 'deliberation', 3, stepUsage(), 't2')],
+            't2',
+            'Second task',
+        );
+        const runs = [
+            { rootGoalId: 'r1', input: 'q1', snapshot: run1 },
+            { rootGoalId: 'r2', input: 'q2', snapshot: run2 },
+        ];
+        expect(buildAuditView({ runs, stepId: 'b1' }).rootGoalId).toBe('r2');
+        expect(buildAuditView({ runs, taskId: 't2' }).rootGoalId).toBe('r2');
+    });
+
+    it('选中 authorization：按 ref.ts 配对 approval，给出决策 / 作用域 / 延迟', () => {
+        const snapshot = behaviorSnapshot('r1', [approvalOf(1000), authorizationOf(1500, 1000)]);
+        const view = buildAuditView({
+            runs: [{ rootGoalId: 'r1', input: 'q', snapshot }],
+            behaviorTs: 1500,
+            behaviorRootGoalId: 'r1',
+        });
+        expect(view.kind).toBe('conversation');
+        expect(view.stale).toBe(false);
+        expect(view.behavior?.type).toBe('authorization');
+        expect(view.behavior?.ts).toBe(1500);
+        expect(view.behavior?.at).toBe(1500);
+        expect(view.behavior?.label).toBe('授权');
+        expect(view.behavior?.summary).toBe('允许 · once · 4500ms');
+        expect(view.behavior?.authorization).toEqual({
+            decision: 'granted',
+            scope: 'once',
+            latencyMs: 4500,
+        });
+        expect(view.behavior?.approval).toEqual({
+            summary: 'shell.run: rm -rf build',
+            capability: 'shell.run',
+            invocationId: 'inv-1',
+            allowedScopes: ['once', 'session'],
+        });
+        // 行为属于哪个 run → 窄栏契约区按该 run 过滤
+        expect(view.rootGoalId).toBe('r1');
+    });
+
+    it('选中 approval：反查配对 authorization（缺省 run 时全局查找）', () => {
+        const snapshot = behaviorSnapshot('r2', [approvalOf(1000), authorizationOf(1500, 1000)]);
+        const view = buildAuditView({
+            runs: [{ rootGoalId: 'r2', input: 'q', snapshot }],
+            behaviorTs: 1000,
+        });
+        expect(view.behavior?.type).toBe('approval');
+        expect(view.behavior?.label).toBe('审批（系统）');
+        expect(view.behavior?.summary).toBe('shell.run: rm -rf build');
+        expect(view.behavior?.approval?.capability).toBe('shell.run');
+        expect(view.behavior?.authorization).toEqual({
+            decision: 'granted',
+            scope: 'once',
+            latencyMs: 4500,
+        });
+    });
+
+    it('feedback：类型 / 摘要可看，无审批与授权配对', () => {
+        const snapshot = behaviorSnapshot('r1', [
+            { ts: 2000, type: 'feedback', data: { kind: 'rating', rating: 5 } },
+        ]);
+        const view = buildAuditView({
+            runs: [{ rootGoalId: 'r1', input: 'q', snapshot }],
+            behaviorTs: 2000,
+            behaviorRootGoalId: 'r1',
+        });
+        expect(view.behavior?.type).toBe('feedback');
+        expect(view.behavior?.summary).toBe('评分 5');
+        expect(view.behavior?.approval).toBeNull();
+        expect(view.behavior?.authorization).toBeNull();
+
+        // 单 snapshot 调用（无 runs）也能按快照归属找到行为
+        const single = buildAuditView({ snapshot, behaviorTs: 2000, behaviorRootGoalId: 'r1' });
+        expect(single.behavior?.type).toBe('feedback');
+        expect(single.rootGoalId).toBe('r1');
+    });
+
+    it('behavior 目标不存在 / run 不匹配 → none + stale', () => {
+        const snapshot = behaviorSnapshot('r1', [approvalOf(1000), authorizationOf(1500, 1000)]);
+        const runs = [{ rootGoalId: 'r1', input: 'q', snapshot }];
+        const missing = buildAuditView({ runs, behaviorTs: 9999 });
+        expect(missing.kind).toBe('none');
+        expect(missing.stale).toBe(true);
+        expect(missing.behavior).toBeNull();
+        const wrongRun = buildAuditView({ runs, behaviorTs: 1000, behaviorRootGoalId: 'r2' });
+        expect(wrongRun.kind).toBe('none');
+        expect(wrongRun.stale).toBe(true);
     });
 });
 

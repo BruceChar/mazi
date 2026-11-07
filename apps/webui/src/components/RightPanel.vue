@@ -4,6 +4,7 @@ import LineIcon from '../assets/LineIcon.vue';
 import AuditDisclosure from './AuditDisclosure.vue';
 import StoragePanel from './StoragePanel.vue';
 import {
+    behaviorDecisionLabel,
     donutArcs,
     formatBytes,
     formatCost,
@@ -29,6 +30,7 @@ import {
     ROUTE_LABEL,
     contractStateLabel,
     contractStateTone,
+    contractsForRun,
 } from '../scripts/contract-view.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { buildTraceBoard, filterTraceRuns } from '../scripts/trace.ts';
@@ -288,11 +290,26 @@ const traceItems = computed(() => {
 });
 /* ---- 契约区（Trace 面板）：Goal + 验证约束 + 协商轨迹 ---- */
 const traceContracts = computed(() => props.trace?.contracts ?? props.audit?.contracts ?? []);
-const collapsedContracts = ref(new Set());
+/**
+ * 窄栏只展示「当前会话」的契约：当前选中 Step/Task 所属 run（新视图带 rootGoalId），
+ * 无选中时回退当前打开的 run；最大化时保留全部 run 的对照（issue 3）。
+ */
+const traceContractRootGoalId = computed(() => {
+    const audit = props.audit;
+    if (!audit) return props.current || '';
+    if (audit.rootGoalId) return audit.rootGoalId;
+    if (audit.kind === 'task' && audit.rows?.[0]?.rootGoalId) return audit.rows[0].rootGoalId;
+    return props.current || '';
+});
+const visibleContracts = computed(() =>
+    contractsForRun(traceContracts.value, traceContractRootGoalId.value, props.maximized),
+);
+/** 契约默认折叠：只展开用户点开的 Goal。 */
+const expandedContracts = ref(new Set());
 function toggleContract(goalId) {
-    const s = new Set(collapsedContracts.value);
+    const s = new Set(expandedContracts.value);
     s.has(goalId) ? s.delete(goalId) : s.add(goalId);
-    collapsedContracts.value = s;
+    expandedContracts.value = s;
 }
 /** 协商答复草稿：key = 问题文本。 */
 const answersDraft = reactive({});
@@ -693,14 +710,14 @@ watch(
                 </section>
 
                 <!-- 契约区：执行前承诺（goal / 条款 / 上限 / 风险）+ 验收判定 + 协商轨迹 -->
-                <section v-if="traceContracts.length > 0" class="audit-section contract-section">
+                <section v-if="visibleContracts.length > 0" class="audit-section contract-section">
                     <div class="audit-section-title">
                         <span>契约 · 验证约束</span>
-                        <span class="audit-pct">{{ traceContracts.length }} goal</span>
+                        <span class="audit-pct">{{ visibleContracts.length }} goal</span>
                     </div>
-                    <div v-for="entry in traceContracts" :key="entry.goalId" class="contract-goal">
+                    <div v-for="entry in visibleContracts" :key="entry.goalId" class="contract-goal">
                         <div class="contract-goal-head" @click="toggleContract(entry.goalId)">
-                            <span class="contract-caret">{{ collapsedContracts.has(entry.goalId) ? '+' : '−' }}</span>
+                            <span class="contract-caret">{{ expandedContracts.has(entry.goalId) ? '−' : '+' }}</span>
                             <span class="contract-goal-title">{{ entry.statement }}</span>
                             <span class="contract-goal-status">{{ entry.goalStatus }}</span>
                             <span
@@ -714,7 +731,7 @@ watch(
                                 title="契约满足度：评估器对条款的机械判定汇总（不是 executor 的成败）"
                             >{{ contractStateLabel(entry.contractStatus) }}</span>
                         </div>
-                        <template v-if="!collapsedContracts.has(entry.goalId)">
+                        <template v-if="expandedContracts.has(entry.goalId)">
                             <div v-if="entry.negotiation" class="contract-negotiation">
                                 <span class="contract-chip route">{{ ROUTE_LABEL[entry.negotiation.route] || entry.negotiation.route }}</span>
                                 <span v-if="entry.negotiation.revision > 0" class="contract-chip">已修订 v{{ entry.negotiation.revision }}</span>
@@ -951,6 +968,34 @@ watch(
                 </div>
 
                 <div v-else class="trace-detail">
+                    <!-- 行为详情（issue 5）：点击对话流「审批 / 授权 / 反馈」行后展示该次行为的事实与结果 -->
+                    <section v-if="audit.behavior" class="audit-section behavior-section">
+                        <div class="audit-section-title">
+                            <span>行为详情</span>
+                            <span class="audit-pct">{{ fmtPrecise(audit.behavior.at) }}</span>
+                        </div>
+                        <div class="audit-row"><span class="audit-key">类型</span><span class="audit-val">{{ audit.behavior.label }}</span></div>
+                        <div class="audit-row"><span class="audit-key">时间</span><span class="audit-val">{{ fmtPrecise(audit.behavior.at) }}</span></div>
+                        <div class="audit-row"><span class="audit-key">摘要</span><span class="audit-val">{{ audit.behavior.summary || '-' }}</span></div>
+                        <template v-if="audit.behavior.approval">
+                            <div class="audit-section-sub">审批发起（系统）</div>
+                            <div v-if="audit.behavior.approval.capability" class="audit-row"><span class="audit-key">capability</span><span class="audit-val">{{ audit.behavior.approval.capability }}</span></div>
+                            <div v-if="audit.behavior.approval.invocationId" class="audit-row"><span class="audit-key">invocationId</span><span class="audit-val audit-mono">{{ audit.behavior.approval.invocationId }}</span></div>
+                            <div v-if="audit.behavior.approval.summary && audit.behavior.type !== 'approval'" class="audit-row"><span class="audit-key">审批请求</span><span class="audit-val">{{ audit.behavior.approval.summary }}</span></div>
+                            <div v-if="audit.behavior.approval.allowedScopes && audit.behavior.approval.allowedScopes.length" class="audit-row"><span class="audit-key">允许作用域</span><span class="audit-val">{{ audit.behavior.approval.allowedScopes.join(' · ') }}</span></div>
+                        </template>
+                        <template v-if="audit.behavior.authorization">
+                            <div class="audit-section-sub">用户授权</div>
+                            <div class="audit-row">
+                                <span class="audit-key">决策</span>
+                                <span class="audit-val" :class="{ 'audit-warn': audit.behavior.authorization.decision === 'denied' }">{{ behaviorDecisionLabel(audit.behavior.authorization.decision) }}</span>
+                            </div>
+                            <div v-if="audit.behavior.authorization.scope" class="audit-row"><span class="audit-key">作用域</span><span class="audit-val">{{ audit.behavior.authorization.scope }}</span></div>
+                            <div v-if="audit.behavior.authorization.latencyMs != null" class="audit-row"><span class="audit-key">延迟</span><span class="audit-val">{{ formatDuration(audit.behavior.authorization.latencyMs) }}</span></div>
+                        </template>
+                        <div v-if="!audit.behavior.approval && !audit.behavior.authorization" class="audit-muted">该行为无审批 / 授权配对记录</div>
+                    </section>
+
                     <!-- 工具调用：专用审计 view（命令/参数/输出/耗时），不显示 vendor token -->
                     <section v-if="audit.tool" class="audit-section">
                         <div class="audit-section-title">工具调用 · {{ audit.tool.name }}</div>
