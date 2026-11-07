@@ -44,10 +44,11 @@ describe('sidebar conversation grouping', () => {
         const conversations = [
             conversation('p1', { workspace: '/w', projectId: 'p1' }),
             conversation('p2', { workspace: '/w', projectId: 'p2' }),
+            conversation('hash', { workspace: '/w', projectId: 'sha256-project-id' }),
             conversation('plain'),
         ];
         expect(
             projectConversations(conversations, '/w', 'p1').map((c) => c.conversationId),
-        ).toEqual(['p1']);
+        ).toEqual(['p1', 'p2', 'hash']);
     });
 });

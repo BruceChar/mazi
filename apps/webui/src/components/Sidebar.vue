@@ -100,7 +100,7 @@ function isProjectOpen(path) {
 }
 function projectConversationItems(project) {
     return props.conversations.filter(
-        (c) => c.workspace === project.path && c.projectId === project.path && !c.archived,
+        (c) => c.workspace === project.path && c.projectId !== undefined && !c.archived,
     );
 }
 function conversationTitle(conversation) {

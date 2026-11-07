@@ -229,6 +229,7 @@ onMounted(() => {
                                 :live-steps="liveSteps[run.rootGoalId] || []"
                                 :selected-step-id="run.rootGoalId === current ? selectedStepId : ''"
                                 :selected-task-id="run.rootGoalId === current ? selectedTaskId : ''"
+                                :chat-mode="!activeConversation?.workspace"
                                 @select-step="emit('select-step', $event)"
                                 @select-task="emit('select-task', $event)"
                             />

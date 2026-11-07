@@ -143,8 +143,38 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         });
         expect(captured[0]?.reasoningLevel).toBe('high');
         expect(captured[0]?.modelId).toBe('deepseek-v4-pro');
+        expect(captured[0]?.parseIntent).toBe(false);
+        expect(captured[0]?.allowedTools).toEqual([]);
+        expect(String(captured[0]?.promptFragment)).toContain('随心聊模式');
         // No client hint → the backend resolves the scoped effective permission.
         expect(captured[0]?.permissionCeiling).toBe('workspace-write');
+    });
+
+    it('项目会话保留工具与契约 triage', async () => {
+        const captured: Array<Record<string, unknown>> = [];
+        const conversations = {
+            runs: () => [],
+            recordNewRun: () => 'c1',
+            appendRun: () => {},
+        };
+        const runtime = {
+            ...noFeatures,
+            selectedWorkspaceRoot: '/project',
+            setWorkspaceRoot: () => {},
+            resolvePermission: () => 'workspace-write',
+            harness: () => ({
+                createGoalSession: async (_input: string, opts: Record<string, unknown>) => {
+                    captured.push(opts);
+                    return { rootGoalId: 'r1', goalId: 'g1' };
+                },
+                goalSnapshot: async () => ({ goals: [] }),
+            }),
+        };
+        const service = new SessionsService(runtime as never, conversations as never);
+        await service.createSession({ input: '分析项目', workspacePath: '/project' });
+        expect(captured[0]?.parseIntent).toBe(true);
+        expect(captured[0]).not.toHaveProperty('allowedTools');
+        expect(String(captured[0]?.promptFragment ?? '')).not.toContain('随心聊模式');
     });
 
     it('无最终回答时只输出 user 输入', async () => {

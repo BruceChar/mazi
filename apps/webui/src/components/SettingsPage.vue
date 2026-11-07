@@ -496,7 +496,7 @@ watch(
                             <template v-if="authCommands?.error"> · {{ authCommands.error }}</template>
                         </div>
                         <div class="setting-desc">
-                            数组字段整段替换默认；subcommands 只有列出的子命令算只读，其余（含未知子命令）一律逐次审批；未命中规则按 shell.run 默认。
+                            数组字段整段替换默认；subcommands 只有列出的子命令算只读，git/docker 等未知子命令仍逐次审批；包管理器 test/build/run 按工作区写常态执行。
                         </div>
                     </div>
                     <textarea

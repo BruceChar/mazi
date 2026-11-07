@@ -23,10 +23,9 @@ export function defaultConversations(
 export function projectConversations(
     conversations: Conversation[] | null | undefined,
     workspace: string,
-    projectId: string,
+    _projectId?: string,
 ): Conversation[] {
     return (conversations || []).filter(
-        (conversation) =>
-            conversation?.workspace === workspace && conversation?.projectId === projectId,
+        (conversation) => conversation?.workspace === workspace,
     );
 }

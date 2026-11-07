@@ -5,7 +5,8 @@
  * MAZI_AUTH_CONFIG_DIR 覆盖），代码只保留与具体命令无关的硬条件（见 core authz/command.ts）。
  *
  * subcommands 规则：多子命令工具（git/docker/npm…）——只有 readonly 数组里列出的子命令算只读；
- * 其余（包括未知子命令）一律 dangerous、逐次审批。未命中任何规则的命令 → unknown，正常走 shell.run。
+ * git/docker 等未知子命令仍 dangerous；npm/pnpm/yarn/pip 的 test/build/run/install
+ * 属于工作区写常态。未命中任何规则的命令 → unknown，正常走 shell.run。
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -62,8 +63,6 @@ export const DEFAULT_COMMAND_POLICY: authz.CommandPolicy = {
         'nc',
         'ncat',
         'netcat',
-        'xargs',
-        'find',
         'service',
         'launchctl',
     ],
@@ -225,7 +224,7 @@ export const AUTH_COMMAND_POLICY_SCHEMA: Record<string, unknown> = {
             type: 'object',
             additionalProperties: { type: 'array', items: { type: 'string' } },
             description:
-                '多子命令工具：只有列出的子命令算只读，其余（含未知子命令）一律 dangerous、逐次审批。',
+                '多子命令工具：列出的子命令算只读；git/docker 等未知子命令仍逐次审批，包管理器任务按 workspace-write 常态执行。',
         },
     },
 };
@@ -236,7 +235,7 @@ export const COMMAND_POLICY_DOC: Readonly<Record<string, string>> = {
     readonlyHeads: '只读命令：无 shell 元字符时放宽为命令名粒度（批准 ping 覆盖所有 ping）。',
     networkHeads: '出网命令：交出站账本裁决（账本干净放行，含敏感读则转审批）。',
     subcommands:
-        '多子命令工具：只有数组里列出的子命令算只读，其余（含未知子命令）一律 dangerous、逐次审批。',
+        '多子命令工具：列出的子命令算只读；git/docker 等未知子命令仍逐次审批，包管理器任务按 workspace-write 常态执行。',
     _rules: '未命中任何规则的命令按 shell.run 默认（unknown，完整命令行 key）处理；解释器/提权命令（sh/bash/sudo…）与 shell 元字符是代码硬条件，不可放宽。',
 };
 

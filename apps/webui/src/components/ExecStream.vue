@@ -25,6 +25,8 @@ const props = defineProps({
     /** Audit selection highlight (store.selectedStepId / selectedTaskId). */
     selectedStepId: { type: String, default: '' },
     selectedTaskId: { type: String, default: '' },
+    /** 随心聊：只展示对话输出，不展示 GoalContract。 */
+    chatMode: { type: Boolean, default: false },
 });
 /** Open the right-side audit panel for the clicked Step/Task. */
 const emit = defineEmits(['select-step', 'select-task']);
@@ -429,7 +431,7 @@ const outputAt = computed(() => {
                 </div>
                 <!-- 契约前置：执行前冻结的承诺（条款 / 上限 / 风险 / 禁止项） -->
                 <div
-                    v-if="!goal.contract.empty"
+                    v-if="!chatMode && !goal.contract.empty"
                     class="exec-contract"
                     title="执行前冻结的 GoalContract：承诺与判定参照物"
                 >
@@ -517,6 +519,7 @@ const outputAt = computed(() => {
                 </div>
                 <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
                     <div
+                        v-if="!chatMode"
                         class="exec-task-head"
                         :data-task-id="task.taskId"
                         :class="{ selected: task.taskId === selectedTaskId }"
@@ -564,6 +567,7 @@ const outputAt = computed(() => {
                             :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
                         >
                             <div
+                                v-if="!chatMode"
                                 class="exec-step-head"
                                 :data-step-id="row.stepId"
                                 :class="{ selected: row.stepId === selectedStepId }"

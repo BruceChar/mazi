@@ -5,7 +5,8 @@
  * 代码里只保留与具体命令无关的硬条件：
  * - shell 元字符（分号/管道/重定向/反引号/$ 展开/换行）→ 不得放宽为只读；
  * - 解释器/提权命令（sh/bash/zsh/fish/eval/exec/source/sudo/su/doas）恒为 dangerous；
- * - 多子命令工具未列出的子命令恒为 dangerous（保守默认）；
+ * - 多子命令工具未列出的子命令通常为 dangerous；包管理器的
+ *   test/build/run/install 属于工作区写常态，按 unknown 自动执行；
  * - 无任何规则命中的命令 → unknown，正常走 shell.run（完整命令行 key）。
  *
  * 类别：
@@ -29,7 +30,7 @@ export interface CommandPolicy {
     readonlyHeads?: readonly string[];
     /** 出网命令词；交出站账本裁决。 */
     networkHeads?: readonly string[];
-    /** 多子命令工具：head 到只读子命令白名单；未列出的子命令一律 dangerous。 */
+    /** 多子命令工具：只读白名单；git/docker 等未列出子命令仍 dangerous。 */
     subcommands?: Readonly<Record<string, readonly string[]>>;
 }
 
@@ -90,18 +91,43 @@ export function commandHead(command: string): string | undefined {
 }
 
 function subcommandOf(tokens: readonly string[]): string | undefined {
-    const second = tokens[1];
-    if (second === undefined || second.startsWith('-')) return undefined;
-    return basename(second);
+    for (const token of tokens.slice(1)) {
+        if (token.startsWith('-')) continue;
+        return basename(token);
+    }
+    return undefined;
 }
 
-function isDangerousToken(token: string, next: string | undefined, rules: CommandRules): boolean {
+/** 包管理器的 test/build/run 等不在只读白名单，但属于工作区写档的常规任务。 */
+const WORKSPACE_PACKAGE_HEADS: ReadonlySet<string> = new Set([
+    'npm',
+    'pnpm',
+    'yarn',
+    'pip',
+    'pip3',
+]);
+
+function isDangerousToken(
+    tokens: readonly string[],
+    index: number,
+    rules: CommandRules,
+): boolean {
+    const token = tokens[index] ?? '';
     const head = basename(token);
+    // find/xargs 常被用于只读分析，不能仅凭命令名判危险。
+    // find 的破坏动作由参数识别；xargs 的真正风险由其后被调用命令的 head 识别。
+    if (head === 'find') {
+        return tokens
+            .slice(index + 1)
+            .some((item) => /^-(?:delete|exec|execdir|ok|okdir|fprint|fprintf|fls)$/.test(item));
+    }
+    if (head === 'xargs') return false;
     if (rules.dangerousHeads.has(head)) return true;
     const subRules = rules.subcommands[head];
     if (subRules !== undefined) {
-        if (next === undefined) return true;
-        return !subRules.has(basename(next));
+        const subcommand = subcommandOf(tokens.slice(index));
+        if (subcommand === undefined) return !WORKSPACE_PACKAGE_HEADS.has(head);
+        return !subRules.has(subcommand) && !WORKSPACE_PACKAGE_HEADS.has(head);
     }
     return false;
 }
@@ -113,7 +139,7 @@ export function classifyCommand(
     const trimmed = command.trim();
     if (trimmed.length === 0) return 'unknown';
     const tokens = trimmed.split(TOKEN_SPLIT).filter((token) => token.length > 0);
-    if (tokens.some((token, index) => isDangerousToken(token, tokens[index + 1], rules))) {
+    if (tokens.some((_token, index) => isDangerousToken(tokens, index, rules))) {
         return 'dangerous';
     }
     const head = commandHead(trimmed);
@@ -129,8 +155,9 @@ export function classifyCommand(
         ) {
             return 'readonly';
         }
-        // 只读子命令白名单之外（含未知子命令）保守归 dangerous。
-        return 'dangerous';
+        // 包管理器未知子命令（test/build/run）属于工作区写常态；
+        // git/docker 等仍保守逐次审批。
+        return WORKSPACE_PACKAGE_HEADS.has(head) ? 'unknown' : 'dangerous';
     }
     if (rules.readonlyHeads.has(head) && !hasShellMeta(trimmed)) return 'readonly';
     if (rules.networkHeads.has(head)) return 'network';

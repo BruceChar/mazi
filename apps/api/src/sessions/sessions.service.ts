@@ -13,6 +13,12 @@ import { EvalService } from '../eval/eval.service.js';
 const HISTORY_MAX_RUNS = 10;
 /** 单条历史助手回答的截断上限（字符）。 */
 const HISTORY_ANSWER_MAX_CHARS = 4000;
+/** 随心聊：纯对话，不进入工具/契约协商链路。 */
+const CHAT_MODE_PROMPT = [
+    '## 随心聊模式',
+    '这是直接对话轮次：直接回答用户，不把回复组织成 Goal/Task 执行报告。',
+    '本模式不提供工具，也不进行契约协商；信息不足时只问必要的简短澄清。',
+].join('\n');
 
 /**
  * SessionsService：Goal 会话（= 一棵 Goal 树）的创建/执行/详情/反馈编排。
@@ -119,6 +125,13 @@ export class SessionsService {
         const sessionConversationId = conversationId ?? ulid();
         // 普通会话按全局 Feature 开关运行（实验台改用运行期 override 走 ExperimentRunner）。
         const featureOptions = await this.featureRunOptions(reasoningLevel);
+        const chatMode = workspace === undefined && projectId === undefined;
+        const promptFragment = [
+            featureOptions.promptFragment ?? '',
+            chatMode ? CHAT_MODE_PROMPT : '',
+        ]
+            .filter((part) => part.length > 0)
+            .join('\n\n');
         const created = await this.runtime.harness().createGoalSession(input, {
             userId,
             ...(projectId !== undefined ? { projectId } : {}),
@@ -126,14 +139,16 @@ export class SessionsService {
             ...(permissionCeiling ? { permissionCeiling } : {}),
             ...(maxSteps !== undefined ? { maxSteps } : {}),
             ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
-            // 契约协商：创建期跑 triage（direct / confirmed / negotiate / escalate）
-            parseIntent: true,
+            // 项目会话跑契约 triage；随心聊是纯对话，不协商契约。
+            parseIntent: !chatMode,
             ...(history.length > 0 ? { history } : {}),
             ...(planProposal !== undefined ? { planProposal } : {}),
             ...(promptPackIds !== undefined ? { promptPackIds } : {}),
             ...(reasoningLevel ? { reasoningLevel } : {}),
             ...(modelId ? { modelId } : {}),
             ...featureOptions,
+            ...(chatMode ? { allowedTools: [] } : {}),
+            ...(promptFragment.length > 0 ? { promptFragment } : {}),
         });
         await this.rememberPreferences(created.rootGoalId, body, userId, workspace, projectId);
         this.logger.log(

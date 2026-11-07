@@ -12,7 +12,7 @@ const SHELL = { name: 'shell.run' } as ToolRegistration;
 
 // 规则数据化：测试用一份小策略（真实默认在 runtime auth/command-policy）。
 const RULES = compileCommandPolicy({
-    dangerousHeads: ['rm', 'dd', 'chmod', 'mv', 'cp'],
+    dangerousHeads: ['rm', 'dd', 'chmod', 'mv', 'cp', 'find', 'xargs'],
     readonlyHeads: ['ping', 'ls', 'netstat', 'dig'],
     networkHeads: ['curl', 'wget'],
     subcommands: {
@@ -20,6 +20,7 @@ const RULES = compileCommandPolicy({
         docker: ['ps', 'images'],
         kubectl: ['get', 'describe'],
         npm: ['ls', 'view'],
+        pnpm: ['ls', 'view'],
     },
 });
 
@@ -34,6 +35,11 @@ describe('authz command classification', () => {
         expect(classifyCommand('rm -rf ./tmp', RULES)).toBe('dangerous');
         expect(classifyCommand('ls; rm -rf /', RULES)).toBe('dangerous');
         expect(classifyCommand('find . -exec rm {} +', RULES)).toBe('dangerous');
+        expect(classifyCommand('find . -delete', RULES)).toBe('dangerous');
+        expect(
+            classifyCommand('find . -name "*.ts" -print | xargs wc -l', RULES),
+        ).toBe('unknown');
+        expect(classifyCommand('find . -print | xargs rm', RULES)).toBe('dangerous');
     });
 
     it('always treats interpreters/privilege commands as dangerous (hard condition)', () => {
@@ -50,7 +56,9 @@ describe('authz command classification', () => {
         expect(classifyCommand('docker ps', RULES)).toBe('readonly');
         expect(classifyCommand('docker run alpine', RULES)).toBe('dangerous');
         expect(classifyCommand('npm ls', RULES)).toBe('readonly');
-        expect(classifyCommand('npm install x', RULES)).toBe('dangerous');
+        expect(classifyCommand('npm install x', RULES)).toBe('unknown');
+        expect(classifyCommand('pnpm -r --if-present test', RULES)).toBe('unknown');
+        expect(classifyCommand('pnpm -r --if-present build', RULES)).toBe('unknown');
     });
 
     it('leaves unconfigured commands as unknown (normal shell.run path)', () => {

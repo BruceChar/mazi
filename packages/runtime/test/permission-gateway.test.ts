@@ -152,6 +152,15 @@ describe('runtime permission bridge', () => {
         await expect(gateway.invoke('shell.run', { command: 'cargo build' })).resolves.toMatchObject({
             ok: true,
         });
+        await expect(
+            gateway.invoke('shell.run', { command: 'pnpm -r --if-present test' }),
+        ).resolves.toMatchObject({ ok: true });
+        await expect(
+            gateway.invoke('shell.run', {
+                command:
+                    'echo "== tests =="; find . -name "*.test.ts" -print | xargs wc -l; pnpm -r build',
+            }),
+        ).resolves.toMatchObject({ ok: true });
         expect(broker.pending()).toHaveLength(0);
 
         // 危险命令仍需审批
