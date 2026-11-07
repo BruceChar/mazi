@@ -14,7 +14,8 @@ TODO
   claims 状态、摘要计数与最近知识提交。
 - WebUI 采用“文档导航 / Markdown 正文 / 状态与事实证据”三栏布局，窄屏改为纵向流。
 - 从项目菜单进入 Wiki 时，WebUI 同时切换全局工作区，顶部栏显示当前 Wiki 项目路径。
-- 项目 run 结束前，runtime 调用 `wiki.py record` 将活动确定性追加到 `state/current.md`；
-  测试环境默认跳过，避免污染真实仓库。
+- 项目 Session 结束后，API 将同步任务放入按 workspace 串行的后台队列；后台先追加
+  `state/current.md > 会话活动`，再由隐藏 Agent 判断是否更新语义内容和 claims。
+- 前台 SessionStart 只注入 wiki INDEX；系统提示明确禁止主动询问是否初始化、更新或补全 Wiki。
 - Wiki 页的“初始化”和“更新”通过 `/api/wiki/init|update` 启动隐藏项目 Agent；
   `/api/wiki/operations/:id` 轮询后台状态，完成后页面自动重新读取文档与 claims。

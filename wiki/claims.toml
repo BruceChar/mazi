@@ -65,12 +65,12 @@ established = 2026-11-07
 verified = 2026-11-07
 
 [claims.project-wiki-run-activity]
-text = "Project runs with Project context deterministically append request, outcome, and summary to state/current.md through wiki.py record before completion, while test runs skip writes unless explicitly enabled."
+text = "Each project SessionEnd enqueues a per-workspace background sync without blocking the foreground response; the worker records session activity first, then launches a hidden Agent to update durable wiki content and claims only when warranted."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "8deadd2e94bb7c6bc785ca17d69295cca890488c" },
-  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "79d07bd9946d8742d41ab9401a01559e828790d8" },
-  { file = "packages/runtime/test/wiki-runtime-integration.test.ts", oid = "470afc0991aa9aa4516cc09919f5abb7fcba30dc" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "952bb6cf4054843c1c9c168d8377770d6dc1feef" },
+  { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "2d61eb0577312cbd0e310e2e64c8f581a353e833" },
 ]
 established = 2026-11-07
 verified = 2026-11-07

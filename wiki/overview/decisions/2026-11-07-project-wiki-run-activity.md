@@ -8,11 +8,12 @@ agent 没有执行 `claim` / overview 更新，导致用户连续聊天后 `stat
 
 ## 决策
 
-- 有 Project 上下文且挂载 `project-wiki` 的 run 结束前，runtime 调用
-  `wiki.py record`，确定性追加请求、结果和摘要。
+- 有 Project 上下文的 Session 结束后，API 把同步任务投递到独立后台队列，不阻塞当前会话。
+- 后台先调用 `wiki.py record` 追加请求、结果和摘要，再由隐藏 Agent 判断是否有
+  durable 事实或文件变化需要更新 overview 与 claims。
 - `record` 只维护 `state/current.md > 会话活动` 的最近 20 行，并自动提交 wiki/。
 - overview、决策和 claims 仍由 agent 负责语义判断，自动记录不替代知识提炼。
-- Vitest 环境默认跳过，集成测试需显式设置 `MAZI_PROJECT_WIKI_RECORD_IN_TESTS=1`。
+- 前台只读 INDEX，并明确禁止主动询问用户是否初始化、更新或补全 Wiki。
 
 ## 结果
 
