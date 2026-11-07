@@ -10,6 +10,21 @@ import type { AcceptanceResult, CheckableCondition, ConditionResult, Goal } from
 import type { TaskOutcome } from './goal-executor.js';
 
 const UNCHECKED_DETAIL = '无机械检查器（语义条款或缺省 check）';
+const NO_ENVIRONMENT_DETAIL = '无环境探针（未注入 ConditionEnvironment，无法判定文件/git）';
+
+/**
+ * Environment probes injected into the evaluator. The evaluator never touches
+ * fs/git directly: callers (harness/verifier) supply a snapshot-bound adapter,
+ * so judgment stays pure and replayable.
+ */
+export interface ConditionEnvironment {
+    /** Whether the workspace-relative path exists. */
+    fileExists(path: string): boolean;
+    /** File content at the workspace-relative path; null when missing/unreadable. */
+    readFile(path: string): string | null;
+    /** Whether the repository already has at least one commit. */
+    gitHasCommit(): boolean;
+}
 
 /** 契约满足度的机械口径（Goal 级汇总；评估器角色产出，非 executor 自述）。 */
 export type ContractState = 'satisfied' | 'violated' | 'partial' | 'unchecked';
@@ -68,39 +83,119 @@ export function rollupAcceptance(
     return { state, total, evaluated, passed, failed };
 }
 
-function judge(condition: CheckableCondition, outcome: TaskOutcome): ConditionResult {
+/** commandPattern is a JS regex source; a malformed pattern degrades to literal matching. */
+function compileCommandPattern(pattern: string): { test(value: string): boolean } {
+    try {
+        return new RegExp(pattern);
+    } catch {
+        return { test: (value: string) => value.includes(pattern) };
+    }
+}
+
+function uncheckedWithoutEnvironment(condition: CheckableCondition): ConditionResult {
+    return { conditionId: condition.id, status: 'unchecked', detail: NO_ENVIRONMENT_DETAIL };
+}
+
+function judge(
+    condition: CheckableCondition,
+    outcome: TaskOutcome,
+    environment?: ConditionEnvironment,
+): ConditionResult {
     if (condition.checkType !== 'deterministic' || condition.check === undefined) {
         return { conditionId: condition.id, status: 'unchecked', detail: UNCHECKED_DETAIL };
     }
     const check = condition.check;
-    if (check.kind === 'final-answer') {
-        const passed = outcome.ok && outcome.reason === 'final-answer';
-        return {
-            conditionId: condition.id,
-            status: passed ? 'passed' : 'failed',
-            detail: `executor:${outcome.reason}`,
-        };
+    switch (check.kind) {
+        case 'final-answer': {
+            const passed = outcome.ok && outcome.reason === 'final-answer';
+            return {
+                conditionId: condition.id,
+                status: passed ? 'passed' : 'failed',
+                detail: `executor:${outcome.reason}`,
+            };
+        }
+        case 'no-failed-steps': {
+            const failedSteps = outcome.steps.filter(
+                (step) =>
+                    step.status === 'failed' ||
+                    step.status === 'error' ||
+                    step.status === 'blocked',
+            ).length;
+            return {
+                conditionId: condition.id,
+                status: failedSteps === 0 ? 'passed' : 'failed',
+                detail: failedSteps === 0 ? '无失败 Step' : `失败 Step ${failedSteps} 个`,
+            };
+        }
+        case 'file-exists': {
+            if (environment === undefined) return uncheckedWithoutEnvironment(condition);
+            const exists = environment.fileExists(check.path);
+            return {
+                conditionId: condition.id,
+                status: exists ? 'passed' : 'failed',
+                detail: `file-exists:${check.path} ${exists ? '存在' : '不存在'}`,
+            };
+        }
+        case 'file-contains': {
+            if (environment === undefined) return uncheckedWithoutEnvironment(condition);
+            const content = environment.readFile(check.path);
+            if (content === null) {
+                return {
+                    conditionId: condition.id,
+                    status: 'failed',
+                    detail: `file-contains:${check.path} 文件不存在或不可读`,
+                };
+            }
+            const hit = content.includes(check.text);
+            return {
+                conditionId: condition.id,
+                status: hit ? 'passed' : 'failed',
+                detail: `file-contains:${check.path} ${hit ? '命中指定文本' : '未包含指定文本'}`,
+            };
+        }
+        case 'git-has-commit': {
+            if (environment === undefined) return uncheckedWithoutEnvironment(condition);
+            const hasCommit = environment.gitHasCommit();
+            return {
+                conditionId: condition.id,
+                status: hasCommit ? 'passed' : 'failed',
+                detail: hasCommit ? 'git:已有 commit' : 'git:没有 commit',
+            };
+        }
+        case 'command-output-contains': {
+            // Evidence-only: match already-executed shell.run steps; never re-run commands.
+            const pattern = compileCommandPattern(check.commandPattern);
+            const matched = outcome.steps.some((step) => {
+                if (step.kind !== 'invocation' || step.payload.toolName !== 'shell.run') {
+                    return false;
+                }
+                const command = step.payload.arguments.command;
+                if (typeof command !== 'string' || !pattern.test(command)) return false;
+                return (step.payload.output ?? '').includes(check.text);
+            });
+            return {
+                conditionId: condition.id,
+                status: matched ? 'passed' : 'failed',
+                detail: matched
+                    ? `command-output-contains:${check.commandPattern} 命中`
+                    : `command-output-contains:${check.commandPattern} 未命中已执行命令输出`,
+            };
+        }
     }
-    // check.kind === 'no-failed-steps'
-    const failedSteps = outcome.steps.filter(
-        (step) => step.status === 'failed' || step.status === 'error' || step.status === 'blocked',
-    ).length;
-    return {
-        conditionId: condition.id,
-        status: failedSteps === 0 ? 'passed' : 'failed',
-        detail: failedSteps === 0 ? '无失败 Step' : `失败 Step ${failedSteps} 个`,
-    };
 }
 
 /**
  * 对一次 Task 执行结果做机械验收判定并返回事实（不写存储；由编排层落库）。
  * - 语义条款 / 未配置 check 的确定性条款 → unchecked，不计入 evaluated；
+ * - file/git 类 check 需要注入 environment，缺省 → unchecked（判不到不冒充）；
+ * - command-output-contains 只读 outcome 证据，不要求 environment；
  * - 任一条款 failed → passed=false；Task 本身失败也 → passed=false。
  */
 export function evaluateAcceptance(
     goal: Goal,
     outcome: TaskOutcome,
     now: () => number = Date.now,
+    environment?: ConditionEnvironment,
 ): AcceptanceResult {
     const selected = new Set(
         outcome.task.acceptance.conditions.length > 0
@@ -109,7 +204,7 @@ export function evaluateAcceptance(
     );
     const conditions = goal.contract.successConditions
         .filter((condition) => selected.has(condition.id))
-        .map((condition) => judge(condition, outcome));
+        .map((condition) => judge(condition, outcome, environment));
     const evaluated = conditions.filter((item) => item.status !== 'unchecked').length;
     return {
         checkedAt: now(),

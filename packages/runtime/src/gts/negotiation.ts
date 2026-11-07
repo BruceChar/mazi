@@ -7,18 +7,28 @@
 
 import type {
     CheckableCondition,
+    ConditionCheck,
     GoalNegotiation,
     NegotiationAnswer,
     NegotiationQuestion,
     NegotiationRoute,
 } from '@mazi/core';
-import { ulid } from '@mazi/core';
+import { isConditionCheck, ulid } from '@mazi/core';
+
+/**
+ * Structured constraint from triage: `text` stays the semantic statement;
+ * a valid `check` upgrades the clause to checkType='deterministic'.
+ */
+export interface StructuredConstraint {
+    text: string;
+    check?: ConditionCheck;
+}
 
 /** goal-parser 模板约定的 block（字段按 route 收窄；解析期只做形状校验）。 */
 export interface ParsedBlock {
     route: NegotiationRoute;
     goals?: string[];
-    constraints?: string[];
+    constraints?: (string | StructuredConstraint)[];
     understanding?: string[];
     defaultPath?: string[];
     approach?: { decomposition?: string; explorationBudget?: number; outputForm?: string };
@@ -35,7 +45,7 @@ export interface ParsedGoalPlan {
 
 export interface NegotiationPlan {
     negotiation: GoalNegotiation;
-    /** 冻结（或默认路径）条款：基线机械条款 + 解析出的语义条款 */
+    /** 冻结（或默认路径）条款：基线机械条款 + 解析出的条款（deterministic / semantic） */
     conditions: CheckableCondition[];
 }
 
@@ -52,6 +62,50 @@ function textList(value: unknown): string[] | undefined {
         (item): item is string => typeof item === 'string' && item.length > 0,
     );
     return items.length > 0 ? items : undefined;
+}
+
+/** Copy only known fields so model-supplied extras never leak into the contract. */
+function cloneCheck(check: ConditionCheck): ConditionCheck {
+    switch (check.kind) {
+        case 'final-answer':
+        case 'no-failed-steps':
+        case 'git-has-commit':
+            return { kind: check.kind };
+        case 'file-exists':
+            return { kind: 'file-exists', path: check.path };
+        case 'file-contains':
+            return { kind: 'file-contains', path: check.path, text: check.text };
+        case 'command-output-contains':
+            return {
+                kind: 'command-output-contains',
+                commandPattern: check.commandPattern,
+                text: check.text,
+            };
+    }
+}
+
+/**
+ * constraints accept legacy strings (semantic) or structured `{ text, check? }`.
+ * Strict but non-fatal: an invalid `check` is dropped while its text is kept as a
+ * semantic clause, and a malformed entry is dropped — the block still parses.
+ */
+function parseConstraints(value: unknown): (string | StructuredConstraint)[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const out: (string | StructuredConstraint)[] = [];
+    for (const item of value) {
+        if (typeof item === 'string') {
+            if (item.length > 0) out.push(item);
+            continue;
+        }
+        if (typeof item !== 'object' || item === null) continue;
+        const record = item as Record<string, unknown>;
+        if (typeof record.text !== 'string' || record.text.trim().length === 0) continue;
+        const text = record.text.trim();
+        out.push(
+            isConditionCheck(record.check) ? { text, check: cloneCheck(record.check) } : { text },
+        );
+    }
+    return out.length > 0 ? out : undefined;
 }
 
 /** 问题必须同时有 q 与 default（模板硬约束）；形状不全的整条丢弃，不补默认。 */
@@ -133,7 +187,7 @@ export function parseGoalParserOutput(raw: string): ParsedGoalPlan | undefined {
         const route = block.route as NegotiationRoute;
         const questions = parseQuestions(block.questions);
         const goals = textList(block.goals);
-        const constraints = textList(block.constraints);
+        const constraints = parseConstraints(block.constraints);
         const understanding = textList(block.understanding);
         const defaultPath = textList(block.defaultPath);
         const conflicts = textList(block.conflicts);
@@ -187,6 +241,31 @@ export function semanticConditions(texts: readonly string[]): CheckableCondition
         .map((text) => ({ id: ulid(), checkType: 'semantic' as const, description: text }));
 }
 
+/**
+ * triage 条款 → 冻结条款：带合法 check 的结构化 clause 升为 deterministic，
+ * 其余（字符串 / 无 check / goals / defaultPath）一律 semantic，不伪造机械判定。
+ */
+export function conditionsForClauses(
+    clauses: readonly (string | StructuredConstraint)[],
+): CheckableCondition[] {
+    const conditions: CheckableCondition[] = [];
+    for (const clause of clauses) {
+        if (typeof clause === 'string') {
+            conditions.push(...semanticConditions([clause]));
+        } else if (clause.check !== undefined) {
+            conditions.push({
+                id: ulid(),
+                checkType: 'deterministic',
+                description: clause.text,
+                check: clause.check,
+            });
+        } else {
+            conditions.push(...semanticConditions([clause.text]));
+        }
+    }
+    return conditions;
+}
+
 function fallbackNegotiation(at: number): GoalNegotiation {
     return {
         route: 'fallback',
@@ -211,11 +290,11 @@ export function planNegotiation(
         return { negotiation: fallbackNegotiation(at), conditions: baselineConditions() };
     }
     const route = block.route;
-    const clauses =
+    const clauses: (string | StructuredConstraint)[] =
         route === 'negotiate'
             ? (block.defaultPath ?? [])
             : route === 'direct'
-              ? // direct 不执行任何动作：只有基线条款，没有可验收的目标条款
+              ? // direct performs no action: baseline clauses only, no target clause
                 []
               : [...(block.goals ?? []), ...(block.constraints ?? [])];
     const negotiation: GoalNegotiation = {
@@ -234,7 +313,7 @@ export function planNegotiation(
     };
     return {
         negotiation,
-        conditions: [...baselineConditions(), ...semanticConditions(clauses)],
+        conditions: [...baselineConditions(), ...conditionsForClauses(clauses)],
     };
 }
 

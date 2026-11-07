@@ -9,7 +9,9 @@ import type {
 } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
+import { parseGoalParserOutput, planNegotiation } from '../src/gts/negotiation.js';
 import { HarnessRuntime } from '../src/harness/index.js';
+import { snapshotGoalTree } from '../src/observability/goal-snapshot.js';
 
 /** 脚本化 provider：按调用顺序返回预置文本（第 1 次 = triage，之后 = 执行轮）。 */
 function scriptedProvider(replies: string[]): {
@@ -345,5 +347,186 @@ describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () =
         } finally {
             await runtime.close();
         }
+    });
+});
+
+/** confirmed block 的稳定外壳；constraints 允许 string 或结构化对象。 */
+function confirmedRaw(constraints: unknown[]): string {
+    return JSON.stringify({
+        trace: { classification: 'command', triggers: [] },
+        blocks: [{ route: 'confirmed', goals: ['写 README'], constraints }],
+    });
+}
+
+describe('结构化 constraint → 机械条款（P2）', () => {
+    it('解析 { text, check }：四种合法 check 保留；旧字符串原样保留', () => {
+        const parsed = parseGoalParserOutput(
+            confirmedRaw([
+                '旧字符串约束',
+                {
+                    text: 'README.md 必须存在',
+                    check: { kind: 'file-exists', path: 'README.md' },
+                },
+                {
+                    text: 'README 必须含安装说明',
+                    check: { kind: 'file-contains', path: 'README.md', text: '## Install' },
+                },
+                { text: '仓库必须已有 commit', check: { kind: 'git-has-commit' } },
+                {
+                    text: '测试输出必须含 5 passed',
+                    check: {
+                        kind: 'command-output-contains',
+                        commandPattern: 'pnpm test',
+                        text: '5 passed',
+                    },
+                },
+            ]),
+        );
+        expect(parsed?.blocks[0]?.constraints).toEqual([
+            '旧字符串约束',
+            { text: 'README.md 必须存在', check: { kind: 'file-exists', path: 'README.md' } },
+            {
+                text: 'README 必须含安装说明',
+                check: { kind: 'file-contains', path: 'README.md', text: '## Install' },
+            },
+            { text: '仓库必须已有 commit', check: { kind: 'git-has-commit' } },
+            {
+                text: '测试输出必须含 5 passed',
+                check: {
+                    kind: 'command-output-contains',
+                    commandPattern: 'pnpm test',
+                    text: '5 passed',
+                },
+            },
+        ]);
+    });
+
+    it('非法 check 降级：未知 kind / 缺字段 / 类型不符 / 非相对路径 → 丢 check 留 text，block 照常解析', () => {
+        const parsed = parseGoalParserOutput(
+            confirmedRaw([
+                { text: '缺 path', check: { kind: 'file-exists' } },
+                { text: '未知 kind', check: { kind: 'run-tests' } },
+                { text: '绝对路径', check: { kind: 'file-exists', path: '/etc/passwd' } },
+                { text: '逃逸路径', check: { kind: 'file-exists', path: '../outside' } },
+                { text: '字段类型不符', check: { kind: 'file-contains', path: 'a', text: 42 } },
+                { text: 42, check: { kind: 'git-has-commit' } },
+                { check: { kind: 'git-has-commit' } },
+                { text: '合法 check', check: { kind: 'git-has-commit' } },
+                '纯字符串',
+            ]),
+        );
+        // 单条 constraint 形状坏掉不能拖垮整个 block
+        expect(parsed).toBeDefined();
+        expect(parsed?.blocks[0]?.route).toBe('confirmed');
+        expect(parsed?.blocks[0]?.constraints).toEqual([
+            { text: '缺 path' },
+            { text: '未知 kind' },
+            { text: '绝对路径' },
+            { text: '逃逸路径' },
+            { text: '字段类型不符' },
+            { text: '合法 check', check: { kind: 'git-has-commit' } },
+            '纯字符串',
+        ]);
+    });
+
+    it('planNegotiation：合法 check → deterministic + check；goals / 旧字符串 / 降级条款仍 semantic', () => {
+        const parsed = parseGoalParserOutput(
+            confirmedRaw([
+                '语义约束',
+                {
+                    text: 'README.md 必须存在',
+                    check: { kind: 'file-exists', path: 'README.md' },
+                },
+                { text: '降级约束', check: { kind: 'file-exists' } },
+            ]),
+        );
+        const { conditions } = planNegotiation(parsed);
+        // 基线 2 + goals 1 + constraints 3
+        expect(conditions).toHaveLength(6);
+        const byDescription = (text: string) =>
+            conditions.find((item) => item.description === text);
+
+        expect(byDescription('README.md 必须存在')).toMatchObject({
+            checkType: 'deterministic',
+            check: { kind: 'file-exists', path: 'README.md' },
+        });
+        expect(byDescription('语义约束')).toMatchObject({ checkType: 'semantic' });
+        expect(byDescription('语义约束')?.check).toBeUndefined();
+        expect(byDescription('降级约束')).toMatchObject({ checkType: 'semantic' });
+        expect(byDescription('降级约束')?.check).toBeUndefined();
+        // goals 永远是语义条款（目标本身不是可机械判定的形状）
+        expect(byDescription('写 README')).toMatchObject({ checkType: 'semantic' });
+        // 每个条款独立 id
+        expect(new Set(conditions.map((item) => item.id)).size).toBe(conditions.length);
+    });
+
+    it('negotiate：defaultPath 仍为语义条款', () => {
+        const parsed = parseGoalParserOutput(
+            JSON.stringify({
+                blocks: [
+                    {
+                        route: 'negotiate',
+                        defaultPath: ['先只写 README'],
+                        questions: [{ q: '范围？', default: '仅 README' }],
+                    },
+                ],
+            }),
+        );
+        const { conditions } = planNegotiation(parsed);
+        expect(conditions).toHaveLength(3);
+        expect(conditions[2]).toMatchObject({
+            checkType: 'semantic',
+            description: '先只写 README',
+        });
+        expect(conditions[2]?.check).toBeUndefined();
+    });
+
+    it('旧字符串 constraints 兼容：原样解析为 string，全部落成语义条款', () => {
+        const parsed = parseGoalParserOutput(confirmedRaw(['约束一', '约束二']));
+        expect(parsed?.blocks[0]?.constraints).toEqual(['约束一', '约束二']);
+        const { conditions } = planNegotiation(parsed);
+        expect(conditions.filter((item) => item.checkType === 'semantic')).toHaveLength(3);
+        expect(conditions.filter((item) => item.checkType === 'deterministic')).toHaveLength(2);
+    });
+
+    it('triage 结构化 constraint → planNegotiation → wire 投影：check 不丢失（库层端到端）', () => {
+        const parsed = parseGoalParserOutput(
+            confirmedRaw([
+                {
+                    text: 'README.md 必须存在',
+                    check: { kind: 'file-exists', path: 'README.md' },
+                },
+            ]),
+        );
+        const { conditions } = planNegotiation(parsed);
+        const goal = {
+            goalId: 'g1',
+            statement: '给项目写 README',
+            contract: {
+                successConditions: conditions,
+                failureConditions: [],
+                forbiddenResources: [],
+                budget: {},
+                terminationPolicy: {},
+                riskProfile: {
+                    hasIrreversibleActions: false,
+                    touchesNetwork: false,
+                    touchesExternalApi: false,
+                },
+            },
+            permissionCeiling: 'read-only' as const,
+            budget: {},
+            status: 'active' as const,
+            createdAt: 1,
+        };
+        const snapshot = snapshotGoalTree('g1', [goal], [], []);
+        const view = snapshot.goals[0]?.contract;
+        const viaCheck = view?.successConditions.find(
+            (item) => item.description === 'README.md 必须存在',
+        );
+        expect(viaCheck?.checkType).toBe('deterministic');
+        expect(viaCheck?.check).toEqual({ kind: 'file-exists', path: 'README.md' });
+        // 基线 2 条 + file-exists 1 条 = 3 / 总 4（goals 1 条 + constraints 1 条）
+        expect(view?.deterministicRatio).toBeCloseTo(3 / 4, 6);
     });
 });

@@ -24,12 +24,65 @@ export interface RawPayload {
  * 条款级机械检查规格：由 actor 之外的评估器消费（裁决 D8）。
  * 只收录能被确定性代码判定的形状——语义判断必须标 checkType='semantic'，
  * 不给它一个假装的 check，避免把 judge 伪装成机械判定。
+ *
+ * v2 vocabulary (P2): paths are always workspace-relative (absolute paths and
+ * `..` escapes are rejected). command-output-contains only reads evidence from
+ * already-executed steps — the evaluator never re-runs commands.
  */
 export type ConditionCheck =
     /** Task 以最终回答收尾（executor outcome.reason === 'final-answer'） */
     | { kind: 'final-answer' }
     /** 该 Task 没有任何失败 Step */
-    | { kind: 'no-failed-steps' };
+    | { kind: 'no-failed-steps' }
+    /** The file at this workspace-relative path exists. */
+    | { kind: 'file-exists'; path: string }
+    /** The file at this workspace-relative path contains `text` (case-sensitive literal). */
+    | { kind: 'file-contains'; path: string; text: string }
+    /** The repository already has at least one commit. */
+    | { kind: 'git-has-commit' }
+    /**
+     * Some executed shell.run step has a command matching `commandPattern` (JS regex
+     * source) and an output containing `text`. Evidence-only: never re-executes.
+     */
+    | { kind: 'command-output-contains'; commandPattern: string; text: string };
+
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.trim().length > 0;
+}
+
+/** Workspace-relative path: non-empty, not absolute, no `..` escape segment. */
+export function isWorkspaceRelativePath(value: unknown): value is string {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return false;
+    if (trimmed.startsWith('/') || trimmed.startsWith('\\')) return false;
+    if (/^[A-Za-z]:[\\/]/.test(trimmed)) return false;
+    return !trimmed.split(/[\\/]+/).some((segment) => segment === '..');
+}
+
+/**
+ * Runtime shape check for ConditionCheck (used while parsing model output).
+ * Unknown kind / missing field / wrong field type -> false; callers must drop
+ * the check instead of failing the whole block parse.
+ */
+export function isConditionCheck(value: unknown): value is ConditionCheck {
+    if (typeof value !== 'object' || value === null) return false;
+    const record = value as Record<string, unknown>;
+    switch (record.kind) {
+        case 'final-answer':
+        case 'no-failed-steps':
+        case 'git-has-commit':
+            return true;
+        case 'file-exists':
+            return isWorkspaceRelativePath(record.path);
+        case 'file-contains':
+            return isWorkspaceRelativePath(record.path) && isNonEmptyString(record.text);
+        case 'command-output-contains':
+            return isNonEmptyString(record.commandPattern) && isNonEmptyString(record.text);
+        default:
+            return false;
+    }
+}
 
 /** 机器可判验收条款（checkType='semantic' 占比是健康度指标，裁决 D8） */
 export interface CheckableCondition {

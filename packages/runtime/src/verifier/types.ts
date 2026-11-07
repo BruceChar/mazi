@@ -1,6 +1,9 @@
 import type { AcceptanceResult, Goal } from '@mazi/core';
 import type { TaskOutcome } from '../gts/goal-executor.js';
 
+/** 契约机械检查的环境探针；verifier 透传给 evaluateAcceptance（判定仍保持纯函数）。 */
+export type { ConditionEnvironment } from '../gts/acceptance.js';
+
 export type VerificationState = 'passed' | 'failed' | 'uncertain';
 export type VerificationFailureCategory =
     | 'model'

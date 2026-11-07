@@ -165,6 +165,25 @@ export interface GoalContract {
 
 **契约的消费者不是 actor**（裁决 D8 的核心论证）：评估器需要独立于行动者的参照物来判 done；审批人需要指认“批的是服务于哪个条款的动作”；审计员需要重建决策链；漂移对抗需要每次注入可重载的外部锚点。这些角色都读不到模型的内部状态——模型把意图理解内化得再好，也只消除“actor 需要提醒”这一项消费者。契约是**角色间协议**，不是记忆辅助。`successConditions` 中 `checkType: 'semantic'` 的占比是健康度指标——能用确定性代码判的绝不交给 judge。
 
+### 4.1 机械检查词表（v2）
+
+基线两型（`final-answer` / `no-failed-steps`）之外，v2 新增四种可由评估器机械判定的形状。check 只允许出现在 `checkType: 'deterministic'` 的条款上；语义条款必须不带 check（不把 judge 伪装成机械判定）。
+
+| kind | 字段 | 判定口径 | 依赖 |
+|---|---|---|---|
+| `file-exists` | `path` | workspace 相对路径处的文件存在 | 环境探针 `fileExists(path)` |
+| `file-contains` | `path`, `text` | 文件内容包含 text（区分大小写字面包含） | 环境探针 `readFile(path)` |
+| `git-has-commit` | — | 仓库当前已有至少一个 commit | 环境探针 `gitHasCommit()` |
+| `command-output-contains` | `commandPattern`, `text` | Task 已执行步骤中 shell.run 的 command 匹配 commandPattern（JS 正则源码）且该调用 output 包含 text | 仅 TaskOutcome 已落库证据，不重新执行命令 |
+
+判定约定：
+
+- 路径一律为 workspace 相对路径；绝对路径与 `..` 逃逸在解析期视为非法 check。
+- 环境探针（`ConditionEnvironment`）未注入时，file/git 类 check → `unchecked`：计入 total、不计入 evaluated，不冒充通过也不判失败。
+- `command-output-contains` 只读已执行 Step 证据；非法正则回退为字面子串匹配，不让一条坏 pattern 炸掉整次验收。
+- triage 的结构化 constraint（`{ text, check? }`）解析严格但不致命：非法 check 被丢弃、text 降级为语义条款，block 不因此解析失败。
+- 语义条款（`checkType: 'semantic'`）仍需 judge/人工判定；机械判定只覆盖上表四种形状与基线两型。
+
 ## 5. 多意图切分（已取消，2026-09-17）
 
 > **变更记录**：原 §5.1-5.3 定义「切分发生在 Goal 层 + 兄弟 Goal（parent: split）+ agent 委托（parent: delegation）」。

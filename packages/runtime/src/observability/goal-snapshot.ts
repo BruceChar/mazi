@@ -11,6 +11,7 @@
 import type { Goal, Step, Task } from '@mazi/core';
 import type {
     AcceptanceView,
+    ContractConditionCheck,
     ContractConditionView,
     ContractView,
     GoalNodeView,
@@ -27,7 +28,7 @@ function conditionViewOf(condition: {
     id: string;
     checkType: 'deterministic' | 'semantic';
     description?: string;
-    check?: { kind: 'final-answer' } | { kind: 'no-failed-steps' };
+    check?: ContractConditionCheck;
 }): ContractConditionView {
     return {
         id: condition.id,

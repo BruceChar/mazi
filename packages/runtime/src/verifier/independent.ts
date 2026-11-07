@@ -1,5 +1,5 @@
 import type { ConditionResult, Goal } from '@mazi/core';
-import { evaluateAcceptance } from '../gts/acceptance.js';
+import { type ConditionEnvironment, evaluateAcceptance } from '../gts/acceptance.js';
 import type { TaskOutcome } from '../gts/goal-executor.js';
 import type {
     SemanticJudge,
@@ -45,14 +45,24 @@ function failureCategoryOf(outcome: TaskOutcome): VerificationFailureCategory | 
  * Independent verifier. Deterministic checks are code; semantic checks require
  * an explicitly injected judge and remain uncertain when no calibrated judge is
  * available. The verifier never mutates the plan, tools or acceptance contract.
+ * Environment probes (fs/git) are injected separately so mechanical file/git
+ * clauses can be judged without the verifier touching the world itself.
  */
 export class IndependentVerifier implements TaskVerifier {
     readonly id = 'independent-default';
     private semanticJudge?: SemanticJudge;
+    private environment?: ConditionEnvironment;
 
-    constructor(options: { semanticJudge?: SemanticJudge; now?: () => number } = {}) {
+    constructor(
+        options: {
+            semanticJudge?: SemanticJudge;
+            now?: () => number;
+            environment?: ConditionEnvironment;
+        } = {},
+    ) {
         this.semanticJudge = options.semanticJudge;
         this.now = options.now ?? Date.now;
+        this.environment = options.environment;
     }
 
     private readonly now: () => number;
@@ -65,8 +75,17 @@ export class IndependentVerifier implements TaskVerifier {
         return this.semanticJudge !== undefined;
     }
 
+    /** Inject/replace the env probes used by file/git deterministic checks. */
+    setEnvironment(environment?: ConditionEnvironment): void {
+        this.environment = environment;
+    }
+
+    get hasEnvironment(): boolean {
+        return this.environment !== undefined;
+    }
+
     async verify(goal: Goal, outcome: TaskOutcome): Promise<VerificationReport> {
-        const mechanical = evaluateAcceptance(goal, outcome, this.now);
+        const mechanical = evaluateAcceptance(goal, outcome, this.now, this.environment);
         const evidence = evidenceOf(outcome);
         const selected = new Set(
             outcome.task.acceptance.conditions.length > 0

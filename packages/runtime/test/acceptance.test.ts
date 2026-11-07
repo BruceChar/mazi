@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { AcceptanceResult, Goal, Step, Task } from '@mazi/core';
+import type {
+    AcceptanceResult,
+    CheckableCondition,
+    ConditionCheck,
+    Goal,
+    Step,
+    Task,
+} from '@mazi/core';
 import { ulid } from '@mazi/core';
-import { evaluateAcceptance, rollupAcceptance } from '../src/gts/acceptance.js';
+import { type ConditionEnvironment, evaluateAcceptance, rollupAcceptance } from '../src/gts/acceptance.js';
 import type { TaskOutcome } from '../src/gts/goal-executor.js';
 
 function goalWith(conditions: Goal['contract']['successConditions']): Goal {
@@ -48,6 +55,35 @@ function step(status: Step['status']): Step {
         status,
         startedAt: 1,
     };
+}
+
+/** shell.run invocation 事实（command-output-contains 只读已落库证据，不重新执行）。 */
+function invocation(command: string, output: string, toolName = 'shell.run'): Step {
+    return {
+        stepId: ulid(),
+        taskId: ulid(),
+        goalId: ulid(),
+        kind: 'invocation',
+        payload: { toolName, arguments: { command }, output },
+        status: 'succeeded',
+        startedAt: 1,
+    };
+}
+
+/** 内存环境探针：文件表 + git 事实，替代真实 fs/git（评估器不直接触碰世界）。 */
+function environment(
+    files: Record<string, string>,
+    options: { hasCommit?: boolean } = {},
+): ConditionEnvironment {
+    return {
+        fileExists: (path) => Object.hasOwn(files, path),
+        readFile: (path) => files[path] ?? null,
+        gitHasCommit: () => options.hasCommit === true,
+    };
+}
+
+function mechanical(check: ConditionCheck, description = '条款'): CheckableCondition {
+    return { id: ulid(), checkType: 'deterministic', description, check };
 }
 
 describe('acceptance（评估器：机械判定，判不到就标 unchecked）', () => {
@@ -159,5 +195,110 @@ describe('acceptance（评估器：机械判定，判不到就标 unchecked）',
     it('Task 失败：即使无 failed 条款也 passed=false', () => {
         const goal = goalWith([{ id: ulid(), checkType: 'semantic' }]);
         expect(evaluateAcceptance(goal, outcome({ ok: false, reason: 'aborted' })).passed).toBe(false);
+    });
+});
+
+describe('机械检查词表 v2（环境探针）', () => {
+    it('file-exists：存在 → passed；缺失 → failed 且整体 passed=false', () => {
+        const present = goalWith([mechanical({ kind: 'file-exists', path: 'out/report.md' })]);
+        expect(
+            evaluateAcceptance(present, outcome(), undefined, environment({ 'out/report.md': '' }))
+                .conditions[0]?.status,
+        ).toBe('passed');
+
+        const absent = goalWith([mechanical({ kind: 'file-exists', path: 'out/missing.md' })]);
+        const absentResult = evaluateAcceptance(absent, outcome(), undefined, environment({}));
+        expect(absentResult.conditions[0]?.status).toBe('failed');
+        expect(absentResult.conditions[0]?.detail).toContain('不存在');
+        expect(absentResult.passed).toBe(false);
+    });
+
+    it('file-contains：内容包含 → passed；不包含 / 不可读 → failed', () => {
+        const goal = goalWith([
+            mechanical({ kind: 'file-contains', path: 'src/a.ts', text: 'export const x' }),
+        ]);
+        const hit = environment({ 'src/a.ts': 'const a = 1;\nexport const x = 1;' });
+        expect(evaluateAcceptance(goal, outcome(), undefined, hit).conditions[0]?.status).toBe(
+            'passed',
+        );
+
+        const missText = environment({ 'src/a.ts': 'export const y = 1;' });
+        expect(
+            evaluateAcceptance(goal, outcome(), undefined, missText).conditions[0]?.status,
+        ).toBe('failed');
+
+        // readFile 返回 null（文件缺失或不可读）→ failed，不抛错
+        const unreadable = environment({});
+        const unreadableResult = evaluateAcceptance(goal, outcome(), undefined, unreadable);
+        expect(unreadableResult.conditions[0]?.status).toBe('failed');
+        expect(unreadableResult.conditions[0]?.detail).toContain('不可读');
+    });
+
+    it('git-has-commit：有 commit → passed；无 → failed', () => {
+        const goal = goalWith([mechanical({ kind: 'git-has-commit' })]);
+        expect(
+            evaluateAcceptance(goal, outcome(), undefined, environment({}, { hasCommit: true }))
+                .conditions[0]?.status,
+        ).toBe('passed');
+        expect(
+            evaluateAcceptance(goal, outcome(), undefined, environment({})).conditions[0]?.status,
+        ).toBe('failed');
+    });
+
+    it('无环境探针：file / git 类 → unchecked（detail 说明），不计入 evaluated 且不阻断', () => {
+        const goal = goalWith([
+            mechanical({ kind: 'file-exists', path: 'a' }),
+            mechanical({ kind: 'file-contains', path: 'a', text: 'x' }),
+            mechanical({ kind: 'git-has-commit' }),
+        ]);
+        const result = evaluateAcceptance(goal, outcome());
+        expect(result.conditions.map((item) => item.status)).toEqual([
+            'unchecked',
+            'unchecked',
+            'unchecked',
+        ]);
+        expect(result.conditions[0]?.detail).toContain('环境');
+        expect(result.evaluated).toBe(0);
+        expect(result.total).toBe(3);
+        // unchecked 不冒充失败：Task 本身成功时整体仍通过
+        expect(result.passed).toBe(true);
+    });
+
+    it('command-output-contains：只在已落库 shell.run 证据里匹配 command 与 output，不重新执行', () => {
+        const goal = goalWith([
+            mechanical({
+                kind: 'command-output-contains',
+                commandPattern: 'pnpm\\s+test',
+                text: 'Test Files',
+            }),
+        ]);
+        const hit = outcome({ steps: [invocation('pnpm test', 'Test Files 12 passed (12)')] });
+        // 该 check 只依赖 outcome：无 env 也能判
+        expect(evaluateAcceptance(goal, hit).conditions[0]?.status).toBe('passed');
+
+        const wrongCommand = outcome({ steps: [invocation('pnpm build', 'Test Files ok')] });
+        expect(evaluateAcceptance(goal, wrongCommand).conditions[0]?.status).toBe('failed');
+
+        const wrongOutput = outcome({ steps: [invocation('pnpm test', 'FAIL src/a.test.ts')] });
+        expect(evaluateAcceptance(goal, wrongOutput).conditions[0]?.status).toBe('failed');
+
+        // 非 shell.run 的工具调用不算命令证据
+        const otherTool = outcome({ steps: [invocation('pnpm test', 'Test Files ok', 'fs.read')] });
+        expect(evaluateAcceptance(goal, otherTool).conditions[0]?.status).toBe('failed');
+    });
+
+    it('command-output-contains：非法正则按字面子串匹配（不让一条坏 pattern 炸掉整次验收）', () => {
+        const goal = goalWith([
+            mechanical({
+                kind: 'command-output-contains',
+                commandPattern: 'pnpm test(',
+                text: 'passed',
+            }),
+        ]);
+        const hit = outcome({ steps: [invocation('pnpm test(', 'passed')] });
+        expect(evaluateAcceptance(goal, hit).conditions[0]?.status).toBe('passed');
+        expect(evaluateAcceptance(goal, outcome({ steps: [] })).conditions[0]?.status).toBe(
+            'failed',
+        );
     });
 });
