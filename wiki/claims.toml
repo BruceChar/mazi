@@ -76,13 +76,13 @@ established = 2026-11-07
 verified = 2026-11-07
 
 [claims.project-wiki-maintenance-actions]
-text = "Wiki init, update and SessionEnd sync run as hidden background Agent goals; the maintenance tool surface is limited to read-only tools plus a restricted project_wiki argv tool, avoiding shell approval traps while operations expose trace, heartbeat and waiting-approval state in the UI."
+text = "Wiki init, update and SessionEnd sync run as hidden background Agent goals with only read tools plus restricted project_wiki script/write_doc tools; wiki Markdown writes are confined under wiki/, shell approval traps are excluded, maintenance operations are recorded, and trace/heartbeat/waiting-approval state is exposed in the UI."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "0a846edc06024cf53b968241d63155896545e952" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "9d4e255dcf0dcf682c4c28768d8bf347a7d9dfd7" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
   { file = "apps/api/src/wiki/wiki.controller.ts", oid = "e8bb54fb610de58083cc167659cc38de6dd71bcc" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "0faca2ae96058832ee55255f5388c106844e0134" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "e56c66871d1173065948c8706c5fcbd3879e9fff" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "bbdeac040ea900342b0bd07b40ed6e382579162c" },
 ]
 established = 2026-11-07

@@ -24,3 +24,5 @@
 - 有效事实/待核验可打开 claim 与 evidence 明细；最近更新时间精确到秒。
 - 后台初始化、更新和 SessionEnd 同步显示 trace、心跳、运行时长与停滞提示。
 - 后台维护只暴露只读工具和受限 `project_wiki`；不再使用 shell.run，因此不会因 rm/git checkout 卡审批。
+- `project_wiki.write_doc` 可维护 wiki/ Markdown；init/update 自身也写入活动记录。
+- update 使用 checkpoint diff + git status + evidence 反查，只读取受影响文件。

@@ -19,5 +19,9 @@ TODO
 - 前台 SessionStart 只注入 wiki INDEX；系统提示明确禁止主动询问是否初始化、更新或补全 Wiki。
 - Wiki 页的“初始化”和“更新”通过 `/api/wiki/init|update` 启动隐藏项目 Agent；
   `/api/wiki/operations/:id` 轮询后台状态、最近 60 条 trace 与心跳，完成后自动重新读取文档与 claims。
+- 后台维护 Agent 只能使用只读工具和受限 `project_wiki`：`write_doc` 仅能替换
+  `wiki/**/*.md`，script 模式仅能调用 wiki.py 的维护子命令；初始化/更新完成和失败都写入会话活动。
+- update 以最近 wiki checkpoint、git diff 和 current status 反查 evidence，只核验受影响 claims，
+  不完整重读项目。
 - Wiki 页在 KPI 下方展示完整 `state/current.md`；有效/待核验 KPI 可打开事实与 evidence
   明细；右侧显示后台任务 Trace 和停滞提示。
