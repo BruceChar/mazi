@@ -123,12 +123,13 @@ established = 2026-11-07
 verified = 2026-11-07
 
 [claims.wiki-ui-current-status-facts-trace]
-text = "The project Wiki UI places the complete state/current document below the KPI row, makes active and attention fact counts open claim/evidence details, shows second-level update times, and displays background operation trace and stall status in the right column."
+text = "The project Wiki UI places the complete state/current document below the KPI row, opens claim/evidence details from fact counts, shows second-level times, and renders a live background Goal trace with reasoning/text streams, tool arguments/results and inline approval actions."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "bbdeac040ea900342b0bd07b40ed6e382579162c" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "c03391b2861738a729dee1786d5c8fe2377c21c2" },
   { file = "apps/webui/src/scripts/wiki.ts", oid = "b270425daf032a7ccaef88aea7c012e2682cd1d1" },
-  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "2553623c89b4447fae5fedc753c816955fca4b83" },
+  { file = "apps/webui/src/scripts/arm-live.ts", oid = "361435a430e5e59a8060d1d8aaeb2563fcb0cfec" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "7132dd2e47a14344d0a801fd2661d9f5a251ce65" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
