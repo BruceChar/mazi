@@ -31,3 +31,15 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-07
+
+[claims.webui-exec-stream-rendering]
+text = "ExecStream renders bare-code answers as one code block, collapses deliberation reasoning to one line by default (live reasoning one line), hides the contract card and task block for direct-route answers, and places approval/authorization behavior rows inline in the gated tool Step via time-window placement."
+status = "active"
+evidence = [
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "4530eddf5639d3886d0f8e13b1634ddb69b539be" },
+  { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
+  { file = "apps/webui/src/scripts/exec-tree.ts", oid = "382e854af9618a6c71ac23dddc4cde766deaea6a" },
+  { file = "apps/webui/src/scripts/behavior-placement.ts", oid = "8c500d77c8039b573e8d38aab6584e0398dacd11" },
+]
+established = 2026-11-07
+verified = 2026-11-07
