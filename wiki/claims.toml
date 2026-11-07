@@ -109,3 +109,13 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-07
+
+[claims.runtime-tool-failure-signals]
+text = "shell.run runs under bash pipefail and mutating CLI tools (sd) return an error when the target file did not change, so swallowed command failures surface as tool errors and can trigger replan."
+status = "active"
+evidence = [
+  { file = "packages/runtime/src/harness/tool-executor.ts", oid = "edd2e13d66d1ab94719893f5de51fb27c0df483d" },
+  { file = "packages/runtime/test/tool-executor.test.ts", oid = "6718b754a7ac44a4f0bc2005783f8cd4e0a40425" },
+]
+established = 2026-11-07
+verified = 2026-11-07
