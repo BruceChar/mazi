@@ -779,6 +779,8 @@ export class HarnessRuntime {
         this.pendingPromptFragment.delete(rootGoalId);
         const requestedSkills = this.pendingSkills.get(rootGoalId);
         this.pendingSkills.delete(rootGoalId);
+        const skillIds = requestedSkills ?? this.skillProvider?.mounted() ?? [];
+        const projectWikiSkillActive = skillIds.includes('project-wiki');
         const allowedToolsOverride = this.pendingAllowedTools.get(rootGoalId);
         this.pendingAllowedTools.delete(rootGoalId);
         const planProposal = this.pendingPlanProposal.get(rootGoalId);
@@ -823,6 +825,7 @@ export class HarnessRuntime {
             rootGoal,
             memoryContext.userId,
             delegationDepth,
+            skillIds,
         );
         const decision = this.superAgent.decide({
             ...(memoryContext.userId !== undefined ? { userId: memoryContext.userId } : {}),
@@ -885,12 +888,11 @@ export class HarnessRuntime {
                 },
             }),
         );
-        // 项目 wiki：先建兜底 diff 基线并确保项目概览快照存在，再读一次用于注入。
-        await this.wiki.beginRun();
-        const wikiFragment = this.wiki.promptFragment();
+        // project-wiki 挂载后由项目内 wiki/ 协议接管；v1 外部快照静默退出本 run。
+        if (!projectWikiSkillActive) await this.wiki.beginRun();
+        const wikiFragment = projectWikiSkillActive ? '' : this.wiki.promptFragment();
         // 挂载是用户级开关；每次运行在边界发能力事件，审计锚定本次 run。
         // 运行级 skillIds 覆盖（实验臂）优先于全局挂载状态。
-        const skillIds = requestedSkills ?? this.skillProvider?.mounted() ?? [];
         for (const skillId of skillIds) {
             this.emitSkillEvent('capability.activated', skillId, rootGoalId, goalId);
         }
@@ -992,7 +994,7 @@ export class HarnessRuntime {
                     },
                     onStep: (step) => {
                         this.stepEvents.emitStep(rootGoalId, step);
-                        this.wiki.observeStep(step);
+                        if (!projectWikiSkillActive) this.wiki.observeStep(step);
                     },
                     onPlan: (taskCount, digest, rejected) => {
                         this.bus.emit(
@@ -1129,13 +1131,15 @@ export class HarnessRuntime {
             );
         }
         this.pendingBlackboard.delete(rootGoalId);
-        // 回合收尾：把本次运行的改动写成『时间 | 功能级改动』条目（无改动零成本）。
-        await this.wiki.flushRun({
-            ...(sessionId !== undefined ? { sessionId } : {}),
-            ...(rootGoal?.statement !== undefined && rootGoal.statement.length > 0
-                ? { userRequest: rootGoal.statement }
-                : {}),
-        });
+        // project-wiki 通过 checkpoint 维护项目内 wiki；v1 只在未挂载时收尾。
+        if (!projectWikiSkillActive) {
+            await this.wiki.flushRun({
+                ...(sessionId !== undefined ? { sessionId } : {}),
+                ...(rootGoal?.statement !== undefined && rootGoal.statement.length > 0
+                    ? { userRequest: rootGoal.statement }
+                    : {}),
+            });
+        }
         await this.bus.flush();
         return result;
     }
@@ -1338,6 +1342,7 @@ export class HarnessRuntime {
         parentGoal?: Goal,
         userId?: string,
         delegationDepth = 0,
+        activeSkillIds: readonly string[] = [],
     ): {
         tools: ToolSchema[];
         invoker: GoalToolInvoker;
@@ -1350,7 +1355,7 @@ export class HarnessRuntime {
         const toolSnapshot = this.toolRegistry.snapshot();
         const merged: ToolConfig[] = toolSnapshot.tools;
         // 项目 wiki 内置工具（wiki.read 只读免审批；wiki.update 归写能力，走既有判权）。
-        if (this.wiki.enabled) {
+        if (this.wiki.enabled && !activeSkillIds.includes('project-wiki')) {
             merged.push(...wikiToolConfigs(this.wiki));
         }
         if (projectId !== undefined && this.workspaceRoot !== undefined) {

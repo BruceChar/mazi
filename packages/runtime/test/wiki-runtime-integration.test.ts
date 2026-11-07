@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import type { SkillProvider } from '../src/capabilities/runtime.js';
 import type { RuntimeConfig, ToolConfig } from '../src/config.js';
 import { HarnessRuntime } from '../src/harness/index.js';
 import { WikiStore } from '../src/wiki/index.js';
@@ -66,6 +67,67 @@ afterEach(() => {
 });
 
 describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
+    it('挂载 project-wiki：关闭 v1 wiki 注入、记录与工具面', async () => {
+        const home = tempDir('mazi-wikihome-');
+        process.env.MAZI_HOME = home;
+        const workspace = tempDir('mazi-wikiws-');
+        const systems: string[] = [];
+        const requests: LLMRequest[] = [];
+        const provider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new Error('ask unused');
+            },
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                requests.push(request);
+                systems.push(systemText(request));
+                yield { type: 'start', model: 'faux-model' };
+                yield { type: 'text_delta', text: '已读取' };
+                yield { type: 'finish', finishReason: 'stop' };
+            },
+        };
+        const skills: SkillProvider = {
+            mounted: () => ['project-wiki'],
+            catalog: () => [
+                {
+                    id: 'project-wiki',
+                    name: '项目 Wiki',
+                    description: '维护仓库内 wiki/',
+                    path: '/builtin/project-wiki/SKILL.md',
+                },
+            ],
+        };
+        const runtime = new HarnessRuntime(
+            {
+                providers: [],
+                tools: [],
+                dbPath: ':memory:',
+                eventDir: home,
+                goal: { allowedTools: [], permissionCeiling: 'read-only' },
+                contextWindow: 64000,
+            },
+            { llmProviders: { faux: provider }, workspaceRoot: workspace },
+        );
+        runtime.setSkillProvider(skills);
+        try {
+            const created = await runtime.createGoalSession('读取项目 wiki');
+            await runtime.executeGoalTree(created.rootGoalId);
+
+            expect(systems[0]).toContain('项目 Wiki');
+            expect(systems[0]).not.toContain('## 项目 wiki（');
+            expect((requests[0]?.tools ?? []).map((tool) => tool.name)).not.toContain('wiki.read');
+            expect((requests[0]?.tools ?? []).map((tool) => tool.name)).not.toContain(
+                'wiki.update',
+            );
+            expect(existsSync(join(home, 'wiki'))).toBe(false);
+        } finally {
+            await runtime.close();
+        }
+    });
+
     it('新会话注入 wiki 快照；写工具改动落一条『时间 | 改动』', async () => {
         const home = tempDir('mazi-wikihome-');
         process.env.MAZI_HOME = home;

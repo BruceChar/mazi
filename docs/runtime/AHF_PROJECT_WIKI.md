@@ -369,6 +369,10 @@ flowchart LR
 | SKILL.md 协议指示    | ★     | 纯靠 LLM 遵守（兜底）              |
 | 三者叠加，各司其职。 |        |                                    |
 
+**v1 过渡规则**：`project-wiki` Skill 已挂载时，runtime 关闭旧版
+`$MAZI_HOME/wiki` 快照注入、自动记录及 `wiki.read/wiki.update` 工具面；
+项目内 wiki 只按本 Skill 的脚本协议维护。未挂载时才保留 v1 行为。
+
 ### 9.3 checkpoint：SessionEnd 收尾
 
 1. doctor 全量校验（工作区现算，不依赖 commit 状态）
