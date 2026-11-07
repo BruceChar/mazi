@@ -127,7 +127,7 @@ status = "active"
 evidence = [
   { file = "apps/webui/src/components/WikiPage.vue", oid = "bbdeac040ea900342b0bd07b40ed6e382579162c" },
   { file = "apps/webui/src/scripts/wiki.ts", oid = "b270425daf032a7ccaef88aea7c012e2682cd1d1" },
-  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "addb8682d2a10dd5dc4dfb208857128e6e74a34e" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "2553623c89b4447fae5fedc753c816955fca4b83" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
