@@ -55,6 +55,7 @@ describe('Skill 管理接口（§6 / CP SK-6）', () => {
         expect(demo?.usage).toEqual({ injections: 0 });
 
         expect(skillIn(body, 'builtin-demo')?.scope).toBe('builtin');
+        expect(skillIn(body, 'builtin-demo')?.mounted).toBe(true);
         expect((body.errors as Array<Record<string, unknown>>).map((e) => e.skillId)).toContain(
             'no-skill-md',
         );
@@ -79,7 +80,7 @@ describe('Skill 管理接口（§6 / CP SK-6）', () => {
         expect(mount.statusCode).toBe(200);
         expect(mount.json().mounted).toBe(true);
         expect(JSON.parse(readFileSync(join(h.home, 'skills.json'), 'utf8'))).toEqual({
-            mounted: ['demo'],
+            mounted: ['builtin-demo', 'demo'],
         });
 
         const list = await h.fastify.inject({ method: 'GET', url: '/api/capabilities' });
@@ -89,7 +90,11 @@ describe('Skill 管理接口（§6 / CP SK-6）', () => {
             method: 'POST',
             url: '/api/capabilities/demo/unmount',
         });
-        expect(unmount.json()).toEqual({ ok: true, unmounted: true, mounted: [] });
+        expect(unmount.json()).toEqual({
+            ok: true,
+            unmounted: true,
+            mounted: ['builtin-demo'],
+        });
         const again = await h.fastify.inject({
             method: 'POST',
             url: '/api/capabilities/demo/unmount',

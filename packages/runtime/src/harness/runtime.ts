@@ -1,4 +1,5 @@
-import { isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import type {
     EventBus,
     Goal,
@@ -891,6 +892,9 @@ export class HarnessRuntime {
         // project-wiki 挂载后由项目内 wiki/ 协议接管；v1 外部快照静默退出本 run。
         if (!projectWikiSkillActive) await this.wiki.beginRun();
         const wikiFragment = projectWikiSkillActive ? '' : this.wiki.promptFragment();
+        const projectWikiFragment = projectWikiSkillActive
+            ? this.projectWikiPromptFragment(rootGoalId, goalId, skillIds)
+            : undefined;
         // 挂载是用户级开关；每次运行在边界发能力事件，审计锚定本次 run。
         // 运行级 skillIds 覆盖（实验臂）优先于全局挂载状态。
         for (const skillId of skillIds) {
@@ -916,6 +920,7 @@ export class HarnessRuntime {
                         combinePromptFragments(
                             promptFragment,
                             wikiFragment,
+                            projectWikiFragment,
                             blackboardFragment,
                             promptPackFragment,
                         ),
@@ -1624,6 +1629,36 @@ export class HarnessRuntime {
         return parts.join('\n\n');
     }
 
+    private projectWikiPromptFragment(
+        rootGoalId: string,
+        goalId: string,
+        skillIds: readonly string[],
+    ): string | undefined {
+        if (this.workspaceRoot === undefined) return undefined;
+        const context = { rootGoalId, goalId };
+        const entries =
+            this.skillProvider?.catalogFor?.(skillIds, context) ??
+            (this.skillProvider?.catalog(context) ?? []).filter((entry) =>
+                skillIds.includes(entry.id),
+            );
+        const skill = entries.find((entry) => entry.id === 'project-wiki');
+        if (skill === undefined) return undefined;
+
+        const indexFile = join(this.workspaceRoot, 'wiki', 'INDEX.md');
+        if (existsSync(indexFile)) {
+            const index = readFileSync(indexFile, 'utf8').trim().slice(0, 6000);
+            return index.length > 0 ? '## 项目 Wiki\n' + index : undefined;
+        }
+        const script = resolve(skill.path, '..', 'scripts', 'wiki.py');
+        return [
+            '## 项目 Wiki 尚未初始化',
+            '开始项目任务前必须先读取 ' + skill.path + '。',
+            '然后执行：python3 "' + script + '" init',
+            '初始化后按 SKILL.md 的“首次初始化与 overview”读取 README、工作区清单和关键入口，',
+            '填写 overview/ 与 state/，建立首批 claims，最后执行 checkpoint。',
+        ].join('\n');
+    }
+
     /** 运行边界开关审计：本次运行带了哪些 Feature、值从哪来（flag.evaluated）。 */
     private emitFlagEvent(
         rootGoalId: string,
@@ -1880,12 +1915,14 @@ export class HarnessRuntime {
 function combinePromptFragments(
     featureFragment: string | undefined,
     wikiFragment: string | undefined,
+    projectWikiFragment: string | undefined,
     blackboardFragment: string | undefined,
     promptPackFragment: string | undefined,
 ): string | undefined {
     const parts = [
         featureFragment?.trim() ?? '',
         wikiFragment?.trim() ?? '',
+        projectWikiFragment?.trim() ?? '',
         blackboardFragment?.trim() ?? '',
         promptPackFragment?.trim() ?? '',
     ].filter((part) => part.length > 0);

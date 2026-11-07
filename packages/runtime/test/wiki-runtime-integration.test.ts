@@ -117,12 +117,73 @@ describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
             await runtime.executeGoalTree(created.rootGoalId);
 
             expect(systems[0]).toContain('项目 Wiki');
+            expect(systems[0]).toContain('## 项目 Wiki 尚未初始化');
+            expect(systems[0]).toContain('/builtin/project-wiki/scripts/wiki.py');
             expect(systems[0]).not.toContain('## 项目 wiki（');
             expect((requests[0]?.tools ?? []).map((tool) => tool.name)).not.toContain('wiki.read');
             expect((requests[0]?.tools ?? []).map((tool) => tool.name)).not.toContain(
                 'wiki.update',
             );
             expect(existsSync(join(home, 'wiki'))).toBe(false);
+        } finally {
+            await runtime.close();
+        }
+    });
+
+    it('项目 wiki 已初始化：SessionStart 自动注入 INDEX.md', async () => {
+        const home = tempDir('mazi-wikihome-');
+        process.env.MAZI_HOME = home;
+        const workspace = tempDir('mazi-wikiws-');
+        mkdirSync(join(workspace, 'wiki'), { recursive: true });
+        writeFileSync(
+            join(workspace, 'wiki', 'INDEX.md'),
+            '# Project\n\n## 模块地图\n- API -> packages/api\n',
+            'utf8',
+        );
+        const systems: string[] = [];
+        const provider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new Error('ask unused');
+            },
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                systems.push(systemText(request));
+                yield { type: 'start', model: 'faux-model' };
+                yield { type: 'text_delta', text: '完成' };
+                yield { type: 'finish', finishReason: 'stop' };
+            },
+        };
+        const runtime = new HarnessRuntime(
+            {
+                providers: [],
+                tools: [],
+                dbPath: ':memory:',
+                eventDir: home,
+                goal: { allowedTools: [], permissionCeiling: 'read-only' },
+                contextWindow: 64000,
+            },
+            { llmProviders: { faux: provider }, workspaceRoot: workspace },
+        );
+        runtime.setSkillProvider({
+            mounted: () => ['project-wiki'],
+            catalog: () => [
+                {
+                    id: 'project-wiki',
+                    name: '项目 Wiki',
+                    description: '维护仓库内 wiki/',
+                    path: '/builtin/project-wiki/SKILL.md',
+                },
+            ],
+        });
+        try {
+            const created = await runtime.createGoalSession('项目状态');
+            await runtime.executeGoalTree(created.rootGoalId);
+            expect(systems[0]).toContain('## 项目 Wiki');
+            expect(systems[0]).toContain('API -> packages/api');
+            expect(systems[0]).not.toContain('## 项目 Wiki 尚未初始化');
         } finally {
             await runtime.close();
         }

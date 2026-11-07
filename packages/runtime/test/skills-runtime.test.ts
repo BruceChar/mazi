@@ -36,6 +36,45 @@ function runtimeWith(root: string, state?: MemorySkillMountStore | FileSkillMoun
 }
 
 describe('挂载状态', () => {
+    it('内置 Skill 默认挂载；手动卸载后重启仍保持卸载', async () => {
+        const userRoot = makeRoot();
+        const builtinRoot = makeRoot();
+        writeSkill(userRoot, 'user-skill');
+        writeSkill(builtinRoot, 'builtin-skill');
+        const stateFile = join(makeRoot(), 'skills.json');
+        const state = new FileSkillMountStore(stateFile);
+        const make = () =>
+            new SkillRuntime({
+                registry: SkillRegistry.open({
+                    roots: [
+                        asSkillRoot(userRoot, 'user'),
+                        asSkillRoot(builtinRoot, 'builtin'),
+                    ],
+                }),
+                state,
+            });
+
+        const first = make();
+        await first.init();
+        expect(first.mounted()).toEqual(['builtin-skill']);
+        expect(first.isMounted('user-skill')).toBe(false);
+
+        await first.unmount('builtin-skill');
+        expect(JSON.parse(readFileSync(stateFile, 'utf8'))).toEqual({
+            mounted: [],
+            disabledBuiltins: ['builtin-skill'],
+        });
+
+        const second = make();
+        await second.init();
+        expect(second.isMounted('builtin-skill')).toBe(false);
+        await second.mount('builtin-skill');
+        expect(second.isMounted('builtin-skill')).toBe(true);
+        expect(JSON.parse(readFileSync(stateFile, 'utf8'))).toEqual({
+            mounted: ['builtin-skill'],
+        });
+    });
+
     it('挂载写入 skills.json，新实例 init() 后保持；卸载写回空表', async () => {
         const root = makeRoot();
         writeSkill(root, 'demo');

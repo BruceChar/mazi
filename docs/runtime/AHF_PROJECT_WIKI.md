@@ -321,7 +321,7 @@ wiki.py 内部：`git diff --cached --name-only` 取 staged 清单 → `git ls-f
 | 声明后未再改                                                                                                                | D         | D         | 放行 ✓                                                                 |
 | add 后又被改（工作区 = E）                                                                                                  | D         | D         | 放行 ✓（提交的是 D，与声明一致；E 是未提交 WIP，运行时 doctor 报漂移） |
 | add 了旧内容 C，claim 声明 D                                                                                                | C         | D         | **拦截**：重新 `git add` 或 `claim update`                    |
-| **层 3 —— checkpoint 兜底**（§9.3）：doctor 不过关拒绝打点；发现未 commit 代码涉及 claims 时**报告不代劳**。 |           |           |                                                                         |
+| **层 3 —— checkpoint 兜底**（§9.4）：doctor 不过关拒绝打点；发现未 commit 代码涉及 claims 时**报告不代劳**。 |           |           |                                                                         |
 
 ### 8.4 Git 硬依赖
 
@@ -373,7 +373,20 @@ flowchart LR
 `$MAZI_HOME/wiki` 快照注入、自动记录及 `wiki.read/wiki.update` 工具面；
 项目内 wiki 只按本 Skill 的脚本协议维护。未挂载时才保留 v1 行为。
 
-### 9.3 checkpoint：SessionEnd 收尾
+### 9.3 首次冷启动（overview 不是 init 自动编出来的）
+
+1. `wiki.py init` 只生成骨架，并确定性预填技术栈与从 Makefile、package scripts、
+   justfile、Taskfile 提取到的命令。
+2. INDEX 仍是 TODO 或 claims 为空时，agent 读取 README、包/工作区清单、
+   AGENTS 约定以及关键入口源码。
+3. agent 填写 architecture、conventions、INDEX 简介/模块地图与 state/current；
+   无法确认的内容保留 TODO。
+4. agent 为核心机制建立首批 claims，evidence 指向真实文件，然后 checkpoint。
+
+README 是首次理解的输入之一，不是自动事实源；`init` 不会把 README 宣传语
+直接写入 overview。
+
+### 9.4 checkpoint：SessionEnd 收尾
 
 1. doctor 全量校验（工作区现算，不依赖 commit 状态）
 2. 发现未 commit 的代码改动涉及 N 条 claims → **报告，不代劳**

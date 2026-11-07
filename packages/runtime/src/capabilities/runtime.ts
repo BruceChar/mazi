@@ -15,10 +15,11 @@ import type { SkillRootScope } from './source.js';
 /** 挂载状态持久化端口。 */
 export interface SkillMountStore {
     read(): Promise<readonly string[]>;
-    write(mounted: readonly string[]): Promise<void>;
+    write(mounted: readonly string[], disabledBuiltinIds?: readonly string[]): Promise<void>;
+    readDisabledBuiltinIds?(): Promise<readonly string[]>;
 }
 
-/** 文件实现：MAZI_HOME/skills.json（{ "mounted": ["id"] }）。 */
+/** 文件实现：MAZI_HOME/skills.json（挂载列表 + 用户禁用的默认内置 Skill）。 */
 export class FileSkillMountStore implements SkillMountStore {
     constructor(private readonly file: string) {}
 
@@ -33,26 +34,65 @@ export class FileSkillMountStore implements SkillMountStore {
         }
     }
 
-    async write(mounted: readonly string[]): Promise<void> {
+    async readDisabledBuiltinIds(): Promise<readonly string[]> {
+        if (!existsSync(this.file)) return [];
+        try {
+            const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as {
+                disabledBuiltins?: unknown;
+            };
+            if (!Array.isArray(parsed.disabledBuiltins)) return [];
+            return parsed.disabledBuiltins.filter((id): id is string => typeof id === 'string');
+        } catch {
+            return [];
+        }
+    }
+
+    async write(
+        mounted: readonly string[],
+        disabledBuiltins?: readonly string[],
+    ): Promise<void> {
         mkdirSync(dirname(this.file), { recursive: true });
-        writeFileSync(this.file, JSON.stringify({ mounted: [...mounted].sort() }, null, 2), 'utf8');
+        const disabled =
+            disabledBuiltins === undefined ? await this.readDisabledBuiltinIds() : disabledBuiltins;
+        writeFileSync(
+            this.file,
+            JSON.stringify(
+                {
+                    mounted: [...mounted].sort(),
+                    ...(disabled.length > 0 ? { disabledBuiltins: [...disabled].sort() } : {}),
+                },
+                null,
+                2,
+            ),
+            'utf8',
+        );
     }
 }
 
 /** 进程内实现（测试 / 无状态宿主）。 */
 export class MemorySkillMountStore implements SkillMountStore {
     private mounted: readonly string[] = [];
+    private disabledBuiltins: readonly string[] = [];
 
-    constructor(initial: readonly string[] = []) {
+    constructor(initial: readonly string[] = [], disabledBuiltins: readonly string[] = []) {
         this.mounted = [...initial];
+        this.disabledBuiltins = [...disabledBuiltins];
     }
 
     async read(): Promise<readonly string[]> {
         return [...this.mounted];
     }
 
-    async write(mounted: readonly string[]): Promise<void> {
+    async readDisabledBuiltinIds(): Promise<readonly string[]> {
+        return [...this.disabledBuiltins];
+    }
+
+    async write(
+        mounted: readonly string[],
+        disabledBuiltins?: readonly string[],
+    ): Promise<void> {
         this.mounted = [...mounted];
+        if (disabledBuiltins !== undefined) this.disabledBuiltins = [...disabledBuiltins];
     }
 }
 
@@ -144,6 +184,7 @@ export class SkillRuntime implements SkillProvider {
     private readonly onAudit?: (entry: SkillAuditEntry) => void;
     private readonly mountedIds = new Set<string>();
     private readonly mountedAt = new Map<string, number>();
+    private readonly disabledBuiltinIds = new Set<string>();
     private readonly usageById = new Map<string, SkillUsage>();
     private readonly lastRunBySkill = new Map<string, string>();
 
@@ -157,13 +198,25 @@ export class SkillRuntime implements SkillProvider {
     /** 读取挂载状态（进程启动 / 重扫后调用）。 */
     async init(): Promise<void> {
         const ids = await this.state.read();
+        const disabled = (await this.state.readDisabledBuiltinIds?.()) ?? [];
         this.mountedIds.clear();
         this.mountedAt.clear();
+        this.disabledBuiltinIds.clear();
+        for (const id of disabled) this.disabledBuiltinIds.add(id);
         for (const id of ids) {
             if (this.registry.get(id) === undefined) continue;
             this.mountedIds.add(id);
             this.mountedAt.set(id, this.now());
         }
+        for (const snapshot of this.registry.list()) {
+            const id = snapshot.document.id;
+            if (snapshot.scope !== 'builtin' || this.disabledBuiltinIds.has(id)) continue;
+            if (!this.mountedIds.has(id)) {
+                this.mountedIds.add(id);
+                this.mountedAt.set(id, this.now());
+            }
+        }
+        await this.persistMountState();
     }
 
     list(): readonly SkillView[] {
@@ -211,7 +264,8 @@ export class SkillRuntime implements SkillProvider {
             this.mountedIds.add(id);
             const at = this.now();
             this.mountedAt.set(id, at);
-            await this.state.write(this.mounted());
+            this.disabledBuiltinIds.delete(id);
+            await this.persistMountState();
             this.onAudit?.({ action: 'mount', skillId: id, at });
         }
         return this.viewOf(snapshot);
@@ -223,8 +277,9 @@ export class SkillRuntime implements SkillProvider {
         this.mountedIds.delete(id);
         this.mountedAt.delete(id);
         this.lastRunBySkill.delete(id);
+        if (this.registry.get(id)?.scope === 'builtin') this.disabledBuiltinIds.add(id);
         const at = this.now();
-        await this.state.write(this.mounted());
+        await this.persistMountState();
         this.onAudit?.({ action: 'unmount', skillId: id, at });
         return true;
     }
@@ -283,6 +338,10 @@ export class SkillRuntime implements SkillProvider {
         usage.injections += 1;
         usage.lastInjectedAt = this.now();
         this.usageById.set(id, usage);
+    }
+
+    private persistMountState(): Promise<void> {
+        return this.state.write(this.mounted(), [...this.disabledBuiltinIds].sort());
     }
 
     private viewOf(snapshot: SkillSnapshot): SkillView {

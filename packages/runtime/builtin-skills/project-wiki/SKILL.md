@@ -18,6 +18,24 @@ wiki/ 是本项目对 agent 的唯一事实库。三条铁律：
   python3 "{skill-dir}/scripts/wiki.py" init
 - `{skill-dir}` 指本 SKILL.md 所在目录，具体路径见 AGENTS.md 的指针。
 
+## 首次初始化与 overview
+
+`init` 只生成确定性骨架，不根据 README 编写架构结论。若 INDEX 仍是 TODO 或
+claims 为空，按以下顺序完成首次冷启动：
+
+1. 读取 `README.md`、包/工作区清单（`package.json`、`pnpm-workspace.yaml`、
+   `pyproject.toml`、`go.work` 等）以及现有 `AGENTS.md`/`AGENT.md`。
+2. 只针对关键入口、公共包和跨模块边界补充读取源码或文档。
+3. 填写 `wiki/overview/architecture.md`：模块职责、关键数据流、依赖关系；
+   填写 `conventions.md` 中的真实约定与红线；核对 `commands.md` 的提取命令。
+4. 更新 `wiki/INDEX.md` 的一句话定位、模块地图和确认过的红线；
+   更新 `wiki/state/current.md` 的进行中事项、阻塞与下一步。
+5. 为核心机制建立首批 claims，evidence 必须指向真实文件；
+   不把函数签名、单文件细节或 README 宣传语写成事实。
+6. 执行 `checkpoint`，让冷启动结果成为下次会话的起点。
+
+无法从项目内容确认的信息保留 TODO，不推测。
+
 ## 会话生命周期
 
 - SessionStart：读 wiki/INDEX.md 建立基础认知（若 hook 注入了 doctor

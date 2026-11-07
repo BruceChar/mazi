@@ -19,4 +19,5 @@
 可用 `MAZI_BUILTIN_SKILLS_DIR` 覆盖本目录（测试 / 定制发行版）。UI 技能面板对本目录只读。
 
 当前内置 `project-wiki`：每个项目的仓库内 wiki 由该 Skill 初始化、校验和维护。
-内置 Skill 仍需在 Skills 面板挂载后才进入运行期 catalog；内置根本身始终只读。
+内置 Skill 首次发现即默认挂载，并进入运行期 catalog；用户手动卸载后会持久保持卸载。
+内置根本身始终只读。
