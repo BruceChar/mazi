@@ -18,4 +18,6 @@ TODO
   `state/current.md > 会话活动`，再由隐藏 Agent 判断是否更新语义内容和 claims。
 - 前台 SessionStart 只注入 wiki INDEX；系统提示明确禁止主动询问是否初始化、更新或补全 Wiki。
 - Wiki 页的“初始化”和“更新”通过 `/api/wiki/init|update` 启动隐藏项目 Agent；
-  `/api/wiki/operations/:id` 轮询后台状态，完成后页面自动重新读取文档与 claims。
+  `/api/wiki/operations/:id` 轮询后台状态、最近 60 条 trace 与心跳，完成后自动重新读取文档与 claims。
+- Wiki 页在 KPI 下方展示完整 `state/current.md`；有效/待核验 KPI 可打开事实与 evidence
+  明细；右侧显示后台任务 Trace 和停滞提示。

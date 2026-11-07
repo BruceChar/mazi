@@ -18,3 +18,8 @@
 - shell.run 启用 pipefail；sd 等写工具无改动返回失败；失败信号可触发 replan
 - 契约新增机械检查词表：file-exists / file-contains / git-has-commit / command-output-contains；triage 可输出结构化 check；verifier 注入 ConditionEnvironment 端到端判定
 - 文档：docs/core/AHF_CORE_GTS.md §4.1、新增 docs/runtime/AHF_RUNTIME_TASK_PLANNING.md
+
+## 项目 Wiki UI
+- 当前状态改为 KPI 下方完整卡片，不再截断为前 5 条。
+- 有效事实/待核验可打开 claim 与 evidence 明细；最近更新时间精确到秒。
+- 后台初始化、更新和 SessionEnd 同步显示 trace、心跳、运行时长与停滞提示。

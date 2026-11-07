@@ -13,6 +13,9 @@
   刷新 evidence oid，再更新相关文档并 checkpoint。
 - Agent 任务使用隐藏项目 Goal，不创建侧边栏会话；权限固定为 `workspace-write`。
 - 后台 operation 只保存在 API 进程内，WebUI 轮询状态并展示摘要或错误。
+- 后台 Goal 的 trace 事件、最后心跳和运行时长随 operation 返回；右侧任务卡可直接
+  判断仍在运行、等待模型/审批或疑似停滞。
+- 完整当前状态卡片放在 KPI 下方；有效事实与待核验可打开 claim/evidence 明细。
 
 ## 结果
 
