@@ -66,12 +66,12 @@ established = 2026-11-07
 verified = 2026-11-07
 
 [claims.project-wiki-run-activity]
-text = "Each project SessionEnd enqueues a per-workspace background sync without blocking the foreground response; the worker records session activity first, then launches a hidden Agent to update durable wiki content and claims only when warranted."
+text = "Each project SessionEnd enqueues a per-workspace background sync without blocking the foreground response; the deterministic wiki.py session-end stage computes the incremental plan before recording session activity, and a bounded semantic update is queued only when the plan hits affected claims."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "a72407f7e6751a14865febaacc47103bde6a38dc" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "501c606098ed1616981e51a48b923fd3c60bdafb" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "e56c66871d1173065948c8706c5fcbd3879e9fff" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "30328e264d4756b7414412adfcf95ef63bb5cc2a" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
