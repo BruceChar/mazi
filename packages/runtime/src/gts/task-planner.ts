@@ -8,10 +8,29 @@ import {
 
 export const DEFAULT_MAX_PLAN_TASKS = 6;
 
+/** Per-turn clip for the recent-conversation block fed to the planner. */
+export const TASK_PLANNER_HISTORY_ENTRY_MAX_CHARS = 1500;
+
+/** Total clip for the recent-conversation block fed to the planner. */
+export const TASK_PLANNER_HISTORY_MAX_CHARS = 4000;
+
+export interface TaskPlannerHistoryEntry {
+    role: 'user' | 'assistant';
+    text: string;
+}
+
 export interface TaskPlanningInput {
     goal: Goal;
     availableTools: readonly PlanTool[];
     sessionContext?: string;
+    /**
+     * Recent conversation, oldest first.
+     *
+     * The planner only sees a bounded tail: each turn is clipped and the oldest
+     * turns are dropped once the total budget is spent, so the newest context
+     * (which usually carries the real goal) always survives.
+     */
+    history?: ReadonlyArray<TaskPlannerHistoryEntry>;
     maxTasks?: number;
 }
 
@@ -142,21 +161,57 @@ export function allocateTaskBudgets(goal: Goal, proposals: readonly PlannedTask[
     });
 }
 
+const RECENT_HISTORY_HEADER =
+    '最近对话（按时间正序，最后一条最新；越近越相关。用户当前输入可能只是对上述方案的简写选择，' +
+    '必须结合对话历史还原完整目标）：';
+
+function clipHistoryText(text: string, maxChars: number): string {
+    const normalized = text.trim().replace(/\s+/g, ' ');
+    if (normalized.length <= maxChars) return normalized;
+    return `${normalized.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
+/** Format the bounded recent-conversation tail; returns undefined when nothing usable remains. */
+function buildRecentHistorySection(
+    history: ReadonlyArray<TaskPlannerHistoryEntry>,
+): string[] | undefined {
+    const lines: string[] = [];
+    let used = 0;
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+        const entry = history[index];
+        const text = clipHistoryText(entry.text, TASK_PLANNER_HISTORY_ENTRY_MAX_CHARS);
+        if (text.length === 0) continue;
+        const line = `- ${entry.role}: ${text}`;
+        // Keep the newest turn unconditionally; older turns must fit the total budget.
+        if (lines.length > 0 && used + line.length > TASK_PLANNER_HISTORY_MAX_CHARS) break;
+        lines.push(line);
+        used += line.length;
+    }
+    if (lines.length === 0) return undefined;
+    return [RECENT_HISTORY_HEADER, ...lines.reverse()];
+}
+
 export function buildTaskPlannerPrompt(input: TaskPlanningInput): string {
     const maxTasks = input.maxTasks ?? DEFAULT_MAX_PLAN_TASKS;
     const limits = effectiveGoalLimits(input.goal);
     const tools = input.availableTools
         .map((tool) => `${tool.name}(${tool.minPermission})`)
         .join(', ');
+    const historySection = buildRecentHistorySection(input.history ?? []);
     return [
         '你是 Task Planner。把用户目标拆成可独立执行、可验收的 Task DAG。',
-        `Task 数量 1-${maxTasks}。简单目标只生成 1 个 Task，不要为了形式拆步骤。`,
-        '只在存在清晰阶段、不同产物或前后依赖时拆分；不要把每个工具调用拆成 Task。',
-        '每个 Task 必须是一个完整工作单元，并使用简短、动作导向的 title。',
+        `Task 数量 1-${maxTasks}。只有简单目标才允许 1 个 Task；不要为了形式拆步骤，也不要为了省事跳过拆分。`,
+        '目标包含多个独立产物或清晰阶段时，必须拆成多个 Task，并用 dependsOn 表达先后顺序。',
+        '例如：修复编译错误、提交基线 commit、新建模块、注册模块、写测试并跑测试、更新文档，',
+        '往往是多个 Task 而不是一个，应按阶段和产物拆分。',
+        '禁止把执行类目标（要改代码、要写文件、要提交、要安装依赖、要跑测试）塌缩成单个',
+        '「检查/分析并给出最终回答」类 Task；这类 Task 会让执行器停在分析阶段，只用口头总结收尾。',
+        '每个 Task 必须是一个完整工作单元，title 简短、动作导向，且能在当前 Task 内独立验收。',
+        '不要把每个工具调用拆成 Task，但也不要把多个产物合并进同一个 Task 来逃避拆分。',
         '执行器每次只完成当前 Task；依赖 Task 的产物会通过前置结果提供，不要提前完成后续阶段。',
         'dependsOn 只能引用此前 Task 的 key；requiredTools 只能使用可用工具中的名字。',
         '严格输出 JSON，不输出 markdown：',
-        '{"tasks":[{"key":"inspect","title":"检查项目结构与关键入口","dependsOn":[],"requiredTools":["rg","fs.read"]},{"key":"summarize","title":"归纳状态、风险和下一步","dependsOn":["inspect"],"requiredTools":[]}]}',
+        '{"tasks":[{"key":"fix-build","title":"修复编译错误并通过构建","dependsOn":[],"requiredTools":["fs.read","fs.write","shell.run"]},{"key":"add-module","title":"新建并注册模块","dependsOn":["fix-build"],"requiredTools":["fs.write"]}]}',
         '',
         `目标：${input.goal.statement}`,
         `当前权限：${input.goal.permissionCeiling}`,
@@ -170,6 +225,7 @@ export function buildTaskPlannerPrompt(input: TaskPlanningInput): string {
         ...(input.sessionContext !== undefined
             ? ['会话上下文：', input.sessionContext.slice(0, 6000)]
             : []),
+        ...(historySection !== undefined ? historySection : []),
     ].join('\n');
 }
 
