@@ -26,11 +26,11 @@ verified = 2026-11-07
 text = "wiki.py init keeps existing overview file paths but uses domain-neutral titles and a shared boundary/current/constraint/evidence structure for software and non-software projects."
 status = "active"
 evidence = [
-  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "2e8c4f4e65ef764a7661387fd8d10423a64f7d68" },
-  { file = "packages/runtime/test/project-wiki-skill.test.ts", oid = "07b1aaaefd9d051ecdbf2d5e01910ece8947c397" },
+  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "34b0d50c229fe2c2363ab57268f877a063dce3c3" },
+  { file = "packages/runtime/test/project-wiki-skill.test.ts", oid = "2d78fbd665f24428f09746ae60c3468217c114cb" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.webui-exec-stream-rendering]
 text = "ExecStream renders bare-code answers as one code block, hides the contract card and task block for direct-route answers, keeps completed settled steps expanded while live execution rows are expandable/collapsible (only the active streaming reasoning is one line), and places approval/authorization behavior rows inline in the gated tool Step."
@@ -69,18 +69,18 @@ verified = 2026-11-07
 text = "Each project SessionEnd enqueues a per-workspace background sync without blocking the foreground response; the deterministic wiki.py session-end stage computes the incremental plan before recording session activity, and a bounded semantic update is queued only when the plan hits affected claims."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "501c606098ed1616981e51a48b923fd3c60bdafb" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "9b6034ad797e6cb0a1639dec65f36ecb3ddcb404" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "30328e264d4756b7414412adfcf95ef63bb5cc2a" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.project-wiki-maintenance-actions]
 text = "Wiki init and explicit update run as hidden background Agent goals with read tools plus restricted project_wiki script/write_doc tools; SessionEnd always runs the deterministic wiki.py session-end stage and only starts a bounded semantic Agent when affected claims are detected. Wiki Markdown writes are confined to wiki/, operations are recorded, and the Wiki panel streams Goal reasoning, tool arguments/results and inline approvals when an Agent runs."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "501c606098ed1616981e51a48b923fd3c60bdafb" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "9b6034ad797e6cb0a1639dec65f36ecb3ddcb404" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
   { file = "apps/api/src/wiki/wiki.controller.ts", oid = "e8bb54fb610de58083cc167659cc38de6dd71bcc" },
   { file = "apps/api/src/events/events.controller.ts", oid = "4a847d15822a6ec14eb1056079b5f653ed8e6a1f" },
@@ -88,7 +88,7 @@ evidence = [
   { file = "apps/webui/src/components/WikiPage.vue", oid = "709e14fbeaef9094f9fd2c7261ef43842893c0e3" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.runtime-task-planning-triage-order]
 text = "HarnessRuntime awaits the in-flight async triage before generating a Task plan, forwards conversation history into the planner prompt, retries with a strict-split hint when a multi-artifact goal collapses into one task, and plan.created events carry task titles plus dependencies for auditing."
@@ -139,12 +139,12 @@ verified = 2026-11-07
 text = "Wiki init returns without launching an Agent when existing claims or a non-TODO index prove initialization. Update and SessionEnd obtain a structured diff/status plan plus evidence-oid findings, skip semantic work when nothing is affected, and otherwise pass only changed files and affected claims to one bounded single-task Agent; SessionEnd computes that plan before its activity commit and the script supports one batched claim verify --ids call."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "501c606098ed1616981e51a48b923fd3c60bdafb" },
-  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "2e8c4f4e65ef764a7661387fd8d10423a64f7d68" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "9b6034ad797e6cb0a1639dec65f36ecb3ddcb404" },
+  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "34b0d50c229fe2c2363ab57268f877a063dce3c3" },
   { file = "apps/api/test/wiki-maintenance.service.test.ts", oid = "c00acc801dfd34d559609e1010a1c02a247fe92d" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.runtime-acceptance-failure-replan]
 text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass; verification failures mark the task and goal failed and trigger a bounded default LLM replan that sequences the remaining work, while aborted tasks stay resumable."
