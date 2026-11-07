@@ -18,3 +18,11 @@
 - `negotiation.route === 'direct'` 的直答只展示直答块与最终回答，不展示契约卡片与 Task 块
 - Trace 窄栏只展示当前 run 的契约且默认折叠（最大化仍展示全部 run）；点击行为行展示审批/授权配对详情
 - 审批（系统）/ 授权 / 反馈行为行按 Step 时间窗就地展示在被授权的工具 Step 内：先授权，再接工具结果
+
+## 会话活动
+<!-- activity:start -->
+- 2026-11-07 20:40:14 | 失败 | 读取 README.md 并汇报 | 没有可用 provider：faux
+- 2026-11-07 20:40:14 | 失败 | 读取 README.md 并汇报 | 没有可用 provider：default
+- 2026-11-07 20:40:14 | 失败 | 简单介绍一下 mazi | 没有可用 provider：default
+- 2026-11-07 20:40:14 | 失败 | 简单介绍一下 mazi | 没有可用 provider：default
+<!-- activity:end -->
