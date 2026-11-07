@@ -229,10 +229,11 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
         try {
             const created = await runtime.createGoalSession('fail run');
             const result = await runtime.executeGoalTree(created.rootGoalId);
-            expect(result.ok).toBe(true);
+            // 工具失败 → no-failed-steps 机械验收失败 → Goal 不再记为成功。
+            expect(result.ok).toBe(false);
 
             const snapshot = await runtime.goalSnapshot(created.rootGoalId);
-            expect(snapshot.goals.every((goal) => goal.status === 'succeeded')).toBe(true);
+            expect(snapshot.goals.every((goal) => goal.status === 'failed')).toBe(true);
 
             const failedTool = stepEvents.find(
                 (event) =>

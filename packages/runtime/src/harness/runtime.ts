@@ -71,7 +71,7 @@ import {
     type PlannedTask,
     type PlanTool,
 } from '../gts/plan-graph.js';
-import type { ReplanPlanner } from '../gts/replan.js';
+import { createLlmReplanPlanner, type ReplanPlanner } from '../gts/replan.js';
 import {
     allocateTaskBudgets,
     createLlmTaskPlanner,
@@ -1006,6 +1006,34 @@ export class HarnessRuntime {
         if (flags !== undefined && Object.keys(flags.values).length > 0) {
             this.emitFlagEvent(rootGoalId, goalId, flags.values, flags.trace);
         }
+        // 失败后的连续处理：未显式注入 replan planner 时，项目会话默认用当前模型做一次
+        // 有界 Replan（只补剩余工作）；这样验收失败不再直接中断整个 Goal。
+        const replanModel = model ?? this.triageModel();
+        const replanPlanner =
+            this.replanPlanner ??
+            (taskPlanning && replanModel !== undefined
+                ? createLlmReplanPlanner(async (prompt) => {
+                      const round = await withTriageTimeout(
+                          this.roundRunner.requestRound(
+                              rootGoalId,
+                              {
+                                  model: replanModel,
+                                  messages: [
+                                      {
+                                          role: 'user',
+                                          content: [{ type: 'text', text: prompt }],
+                                      },
+                                  ],
+                                  tools: [],
+                              },
+                              reasoningLevel,
+                          ),
+                          TRIAGE_TIMEOUT_MS,
+                      );
+                      if (round === undefined) throw new Error('Replan Planner 超时');
+                      return round.text;
+                  })
+                : undefined);
         const verificationByTask = new Map<string, VerificationReport>();
         const controller = new AbortController();
         this.running.set(rootGoalId, controller);
@@ -1049,10 +1077,10 @@ export class HarnessRuntime {
                     ...(resume ? { resume: true } : {}),
                     signal: controller.signal,
                     verifier: this.verifier,
-                    ...(this.replanPlanner !== undefined
+                    ...(replanPlanner !== undefined
                         ? {
                               replan: {
-                                  planner: this.replanPlanner,
+                                  planner: replanPlanner,
                                   availableTools: exec.planTools,
                                   maxReplans: this.maxReplans,
                               },
@@ -1155,8 +1183,14 @@ export class HarnessRuntime {
             // 读改写最新行：异步 triage 可能刚把协商结论/语义条款写进同一个 Goal，
             // 不能用运行开始时读到的旧副本整体覆盖。
             const latest = (await this.goalStoreDb.loadGoal(goal.goalId)) ?? goal;
+            // 成败 = executor 执行结果 AND 契约机械验收（未判定的语义条款不计入失败）。
+            const acceptanceOk = outcome.task.acceptanceResult?.passed ?? true;
             latest.status =
-                outcome.reason === 'aborted' ? 'aborted' : outcome.ok ? 'succeeded' : 'failed';
+                outcome.reason === 'aborted'
+                    ? 'aborted'
+                    : outcome.ok && acceptanceOk
+                      ? 'succeeded'
+                      : 'failed';
             await this.goalStoreDb.saveGoal(latest);
             // 契约满足度落事件：Goal.status 是 executor 的成败，这里才是评估器的机械判定，
             // 两者分开（裁决 D8），审计可据此回答「契约到底被满足了没有」。
@@ -1177,7 +1211,8 @@ export class HarnessRuntime {
         }
         // 终态失败写入分类账；aborted 是协作式停止、可恢复，不记失败。
         for (const outcome of result.tasks) {
-            if (outcome.ok || outcome.reason === 'aborted') continue;
+            const acceptanceOk = outcome.task.acceptanceResult?.passed ?? true;
+            if ((outcome.ok && acceptanceOk) || outcome.reason === 'aborted') continue;
             await this.failureLedger.add({
                 failureId: ulid(),
                 sessionId: rootGoalId,
@@ -1814,7 +1849,7 @@ export class HarnessRuntime {
                     if (round === undefined) throw new Error('Task Planner 超时');
                     return round.text;
                 });
-            const proposals = await planner({
+            let proposals = await planner({
                 goal,
                 availableTools,
                 ...(sessionContext.length > 0 ? { sessionContext } : {}),
@@ -1822,6 +1857,28 @@ export class HarnessRuntime {
                 maxTasks,
             });
             if (proposals === undefined || proposals.length === 0) return undefined;
+            // 多产物目标被塌缩成单 Task 时重试一次：明确要求至少 2 个 Task。
+            // 只对「成功条件里含多个独立产物/命令证据」的目标触发，避免无谓的第二次调用。
+            const artifactConditions = goal.contract.successConditions.filter(
+                (condition) =>
+                    condition.check?.kind === 'file-exists' ||
+                    condition.check?.kind === 'file-contains' ||
+                    condition.check?.kind === 'command-output-contains' ||
+                    condition.check?.kind === 'git-has-commit',
+            ).length;
+            if (proposals.length === 1 && artifactConditions >= 2) {
+                const retried = await planner({
+                    goal,
+                    availableTools,
+                    ...(sessionContext.length > 0 ? { sessionContext } : {}),
+                    ...(history !== undefined && history.length > 0 ? { history } : {}),
+                    strictSplit: true,
+                    maxTasks,
+                });
+                if (retried !== undefined && retried.length > proposals.length) {
+                    proposals = retried;
+                }
+            }
             const normalized = allocateTaskBudgets(goal, proposals);
             const compiled = compileTaskPlan({
                 goals: [goal],

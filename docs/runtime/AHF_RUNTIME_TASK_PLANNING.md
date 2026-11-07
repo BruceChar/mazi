@@ -45,6 +45,7 @@ executeGoalTree
 | shell 管道内失败（`cargo test \| tail`） | 管道末命令退出码 0 → ok | `bash -o pipefail`，任一命令失败 → 工具 error |
 | 写工具静默 no-op（`sd` 模式未匹配仍退出 0） | ok，Step succeeded | 执行前后对比目标文件，内容未变 → `ok:false` |
 | 工具失败 | Step error → 验收 failed → replan（受 maxReplans 限制） | 同上，信号不再被吞 |
+| 管道下游提前关闭（`| head` 的 SIGPIPE，exit 141） | 被当作命令失败 | 视为正常结束（命令已执行；输出附 `SIGPIPE ignored` 提示） |
 
 ## 5. 验收（与 P2 机械检查联动）
 
@@ -53,6 +54,11 @@ executeGoalTree
   `git-has-commit` / `command-output-contains`。
 - 需要人判/模型判的条款保持 `semantic`；未接 `SemanticJudge` 时一律 `unchecked`，不冒充通过。
 - Task 验收范围来自规划时的 `Task.acceptance.conditions`（规划前置契约完整后即包含全部条款）。
+- **验收失败不再算运行成功**：Task 机械验收 `passed=false` 时 Task 置 `failed`，
+  `GoalRunResult.ok` / `goal.ended` / `Goal.status` 一并记为失败（aborted 仍保持可恢复）。
+- **默认连续处理（replan）**：项目会话未显式注入 replan planner 时，失败会触发一次有界 LLM Replan
+  （`createLlmReplanPlanner`，最多 `maxReplans` 次）：只补剩余工作、保留已完成 Task，然后继续执行；
+  Replan 被拒绝或次数用尽才终止。失败分类账同时记录验收失败。
 
 ## 6. 测试
 

@@ -199,3 +199,135 @@ describe('HarnessRuntime × Task Planner 上下文与 triage 顺序', () => {
         }
     });
 });
+
+/** Provider that scripts triage/replan responses; other rounds return a plain final answer. */
+function scriptedProvider(options: {
+    triage: unknown;
+    replan?: (call: number) => string | undefined;
+}): LLMProvider {
+    let replanCalls = 0;
+    return {
+        id: 'fake',
+        name: 'fake',
+        defaultModel: 'fake-model',
+        models: [],
+        async ask() {
+            throw new Error('ask unused');
+        },
+        async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+            const text = textOf(request);
+            const isTriage = text.includes('intent triage layer');
+            const isReplan = text.includes('Replan Planner');
+            let answer = '阶段完成。';
+            if (isTriage) {
+                answer = JSON.stringify(options.triage);
+            } else if (isReplan) {
+                replanCalls += 1;
+                answer = options.replan?.(replanCalls) ?? '不是 JSON';
+            }
+            yield { type: 'start', model: 'fake-model' };
+            yield { type: 'text_delta', text: answer };
+            yield { type: 'finish', finishReason: 'stop' };
+        },
+    };
+}
+
+const MULTI_ARTIFACT_TRIAGE = {
+    trace: { classification: 'command' },
+    blocks: [
+        {
+            route: 'confirmed',
+            goals: ['实现 DFS'],
+            constraints: [
+                {
+                    text: '新建 src/dfs.rs 模块',
+                    check: { kind: 'file-exists', path: 'src/dfs.rs' },
+                },
+                {
+                    text: '在 src/main.rs 注册 mod dfs;',
+                    check: { kind: 'file-contains', path: 'src/main.rs', text: 'mod dfs;' },
+                },
+            ],
+        },
+    ],
+};
+
+function readEvents(dir: string, rootGoalId: string): Array<{ type: string; payload?: unknown }> {
+    return readFileSync(join(dir, `${rootGoalId}.jsonl`), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { type: string; payload?: unknown });
+}
+
+describe('HarnessRuntime × 验收失败与默认 replan', () => {
+    it('契约机械条款失败时 Goal 不再记为成功（goal.ended=failed）', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-accept-fail-'));
+        dirs.push(dir);
+        const runtime = new HarnessRuntime(runtimeConfig(dir), {
+            llmProviders: { fake: scriptedProvider({ triage: MULTI_ARTIFACT_TRIAGE }) },
+            workspaceRoot: dir,
+            taskPlanner: async () => SINGLE_TASK,
+        });
+        try {
+            const created = await runtime.createGoalSession('实现dfs', {
+                parseIntent: true,
+                taskPlanning: true,
+            });
+            const result = await runtime.executeGoalTree(created.rootGoalId);
+            expect(result.ok).toBe(false);
+            const outcome = result.tasks[0];
+            expect(outcome?.task.acceptanceResult?.passed).toBe(false);
+            expect(outcome?.task.status).toBe('failed');
+            const ended = readEvents(dir, created.rootGoalId).find(
+                (event) => event.type === 'goal.ended',
+            );
+            const payload = ended?.payload as
+                | { outcome?: { status?: string } }
+                | undefined;
+            expect(payload?.outcome?.status).toBe('failed');
+        } finally {
+            await runtime.close();
+        }
+    });
+
+    it('验收失败后默认 LLM replan 继续执行（plan.revised），最终仍失败则终止', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-replan-continue-'));
+        dirs.push(dir);
+        const runtime = new HarnessRuntime(runtimeConfig(dir), {
+            llmProviders: {
+                fake: scriptedProvider({
+                    triage: MULTI_ARTIFACT_TRIAGE,
+                    replan: (call) =>
+                        JSON.stringify({
+                            tasks: [
+                                {
+                                    key: `retry-${call}`,
+                                    title: `重新实现 DFS 第 ${call} 次`,
+                                    dependsOn: [],
+                                    requiredTools: [],
+                                },
+                            ],
+                        }),
+                }),
+            },
+            workspaceRoot: dir,
+            taskPlanner: async () => SINGLE_TASK,
+        });
+        try {
+            const created = await runtime.createGoalSession('实现dfs', {
+                parseIntent: true,
+                taskPlanning: true,
+            });
+            const result = await runtime.executeGoalTree(created.rootGoalId);
+            const events = readEvents(dir, created.rootGoalId);
+            const revised = events.filter((event) => event.type === 'plan.revised');
+            expect(revised.length).toBeGreaterThanOrEqual(1);
+            expect(result.ok).toBe(false);
+            // 至少发生一次 replan，且该轮已执行（失败 Task 被替换，故 tasks 只留最后一轮）。
+            expect((result.planRevisions?.length ?? 0)).toBeGreaterThanOrEqual(1);
+        } finally {
+            await runtime.close();
+        }
+    });
+});
+

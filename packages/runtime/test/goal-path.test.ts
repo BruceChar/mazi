@@ -138,6 +138,7 @@ describe('HarnessRuntime Goal 工具闭环（C5-1 运行时装配）', () => {
         writeFileSync(file, 'HELLO');
         const rt = new HarnessRuntime(toolCfg(), {
             llmProviders: { p: new ToolProvider(file) },
+            workspaceRoot: dir,
         });
         try {
             const created = await rt.createGoalSession('读取 a.txt 并汇报');

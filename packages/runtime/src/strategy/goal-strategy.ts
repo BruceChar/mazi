@@ -274,6 +274,11 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         } else {
             outcome.task.acceptanceResult = evaluateAcceptance(goal, outcome);
         }
+        // 契约机械验收失败 = 这个 Task 没有完成，不能以 executor 的 final-answer 冒充成功。
+        // 被用户停止（aborted）的任务保持 aborted，保证仍可 resume。
+        if (outcome.ok && outcome.task.acceptanceResult?.passed === false) {
+            outcome.task.status = 'failed';
+        }
         await deps.store.saveTask(outcome.task);
         outcomes.push(outcome);
         const shouldReplan = !outcome.ok || verificationReport?.state === 'failed';
@@ -286,7 +291,11 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                 revision: planRevisions.length,
                 completedTasks: outcomes
                     .slice(0, -1)
-                    .filter((candidate) => candidate.ok)
+                    .filter(
+                        (candidate) =>
+                            candidate.ok &&
+                            (candidate.task.acceptanceResult?.passed ?? true),
+                    )
                     .map((candidate) => candidate.task),
                 failedTask: outcome.task,
                 failureReason: failure.failureReason,
@@ -352,7 +361,8 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
     return {
         rootGoalId: runId,
         tasks: outcomes,
-        ok: outcomes.every((o) => o.ok),
+        // Goal 成败必须同时看执行结果与契约机械验收：验收 failed 的运行不能记为成功。
+        ok: outcomes.every((o) => o.ok && (o.task.acceptanceResult?.passed ?? true)),
         ...(planRevisions.length > 0 ? { planRevisions } : {}),
     };
 }

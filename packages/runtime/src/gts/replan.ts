@@ -7,6 +7,7 @@ import {
     type PlanTool,
     validatePlanGraph,
 } from './plan-graph.js';
+import { parseTaskPlan } from './task-planner.js';
 
 export interface ReplanRequest {
     goal: Goal;
@@ -26,6 +27,60 @@ export interface ReplanOption {
     availableTools?: readonly PlanTool[];
     maxReplans?: number;
 }
+
+
+/** Replan 最多提出的新 Task 数（失败后只补剩余工作，避免重排整个计划）。 */
+export const DEFAULT_MAX_REPLAN_TASKS = 4;
+
+/** Replan Planner 提示词：在保留已完成 Task 的前提下，为失败补一个新的 Task 计划。 */
+export function buildReplanPlannerPrompt(request: ReplanRequest): string {
+    const conditions = request.goal.contract.successConditions
+        .map((condition) => condition.description ?? condition.id)
+        .join('；');
+    const completed =
+        request.completedTasks.length > 0
+            ? request.completedTasks
+                  .map((task) => `- ${task.title}（${task.status}）`)
+                  .join('\n')
+            : '（无）';
+    const evidence = request.evidence
+        .slice(0, 6)
+        .map((item) => `- ${item.slice(0, 600)}`)
+        .join('\n');
+    return [
+        '你是 Replan Planner。上一个 Task 未通过验收，请只规划**剩余未完成的工作**。',
+        `Task 数量 1-${DEFAULT_MAX_REPLAN_TASKS}；已完成并保留的 Task 不要重复。`,
+        '根据失败原因与证据修正做法；可以拆成多个可独立验收的 Task，用 dependsOn 表达顺序。',
+        '每个 Task 必须是一个完整工作单元，动作导向 title，可独立验收。',
+        'requiredTools 可省略；dependsOn 只能引用本次输出中更早的 key。',
+        '严格输出 JSON，不输出 markdown：',
+        '{"tasks":[{"key":"fix","title":"修复失败原因","dependsOn":[],"requiredTools":[]}]}',
+        '',
+        `目标：${request.goal.statement}`,
+        `Goal 成功条件：${conditions || '（无额外条件）'}`,
+        `已完成 Task：\n${completed}`,
+        `失败 Task：${request.failedTask.title}`,
+        `失败原因：${request.failureReason}`,
+        ...(request.failureCategory !== undefined
+            ? [`失败分类：${request.failureCategory}`]
+            : []),
+        ...(evidence.length > 0 ? [`证据：\n${evidence}`] : []),
+        `剩余预算：${JSON.stringify(request.remainingBudget)}`,
+    ].join('\n');
+}
+
+/** LLM Replan Planner：完成回调由宿主注入（与 Task Planner 同款），解析失败返回 undefined。 */
+export function createLlmReplanPlanner(
+    complete: (prompt: string) => Promise<string>,
+): ReplanPlanner {
+    return async (request) =>
+        parseTaskPlan(
+            await complete(buildReplanPlannerPrompt(request)),
+            request.goal,
+            DEFAULT_MAX_REPLAN_TASKS,
+        );
+}
+
 
 export interface PlanDiff {
     added: string[];

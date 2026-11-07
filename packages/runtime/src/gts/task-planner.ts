@@ -31,6 +31,11 @@ export interface TaskPlanningInput {
      * (which usually carries the real goal) always survives.
      */
     history?: ReadonlyArray<TaskPlannerHistoryEntry>;
+    /**
+     * Retry hint after a collapsed plan: the goal carries multiple independent
+     * artifacts/acceptance conditions, so a single generic Task is not acceptable.
+     */
+    strictSplit?: boolean;
     maxTasks?: number;
 }
 
@@ -209,6 +214,12 @@ export function buildTaskPlannerPrompt(input: TaskPlanningInput): string {
         '每个 Task 必须是一个完整工作单元，title 简短、动作导向，且能在当前 Task 内独立验收。',
         '不要把每个工具调用拆成 Task，但也不要把多个产物合并进同一个 Task 来逃避拆分。',
         '执行器每次只完成当前 Task；依赖 Task 的产物会通过前置结果提供，不要提前完成后续阶段。',
+        ...(input.strictSplit === true
+            ? [
+                  '本次目标包含多个独立产物/验收条件：必须拆成至少 2 个 Task；',
+                  '返回单个 Task 视为无效计划。',
+              ]
+            : []),
         'dependsOn 只能引用此前 Task 的 key；requiredTools 只能使用可用工具中的名字。',
         '严格输出 JSON，不输出 markdown：',
         '{"tasks":[{"key":"fix-build","title":"修复编译错误并通过构建","dependsOn":[],"requiredTools":["fs.read","fs.write","shell.run"]},{"key":"add-module","title":"新建并注册模块","dependsOn":["fix-build"],"requiredTools":["fs.write"]}]}',

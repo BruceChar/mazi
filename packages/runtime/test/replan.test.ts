@@ -1,6 +1,10 @@
 import type { Goal } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
-import { createPlanRevision } from '../src/gts/replan.js';
+import {
+    buildReplanPlannerPrompt,
+    createLlmReplanPlanner,
+    createPlanRevision,
+} from '../src/gts/replan.js';
 
 function goal(): Goal {
   return {
@@ -122,5 +126,83 @@ describe('createPlanRevision', () => {
     });
     expect(invalid.rejected?.join('\n')).toContain('权限超过 Goal 上限');
     expect(invalid.rejected?.join('\n')).toContain('预算超过剩余预算');
+  });
+});
+
+describe('replan planner prompt / factory', () => {
+  it('prompt 包含失败原因、已完成 Task 与剩余预算', () => {
+    const prompt = buildReplanPlannerPrompt({
+      goal: goal(),
+      revision: 0,
+      completedTasks: [
+        {
+          taskId: 'done',
+          goalId: 'g1',
+          title: '已完成',
+          acceptance: { conditions: ['c1'] },
+          status: 'succeeded',
+        },
+      ],
+      failedTask: {
+        taskId: 'failed',
+        goalId: 'g1',
+        title: '失败任务',
+        acceptance: { conditions: ['c1'] },
+        status: 'failed',
+      },
+      failureReason: 'failed',
+      evidence: ['tool failed: exit code 1'],
+      remainingBudget: { maxCostUsd: 5 },
+    });
+    expect(prompt).toContain('Replan Planner');
+    expect(prompt).toContain('失败任务');
+    expect(prompt).toContain('已完成');
+    expect(prompt).toContain('tool failed');
+    expect(prompt).toContain('剩余预算');
+  });
+
+  it('LLM replan 输出合法 JSON 时解析为 PlannedTask[]，非法时返回 undefined', async () => {
+    const planner = createLlmReplanPlanner(async (prompt) => {
+      expect(prompt).toContain('Replan Planner');
+      return JSON.stringify({
+        tasks: [{ key: 'retry', title: '改用替代方案', dependsOn: [], requiredTools: [] }],
+      });
+    });
+    await expect(
+      planner({
+        goal: goal(),
+        revision: 0,
+        completedTasks: [],
+        failedTask: {
+          taskId: 'failed',
+          goalId: 'g1',
+          title: '失败任务',
+          acceptance: { conditions: ['c1'] },
+          status: 'failed',
+        },
+        failureReason: 'failed',
+        evidence: [],
+        remainingBudget: { maxCostUsd: 5 },
+      }),
+    ).resolves.toMatchObject([{ key: 'retry', title: '改用替代方案' }]);
+
+    const invalid = createLlmReplanPlanner(async () => '不是 JSON');
+    await expect(
+      invalid({
+        goal: goal(),
+        revision: 0,
+        completedTasks: [],
+        failedTask: {
+          taskId: 'failed',
+          goalId: 'g1',
+          title: '失败任务',
+          acceptance: { conditions: ['c1'] },
+          status: 'failed',
+        },
+        failureReason: 'failed',
+        evidence: [],
+        remainingBudget: { maxCostUsd: 5 },
+      }),
+    ).resolves.toBeUndefined();
   });
 });
