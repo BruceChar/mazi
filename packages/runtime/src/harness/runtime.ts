@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import type {
     EventBus,
     Goal,
@@ -128,6 +130,7 @@ import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
 
 const DEFAULT_AGENT_SYSTEM_PROMPT = GENERAL_PROMPT;
+const execFileAsync = promisify(execFile);
 
 /** 取值兜底：非有限数 → 0（花费回填的 token 字段）。 */
 function numberOf(value: unknown): number {
@@ -253,6 +256,8 @@ export class HarnessRuntime {
         string,
         { projectId: string; workspace: string }
     >();
+    /** 仅项目会话设置（随心聊即使有默认工作区也不初始化项目 wiki）。 */
+    private readonly pendingProjectContext = new Map<string, { workspace: string }>();
     /** 待执行 Session 的开关审计（flag.evaluated：值 + 求值痕迹） */
     private readonly pendingFlags = new Map<
         string,
@@ -517,6 +522,9 @@ export class HarnessRuntime {
         };
         this.pendingMemoryContext.set(rootGoalId, memoryContext);
         if (projectId !== undefined && workspaceId !== undefined) {
+            if (opts.projectId !== undefined) {
+                this.pendingProjectContext.set(rootGoalId, { workspace: workspaceId });
+            }
             this.pendingBlackboard.set(rootGoalId, {
                 projectId,
                 workspace: workspaceId,
@@ -806,16 +814,22 @@ export class HarnessRuntime {
         const model = this.resolver.resolveModelChoice(modelId);
         const sessionId = this.pendingSessionId.get(rootGoalId);
         this.pendingSessionId.delete(rootGoalId);
+        const projectContext = this.pendingProjectContext.get(rootGoalId);
+        this.pendingProjectContext.delete(rootGoalId);
         const rootGoal = goals.find((goal) => goal.goalId === rootGoalId) ?? goals[0];
         const goalId = rootGoal?.goalId ?? rootGoalId;
-        const blackboardContext =
-            this.pendingBlackboard.get(rootGoalId) ??
-            (this.workspaceRoot !== undefined
-                ? {
-                      projectId: projectIdForWorkspace(this.workspaceRoot),
-                      workspace: this.workspaceRoot,
-                  }
-                : undefined);
+        if (projectWikiSkillActive && projectContext !== undefined) {
+            await this.ensureProjectWikiInitialized(rootGoalId, goalId, skillIds);
+        }
+        const blackboardContext = projectWikiSkillActive
+            ? undefined
+            : (this.pendingBlackboard.get(rootGoalId) ??
+              (this.workspaceRoot !== undefined
+                  ? {
+                        projectId: projectIdForWorkspace(this.workspaceRoot),
+                        workspace: this.workspaceRoot,
+                    }
+                  : undefined));
         const board =
             blackboardContext !== undefined
                 ? await this.blackboard.ensure(
@@ -1659,6 +1673,42 @@ export class HarnessRuntime {
             'normal convention, infer it and proceed. Negotiate only when reasonable options',
             'would materially change the result, cost, risk, or irreversibility.',
         ].join('\n');
+    }
+
+    /** SessionStart 确定性初始化：项目会话挂载 project-wiki 时直接建立 wiki/。 */
+    private async ensureProjectWikiInitialized(
+        rootGoalId: string,
+        goalId: string,
+        skillIds: readonly string[],
+    ): Promise<void> {
+        if (this.workspaceRoot === undefined) return;
+        if (existsSync(join(this.workspaceRoot, 'wiki', 'claims.toml'))) return;
+        const context = { rootGoalId, goalId };
+        const entries =
+            this.skillProvider?.catalogFor?.(skillIds, context) ??
+            (this.skillProvider?.catalog(context) ?? []).filter((entry) =>
+                skillIds.includes(entry.id),
+            );
+        const skill = entries.find((entry) => entry.id === 'project-wiki');
+        if (skill === undefined) return;
+        const script = resolve(skill.path, '..', 'scripts', 'wiki.py');
+        if (!existsSync(script)) {
+            this.warn(`project-wiki 脚本不存在：${script}`);
+            return;
+        }
+        try {
+            await execFileAsync(
+                process.env.MAZI_PYTHON?.trim() || 'python3',
+                [script, 'init'],
+                { cwd: this.workspaceRoot, timeout: 30_000, maxBuffer: 2 * 1024 * 1024 },
+            );
+        } catch (error) {
+            this.warn(`project-wiki 初始化失败：${error instanceof Error ? error.message : error}`);
+        }
+    }
+
+    private warn(message: string): void {
+        process.stderr.write('[project-wiki] ' + message + '\n');
     }
 
     private projectWikiPromptFragment(

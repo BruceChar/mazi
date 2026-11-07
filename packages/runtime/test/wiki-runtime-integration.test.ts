@@ -1,6 +1,8 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -67,6 +69,70 @@ afterEach(() => {
 });
 
 describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
+    it('项目会话启用 project-wiki：SessionStart 直接初始化仓库内 wiki/ 且不暴露 blackboard.read', async () => {
+        const home = tempDir('mazi-wikihome-');
+        process.env.MAZI_HOME = home;
+        const workspace = tempDir('mazi-project-wiki-init-');
+        execFileSync('git', ['init', '-q'], { cwd: workspace });
+        execFileSync('git', ['config', 'user.email', 'project-wiki@example.com'], {
+            cwd: workspace,
+        });
+        execFileSync('git', ['config', 'user.name', 'Project Wiki Test'], { cwd: workspace });
+        writeFileSync(join(workspace, 'package.json'), '{"name":"auto-init"}', 'utf8');
+        const requests: LLMRequest[] = [];
+        const provider: LLMProvider = {
+            id: 'faux',
+            name: 'faux',
+            defaultModel: 'faux-model',
+            models: [],
+            async ask() {
+                throw new Error('ask unused');
+            },
+            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
+                requests.push(request);
+                yield { type: 'start', model: 'faux-model' };
+                yield { type: 'text_delta', text: '初始化完成' };
+                yield { type: 'finish', finishReason: 'stop' };
+            },
+        };
+        const skillDir = fileURLToPath(
+            new URL('../builtin-skills/project-wiki/', import.meta.url),
+        );
+        const runtime = new HarnessRuntime(
+            {
+                providers: [],
+                tools: [],
+                dbPath: ':memory:',
+                eventDir: home,
+                goal: { allowedTools: [], permissionCeiling: 'read-only' },
+                contextWindow: 64000,
+            },
+            { llmProviders: { faux: provider }, workspaceRoot: workspace },
+        );
+        runtime.setSkillProvider({
+            mounted: () => ['project-wiki'],
+            catalog: () => [
+                {
+                    id: 'project-wiki',
+                    name: '项目 Wiki',
+                    description: '维护仓库内 wiki/',
+                    path: join(skillDir, 'SKILL.md'),
+                },
+            ],
+        });
+        try {
+            const created = await runtime.createGoalSession('你好', { projectId: 'auto-init' });
+            await runtime.executeGoalTree(created.rootGoalId);
+            expect(existsSync(join(workspace, 'wiki', 'claims.toml'))).toBe(true);
+            expect(existsSync(join(workspace, 'AGENTS.md'))).toBe(true);
+            expect((requests[0]?.tools ?? []).map((tool) => tool.name)).not.toContain(
+                'blackboard.read',
+            );
+        } finally {
+            await runtime.close();
+        }
+    });
+
     it('挂载 project-wiki：关闭 v1 wiki 注入、记录与工具面', async () => {
         const home = tempDir('mazi-wikihome-');
         process.env.MAZI_HOME = home;

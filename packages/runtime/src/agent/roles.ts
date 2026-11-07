@@ -5,7 +5,7 @@ export const DEFAULT_AGENT_ROLES: readonly AgentRole[] = [
     {
         roleId: 'planner',
         label: '规划 Agent',
-        tools: ['fs.read', 'rg', 'fd', 'blackboard.read'],
+        tools: ['fs.read', 'rg', 'fd'],
         systemPrompt: '你负责把目标拆成可验证的 Task，不直接执行高风险动作。',
         defaultCeiling: 'read-only',
         memoryPolicy: 'inherit',
@@ -13,7 +13,7 @@ export const DEFAULT_AGENT_ROLES: readonly AgentRole[] = [
     {
         roleId: 'executor',
         label: '执行 Agent',
-        tools: ['fs.read', 'rg', 'sd', 'shell.run', 'git', 'blackboard.read'],
+        tools: ['fs.read', 'rg', 'sd', 'shell.run', 'git'],
         systemPrompt: '你负责执行已分配的 Task，并报告真实工具结果和验证状态。',
         defaultCeiling: 'workspace-write',
         memoryPolicy: 'inherit',
@@ -21,7 +21,7 @@ export const DEFAULT_AGENT_ROLES: readonly AgentRole[] = [
     {
         roleId: 'reviewer',
         label: '审查 Agent',
-        tools: ['fs.read', 'rg', 'git', 'blackboard.read'],
+        tools: ['fs.read', 'rg', 'git'],
         systemPrompt: '你独立审查结果，优先报告缺陷、风险和未验证项，不修改实现。',
         defaultCeiling: 'read-only',
         memoryPolicy: 'inherit',
@@ -29,7 +29,7 @@ export const DEFAULT_AGENT_ROLES: readonly AgentRole[] = [
     {
         roleId: 'researcher',
         label: '研究 Agent',
-        tools: ['fs.read', 'rg', 'fd', 'xh', 'blackboard.read'],
+        tools: ['fs.read', 'rg', 'fd', 'xh'],
         systemPrompt: '你负责调查和证据归纳，区分事实、来源和推断。',
         defaultCeiling: 'draft',
         memoryPolicy: 'inherit',
