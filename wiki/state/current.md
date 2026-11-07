@@ -1,25 +1,20 @@
 # 当前状态
 
 ## 现在
-- 阶段：WebUI 对话流 / Trace 面板 5 项体验问题修复完成（长代码块被拆散、推理默认一行、Trace 窄栏契约范围、直答隐藏契约卡、审批授权就地展示）
-- 进行中：等待用户验收修复后的界面（已用 ~/.mazi 真实会话数据在 127.0.0.1:6295 验证）
-- 项目 Wiki：初始化/更新已接入后台 Agent 任务与状态轮询
-- 项目 Wiki：SessionEnd 同步已改为独立后台队列，前台会话不再等待或询问 Wiki 维护
+- 阶段：契约/规划可靠性 P0 修复 + P2 机械检查扩展完成（4 个 commit：9d3c324 / a414197 / 26febad / 2bc636d）
+- 进行中：等待用户在重启 API 后做真实会话验收（runtime 改动需重启 6294 的 API 进程才生效）
 
 ## 阻塞与风险
 - 阻塞：无
-- 风险：仓库级 `pnpm lint` 仍有其他模块的既有 Biome 诊断；本次 webui 改动尚未 git commit（工作区另有 wiki 功能相关未提交改动，需分开提交）
+- 风险：P1（LLM 语义判定 SemanticJudge 接入）尚未实现，语义条款仍为 unchecked，不冒充通过；工作区仍有另一会话的 project-wiki WIP 未提交（runtime.ts 等），本次提交未包含它们
+- 风险：`plan.created` 新增 tasks 字段；消费方需容忍旧事件缺该字段
 
 ## 下一步
-- 用户验收 5 项修复后，按 AGENT.md 原子提交 apps/webui + docs 改动
-- 待产品确认：direct route 是否同时隐藏底部 Summary 的最终模型回答
+- 重启 API（node apps/api/dist/main.js，dist 已重建）后用真实项目会话验收：多 Task 计划、机械条款判定、失败触发 replan
+- 视需要实现 P1 语义判定（建议按 Task 批量调用 judge）
 
 ## 最近变化
-- 裸代码回答整体按单个代码块渲染（detectRawCode），不再被 marked 拆成 indented code block + 正文
-- deliberation 推理默认折叠为一行；实时推理单行省略；工具输出保持默认展开
-- `negotiation.route === 'direct'` 的直答只展示直答块与最终回答，不展示契约卡片与 Task 块
-- Trace 窄栏只展示当前 run 的契约且默认折叠（最大化仍展示全部 run）；点击行为行展示审批/授权配对详情
-- 审批（系统）/ 授权 / 反馈行为行按 Step 时间窗就地展示在被授权的工具 Step 内：先授权，再接工具结果
-- 从项目菜单进入 Wiki 会同步全局工作区，顶部栏显示当前 Wiki 项目路径
-- 每个有 Project 上下文的 run 结束前，runtime 自动向 `state/current.md` 追加会话活动
-- Wiki 页“初始化/更新”改为后台 Agent 维护任务，并轮询展示运行状态与最终摘要
+- Task Planner 规划前等待 triage、注入同 Conversation 历史、prompt 强化多 Task 拆分；plan.created 带 Task 标题/依赖
+- shell.run 启用 pipefail；sd 等写工具无改动返回失败；失败信号可触发 replan
+- 契约新增机械检查词表：file-exists / file-contains / git-has-commit / command-output-contains；triage 可输出结构化 check；verifier 注入 ConditionEnvironment 端到端判定
+- 文档：docs/core/AHF_CORE_GTS.md §4.1、新增 docs/runtime/AHF_RUNTIME_TASK_PLANNING.md
