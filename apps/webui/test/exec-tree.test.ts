@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
     deliberationRowDecision,
     isDirectRoute,
+    liveStepBodies,
     showContractCard,
-    stepDefaultCollapsed,
+    toggleCollapsedKey,
 } from '../src/scripts/exec-tree.ts';
 
 const base = { kind: 'deliberation', stepId: 's1' };
@@ -44,17 +45,71 @@ describe('exec-tree deliberation row decision', () => {
     });
 });
 
-describe('exec-tree step default collapse', () => {
-    it('collapses deliberation (thinking) rows by default', () => {
-        expect(stepDefaultCollapsed({ kind: 'deliberation' })).toBe(true);
+describe('exec-tree live step bodies', () => {
+    it('puts deliberation thinking and answer into their own slots', () => {
+        expect(liveStepBodies({ kind: 'deliberation', thinking: 'r', answer: 'a' })).toEqual({
+            thinking: 'r',
+            answer: 'a',
+            output: '',
+        });
     });
 
-    it('keeps invocation (tool output) rows expanded by default', () => {
-        expect(stepDefaultCollapsed({ kind: 'invocation' })).toBe(false);
+    it('puts invocation output into the output slot', () => {
+        expect(liveStepBodies({ kind: 'invocation', output: 'done' })).toEqual({
+            thinking: '',
+            answer: '',
+            output: 'done',
+        });
     });
 
-    it('does not collapse unknown step kinds', () => {
-        expect(stepDefaultCollapsed({ kind: 'step' })).toBe(false);
+    it('treats missing and null fields as empty text', () => {
+        expect(liveStepBodies({ kind: 'deliberation' })).toEqual({
+            thinking: '',
+            answer: '',
+            output: '',
+        });
+        expect(liveStepBodies({ kind: 'invocation', output: null })).toEqual({
+            thinking: '',
+            answer: '',
+            output: '',
+        });
+    });
+
+    it('never leaks fields across step kinds', () => {
+        expect(liveStepBodies({ kind: 'deliberation', output: 'x' })).toEqual({
+            thinking: '',
+            answer: '',
+            output: '',
+        });
+        expect(liveStepBodies({ kind: 'invocation', thinking: 'r' })).toEqual({
+            thinking: '',
+            answer: '',
+            output: '',
+        });
+        expect(liveStepBodies({ kind: 'step', thinking: 'r', output: 'x' })).toEqual({
+            thinking: '',
+            answer: '',
+            output: '',
+        });
+    });
+});
+
+describe('exec-tree collapse toggle', () => {
+    it('adds a key that is not collapsed yet', () => {
+        expect([...toggleCollapsedKey(new Set(), 'live-1')]).toEqual(['live-1']);
+    });
+
+    it('removes a key that is already collapsed', () => {
+        expect([...toggleCollapsedKey(new Set(['live-1', 'live-2']), 'live-1')]).toEqual([
+            'live-2',
+        ]);
+    });
+
+    it('returns a new set and leaves the input untouched', () => {
+        const input = new Set(['live-1']);
+        const next = toggleCollapsedKey(input, 'live-2');
+        expect(next).not.toBe(input);
+        expect([...input]).toEqual(['live-1']);
     });
 });
 

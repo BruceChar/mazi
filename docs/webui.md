@@ -271,8 +271,9 @@
 - **裸代码回答**：模型最终回答若整段是源码（无 Markdown 围栏、绝大多数行呈代码特征），按**单个代码块**
   整体渲染（HTML 转义后直接输出 `<pre><code>`），不交给 marked 解析，避免缩进行被拆成 indented code block
   而其余行变成正文（同一段代码被拆散）。判定见 `apps/webui/src/scripts/markdown.ts` 的 `detectRawCode`。
-- **推理默认一行**：deliberation 的 thinking 正文**默认折叠**，行内只留一行摘要，点击行首 toggle 展开；
-  工具调用（invocation）输出保持默认展开。执行中的实时推理（`.live-reasoning`）同样只占一行（省略号截断）。
+- **仅活动推理单行**：执行中正在流式输出的推理（`.live-reasoning`）只占一行（省略号截断）；
+  已完成的思考 / 工具输出 / 正文默认展开，点击行首 toggle 或双击行可折叠。实时执行列表（live）的每个步骤
+  同样支持展开/折叠（默认展开），不会出现"执行中只能看到标题、点不开"的情况。
 - **直答模式不展示契约卡**：`negotiation.route === 'direct'` 的 Goal 只展示「直答」块与最终回答，
   不展示契约卡片与 Task 块（即使快照里带了默认契约与 0 steps 的 Task）。
 - **行为行就地展示**：审批（系统）/ 授权 / 反馈行按 Step 时间窗挂到被授权的那一步：先展示审批/授权，

@@ -12,7 +12,13 @@ import {
     contractSummaryOf,
     ROUTE_LABEL,
 } from '../scripts/contract-view.ts';
-import { deliberationRowDecision, isDirectRoute, showContractCard, stepDefaultCollapsed } from '../scripts/exec-tree.ts';
+import {
+    deliberationRowDecision,
+    isDirectRoute,
+    liveStepBodies,
+    showContractCard,
+    toggleCollapsedKey,
+} from '../scripts/exec-tree.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { copyThinkingChain, ui } from '../scripts/store.ts';
 
@@ -369,11 +375,12 @@ function buildExecStats(detailObj) {
 /* ---- Collapse state ---- */
 const collapsedGoals = ref(new Set());
 const collapsedTasks = ref(new Set());
-// Two independent override sets, one per default state: deliberation (thinking)
-// is collapsed by default, invocation (tool output) is expanded by default.
-// Each set records only the rows where the user explicitly flipped the default.
+// Settled step rows are expanded by default; this set only records the rows the
+// user explicitly collapsed (click toggle or double-click the row).
 const collapsedSteps = ref(new Set());
-const expandedSteps = ref(new Set());
+// Live rows collapse independently: the live tree only exists while the run is
+// streaming, so its keys disappear together with the settled snapshot handover.
+const liveCollapsed = ref(new Set());
 function toggleGoal(goalId) {
     const s = new Set(collapsedGoals.value);
     s.has(goalId) ? s.delete(goalId) : s.add(goalId);
@@ -385,10 +392,12 @@ function toggleTask(taskId) {
     collapsedTasks.value = s;
 }
 function toggleStepCollapse(row) {
-    const target = stepDefaultCollapsed(row) ? expandedSteps : collapsedSteps;
-    const s = new Set(target.value);
-    s.has(row.key) ? s.delete(row.key) : s.add(row.key);
-    target.value = s;
+    collapsedSteps.value = toggleCollapsedKey(collapsedSteps.value, row.key);
+}
+/** Live step toggle; no-op when the step has no body to show. */
+function toggleLiveStep(entry) {
+    if (!entry.collapsible) return;
+    liveCollapsed.value = toggleCollapsedKey(liveCollapsed.value, entry.step.stepId);
 }
 
 /* ---- Step helpers ---- */
@@ -398,12 +407,10 @@ function isStepLong(row) {
     if (row.kind === 'invocation') return true;
     return row.text.length > 80 || row.text.includes('\n');
 }
-/** Body visible? Deliberation is expanded by the user; invocation shows by default. */
+/** Body visible? Every row starts expanded; only a manual collapse hides it. */
 function isStepExpanded(row) {
     if (!isStepLong(row)) return false;
-    return stepDefaultCollapsed(row)
-        ? expandedSteps.value.has(row.key)
-        : !collapsedSteps.value.has(row.key);
+    return !collapsedSteps.value.has(row.key);
 }
 function isStepCollapsed(row) {
     return isStepLong(row) && !isStepExpanded(row);
@@ -442,7 +449,17 @@ const livePlaced = computed(() => {
     const rows = behaviorRowsOf(windows, props.runDetail?.behaviors || []);
     const placed = placeBehaviors(windows, rows);
     return {
-        steps: placed.steps.map((entry) => ({ step: entry.step.step, behaviors: entry.behaviors })),
+        steps: placed.steps.map((entry) => {
+            const step = entry.step.step;
+            const bodies = liveStepBodies(step);
+            return {
+                step,
+                behaviors: entry.behaviors,
+                bodies,
+                // A row is collapsible only when it has body text to hide.
+                collapsible: Boolean(bodies.thinking || bodies.answer || bodies.output),
+            };
+        }),
         trailing: placed.trailing,
     };
 });
@@ -459,8 +476,26 @@ const livePlaced = computed(() => {
             :class="[`exec-${entry.step.kind}`, { error: entry.step.status === 'error' || entry.step.status === 'failed', selected: entry.step.stepId === selectedStepId }]"
             @click="emit('select-step', { stepId: entry.step.stepId, taskId: entry.step.taskId })"
         >
-            <div class="exec-step-head">
-                <span v-if="entry.step.status === 'active'" class="exec-spinner"></span>
+            <div
+                class="exec-step-head"
+                title="单击查看审计 · 双击折叠/展开"
+                @dblclick="toggleLiveStep(entry)"
+            >
+                <button
+                    v-if="entry.collapsible"
+                    class="exec-step-toggle"
+                    :class="{ collapsed: liveCollapsed.has(entry.step.stepId) }"
+                    :title="liveCollapsed.has(entry.step.stepId) ? '展开' : '折叠'"
+                    @click.stop="toggleLiveStep(entry)"
+                >
+                    <LineIcon
+                        class="kind-icon"
+                        :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'"
+                        size="16"
+                    />
+                    <span class="toggle-mark">{{ liveCollapsed.has(entry.step.stepId) ? '+' : '−' }}</span>
+                </button>
+                <span v-else-if="entry.step.status === 'active'" class="exec-spinner"></span>
                 <LineIcon v-else :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'" size="16" />
                 <span class="exec-step-tag">S#{{ i + 1 }}</span>
                 <span class="exec-step-name">{{ entry.step.toolName || entry.step.kind }}</span>
@@ -483,6 +518,20 @@ const livePlaced = computed(() => {
                     <span class="exec-behavior-time">{{ fmtTime(behavior.at) }}</span>
                 </div>
             </div>
+            <!-- 实时正文（默认展开）：deliberation 的 thinking / answer、invocation 的 output -->
+            <template v-if="entry.collapsible && !liveCollapsed.has(entry.step.stepId)">
+                <div v-if="entry.bodies.thinking" class="exec-step-code">
+                    <pre class="exec-step-code-inner">{{ entry.bodies.thinking }}</pre>
+                </div>
+                <div
+                    v-if="entry.bodies.answer"
+                    class="exec-intent-inline markdown-body"
+                    v-html="renderMarkdown(entry.bodies.answer)"
+                ></div>
+                <div v-if="entry.bodies.output" class="exec-step-code">
+                    <pre class="exec-step-code-inner">{{ entry.bodies.output }}</pre>
+                </div>
+            </template>
         </div>
         <div v-if="livePlaced.trailing.length" class="exec-step-behaviors">
             <div

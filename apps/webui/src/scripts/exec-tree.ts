@@ -36,17 +36,46 @@ export function deliberationRowDecision(
     };
 }
 
-/** 折叠判定的最小输入（行或 step 都满足）。 */
-export interface StepCollapseLike {
+/** Live step shape (subset of store LiveStep) needed to render its body. */
+export interface LiveStepBodyLike {
     kind: string;
+    thinking?: string | null;
+    answer?: string | null;
+    output?: string | null;
+}
+
+/** Body slots of one live step; an empty string means "nothing in this slot". */
+export interface LiveStepBodies {
+    thinking: string;
+    answer: string;
+    output: string;
 }
 
 /**
- * 是否默认折叠正文：模型推理（deliberation 的 thinking）默认只留一行摘要，
- * 点击行首 toggle 才展开；工具调用（invocation）保持默认展开。
+ * Split a live step into the body slots rendered while the run streams:
+ * deliberation shows thinking + answer, invocation shows the tool output.
+ * Fields belonging to another kind are ignored so tool output never leaks
+ * into a deliberation row (and vice versa).
  */
-export function stepDefaultCollapsed(row: StepCollapseLike): boolean {
-    return row.kind === 'deliberation';
+export function liveStepBodies(step: LiveStepBodyLike): LiveStepBodies {
+    if (step.kind === 'deliberation') {
+        return { thinking: step.thinking ?? '', answer: step.answer ?? '', output: '' };
+    }
+    if (step.kind === 'invocation') {
+        return { thinking: '', answer: '', output: step.output ?? '' };
+    }
+    return { thinking: '', answer: '', output: '' };
+}
+
+/**
+ * Toggle one row key in a collapse set. Returns a new Set so Vue refs observe
+ * the change; the input set is never mutated.
+ */
+export function toggleCollapsedKey(collapsed: ReadonlySet<string>, key: string): Set<string> {
+    const next = new Set(collapsed);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
 }
 
 /** 只带协商轨迹的 Goal 形状（直答判定只依赖 route）。 */
