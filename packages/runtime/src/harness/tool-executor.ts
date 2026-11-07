@@ -385,6 +385,23 @@ export async function runShellTool(
             message?: string;
         };
 
+        // SIGPIPE (exit 141) usually means a downstream consumer closed early
+        // (e.g. `git log | head -3`). The command itself ran; do not report a failure.
+        if (!err.killed && (err.code === 141 || err.signal === 'SIGPIPE')) {
+            const piped = [String(err.stdout ?? '').trim(), String(err.stderr ?? '').trim()]
+                .filter(Boolean)
+                .join('\n');
+            return {
+                ok: true,
+                content: [
+                    piped,
+                    '[exit 141: SIGPIPE ignored; downstream consumer closed early]',
+                ]
+                    .filter((part) => part.length > 0)
+                    .join('\n'),
+            };
+        }
+
         const details: string[] = [];
         if (err.killed) details.push(`Command timed out after ${timeoutMs}ms`);
         if (typeof err.code === 'number') details.push(`exit code ${err.code}`);

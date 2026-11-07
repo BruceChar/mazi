@@ -145,3 +145,14 @@ describe.skipIf(!SD_BIN)('sd 无改动检测（expectMutation）', () => {
         expect(res.error).toBeTruthy();
     });
 });
+
+describe('shell.run · SIGPIPE', () => {
+    it('下游提前关闭（| head）不算命令失败', async () => {
+        const workspace = tempDir('mazi-shell-sigpipe-');
+        const res = await runShellTool({ command: 'yes mazi | head -1' }, workspace);
+        expect(res.ok).toBe(true);
+        expect(res.content).toContain('mazi');
+        expect(res.content).toContain('SIGPIPE ignored');
+    });
+});
+
