@@ -6,7 +6,7 @@
 text = "GET /api/wiki returns a repository-backed v2 document and claim view while preserving legacy fields."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "bb8a2f41343f28c102254245e1529f4185e40d19" },
+  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "1e7b2381ef0f34bc16d5bc120c41a3d2ad6aca51" },
   { file = "apps/api/src/wiki/repository.ts", oid = "b8bf7e197e1f7afc98337a504bdd76fb4d065f0e" },
 ]
 established = 2026-11-07
