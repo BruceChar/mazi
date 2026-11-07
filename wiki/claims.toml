@@ -86,3 +86,14 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-07
+
+[claims.runtime-task-planning-triage-order]
+text = "HarnessRuntime awaits the in-flight async triage before generating a Task plan, forwards conversation history into the planner prompt, and plan.created events carry task titles plus dependencies for auditing."
+status = "active"
+evidence = [
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "707400b671cf96a5a496c2919d38c5c95f0a2217" },
+  { file = "packages/runtime/src/gts/task-planner.ts", oid = "f5b84326f9e86809aba770cd3e7c15a0a47535b0" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "21b6cd6a89fb682103d3c3e7673c13851a7d3ec8" },
+]
+established = 2026-11-07
+verified = 2026-11-07
