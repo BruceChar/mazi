@@ -125,9 +125,9 @@ verified = 2026-11-07
 text = "The project Wiki UI places the complete state/current document below the KPI row, makes active and attention fact counts open claim/evidence details, shows second-level update times, and displays background operation trace and stall status in the right column."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "08f33e366e5fe67c13d7a8f11b3115c95c84d4b2" },
-  { file = "apps/webui/src/scripts/wiki.ts", oid = "9776cf1ab70b9f260cd59f06c3d654e42b909a34" },
-  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "bcec80c71729921bff44d5cb4241954eeb674eee" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "bbdeac040ea900342b0bd07b40ed6e382579162c" },
+  { file = "apps/webui/src/scripts/wiki.ts", oid = "b270425daf032a7ccaef88aea7c012e2682cd1d1" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "addb8682d2a10dd5dc4dfb208857128e6e74a34e" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
