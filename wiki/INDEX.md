@@ -28,12 +28,12 @@
 
 ## 最近更新
 <!-- recent:start -->
+- 361b959 2026-11-07 wiki(claim): verify project-wiki-maintenance-actions
+- 9c0034b 2026-11-07 wiki(claim): verify wiki-ui-repository-view
+- a9165fc 2026-11-07 wiki(claim): verify wiki-ui-three-pane
+- 73e38d5 2026-11-07 wiki(claim): verify wiki-ui-repository-view
+- df74ab9 2026-11-07 wiki(claim): add project-wiki-maintenance-actions
+- 0a80083 2026-11-07 wiki(checkpoint): sync state & index
 - a7bdab6 2026-11-07 wiki(claim): verify project-wiki-run-activity
 - f84bd6f 2026-11-07 wiki(checkpoint): sync state & index
-- 634cf5e 2026-11-07 wiki(claim): verify wiki-init-domain-neutral-template
-- 4520a9f 2026-11-07 wiki(claim): add project-wiki-run-activity
-- d730cfc 2026-11-07 wiki(claim): add wiki-entry-syncs-workspace
-- f1444de 2026-11-07 wiki(run): record session activity
-- 6cf8640 2026-11-07 wiki(run): record session activity
-- bc1a130 2026-11-07 wiki(run): record session activity
 <!-- recent:end -->
