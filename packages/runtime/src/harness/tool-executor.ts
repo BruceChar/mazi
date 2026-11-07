@@ -1,5 +1,5 @@
 import { access, readFile, realpath, stat } from 'node:fs/promises';
-import { resolve, sep } from 'node:path';
+import { basename, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 // import { type ToolCallResult } from '../config.js';
 import { ToolResult } from '@mazi/core';
@@ -104,6 +104,69 @@ export async function fsReadToolImpl(
     }
 }
 
+/** Extended CLI spec: optional mutation expectation (kept local to avoid touching the config schema). */
+type MutationAwareCommandSpec = CliCommandSpec & { expectMutation?: boolean };
+
+/**
+ * Commands whose success must be proven by a file change.
+ * Some CLIs (notably `sd`) exit 0 even when their pattern does not match, silently doing nothing.
+ */
+const MUTATING_FILE_BINS = new Set(['sd']);
+
+function expectsFileMutation(spec: MutationAwareCommandSpec): boolean {
+    // Match on the binary name so an absolute path (e.g. /opt/homebrew/bin/sd) is recognised too.
+    return spec.expectMutation === true || MUTATING_FILE_BINS.has(basename(spec.bin));
+}
+
+interface FileSnapshot {
+    exists: boolean;
+    content?: string;
+}
+
+/** Best-effort mutation target: the resolved `path` argument (e.g. the file `sd` writes). */
+function resolveMutationTarget(
+    args: Record<string, unknown>,
+    rootAbs: string,
+): { absolutePath: string } | undefined {
+    const path = typeof args.path === 'string' ? args.path : undefined;
+    if (!path) return undefined;
+    const absolutePath = resolve(rootAbs, path);
+    const inside = absolutePath === rootAbs || absolutePath.startsWith(rootAbs + sep);
+    return inside ? { absolutePath } : undefined;
+}
+
+/** Snapshot a file before a mutating command; undefined means "cannot verify" (skip detection). */
+async function snapshotFile(absolutePath: string): Promise<FileSnapshot | undefined> {
+    try {
+        const stats = await stat(absolutePath);
+        if (!stats.isFile() || stats.size > 10 * 1024 * 1024) return undefined;
+        return { exists: true, content: await readFile(absolutePath, 'utf8') };
+    } catch (error) {
+        return (error as { code?: string }).code === 'ENOENT' ? { exists: false } : undefined;
+    }
+}
+
+/**
+ * Detects mutating commands that report success without changing their target file.
+ * Returns an error message for a swallowed failure, or undefined when the file changed (or cannot
+ * be verified, in which case the command result is trusted).
+ */
+async function detectMissingMutation(
+    spec: MutationAwareCommandSpec,
+    target: { absolutePath: string } | undefined,
+    before: FileSnapshot | undefined,
+): Promise<string | undefined> {
+    if (target === undefined || before === undefined) return undefined;
+    const after = await snapshotFile(target.absolutePath);
+    if (after === undefined) return undefined;
+    const label = basename(spec.bin);
+    if (!after.exists) return `no change: target file does not exist (${label})`;
+    if (before.exists && before.content === after.content) {
+        return `no change: pattern did not match (${label})`;
+    }
+    return undefined;
+}
+
 /**
  * Executes a CLI tool with arguments defined in a spec.
  *
@@ -180,6 +243,13 @@ export async function runCliTool(
     }
 
     const maxChars = spec.maxOutputChars ?? 40_000;
+    // Mutating tools (e.g. sd) may exit 0 without changing the target: snapshot it to verify later.
+    const mutationTarget = expectsFileMutation(spec)
+        ? resolveMutationTarget(args, rootAbs)
+        : undefined;
+    const mutationBefore = mutationTarget
+        ? await snapshotFile(mutationTarget.absolutePath)
+        : undefined;
 
     try {
         const { stdout, stderr } = await execFileAsync(spec.bin, argv, {
@@ -188,6 +258,9 @@ export async function runCliTool(
             maxBuffer: 8 * 1_048_576, // 8MB buffer
             encoding: 'utf8',
         });
+
+        const mutationError = await detectMissingMutation(spec, mutationTarget, mutationBefore);
+        if (mutationError) return { ok: false, error: mutationError };
 
         // Combine stdout and stderr, but prioritize content for the agent
         const text = String(stdout ?? '').trim();
@@ -217,6 +290,12 @@ export async function runCliTool(
                     maxBuffer: 1_048_576, // 1MB buffer for retry
                     encoding: 'utf8',
                 });
+                const mutationError = await detectMissingMutation(
+                    spec,
+                    mutationTarget,
+                    mutationBefore,
+                );
+                if (mutationError) return { ok: false, error: mutationError };
                 const text = String(stdout ?? '').trim();
                 return {
                     ok: true,
@@ -244,7 +323,9 @@ export async function runCliTool(
 }
 
 /**
- * Executes arbitrary shell commands (bash -lc) within the workspace.
+ * Executes arbitrary shell commands (bash -o pipefail -lc) within the workspace.
+ * pipefail is required so a failing command inside a pipeline (e.g. `cargo test | tail`)
+ * still surfaces its exit code instead of being masked by the last pipeline element.
  *
  * WARNING: This runs in a shell environment. While `cwd` is set,
  * filesystem access is not strictly sandboxed beyond the CWD.
@@ -272,7 +353,7 @@ export async function runShellTool(
     const MAX_OUTPUT = 60_000;
 
     try {
-        const { stdout, stderr } = await execFileAsync('bash', ['-lc', command], {
+        const { stdout, stderr } = await execFileAsync('bash', ['-o', 'pipefail', '-lc', command], {
             cwd,
             timeout: timeoutMs,
             maxBuffer: 16 * 1_048_576,
