@@ -65,6 +65,7 @@ describe('~/.mazi 用户目录路径（设计文档 §1 / U1 U2）', () => {
         expect(existsSync(p.home)).toBe(true);
         expect(existsSync(p.eventDir)).toBe(true);
         expect(existsSync(p.experimentsEventDir)).toBe(true);
+        expect(existsSync(p.wikiDir)).toBe(false);
     });
 });
 

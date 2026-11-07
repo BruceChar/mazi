@@ -116,7 +116,6 @@ export function ensureMaziDirs(home = maziHome()): MaziPaths {
     mkdirSync(paths.skillsDir, { recursive: true });
     mkdirSync(paths.experimentsDir, { recursive: true });
     mkdirSync(paths.experimentsEventDir, { recursive: true });
-    mkdirSync(paths.wikiDir, { recursive: true });
     return paths;
 }
 
