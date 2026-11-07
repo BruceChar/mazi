@@ -54,3 +54,12 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-07
+
+[claims.wiki-entry-syncs-workspace]
+text = "Opening a project wiki from the project menu switches the global workspace so the top bar shows that wiki project's path."
+status = "active"
+evidence = [
+  { file = "apps/webui/src/App.vue", oid = "4c27a29ff2ef79918ba74236b3240c0b6e36c8a8" },
+]
+established = 2026-11-07
+verified = 2026-11-07

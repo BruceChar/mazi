@@ -13,3 +13,6 @@ TODO
 - `GET /api/wiki` 同时返回兼容字段和 `repository` 只读视图；后者包含 Markdown 文档、
   claims 状态、摘要计数与最近知识提交。
 - WebUI 采用“文档导航 / Markdown 正文 / 状态与事实证据”三栏布局，窄屏改为纵向流。
+- 从项目菜单进入 Wiki 时，WebUI 同时切换全局工作区，顶部栏显示当前 Wiki 项目路径。
+- 项目 run 结束前，runtime 调用 `wiki.py record` 将活动确定性追加到 `state/current.md`；
+  测试环境默认跳过，避免污染真实仓库。
