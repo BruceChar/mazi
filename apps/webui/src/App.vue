@@ -61,9 +61,11 @@ import {
     resumeRun,
     runOutcomes,
     clearAuditSelection,
+    selectBehavior,
     selectStep,
     selectTask,
     selectWorkspace,
+    selectedBehavior,
     selectedStepId,
     selectedTaskId,
     refreshPricing,
@@ -318,6 +320,8 @@ const auditView = computed(() =>
         liveSteps: auditLiveSteps.value,
         stepId: selectedStepId.value,
         taskId: selectedTaskId.value,
+        behaviorTs: selectedBehavior.value?.ts,
+        behaviorRootGoalId: selectedBehavior.value?.rootGoalId,
         conversationTitle: conversationTitle(activeConversation.value),
     }),
 );
@@ -425,6 +429,13 @@ async function refreshPricingNow(vendor) {
 function onSelectStep(target) {
     if (!target?.stepId) return;
     selectStep(target.stepId, target.taskId);
+    drawerTab.value = 'trace';
+}
+
+/** Behavior row click: show its approval/authorization detail in the Trace panel. */
+function onSelectBehavior(payload) {
+    if (!payload?.rootGoalId || typeof payload.ts !== 'number') return;
+    selectBehavior(payload.rootGoalId, payload.ts);
     drawerTab.value = 'trace';
 }
 
@@ -1000,6 +1011,7 @@ onBeforeUnmount(() => {
                     :selected-task-id="selectedTaskId"
                     @select-step="onSelectStep"
                     @select-task="onSelectTask"
+                    @select-behavior="onSelectBehavior"
                     @use-suggestion="useSuggestion"
                     @update:prompt="prompt = $event"
                     @submit="submitPrompt"

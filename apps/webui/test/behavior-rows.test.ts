@@ -47,6 +47,14 @@ describe('behavior-rows（用户行为指令 → 执行流行）', () => {
         expect(rows[1]?.summary).toBe('拒绝 · 800ms');
     });
 
+    it('行为行携带原始行为事件（供点击后 Trace 详情使用）', () => {
+        const approval = behavior(10, 'approval', { summary: 'shell.run: ls' });
+        const authorization = behavior(20, 'authorization', { decision: 'granted' });
+        const rows = behaviorRowsOf([], [approval, authorization]);
+        expect(rows[0]?.behavior).toBe(approval);
+        expect(rows[1]?.behavior).toBe(authorization);
+    });
+
     it('groupBehaviorsByTask：按时窗分组，反馈落末组', () => {
         const rows = behaviorRowsOf(
             [],

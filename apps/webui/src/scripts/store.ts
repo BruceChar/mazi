@@ -294,10 +294,25 @@ export const liveSteps = reactive<Record<string, LiveStep[]>>({});
 export const selectedStepId = ref<string>('');
 export const selectedTaskId = ref<string>('');
 
+/**
+ * Selected behavior row (Trace detail of an approval/authorization).
+ * `rootGoalId` scopes the run; `ts` identifies the row in its behavior stream.
+ */
+export const selectedBehavior = ref<{ rootGoalId: string; ts: number } | null>(null);
+
+/** Select a behavior row (opening the audit panel on its Trace detail). */
+export function selectBehavior(rootGoalId: string, ts: number): void {
+    selectedStepId.value = '';
+    selectedTaskId.value = '';
+    selectedBehavior.value = { rootGoalId, ts };
+    ui.rightOpen = true;
+}
+
 /** Select a Step (opening the audit panel); taskId keeps sibling context. */
 export function selectStep(stepId: string, taskId?: string): void {
     selectedStepId.value = stepId;
     selectedTaskId.value = taskId ?? '';
+    selectedBehavior.value = null;
     ui.rightOpen = true;
 }
 
@@ -305,6 +320,7 @@ export function selectStep(stepId: string, taskId?: string): void {
 export function selectTask(taskId: string): void {
     selectedStepId.value = '';
     selectedTaskId.value = taskId;
+    selectedBehavior.value = null;
     ui.rightOpen = true;
 }
 
@@ -312,6 +328,7 @@ export function selectTask(taskId: string): void {
 export function clearAuditSelection(): void {
     selectedStepId.value = '';
     selectedTaskId.value = '';
+    selectedBehavior.value = null;
 }
 
 export const esc = (s: unknown): string =>
@@ -652,6 +669,7 @@ export function stopEvents(): void {
     liveStreams.value = {};
     for (const key of Object.keys(liveSteps)) delete liveSteps[key];
     approvals.value = [];
+    selectedBehavior.value = null;
 }
 
 export function watchEvents(rootGoalId: string): void {

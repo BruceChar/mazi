@@ -56,6 +56,7 @@ const emit = defineEmits([
     'update:permission',
     'select-step',
     'select-task',
+    'select-behavior',
     'respond-approval',
 ]);
 
@@ -232,6 +233,7 @@ onMounted(() => {
                                 :chat-mode="!activeConversation?.workspace"
                                 @select-step="emit('select-step', $event)"
                                 @select-task="emit('select-task', $event)"
+                                @select-behavior="emit('select-behavior', $event)"
                             />
                         </div>
                     </template>

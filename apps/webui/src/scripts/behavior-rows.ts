@@ -16,6 +16,8 @@ export interface BehaviorRow {
     icon: string;
     label: string;
     summary: string;
+    /** Original behavior event (rendered as Trace detail when the row is clicked). */
+    behavior: UserBehaviorView;
 }
 
 export type RenderableBehaviorType = BehaviorRow['type'];
@@ -77,6 +79,7 @@ function toRow(behavior: UserBehaviorView): BehaviorRow {
         icon: iconOf(behavior),
         label: labelOf(type),
         summary: summaryOf(behavior),
+        behavior,
     };
 }
 

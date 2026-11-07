@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import { formatTokens } from '../scripts/audit.ts';
+import { placeBehaviors } from '../scripts/behavior-placement.ts';
 import { behaviorRowsOf, groupBehaviorsByTask } from '../scripts/behavior-rows.ts';
 import {
     acceptanceBadge,
@@ -28,8 +29,15 @@ const props = defineProps({
     /** 随心聊：只展示对话输出，不展示 GoalContract。 */
     chatMode: { type: Boolean, default: false },
 });
-/** Open the right-side audit panel for the clicked Step/Task. */
-const emit = defineEmits(['select-step', 'select-task']);
+/** Open the right-side audit panel for the clicked Step/Task/Behavior. */
+const emit = defineEmits(['select-step', 'select-task', 'select-behavior']);
+
+/** Click a behavior row → show its approval/authorization details in Trace. */
+function selectBehavior(behavior) {
+    const rootGoalId = props.runDetail?.rootGoalId;
+    if (!rootGoalId) return;
+    emit('select-behavior', { rootGoalId, ts: behavior.at });
+}
 
 /* ---- 快捷入口：复制该 Task 的 thinking 链（TOC）到剪贴板 ---- */
 const copiedTaskId = ref('');
@@ -260,6 +268,20 @@ function buildExecTree(detailObj) {
                           goal.contract,
                           task.acceptanceResult,
                       );
+                      const rows = taskStepRows(task, lastAnswerId);
+                      // Place behavior rows (approval / authorization / feedback) on
+                      // the Step whose window contains them: authorization then shows
+                      // before the tool result it gated. Rows matching no step trail
+                      // the task (e.g. feedback after the run).
+                      const placed = placeBehaviors(
+                          rows.map((row) => ({
+                              stepId: row.stepId,
+                              startedAt: row.at,
+                              endedAt: row.endedAt,
+                              status: row.status,
+                          })),
+                          behaviorsByTask.get(task.taskId) || [],
+                      );
                       return {
                           taskId: task.taskId,
                           title: task.title,
@@ -270,8 +292,11 @@ function buildExecTree(detailObj) {
                           acceptanceTitle: acceptance
                               .map((row) => `${ACCEPTANCE_MARK[row.status]} ${row.judgeLabel} · ${row.text}`)
                               .join('\n'),
-                          steps: taskStepRows(task, lastAnswerId),
-                          behaviors: behaviorsByTask.get(task.taskId) || [],
+                          steps: rows.map((row, index) => ({
+                              ...row,
+                              behaviors: placed.steps[index]?.behaviors || [],
+                          })),
+                          trailingBehaviors: placed.trailing,
                       };
                   }),
         };
@@ -402,6 +427,25 @@ const outputAt = computed(() => {
     }
     return last;
 });
+/**
+ * Live rows with behaviors placed on their time windows: an approval shows up
+ * under the gated tool step as soon as the refreshed snapshot carries it.
+ */
+const livePlaced = computed(() => {
+    const windows = props.liveSteps.map((step) => ({
+        step,
+        stepId: step.stepId,
+        startedAt: step.startedAt,
+        endedAt: step.endedAt ?? null,
+        status: step.status,
+    }));
+    const rows = behaviorRowsOf(windows, props.runDetail?.behaviors || []);
+    const placed = placeBehaviors(windows, rows);
+    return {
+        steps: placed.steps.map((entry) => ({ step: entry.step.step, behaviors: entry.behaviors })),
+        trailing: placed.trailing,
+    };
+});
 </script>
 
 <template>
@@ -409,19 +453,50 @@ const outputAt = computed(() => {
          appended or updated in place, so the layout stays stable. -->
     <div v-if="busy && liveSteps.length" class="exec-stream">
         <div
-            v-for="(step, i) in liveSteps"
-            :key="step.stepId"
+            v-for="(entry, i) in livePlaced.steps"
+            :key="entry.step.stepId"
             class="exec-step"
-            :class="[`exec-${step.kind}`, { error: step.status === 'error' || step.status === 'failed', selected: step.stepId === selectedStepId }]"
-            @click="emit('select-step', { stepId: step.stepId, taskId: step.taskId })"
+            :class="[`exec-${entry.step.kind}`, { error: entry.step.status === 'error' || entry.step.status === 'failed', selected: entry.step.stepId === selectedStepId }]"
+            @click="emit('select-step', { stepId: entry.step.stepId, taskId: entry.step.taskId })"
         >
             <div class="exec-step-head">
-                <span v-if="step.status === 'active'" class="exec-spinner"></span>
-                <LineIcon v-else :name="step.kind === 'deliberation' ? 'lightbulb' : 'hammer'" size="16" />
+                <span v-if="entry.step.status === 'active'" class="exec-spinner"></span>
+                <LineIcon v-else :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'" size="16" />
                 <span class="exec-step-tag">S#{{ i + 1 }}</span>
-                <span class="exec-step-name">{{ step.toolName || step.kind }}</span>
-                <span class="exec-step-summary">{{ step.title || '执行中…' }}</span>
-                <span class="exec-step-time">{{ fmtTime(step.startedAt) }}</span>
+                <span class="exec-step-name">{{ entry.step.toolName || entry.step.kind }}</span>
+                <span class="exec-step-summary">{{ entry.step.title || '执行中…' }}</span>
+                <span class="exec-step-time">{{ fmtTime(entry.step.startedAt) }}</span>
+            </div>
+            <!-- 审批/授权挂到被阻塞的工具 Step 内：先授权，再工具结果 -->
+            <div v-if="entry.behaviors.length" class="exec-step-behaviors">
+                <div
+                    v-for="behavior in entry.behaviors"
+                    :key="behavior.key"
+                    class="exec-behavior clickable"
+                    :class="`exec-behavior-${behavior.type}`"
+                    title="单击在 Trace 面板查看审批/授权详情"
+                    @click.stop="selectBehavior(behavior)"
+                >
+                    <LineIcon :name="behavior.icon" size="14" />
+                    <span class="exec-behavior-tag">{{ behavior.label }}</span>
+                    <span class="exec-behavior-summary">{{ behavior.summary }}</span>
+                    <span class="exec-behavior-time">{{ fmtTime(behavior.at) }}</span>
+                </div>
+            </div>
+        </div>
+        <div v-if="livePlaced.trailing.length" class="exec-step-behaviors">
+            <div
+                v-for="behavior in livePlaced.trailing"
+                :key="behavior.key"
+                class="exec-behavior clickable"
+                :class="`exec-behavior-${behavior.type}`"
+                title="单击在 Trace 面板查看审批/授权详情"
+                @click.stop="selectBehavior(behavior)"
+            >
+                <LineIcon :name="behavior.icon" size="14" />
+                <span class="exec-behavior-tag">{{ behavior.label }}</span>
+                <span class="exec-behavior-summary">{{ behavior.summary }}</span>
+                <span class="exec-behavior-time">{{ fmtTime(behavior.at) }}</span>
             </div>
         </div>
     </div>
@@ -621,6 +696,22 @@ const outputAt = computed(() => {
                                     :title="row.toolArgs ? JSON.stringify(row.toolArgs) : undefined"
                                 >{{ row.kind === 'invocation' ? row.commandText : stepTitleSummary(row) }}</span>
                             </div>
+                            <!-- 审批/授权先于被授权 Step 的结果展示（点击 → Trace 详情） -->
+                            <div v-if="row.behaviors.length" class="exec-step-behaviors">
+                                <div
+                                    v-for="behavior in row.behaviors"
+                                    :key="behavior.key"
+                                    class="exec-behavior clickable"
+                                    :class="`exec-behavior-${behavior.type}`"
+                                    title="单击在 Trace 面板查看审批/授权详情"
+                                    @click.stop="selectBehavior(behavior)"
+                                >
+                                    <LineIcon :name="behavior.icon" size="14" />
+                                    <span class="exec-behavior-tag">{{ behavior.label }}</span>
+                                    <span class="exec-behavior-summary">{{ behavior.summary }}</span>
+                                    <span class="exec-behavior-time">{{ fmtTime(behavior.at) }}</span>
+                                </div>
+                            </div>
                             <div v-if="isStepExpanded(row) && row.text" class="exec-step-code">
                                 <pre class="exec-step-code-inner">{{ row.text }}</pre>
                             </div>
@@ -631,12 +722,14 @@ const outputAt = computed(() => {
                                 v-html="renderMarkdown(row.intentText)"
                             ></div>
                         </div>
-                        <div v-if="task.behaviors.length" class="exec-behaviors">
+                        <div v-if="task.trailingBehaviors.length" class="exec-step-behaviors">
                             <div
-                                v-for="behavior in task.behaviors"
+                                v-for="behavior in task.trailingBehaviors"
                                 :key="behavior.key"
-                                class="exec-behavior"
+                                class="exec-behavior clickable"
                                 :class="`exec-behavior-${behavior.type}`"
+                                title="单击在 Trace 面板查看审批/授权详情"
+                                @click.stop="selectBehavior(behavior)"
                             >
                                 <LineIcon :name="behavior.icon" size="14" />
                                 <span class="exec-behavior-tag">{{ behavior.label }}</span>
@@ -1339,11 +1432,12 @@ const outputAt = computed(() => {
 }
 
 /* ---------- 用户行为指令行（审批 / 授权 / 反馈） ---------- */
-.exec-behaviors {
+.exec-step-behaviors {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    margin: 4px 0 6px 28px;
+    /* Same indent as the step body (exec-step-code / exec-intent-inline). */
+    margin: 2px 8px 4px 14px;
 }
 .exec-behavior {
     display: flex;
@@ -1372,6 +1466,14 @@ const outputAt = computed(() => {
     font-size: 11px;
     color: var(--fg-tertiary);
     flex-shrink: 0;
+}
+/* 行为行可点击：与 step 行一样给出 hover 反馈。 */
+.exec-behavior.clickable {
+    cursor: pointer;
+}
+.exec-behavior.clickable:hover {
+    border-left-color: var(--accent);
+    color: var(--fg);
 }
 .exec-behavior-approval {
     border-left-color: var(--warn);
