@@ -23,3 +23,4 @@
 - 当前状态改为 KPI 下方完整卡片，不再截断为前 5 条。
 - 有效事实/待核验可打开 claim 与 evidence 明细；最近更新时间精确到秒。
 - 后台初始化、更新和 SessionEnd 同步显示 trace、心跳、运行时长与停滞提示。
+- 后台维护只暴露只读工具和受限 `project_wiki`；不再使用 shell.run，因此不会因 rm/git checkout 卡审批。
