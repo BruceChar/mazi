@@ -28,12 +28,12 @@
 
 ## 最近更新
 <!-- recent:start -->
-- f7f3c7d 2026-11-07 wiki(claim): add runtime-tool-failure-signals
-- 7f7b348 2026-11-07 wiki(claim): add contract-mechanical-checks-v2
-- 80ad84e 2026-11-07 wiki(claim): add runtime-task-planning-triage-order
-- ec3d3f7 2026-11-07 wiki(checkpoint): sync state & index
-- 8819867 2026-11-07 wiki(claim): verify wiki-ui-three-pane
-- aa74a93 2026-11-07 wiki(claim): verify wiki-ui-repository-view
-- f0c6063 2026-11-07 wiki(claim): update project-wiki-maintenance-actions
-- 00bc5fc 2026-11-07 wiki(claim): update project-wiki-run-activity
+- d8206df 2026-11-07 21:44:16 wiki(claim): verify wiki-init-domain-neutral-template
+- 87a8016 2026-11-07 21:44:12 wiki(claim): verify wiki-ui-three-pane
+- 833e4a7 2026-11-07 21:44:08 wiki(claim): verify project-wiki-run-activity
+- 2a47b68 2026-11-07 21:44:03 wiki(claim): add wiki-ui-current-status-facts-trace
+- 8b8e2f4 2026-11-07 21:43:59 wiki(claim): update project-wiki-maintenance-actions
+- ad04602 2026-11-07 21:30:33 wiki(checkpoint): sync state & index
+- f7f3c7d 2026-11-07 21:30:16 wiki(claim): add runtime-tool-failure-signals
+- 7f7b348 2026-11-07 21:30:15 wiki(claim): add contract-mechanical-checks-v2
 <!-- recent:end -->
