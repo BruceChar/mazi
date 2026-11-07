@@ -16,3 +16,5 @@ TODO
 - 从项目菜单进入 Wiki 时，WebUI 同时切换全局工作区，顶部栏显示当前 Wiki 项目路径。
 - 项目 run 结束前，runtime 调用 `wiki.py record` 将活动确定性追加到 `state/current.md`；
   测试环境默认跳过，避免污染真实仓库。
+- Wiki 页的“初始化”和“更新”通过 `/api/wiki/init|update` 启动隐藏项目 Agent；
+  `/api/wiki/operations/:id` 轮询后台状态，完成后页面自动重新读取文档与 claims。

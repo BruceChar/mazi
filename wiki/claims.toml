@@ -74,3 +74,15 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-07
+
+[claims.project-wiki-maintenance-actions]
+text = "The Wiki page starts hidden workspace-write Agent goals for init and update, polls operation status, and refreshes repository content after completion; update explicitly verifies or rewrites claims and evidence oids."
+status = "active"
+evidence = [
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "ea418638bd90060b9797ed71bddd97cdde717ef9" },
+  { file = "apps/api/src/sessions/sessions.service.ts", oid = "2e83e6da1831a154a0a4d9c3a316306e3c7184ad" },
+  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "bb8a2f41343f28c102254245e1529f4185e40d19" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "6ffcadc70fe65df638363ef9ff4fef8fe07f1c8c" },
+]
+established = 2026-11-07
+verified = 2026-11-07
