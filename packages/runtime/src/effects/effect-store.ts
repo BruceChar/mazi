@@ -146,6 +146,7 @@ export function effectPathsForTool(
     tool: { name: string; sideEffects: readonly string[] },
     args: Record<string, unknown>,
 ): string[] {
+    if (tool.name === 'fs.read') return [];
     if (!tool.sideEffects.includes('fs')) return [];
     if (tool.name === 'git' || tool.name === 'shell.run') return [];
     return typeof args.path === 'string' && args.path.length > 0 ? [args.path] : [];

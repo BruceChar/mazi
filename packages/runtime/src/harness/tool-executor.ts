@@ -59,6 +59,7 @@ async function installCliTool(spec: CliCommandSpec): Promise<{ ok: boolean; erro
 export async function fsReadToolImpl(
     args: Record<string, unknown>,
     workspaceRoot?: string,
+    additionalRoots: readonly string[] = [],
 ): Promise<{ ok: boolean; content?: unknown; error?: string; retryable?: boolean }> {
     const path = typeof args.path === 'string' ? args.path : undefined;
     if (!path) {
@@ -81,12 +82,16 @@ export async function fsReadToolImpl(
 
         // Safety 2: Prevent symlink attacks by resolving the real path
         const realPath = await realpath(absolutePath);
-        const realRoot = await realpath(rootAbs);
-
-        if (!realPath.startsWith(realRoot + sep) && realPath !== realRoot) {
+        const allowedRoots = await Promise.all(
+            [rootAbs, ...additionalRoots].map((root) => realpath(resolve(root))),
+        );
+        const allowed = allowedRoots.some(
+            (root) => realPath === root || realPath.startsWith(root + sep),
+        );
+        if (!allowed) {
             return {
                 ok: false,
-                error: 'Path resolves outside of workspace (symlink restriction)',
+                error: 'Path is outside the workspace and mounted skill directories',
                 retryable: false,
             };
         }

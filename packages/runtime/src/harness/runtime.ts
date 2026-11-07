@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type {
     EventBus,
@@ -1381,6 +1381,7 @@ export class HarnessRuntime {
     } {
         // Each run pins one registry snapshot; dynamic registration affects future runs.
         const toolSnapshot = this.toolRegistry.snapshot();
+        const skillReadRoots = this.skillReadRoots(rootGoalId, goalId, activeSkillIds);
         const merged: ToolConfig[] = toolSnapshot.tools;
         // 项目 wiki 内置工具（wiki.read 只读免审批；wiki.update 归写能力，走既有判权）。
         if (this.wiki.enabled && !activeSkillIds.includes('project-wiki')) {
@@ -1400,7 +1401,8 @@ export class HarnessRuntime {
             taskId: goalId,
             level,
             tools: merged,
-            execute: (tool, args, ctx) => this.executeEffectful(tool, args, ctx),
+            execute: (tool, args, ctx) =>
+                this.executeEffectful(tool, args, ctx, skillReadRoots),
             ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
             audit: new RuntimePolicyAuditSink({ emit: (event) => this.bus.emit(event) }),
             ...(this.approvalSeam ? { approval: this.approvalSeam } : {}),
@@ -1741,6 +1743,20 @@ export class HarnessRuntime {
         ].join('\n');
     }
 
+    private skillReadRoots(
+        rootGoalId: string,
+        goalId: string,
+        skillIds: readonly string[],
+    ): string[] {
+        const context = { rootGoalId, goalId };
+        const entries =
+            this.skillProvider?.catalogFor?.(skillIds, context) ??
+            (this.skillProvider?.catalog(context) ?? []).filter((entry) =>
+                skillIds.includes(entry.id),
+            );
+        return [...new Set(entries.map((entry) => dirname(entry.path)))];
+    }
+
     /** 运行边界开关审计：本次运行带了哪些 Feature、值从哪来（flag.evaluated）。 */
     private emitFlagEvent(
         rootGoalId: string,
@@ -1788,9 +1804,15 @@ export class HarnessRuntime {
     private async executeToolConfig(
         tool: ToolConfig | undefined,
         args: Record<string, unknown>,
+        skillReadRoots: readonly string[] = [],
     ): Promise<ToolCallResult> {
         const toolName = tool?.name ?? '';
-        if (this.workspaceRoot !== undefined && toolName !== 'shell.run' && toolName !== 'git') {
+        if (
+            this.workspaceRoot !== undefined &&
+            toolName !== 'shell.run' &&
+            toolName !== 'git' &&
+            toolName !== 'fs.read'
+        ) {
             for (const key of ['path', 'a', 'b']) {
                 const value = args[key];
                 if (typeof value === 'string' && value.length > 0) {
@@ -1806,7 +1828,7 @@ export class HarnessRuntime {
             }
         }
         if (toolName === 'fs.read') {
-            const res = await fsReadToolImpl(args, this.workspaceRoot);
+            const res = await fsReadToolImpl(args, this.workspaceRoot, skillReadRoots);
             return res.ok
                 ? { ok: true, content: String(res.content ?? '') }
                 : { ok: false, error: res.error ?? 'tool failed' };
@@ -1837,6 +1859,7 @@ export class HarnessRuntime {
         tool: ToolConfig,
         args: Record<string, unknown>,
         ctx?: { identifiers?: import('@mazi/core').AuditIdentifiers },
+        skillReadRoots: readonly string[] = [],
     ): Promise<ToolCallResult> {
         const identifiers = ctx?.identifiers;
         const paths = this.workspaceRoot !== undefined ? effectPathsForTool(tool, args) : [];
@@ -1844,7 +1867,7 @@ export class HarnessRuntime {
             paths.length > 0 && this.workspaceRoot !== undefined
                 ? snapshotFiles(this.workspaceRoot, paths)
                 : [];
-        const result = await this.executeToolConfig(tool, args);
+        const result = await this.executeToolConfig(tool, args, skillReadRoots);
         if (before.length > 0 && identifiers !== undefined) {
             await this.effectStore.append(
                 newEffectRecord({
