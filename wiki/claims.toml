@@ -68,9 +68,9 @@ verified = 2026-11-07
 text = "Each project SessionEnd enqueues a per-workspace background sync without blocking the foreground response; the worker records session activity first, then launches a hidden Agent to update durable wiki content and claims only when warranted."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "4cab06aa3ccf5efd6088b8b516cef4bdc4c4c2be" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "0a846edc06024cf53b968241d63155896545e952" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "b9f085d2e56840496e279783ca4018e375ed78a3" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "0faca2ae96058832ee55255f5388c106844e0134" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
