@@ -28,6 +28,8 @@
 
 ## 最近更新
 <!-- recent:start -->
+- 32ab9bd 2026-11-07 wiki(claim): verify wiki-ui-repository-view
+- 6cbdc3e 2026-11-07 wiki(checkpoint): sync state & index
 - 1f19da9 2026-11-07 wiki(claim): add wiki-init-domain-neutral-template
 - a1ca9a7 2026-11-07 wiki(claim): update wiki-ui-three-pane
 - c4b1ec7 2026-11-07 wiki(claim): update wiki-ui-repository-view
