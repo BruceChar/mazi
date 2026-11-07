@@ -11,7 +11,7 @@ import {
     contractSummaryOf,
     ROUTE_LABEL,
 } from '../scripts/contract-view.ts';
-import { deliberationRowDecision } from '../scripts/exec-tree.ts';
+import { deliberationRowDecision, isDirectRoute, showContractCard, stepDefaultCollapsed } from '../scripts/exec-tree.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { copyThinkingChain, ui } from '../scripts/store.ts';
 
@@ -248,27 +248,32 @@ function buildExecTree(detailObj) {
             directAnswer: goal.negotiation?.directAnswer || '',
             /** escalate 路线：挂起待人决的原因。 */
             escalation: goal.negotiation?.escalation || '',
-            tasks: (goal.tasks || []).map((task) => {
-                const startedAt = taskStartedAt(task);
-                const acceptance = acceptanceRows(
-                    task.acceptance,
-                    goal.contract,
-                    task.acceptanceResult,
-                );
-                return {
-                    taskId: task.taskId,
-                    title: task.title,
-                    status: task.status,
-                    time: startedAt ? fmtDateTime(startedAt) : '',
-                    acceptance,
-                    acceptanceBadge: acceptanceBadge(task.acceptanceResult),
-                    acceptanceTitle: acceptance
-                        .map((row) => `${ACCEPTANCE_MARK[row.status]} ${row.judgeLabel} · ${row.text}`)
-                        .join('\n'),
-                    steps: taskStepRows(task, lastAnswerId),
-                    behaviors: behaviorsByTask.get(task.taskId) || [],
-                };
-            }),
+            /** 直答路线不展示契约卡（issue 4）：判定在归一化后的 Goal 上做一次。 */
+            showContract: showContractCard(goal),
+            /** direct 路线没有真实任务：跳过任务块（也不显示 0 steps 的任务头）。 */
+            tasks: isDirectRoute(goal)
+                ? []
+                : (goal.tasks || []).map((task) => {
+                      const startedAt = taskStartedAt(task);
+                      const acceptance = acceptanceRows(
+                          task.acceptance,
+                          goal.contract,
+                          task.acceptanceResult,
+                      );
+                      return {
+                          taskId: task.taskId,
+                          title: task.title,
+                          status: task.status,
+                          time: startedAt ? fmtDateTime(startedAt) : '',
+                          acceptance,
+                          acceptanceBadge: acceptanceBadge(task.acceptanceResult),
+                          acceptanceTitle: acceptance
+                              .map((row) => `${ACCEPTANCE_MARK[row.status]} ${row.judgeLabel} · ${row.text}`)
+                              .join('\n'),
+                          steps: taskStepRows(task, lastAnswerId),
+                          behaviors: behaviorsByTask.get(task.taskId) || [],
+                      };
+                  }),
         };
     });
 }
@@ -339,7 +344,11 @@ function buildExecStats(detailObj) {
 /* ---- Collapse state ---- */
 const collapsedGoals = ref(new Set());
 const collapsedTasks = ref(new Set());
+// Two independent override sets, one per default state: deliberation (thinking)
+// is collapsed by default, invocation (tool output) is expanded by default.
+// Each set records only the rows where the user explicitly flipped the default.
 const collapsedSteps = ref(new Set());
+const expandedSteps = ref(new Set());
 function toggleGoal(goalId) {
     const s = new Set(collapsedGoals.value);
     s.has(goalId) ? s.delete(goalId) : s.add(goalId);
@@ -350,10 +359,11 @@ function toggleTask(taskId) {
     s.has(taskId) ? s.delete(taskId) : s.add(taskId);
     collapsedTasks.value = s;
 }
-function toggleStepCollapse(key) {
-    const s = new Set(collapsedSteps.value);
-    s.has(key) ? s.delete(key) : s.add(key);
-    collapsedSteps.value = s;
+function toggleStepCollapse(row) {
+    const target = stepDefaultCollapsed(row) ? expandedSteps : collapsedSteps;
+    const s = new Set(target.value);
+    s.has(row.key) ? s.delete(row.key) : s.add(row.key);
+    target.value = s;
 }
 
 /* ---- Step helpers ---- */
@@ -362,6 +372,16 @@ function isStepLong(row) {
     // 工具调用始终可展开查看完整输出（命令/参数在标题行展示）
     if (row.kind === 'invocation') return true;
     return row.text.length > 80 || row.text.includes('\n');
+}
+/** Body visible? Deliberation is expanded by the user; invocation shows by default. */
+function isStepExpanded(row) {
+    if (!isStepLong(row)) return false;
+    return stepDefaultCollapsed(row)
+        ? expandedSteps.value.has(row.key)
+        : !collapsedSteps.value.has(row.key);
+}
+function isStepCollapsed(row) {
+    return isStepLong(row) && !isStepExpanded(row);
 }
 function stepTitleSummary(row) {
     return row.text ? row.text.slice(0, 80) : '';
@@ -431,7 +451,7 @@ const outputAt = computed(() => {
                 </div>
                 <!-- 契约前置：执行前冻结的承诺（条款 / 上限 / 风险 / 禁止项） -->
                 <div
-                    v-if="!chatMode && !goal.contract.empty"
+                    v-if="!chatMode && goal.showContract && !goal.contract.empty"
                     class="exec-contract"
                     title="执行前冻结的 GoalContract：承诺与判定参照物"
                 >
@@ -573,21 +593,21 @@ const outputAt = computed(() => {
                                 :class="{ selected: row.stepId === selectedStepId }"
                                 title="单击查看审计 · 双击折叠/展开"
                                 @click="emit('select-step', { stepId: row.stepId, taskId: row.taskId })"
-                                @dblclick="toggleStepCollapse(row.key)"
+                                @dblclick="toggleStepCollapse(row)"
                             >
                                 <button
                                     v-if="isStepLong(row)"
                                     class="exec-step-toggle"
-                                    :class="{ collapsed: collapsedSteps.has(row.key) }"
-                                    :title="collapsedSteps.has(row.key) ? '展开' : '折叠'"
-                                    @click.stop="toggleStepCollapse(row.key)"
+                                    :class="{ collapsed: isStepCollapsed(row) }"
+                                    :title="isStepCollapsed(row) ? '展开' : '折叠'"
+                                    @click.stop="toggleStepCollapse(row)"
                                 >
                                     <LineIcon
                                         class="kind-icon"
                                         :name="row.kind === 'deliberation' ? 'lightbulb' : 'hammer'"
                                         size="16"
                                     />
-                                    <span class="toggle-mark">{{ collapsedSteps.has(row.key) ? '+' : '−' }}</span>
+                                    <span class="toggle-mark">{{ isStepCollapsed(row) ? '+' : '−' }}</span>
                                 </button>
                                 <LineIcon
                                     v-else
@@ -601,7 +621,7 @@ const outputAt = computed(() => {
                                     :title="row.toolArgs ? JSON.stringify(row.toolArgs) : undefined"
                                 >{{ row.kind === 'invocation' ? row.commandText : stepTitleSummary(row) }}</span>
                             </div>
-                            <div v-if="isStepLong(row) && !collapsedSteps.has(row.key) && row.text" class="exec-step-code">
+                            <div v-if="isStepExpanded(row) && row.text" class="exec-step-code">
                                 <pre class="exec-step-code-inner">{{ row.text }}</pre>
                             </div>
                             <!-- 同轮 intent（模型输出）：紧贴 reasoning 下方，正文呈现（非代码框） -->
@@ -1293,8 +1313,10 @@ const outputAt = computed(() => {
     font-size: 13px;
     line-height: 1.6;
     color: var(--fg-tertiary);
-    white-space: pre-wrap;
-    word-break: break-word;
+    /* 实时推理只留一行；完整内容在正文 / 落库后的 step 里查看。 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     opacity: 0.85;
     margin-bottom: 8px;
 }
