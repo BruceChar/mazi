@@ -28,4 +28,8 @@
 
 ## 最近更新
 <!-- recent:start -->
+- 1f19da9 2026-11-07 wiki(claim): add wiki-init-domain-neutral-template
+- a1ca9a7 2026-11-07 wiki(claim): update wiki-ui-three-pane
+- c4b1ec7 2026-11-07 wiki(claim): update wiki-ui-repository-view
+- 9d20b31 2026-11-07 wiki(init): scaffold knowledge base
 <!-- recent:end -->
