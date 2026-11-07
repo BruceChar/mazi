@@ -126,10 +126,10 @@ verified = 2026-11-07
 text = "The project Wiki UI places the complete state/current document below the KPI row, opens claim/evidence details from fact counts, shows second-level times, and renders a live background Goal trace with reasoning/text streams, tool arguments/results and inline approval actions."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "c03391b2861738a729dee1786d5c8fe2377c21c2" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "debc6b1a8c684af9dff8f6129915710c7270d7ce" },
   { file = "apps/webui/src/scripts/wiki.ts", oid = "b270425daf032a7ccaef88aea7c012e2682cd1d1" },
   { file = "apps/webui/src/scripts/arm-live.ts", oid = "361435a430e5e59a8060d1d8aaeb2563fcb0cfec" },
-  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "7132dd2e47a14344d0a801fd2661d9f5a251ce65" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "35da8af26c636642cb88f44d879a2a0c653201c1" },
 ]
 established = 2026-11-07
 verified = 2026-11-07
