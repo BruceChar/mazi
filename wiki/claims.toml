@@ -133,3 +133,14 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-07
+
+[claims.project-wiki-incremental-preflight]
+text = "Wiki init returns without launching an Agent when existing claims or a non-TODO index prove initialization; update first obtains a structured checkpoint-diff/status plan, skips the Agent when no changes exist, and otherwise passes only changed files and affected claims to a bounded single-task Agent."
+status = "active"
+evidence = [
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "a72407f7e6751a14865febaacc47103bde6a38dc" },
+  { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "caa1b370f78d7e2e73397918059753faf36d4a42" },
+  { file = "apps/api/test/wiki-maintenance.service.test.ts", oid = "67d35ce0dc4a6bded82d6095b8e5f297483e2a30" },
+]
+established = 2026-11-07
+verified = 2026-11-07
