@@ -172,7 +172,7 @@ verified = 2026-11-07
 text = "Project Context Lifecycle is a runtime-owned subsystem: it assembles task-scoped context packets at SessionStart, anchors long-session compaction in persisted facts and evidence, and asynchronously finalizes SessionEnd with deterministic diff/oid/research preflight plus optional bounded semantic distillation and checkpoint validation."
 status = "active"
 evidence = [
-  { file = "docs/runtime/AHF_PROJECT_CONTEXT_LIFECYCLE.md", oid = "478ddf708436326ddad21713e567b0c13fef9fb1" },
+  { file = "docs/runtime/AHF_PROJECT_CONTEXT_LIFECYCLE.md", oid = "fca248093765bebd991cf369db6952e50506307c" },
   { file = "packages/runtime/src/harness/context-manager.ts", oid = "bb2556f2f7c788eb23487ff11b9b3a33a3f3a8d9" },
 ]
 established = 2026-11-08
@@ -184,7 +184,7 @@ status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "354cea2ba6b47f217d8633da08ab486aa93598bc" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "ba0e1eacdb3bde1d675041346bafdce229ed0278" },
-  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "08cf2a1b20a13d3f320df68d192996f4e8cdcc24" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "e52dbb8deb1f3cf3b5344a96ec37f3ba572e8d94" },
 ]
 established = 2026-11-08
@@ -197,7 +197,7 @@ status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "354cea2ba6b47f217d8633da08ab486aa93598bc" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
-  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "08cf2a1b20a13d3f320df68d192996f4e8cdcc24" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
 ]
 established = 2026-11-08
 verified = 2026-11-08
@@ -207,7 +207,7 @@ supersedes = "project-wiki-run-activity"
 text = "ProjectWikiService returns immediately from init when existing claims or a non-TODO index prove initialization. It builds update plans from semantic checkpoint diffs, worktree status and all evidence oids; SessionEnd additionally extracts safe files read by the session so no-diff exploration can be distilled. Explicit updates read only changed files and context capture reads only filtered research files."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "08cf2a1b20a13d3f320df68d192996f4e8cdcc24" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "354cea2ba6b47f217d8633da08ab486aa93598bc" },
   { file = "apps/api/test/wiki-maintenance.service.test.ts", oid = "be8c05ab406596a855d3fbb97d715551063e349d" },
 ]
@@ -220,10 +220,10 @@ text = "Corrected or forgotten Project Wiki facts leave active context without l
 status = "active"
 evidence = [
   { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "c2dbd6c632f99acf0a9e0ba3ba30084ff858980f" },
-  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "08cf2a1b20a13d3f320df68d192996f4e8cdcc24" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
   { file = "apps/api/src/wiki/wiki.controller.ts", oid = "33a711aa0d40cbedac2f8978855f96ecc6bf52a4" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "e52dbb8deb1f3cf3b5344a96ec37f3ba572e8d94" },
-  { file = "packages/runtime/test/project-wiki-runtime.test.ts", oid = "44ae9443dad87a8478ef5fbe4e877bd5938c72cd" },
+  { file = "packages/runtime/test/project-wiki-runtime.test.ts", oid = "33d0c93e83bc5f708d211132d6d431ebe65545a9" },
 ]
 established = 2026-11-08
 verified = 2026-11-08
