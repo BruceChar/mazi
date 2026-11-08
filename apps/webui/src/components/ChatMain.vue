@@ -1,9 +1,11 @@
 <script setup>
-import { nextTick, onMounted, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import ApprovalPrompt from './ApprovalPrompt.vue';
 import ExecStream from './ExecStream.vue';
 import Composer from './Composer.vue';
+import VoiceBar from './VoiceBar.vue';
+import { VoiceController } from '../voice/controller.ts';
 import { formatCost, formatTokens } from '../scripts/audit.ts';
 
 const props = defineProps({
@@ -59,6 +61,52 @@ const emit = defineEmits([
     'select-behavior',
     'respond-approval',
 ]);
+
+/* ---------- 语音输入控制器（docs/web/语音输入设计.md） ---------- */
+const voice = new VoiceController({
+    setPrompt: (text) => emit('update:prompt', text),
+    // 自动发送：让 prompt prop 先完成一次更新，再 emit submit（App.submitPrompt 读 prompt.value）。
+    submit: () => {
+        void nextTick(() => emit('submit'));
+    },
+    canSubmit: () => !props.busy,
+});
+voice.syncPrompt(props.prompt);
+watch(
+    () => props.prompt,
+    (value) => voice.syncPrompt(value),
+);
+watch(
+    () => props.busy,
+    (value) => voice.setBusy(value),
+    { immediate: true },
+);
+watch(
+    () => props.activeConversation?.conversationId,
+    () => voice.resetConversation(),
+);
+/** 语音可用：secure context + AudioContext；引擎不可用时点麦克风会给出明确降级提示。 */
+const voiceAvailable = ref(false);
+watch(
+    () => voice.state.supported,
+    (supported) => {
+        voiceAvailable.value = Boolean(supported);
+    },
+    { immediate: true },
+);
+/** 用户打字：先取消自动发送倒计时，再写回草稿。 */
+function onPromptInput(value) {
+    voice.onUserInput();
+    emit('update:prompt', value);
+}
+/** 提交：清理语音会话 / 倒计时，再走既有 submitPrompt（不模拟键盘事件）。 */
+function onSubmit() {
+    voice.onSubmit();
+    emit('submit');
+}
+function onToggleVoice() {
+    voice.toggle();
+}
 
 function conversationTitle(conversation) {
     return conversation?.title || conversation?.input || '';
@@ -194,6 +242,10 @@ watch(
 
 onMounted(() => {
     nextTick(() => scrollToBottom());
+    void voice.init();
+});
+onBeforeUnmount(() => {
+    voice.destroy();
 });
 </script>
 
@@ -307,6 +359,7 @@ onMounted(() => {
                 :approvals="approvals"
                 @respond="emit('respond-approval', $event)"
             />
+            <VoiceBar :controller="voice" />
             <Composer
                 :model-value="prompt"
                 :busy="busy"
@@ -320,8 +373,12 @@ onMounted(() => {
                 :reasoning-levels="reasoningLevels"
                 :permission="permission"
                 :permission-levels="permissionLevels"
-                @update:model-value="emit('update:prompt', $event)"
-                @submit="emit('submit')"
+                :voice-state="voice.state.phase"
+                :voice-available="voiceAvailable"
+                :voice-partial="voice.state.partial"
+                @update:model-value="onPromptInput"
+                @submit="onSubmit"
+                @toggle-voice="onToggleVoice"
                 @stop="emit('stop')"
                 @resume="emit('resume')"
                 @switch-project="emit('switch-project', $event)"

@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import { shouldSubmitOnEnter } from '../scripts/composer-keys.ts';
 import { PERMISSION_META } from '../scripts/goal-contract.ts';
@@ -19,6 +19,12 @@ const props = defineProps({
     /** 当前工作区会话权限（覆盖系统默认）。 */
     permission: { type: String, default: 'read-only' },
     permissionLevels: { type: Array, default: () => [] },
+    /** 语音状态机阶段（VoiceController.state.phase）。 */
+    voiceState: { type: String, default: 'off' },
+    /** 语音是否可用（secure context + 引擎可解析）。 */
+    voiceAvailable: { type: Boolean, default: false },
+    /** 实时 partial（只做 ghost 展示，绝不写入 prompt）。 */
+    voicePartial: { type: String, default: '' },
 });
 const emit = defineEmits([
     'update:modelValue',
@@ -31,6 +37,7 @@ const emit = defineEmits([
     'update:selectedModel',
     'update:reasoningLevel',
     'update:permission',
+    'toggle-voice',
 ]);
 
 /* Internal UI state */
@@ -77,6 +84,42 @@ function workspaceLabel() {
 
 function onInput(e) {
     emit('update:modelValue', e.target.value);
+}
+
+/* ---------- Voice input entry (docs/web/语音输入设计.md §5.3) ---------- */
+const VOICE_ACTIVE_PHASES = ['requesting', 'armed', 'capturing', 'partial', 'finalizing', 'committed'];
+const voiceOn = computed(() => VOICE_ACTIVE_PHASES.includes(props.voiceState));
+const voicePaused = computed(() => props.voiceState === 'paused');
+const voiceError = computed(() => props.voiceState === 'error');
+
+function voiceIcon() {
+    if (voicePaused.value) return 'micOff';
+    if (props.voiceState === 'capturing' || props.voiceState === 'partial' || props.voiceState === 'finalizing') {
+        return 'waveform';
+    }
+    return 'mic';
+}
+function voiceLabel() {
+    if (!props.voiceAvailable) return '语音输入不可用（需要 HTTPS 或 localhost）';
+    switch (props.voiceState) {
+        case 'requesting':
+            return '正在准备麦克风…';
+        case 'armed':
+            return '正在听…（点击暂停语音输入）';
+        case 'capturing':
+        case 'partial':
+            return '识别中…（点击暂停语音输入）';
+        case 'finalizing':
+            return '正在确认识别结果…';
+        case 'committed':
+            return '已写入草稿（点击暂停语音输入）';
+        case 'paused':
+            return '语音已暂停（点击恢复）';
+        case 'error':
+            return '语音输入出错（点击重试）';
+        default:
+            return '开启语音输入';
+    }
 }
 
 /* IME composition: Enter confirms a candidate, it must not submit (docs/webui.md §3.5). */
@@ -139,9 +182,33 @@ function doExitWorkspace() {
                         @compositionstart="onCompositionStart"
                         @compositionend="onCompositionEnd"
                     ></textarea>
+                    <!-- partial 只做 ghost 展示，不写入 modelValue（避免与 IME/Enter 判定冲突） -->
+                    <div v-if="voicePartial" class="voice-ghost" aria-hidden="true">
+                        <span class="voice-ghost-label">识别中</span>
+                        <span class="voice-ghost-text">{{ voicePartial }}</span>
+                    </div>
                 </div>
                 <div class="input-footer">
                     <div class="input-footer-left">
+                        <button
+                            type="button"
+                            data-voice-toggle
+                            class="voice-btn"
+                            :class="{
+                                active: voiceOn,
+                                paused: voicePaused,
+                                error: voiceError,
+                                unavailable: !voiceAvailable,
+                            }"
+                            :aria-label="voiceLabel()"
+                            :aria-pressed="voiceOn"
+                            :title="voiceLabel()"
+                            :disabled="!voiceAvailable"
+                            @click="emit('toggle-voice')"
+                        >
+                            <LineIcon :name="voiceIcon()" size="14" />
+                            <span v-if="voiceOn" class="voice-live-dot" aria-hidden="true"></span>
+                        </button>
                         <div v-if="!activeConversation" class="ws-picker-wrap">
                             <div v-if="workspaceMenu" class="picker-backdrop" @click="workspaceMenu = false"></div>
                             <button
@@ -334,6 +401,83 @@ function doExitWorkspace() {
     align-items: center;
     gap: 6px;
     margin-left: auto;
+}
+/* Voice input */
+.voice-btn {
+    position: relative;
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--fg-tertiary);
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+}
+.voice-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+.voice-btn.active {
+    color: var(--accent);
+    background: var(--accent-soft);
+}
+.voice-btn.paused {
+    color: var(--fg-secondary);
+    background: var(--bg-hover);
+}
+.voice-btn.error {
+    color: #ef4444;
+}
+.voice-btn.unavailable,
+.voice-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.voice-live-dot {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 2px var(--bg-panel);
+    animation: voice-pulse 1.4s ease-in-out infinite;
+}
+@keyframes voice-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(0.8); }
+}
+.voice-ghost {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 0 14px 8px;
+    min-height: 18px;
+    pointer-events: none;
+}
+.voice-ghost-label {
+    flex: none;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--fg-tertiary);
+    text-transform: uppercase;
+}
+.voice-ghost-text {
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--fg-tertiary);
+    font-style: italic;
+    word-break: break-word;
+}
+@media (prefers-reduced-motion: reduce) {
+    .voice-live-dot {
+        animation: none;
+    }
 }
 /* Workspace picker */
 .ws-picker-wrap {

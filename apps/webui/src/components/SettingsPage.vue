@@ -6,6 +6,7 @@ import { backfillUserBehaviors, exportUserBehaviors } from '../scripts/store.ts'
 import FeaturesPanel from './FeaturesPanel.vue';
 import SkillsPanel from './SkillsPanel.vue';
 import AgentSettingsPanel from './AgentSettingsPanel.vue';
+import VoiceSettingsSection from './VoiceSettingsSection.vue';
 
 /** Update one run-default field and persist it. */
 function updateRun(key, value) {
@@ -587,6 +588,16 @@ watch(
         <template v-else-if="activeTab === 'agent'">
             <h1 class="settings-title">Agent</h1>
             <AgentSettingsPanel />
+        </template>
+
+        <!-- Voice：仅语音输入（ASR），不做 TTS -->
+        <template v-else-if="activeTab === 'voice'">
+            <h1 class="settings-title">Voice</h1>
+            <p class="settings-subtitle">
+                语音输入（ASR）：本机识别优先；浏览器识别需明确同意，音频可能上传给浏览器厂商。
+                不做语音播报 / TTS。
+            </p>
+            <VoiceSettingsSection />
         </template>
 
         <template v-else-if="activeTab === 'features'">

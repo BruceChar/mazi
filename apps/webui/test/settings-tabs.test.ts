@@ -7,6 +7,7 @@ describe('settings-tabs（系统设置 IA）', () => {
             'general',
             'model',
             'agent',
+            'voice',
             'providers',
             'auth',
             'storage',

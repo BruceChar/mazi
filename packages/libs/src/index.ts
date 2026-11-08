@@ -7,3 +7,4 @@ export * from './question-taxonomy.js';
 export * from './text-diff.js';
 export * from './thinking-chain.js';
 export * from './types.js';
+export * from './voice.js';

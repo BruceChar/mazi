@@ -8,6 +8,9 @@ import type { FastifyInstance } from 'fastify';
 import { AppModule } from './app.module.js';
 import { registerHttpLogging } from './common/http-log.js';
 import Logger from './common/log.js';
+import { ModelManager } from './voice/model-manager.js';
+import { SherpaHost } from './voice/sherpa-host.js';
+import { voicePlugin } from './voice/voice.plugin.js';
 
 // 配置源：包内 .env（apps/api/.env）优先，仓库根 .env 兜底；
 // 两者均不覆盖进程已存在的环境变量（shell/CI 注入优先，dotenv 默认语义）。
@@ -38,6 +41,15 @@ async function bootstrap(): Promise<void> {
         methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
         allowedHeaders: ['content-type'],
     });
+    // 语音输入：裸 Fastify 路由 + 本机 ASR 宿主（模型/依赖缺失时 capabilities 降级）。
+    const voiceModels = new ModelManager({ logger });
+    const voiceEngine = new SherpaHost({ models: voiceModels, logger });
+    await fastify.register(voicePlugin, {
+        engine: voiceEngine,
+        models: voiceModels,
+        logger,
+    });
+
     app.enableShutdownHooks();
 
     await app.listen(PORT, HOST);
