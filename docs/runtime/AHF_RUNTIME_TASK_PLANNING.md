@@ -17,19 +17,23 @@
 ```
 createGoalSession
   ├─ 冻结基线契约（2 条机械条款）
-  ├─ 异步 triage（goal-parser → route + goals/constraints → 语义/机械条款）
-  └─ 立即返回（不等 triage，保持创建请求低延迟）
+  ├─ 发出 intake，并安排 triage（goal-parser → route + goals/constraints → 语义/机械条款）
+  └─ 创建请求先返回（只用于让用户输入立即可见；不是与规划并行的执行主线）
 executeGoalTree
   ├─ await 尚未落地的 triage（上限 TRIAGE_TIMEOUT_MS；失败/超时按 fallback 继续）
   ├─ 重新加载 Goal（含 triage 追加的条款与 route）
   ├─ route=direct 且带 answer → 记录直答终态并结束（不规划、不执行）
   ├─ generateTaskPlan(goal, tools, sessionContext, history) → LLM Task Planner
   │    └─ 失败/被拒 → 回退单 Task（MVP），并写 plan.invalid
-  ├─ runGoalTree：拓扑序逐 Task 执行；Task 之间注入前置结果
+  ├─ plan.created（计划先落定）
+  ├─ executing
+  ├─ runGoalTree：同步串行、拓扑序逐 Task 执行；Task 之间注入前置结果
   └─ 每 Task：executeTask → verifier（机械 + 可选语义 judge）→ 失败时 replan（受限次数）
 ```
 
-**不变量**：规划只能基于已落库的契约；triage 完成前不得生成计划。
+**不变量**：Goal → triage → Plan → Task → Step 是一条同步串行状态机；规划只能基于已落库的契约，
+triage 完成前不得生成计划，计划落定并发出 `plan.created` 前不得进入 `executing`。创建接口先返回只为
+显示用户输入，不会让规划或执行另起异步主线。
 
 ### 2.1 直答零执行不变量（2026-11-09 修订）
 

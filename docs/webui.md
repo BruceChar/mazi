@@ -152,24 +152,27 @@
 - 已成功 Session 的最后一个 thinking Step 视为“大模型最终输出”，使用正常字号（约 15px）展示。
 - 文件读取/编辑、命令执行、搜索记录用 `📖`/`✏️`/`▶️`/`🔍` 等图标区分，路径或命令以等宽文字展示。
 - 模型最终输出中的 `- / * / •` 列表统一渲染为 `•` 列表项。
-- **执行树展示**：只渲染真正拥有 Task 的 Goal（内部 intake Goal 隐藏）；只有一个 Goal 时隐藏 Goal 头，
+- **执行树展示**：消息区只渲染真正拥有 Task 的 Goal（内部 intake Goal 隐藏）；只有一个 Goal 时隐藏 Goal 头，
   避免与 Task 标题重复展示用户输入。每个 Task 头显示完整日期时间（`YYYY-MM-DD HH:MM:SS`），其下 Step
   只显示时间（`HH:MM:SS.mmm`）；Task 无 Step 时不显示占位提示。
-- **执行前阶段反馈（2026-11-08 修订）**：提交后、首个 Step 落库前，runtime 还有两段内部模型工作——
-  契约 triage（`parseIntent`，上限 10s）与任务规划（`generateTaskPlan`，上限 10s）。这期间没有 Step、
+- **会话与审计分层**：消息区不展示 triage 路线、直答标签、契约卡、契约条款/验收徽标或计划版本 chip；
+  这些执行前承诺与审计元数据统一在右侧 Trace 面板查看。消息区只保留对话内容和按计划顺序串行出现的
+  Task → Step 执行流。
+- **执行前阶段反馈（2026-11-09 修订）**：提交后、首个 Step 落库前，runtime 还有两段内部模型工作——
+  契约 triage（`parseIntent`，上限 10s）与任务规划（`generateTaskPlan`，上限 10s）。Goal、Plan、Task、
+  Step 属于同一条同步串行状态机：创建请求先返回以显示用户输入，执行入口必须等待 triage 落库，再生成计划，
+  最后才逐 Task 执行；不存在“计划与执行并行”的第二条异步主线。这期间没有 Step、
   也没有可渲染的 token，主会话**不再显示泛化的「执行中…」气泡**，而是渲染 runtime 推送的真实阶段行：
   `goal.phase` 的 `intake` →「正在理解任务」、`planning` →「正在制定计划」，行内 spinner 与已等待秒数持续走动；
   进入 `executing`、或出现流式思考/正文/实时 Step 后，阶段行立即退场，把位置交给真实输出。
   事件与渲染见 `packages/runtime/src/harness/runtime.ts`（`emitGoalPhase`）、
   `apps/webui/src/scripts/store.ts`（`runPhases`）、`apps/webui/src/components/ChatMain.vue`（阶段行）。
   乐观回显（`pendingInput`）只显示用户气泡，不再附带假 assistant 占位。
-- **执行中计划树可见（2026-11-08 修订）**：`plan.created` / `plan.revised` 事件携带 `planVersion` 与完整
-  Task 列表；主会话在 `busy` 期间即渲染 **当前计划的 Goal→Task→Step 树**（不再只有扁平 S# 列表）：
-  顶部一行契约/计划摘要（route、条款数、`计划 vN`、`已修订 N 次`），其下按 Task 展示
-  `待执行 / 执行中 / 成功 / 失败` 状态与步骤数，实时 Step 挂到所属 Task 下；计划生成完成、真实动作 Step
-  开始之前就能看到「要执行哪些 Task」。被 replan 替换的历史尝试（`planVersion` 较小）不在主会话展开，
-  仅以折叠提示说明存在，完整审计记录保留在右侧 Trace。结束后的快照树同样只展示当前（最大 `planVersion`）
-  计划，避免把已替换的零 Step 孤儿 Task 混进任务结构。
+- **执行中计划树可见（2026-11-09 修订）**：`plan.created` / `plan.revised` 事件携带 `planVersion` 与完整
+  Task 列表。运行时先完成计划，再进入 executing；消息区随后只按计划顺序串行展示 Task → Step，
+  Task 状态显示 `待执行 / 执行中 / 成功 / 失败`。route、条款数、计划版本、修订记录、验收结论和
+  superseded attempt 等审计信息不进入消息区，统一保留在右侧 Trace。实时 Step 按 `taskId` 挂到所属 Task，
+  后续 Task 严格等前一 Task 结束后开始；不以异步并发泳道呈现。
 
 **滚动与导航**：
 
@@ -289,10 +292,10 @@
 - **仅活动推理单行**：执行中正在流式输出的推理（`.live-reasoning`）只占一行（省略号截断）；
   已完成的思考 / 工具输出 / 正文默认展开，点击行首 toggle 或双击行可折叠。实时执行列表（live）的每个步骤
   同样支持展开/折叠（默认展开），不会出现"执行中只能看到标题、点不开"的情况。
-- **直答按执行事实判定**：`negotiation.route === 'direct'` 且 Goal 没有任何已开始 Task / Step 时，
-  只展示「直答」块与最终回答，不展示默认契约卡片或 0 steps 的占位 Task。若旧数据里 route=direct
-  但同时存在已开始 Task / Step（例如实际调用了工具），必须以 harness 事实为准展示契约与完整
-  Task→Step 树；模型的 route 判断不能压掉真实执行记录。
+- **直答是普通助手回答**：`negotiation.route === 'direct'` 且 Goal 没有任何已开始 Task / Step 时，
+  直答正文按普通 Markdown 助手消息渲染，**不显示“直答”标签或外框**。消息区不显示契约卡；
+  route、契约与验收信息在右侧 Trace 查看。若旧数据里 route=direct 但同时存在已开始 Task / Step
+  （例如实际调用了工具），必须以 harness 事实为准展示完整 Task→Step 树；模型的 route 判断不能压掉真实执行记录。
 - **行为行就地展示**：审批（系统）/ 授权 / 反馈行按 Step 时间窗挂到被授权的那一步：先展示审批/授权，
   再接该工具的执行结果；无归属的行为（如 run 结束后的反馈）渲染在末尾。点击行为行在右侧 Trace 面板
   查看审批内容与授权结果（详见 docs/用户行为流设计文档.md §10.6 与 docs/web/观测看板设计.md §5.8）。

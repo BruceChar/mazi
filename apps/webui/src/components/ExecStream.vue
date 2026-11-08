@@ -5,32 +5,17 @@ import { formatTokens } from '../scripts/audit.ts';
 import { placeBehaviors } from '../scripts/behavior-placement.ts';
 import { behaviorRowsOf, groupBehaviorsByTask } from '../scripts/behavior-rows.ts';
 import {
-    acceptanceBadge,
-    acceptanceRows,
-    contractStateLabel,
-    contractStateTone,
-    contractSummaryOf,
-    ROUTE_LABEL,
-} from '../scripts/contract-view.ts';
-import {
     deliberationRowDecision,
     isDirectAnswerOnly,
     liveStepBodies,
-    showContractCard,
     toggleCollapsedKey,
 } from '../scripts/exec-tree.ts';
 import {
     groupLiveStepsByTask,
     latestPlanTasks,
-    planRevisionLabel,
-    planRevisions,
-    planRouteLabel,
     planTaskStatusLabel,
     planTaskStatusTone,
-    planVersionLabel,
-    planVersionOf,
     planViewOf,
-    supersededAttemptCount,
 } from '../scripts/plan-view.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { copyThinkingChain, current, runPlans, ui } from '../scripts/store.ts';
@@ -264,22 +249,15 @@ function buildExecTree(detailObj) {
         flatTasks.map((entry, index) => [entry.task.taskId, grouped[index] || []]),
     );
     return goals.map((goal) => {
-        // 契约与验收判定都在快照里，UI 只投影不再推断（承诺 vs 事实并排）。
-        const contract = contractSummaryOf(goal.contract);
         const directAnswerOnly = isDirectAnswerOnly(goal);
         return {
             goalId: goal.goalId,
             statement: goal.statement,
             status: goal.status,
-            contract,
-            /** 契约满足度汇总（评估器机械口径；未执行时为 null）。 */
-            contractStatus: goal.contractStatus ?? null,
-            /** 纯直答：没有 Task/Step 时直接呈现 triage 的回答。 */
+            /** 纯直答：按普通助手回答呈现，不显示路线标签或契约。 */
             directAnswer: directAnswerOnly ? goal.negotiation?.directAnswer || '' : '',
             /** escalate 路线：挂起待人决的原因。 */
             escalation: goal.negotiation?.escalation || '',
-            /** 纯直答不展示契约；存在执行事实时模型 route 不能隐藏真实树。 */
-            showContract: showContractCard(goal),
             /** 纯直答跳过 0 steps 占位任务；旧数据有执行事实时照常展示。 */
             tasks: directAnswerOnly
                 ? []
@@ -287,11 +265,6 @@ function buildExecTree(detailObj) {
                 // 完整审计仍保留在 Trace 面板。
                 : latestPlanTasks(goal.tasks || []).map((task) => {
                       const startedAt = taskStartedAt(task);
-                      const acceptance = acceptanceRows(
-                          task.acceptance,
-                          goal.contract,
-                          task.acceptanceResult,
-                      );
                       const rows = taskStepRows(task, lastAnswerId);
                       // Place behavior rows (approval / authorization / feedback) on
                       // the Step whose window contains them: authorization then shows
@@ -313,11 +286,6 @@ function buildExecTree(detailObj) {
                           statusLabel: planTaskStatusLabel(task.status),
                           statusTone: planTaskStatusTone(task.status),
                           time: startedAt ? fmtDateTime(startedAt) : '',
-                          acceptance,
-                          acceptanceBadge: acceptanceBadge(task.acceptanceResult),
-                          acceptanceTitle: acceptance
-                              .map((row) => `${ACCEPTANCE_MARK[row.status]} ${row.judgeLabel} · ${row.text}`)
-                              .join('\n'),
                           steps: rows.map((row, index) => ({
                               ...row,
                               behaviors: placed.steps[index]?.behaviors || [],
@@ -329,13 +297,6 @@ function buildExecTree(detailObj) {
     });
 }
 
-/** 条款状态前缀（悬停验收徽标时展示逐条明细）。 */
-const ACCEPTANCE_MARK = { passed: '✔', failed: '✘', unchecked: '·' };
-
-/** 协商问题的已答复文本（未答复返回空串）。 */
-function negotiationAnswer(negotiation, q) {
-    return (negotiation?.answers || []).find((item) => item.q === q)?.answer || '';
-}
 function allStepViewsOf(detailObj) {
     return (detailObj?.goals || []).flatMap((goal) =>
         (goal.tasks || []).flatMap((task) => task.steps || []),
@@ -501,17 +462,6 @@ const latestPlan = computed(() => (liveRunId.value ? runPlans[liveRunId.value] :
 const planView = computed(() =>
     planViewOf({ plan: latestPlan.value, snapshot: props.runDetail, liveSteps: props.liveSteps }),
 );
-/** 计划头部的契约摘要：triage 路线 + successConditions 条数（快照刷新后可见）。 */
-const planMeta = computed(() => {
-    const goals = props.runDetail?.goals || [];
-    const goal = goals.find((item) => item?.negotiation || item?.contract) || goals[0] || null;
-    const contract = goal ? contractSummaryOf(goal.contract) : null;
-    return {
-        statement: goal?.statement || '',
-        routeLabel: planRouteLabel(goal?.negotiation?.route),
-        conditionCount: (contract?.conditions || []).length,
-    };
-});
 /** 实时步骤按当前计划分组；计划未知时是一个 task=null 的扁平回退组（保持旧行为）。
  *  随心聊（chatMode）与 settled 树一致：不展示 Task 层级，只保留扁平步骤列表。 */
 const showPlanTree = computed(() => !props.chatMode && planView.value.tasks.length > 0);
@@ -521,48 +471,12 @@ const liveGroups = computed(() =>
         showPlanTree.value ? planView.value.tasks : [],
     ),
 );
-/** 被替换的旧计划尝试数（当前计划树之外；完整审计在 Trace 面板）。 */
-const supersededCount = computed(() =>
-    supersededAttemptCount(planView.value, liveGroups.value.unassigned),
-);
-/** settled 树：当前计划版本（多 Goal 取最大版本）与计划修订次数。 */
-const settledPlanVersion = computed(() => {
-    let max = null;
-    for (const goal of props.runDetail?.goals || []) {
-        const version = planVersionOf(goal.tasks);
-        if (version !== null && (max === null || version > max)) max = version;
-    }
-    return max;
-});
-const settledRevisions = computed(() => planRevisions(settledPlanVersion.value));
 </script>
 
 <template>
-    <!-- Live Goal→Task→Step plan tree while the run executes. The plan (from
-         plan.created / plan.revised) renders as soon as it exists — even with 0 steps —
-         so the intended Task structure is visible before real action steps stream in.
-         Before any plan is known it falls back to the flat append-only step list. -->
+    <!-- Live steps grouped by the synchronously produced Task plan. Contract,
+         route, plan version and acceptance metadata live in the Trace panel. -->
     <div v-if="busy && (liveSteps.length || showPlanTree)" class="exec-stream">
-        <!-- 计划头：计划版本 + 契约摘要（triage 路线 / successConditions 条数） -->
-        <div v-if="showPlanTree" class="exec-plan-head">
-            <span class="exec-plan-tag">计划</span>
-            <span v-if="planMeta.statement" class="exec-plan-goal" :title="planMeta.statement">
-                {{ planMeta.statement }}
-            </span>
-            <span v-if="planVersionLabel(planView.planVersion)" class="exec-plan-chip">
-                {{ planVersionLabel(planView.planVersion) }}
-            </span>
-            <span v-if="planRevisionLabel(planView.revisions)" class="exec-plan-revision">
-                {{ planRevisionLabel(planView.revisions) }}
-            </span>
-            <span v-if="planMeta.routeLabel" class="exec-plan-route">
-                {{ planMeta.routeLabel }}
-            </span>
-            <span v-if="planMeta.conditionCount > 0" class="exec-plan-condition">
-                契约 {{ planMeta.conditionCount }} 条
-            </span>
-            <span class="exec-plan-count">{{ planView.tasks.length }} tasks</span>
-        </div>
         <div
             v-for="(group, gIdx) in liveGroups.groups"
             :key="group.task ? group.task.taskId : 'pre-plan'"
@@ -678,10 +592,6 @@ const settledRevisions = computed(() => planRevisions(settledPlanVersion.value))
                 </div>
             </div>
         </div>
-        <!-- 被替换的旧计划尝试不进入当前计划树；完整审计仍可在 Trace 面板查看 -->
-        <div v-if="showPlanTree && supersededCount > 0" class="exec-plan-note">
-            已替换的计划尝试 {{ supersededCount }} 个（在 Trace 中查看）
-        </div>
         <!-- 末尾行为行：没有归属到具体 Step 时间窗的审批/反馈 -->
         <div v-if="livePlaced.trailing.length" class="exec-step-behaviors">
             <div
@@ -700,11 +610,6 @@ const settledRevisions = computed(() => planRevisions(settledPlanVersion.value))
         </div>
     </div>
     <div v-else-if="runDetail" class="exec-stream">
-        <!-- 计划修订提示：树里只展示各 Goal 的当前计划（最高 planVersion），
-             被 replan 替换的旧尝试保留在 Trace 面板，不删除数据。 -->
-        <div v-if="!chatMode && settledRevisions > 0" class="exec-plan-note">
-            计划修订 {{ settledRevisions }} 次 · 被替换的尝试在 Trace 中查看
-        </div>
         <!-- Goal → task → step. A single goal hides its own header so the user
              input is not repeated above the task title. -->
         <div
@@ -720,101 +625,15 @@ const settledRevisions = computed(() => planRevisions(settledPlanVersion.value))
                 <span class="exec-goal-count">{{ goal.tasks.length }} tasks · {{ goal.tasks.reduce((s, t) => s + t.steps.length, 0) }} steps</span>
             </div>
             <div v-if="!collapsedGoals.has(goal.goalId)" class="exec-goal-body">
-                <!-- direct 路线：Goal 无 Task，但回答就是本次输出（不能空着） -->
+                <!-- 纯直答就是普通助手回答；不带 route/contract chrome。 -->
                 <div v-if="goal.directAnswer" class="exec-direct">
-                    <span class="exec-direct-tag">直答</span>
-                    <div class="exec-direct-text">{{ goal.directAnswer }}</div>
+                    <div
+                        class="exec-direct-text markdown-body"
+                        v-html="renderMarkdown(goal.directAnswer)"
+                    ></div>
                 </div>
                 <div v-if="goal.escalation" class="exec-escalation">
                     已挂起待人决：{{ goal.escalation }}
-                </div>
-                <!-- 契约前置：执行前冻结的承诺（条款 / 上限 / 风险 / 禁止项） -->
-                <div
-                    v-if="!chatMode && goal.showContract && !goal.contract.empty"
-                    class="exec-contract"
-                    title="执行前冻结的 GoalContract：承诺与判定参照物"
-                >
-                    <div class="exec-contract-head">
-                        <span class="exec-contract-tag">契约</span>
-                        <span
-                            class="exec-contract-ratio"
-                            :class="{ warn: goal.contract.deterministicPercent < 100 }"
-                            title="successConditions 中机械可判条款的占比（健康度）"
-                        >
-                            机械可判 {{ goal.contract.deterministicPercent }}%
-                        </span>
-                        <span
-                            class="exec-contract-state"
-                            :class="contractStateTone(goal.contractStatus?.state)"
-                            title="契约满足度：评估器对条款的机械判定汇总"
-                        >{{ contractStateLabel(goal.contractStatus) }}</span>
-                        <span
-                            v-for="limit in goal.contract.limits"
-                            :key="limit.label"
-                            class="exec-contract-chip"
-                        >
-                            {{ limit.label }} {{ limit.value }}
-                        </span>
-                        <span
-                            v-for="risk in goal.contract.risks"
-                            :key="risk"
-                            class="exec-contract-chip risk"
-                        >
-                            {{ risk }}
-                        </span>
-                    </div>
-                    <div v-if="goal.negotiation" class="exec-contract-negotiation">
-                        <span class="exec-contract-route">{{
-                            ROUTE_LABEL[goal.negotiation.route] || goal.negotiation.route
-                        }}</span>
-                        <span v-if="goal.negotiation.revision > 0" class="exec-contract-trigger">
-                            契约 v{{ goal.negotiation.revision }}
-                        </span>
-                        <span
-                            v-for="trigger in goal.negotiation.triggers"
-                            :key="trigger"
-                            class="exec-contract-trigger"
-                        >{{ trigger }}</span>
-                    </div>
-                    <div v-if="goal.negotiation && goal.negotiation.escalation" class="exec-contract-escalation">
-                        升级待人决：{{ goal.negotiation.escalation }}
-                    </div>
-                    <div
-                        v-if="goal.negotiation && goal.negotiation.questions.length > 0"
-                        class="exec-contract-questions"
-                    >
-                        <div
-                            v-for="question in goal.negotiation.questions"
-                            :key="question.q"
-                            class="exec-contract-question"
-                        >
-                            <span class="q">{{ question.q }}</span>
-                            <span class="default">默认：{{ question.default }}</span>
-                            <span v-if="negotiationAnswer(goal.negotiation, question.q)" class="answer">
-                                已答复：{{ negotiationAnswer(goal.negotiation, question.q) }}
-                            </span>
-                        </div>
-                    </div>
-                    <ul class="exec-contract-conditions">
-                        <li
-                            v-for="condition in goal.contract.conditions"
-                            :key="condition.id"
-                            class="exec-contract-condition"
-                        >
-                            <span class="exec-contract-judge" :class="condition.judge">
-                                {{ condition.judgeLabel }}
-                            </span>
-                            <span class="exec-contract-text">{{ condition.text }}</span>
-                        </li>
-                        <li
-                            v-for="forbidden in goal.contract.forbidden"
-                            :key="forbidden"
-                            class="exec-contract-condition"
-                        >
-                            <span class="exec-contract-judge forbidden">禁止</span>
-                            <span class="exec-contract-text">{{ forbidden }}</span>
-                        </li>
-                    </ul>
                 </div>
                 <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
                     <div
@@ -838,21 +657,6 @@ const settledRevisions = computed(() => planRevisions(settledPlanVersion.value))
                             class="exec-task-status"
                             :class="task.statusTone"
                         >{{ task.statusLabel }}</span>
-                        <span
-                            v-if="task.acceptanceBadge"
-                            class="exec-task-acceptance"
-                            :class="task.acceptanceBadge.tone"
-                            :title="task.acceptanceTitle"
-                        >
-                            {{ task.acceptanceBadge.label }}
-                        </span>
-                        <span
-                            v-else-if="task.acceptance.length > 0"
-                            class="exec-task-acceptance muted"
-                            :title="task.acceptanceTitle"
-                        >
-                            验收 {{ task.acceptance.length }} 条款
-                        </span>
                         <span v-if="task.steps.length > 0" class="exec-task-count">
                             {{ task.steps.length }} steps
                         </span>
@@ -1697,255 +1501,19 @@ const settledRevisions = computed(() => planRevisions(settledPlanVersion.value))
 .exec-behavior-feedback {
     border-left-color: var(--fg-tertiary);
 }
-/* ---- 契约卡片：GoalContract 的可视化（承诺） ---- */
-.exec-contract {
-    margin: 4px 0 8px;
-    padding: 6px 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-hover);
-}
-.exec-contract-head {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    font-size: 11px;
-    color: var(--fg-secondary);
-}
-.exec-contract-tag {
-    font-weight: 600;
-    color: var(--fg);
-}
-.exec-contract-ratio {
-    font-family: ui-monospace, monospace;
-    color: var(--fg-tertiary);
-}
-.exec-contract-ratio.warn {
-    color: var(--warn);
-}
-.exec-contract-state {
-    font-size: 10px;
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 0 4px;
-    color: var(--fg-tertiary);
-}
-.exec-contract-state.ok {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-.exec-contract-state.fail {
-    border-color: var(--warn);
-    color: var(--warn);
-}
-.exec-contract-chip {
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 0 4px;
-    color: var(--fg-secondary);
-}
-.exec-contract-chip.risk {
-    border-color: var(--warn);
-    color: var(--warn);
-}
-.exec-contract-conditions {
-    list-style: none;
-    margin: 4px 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-.exec-contract-condition {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    font-size: 11px;
-    color: var(--fg-secondary);
-}
-.exec-contract-judge {
-    flex-shrink: 0;
-    font-family: ui-monospace, monospace;
-    font-size: 10px;
-    border-radius: 3px;
-    padding: 0 4px;
-    border: 1px solid var(--border);
-    color: var(--fg-tertiary);
-}
-.exec-contract-judge.mechanical {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-.exec-contract-judge.semantic,
-.exec-contract-judge.forbidden {
-    border-color: var(--warn);
-    color: var(--warn);
-}
-.exec-contract-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
 .exec-direct {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    margin: 6px 0;
-    padding: 6px 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-hover);
-}
-.exec-direct-tag {
-    flex-shrink: 0;
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 3px;
-    padding: 0 4px;
+    margin: 8px 0;
 }
 .exec-direct-text {
-    font-size: 13px;
+    font-size: 15px;
+    line-height: 1.7;
     color: var(--fg);
-    white-space: pre-wrap;
+    word-break: break-word;
 }
 .exec-escalation {
     margin: 6px 0;
     font-size: 12px;
     color: var(--warn);
-}
-.exec-contract-negotiation {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 4px;
-    font-size: 11px;
-    color: var(--fg-secondary);
-}
-.exec-contract-route {
-    color: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 3px;
-    padding: 0 4px;
-}
-.exec-contract-trigger {
-    color: var(--warn);
-    border: 1px solid var(--warn);
-    border-radius: 3px;
-    padding: 0 4px;
-}
-.exec-contract-escalation {
-    margin-top: 4px;
-    font-size: 11px;
-    color: var(--warn);
-}
-.exec-contract-questions {
-    margin-top: 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-.exec-contract-question {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    font-size: 11px;
-    color: var(--fg-secondary);
-}
-.exec-contract-question .default,
-.exec-contract-question .answer {
-    color: var(--fg-tertiary);
-}
-/* ---- Task 验收徽标：机械判定的结论（事实） ---- */
-.exec-task-acceptance {
-    flex-shrink: 0;
-    font-size: 10px;
-    font-family: ui-monospace, monospace;
-    border-radius: 3px;
-    padding: 0 4px;
-    border: 1px solid var(--border);
-    color: var(--fg-tertiary);
-}
-.exec-task-acceptance.ok {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-.exec-task-acceptance.fail {
-    border-color: var(--warn);
-    color: var(--warn);
-}
-/* ---------- Goal→Task→Step plan tree（执行中实时计划树） ---------- */
-.exec-plan-head {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: 2px 0 6px;
-    padding: 4px 6px;
-    border-left: 2px solid var(--accent);
-    border-radius: var(--radius-sm);
-    background: var(--bg-hover);
-    font-size: 11px;
-    color: var(--fg-secondary);
-}
-.exec-plan-tag {
-    flex-shrink: 0;
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 3px;
-    padding: 0 4px;
-}
-.exec-plan-goal {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    color: var(--fg);
-}
-.exec-plan-chip {
-    flex-shrink: 0;
-    font-family: ui-monospace, monospace;
-    color: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 3px;
-    padding: 0 4px;
-}
-.exec-plan-revision {
-    flex-shrink: 0;
-    color: var(--warn);
-    border: 1px solid var(--warn);
-    border-radius: 3px;
-    padding: 0 4px;
-}
-.exec-plan-route {
-    flex-shrink: 0;
-    color: var(--fg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 0 4px;
-}
-.exec-plan-condition {
-    flex-shrink: 0;
-    color: var(--fg-tertiary);
-}
-.exec-plan-count {
-    flex-shrink: 0;
-    font-family: ui-monospace, monospace;
-    color: var(--fg-tertiary);
-}
-/* 计划提示行：计划修订 / 被替换的旧计划尝试（旧尝试不进入当前计划树） */
-.exec-plan-note {
-    margin: 4px 0;
-    padding: 2px 6px;
-    font-size: 11px;
-    color: var(--fg-tertiary);
-    border-left: 2px solid var(--border);
 }
 /* 计划未知时的扁平回退组：去掉 Task 级缩进/边框，保持旧的实时列表观感 */
 .exec-task.flat {

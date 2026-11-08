@@ -86,6 +86,8 @@ export interface GoalRunDeps {
         rejected?: readonly string[],
         tasks?: readonly Task[],
     ) => void;
+    /** Called only after the plan is emitted and before the first Task starts. */
+    onExecutionStart?: () => void | Promise<void>;
     /** Independent verifier; absence keeps mechanical acceptance for lightweight callers. */
     verifier?: TaskVerifier;
     onVerification?: (report: VerificationReport, outcome: TaskOutcome) => void;
@@ -193,6 +195,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
     let queue = topologicalTaskOrder(tasks);
     let cursor = 0;
     const planRevisions: PlanRevision[] = [];
+    if (queue.length > 0) await deps.onExecutionStart?.();
     while (cursor < queue.length) {
         const task = queue[cursor];
         cursor += 1;

@@ -1063,8 +1063,6 @@ export class HarnessRuntime {
         const verificationByTask = new Map<string, VerificationReport>();
         const controller = new AbortController();
         this.running.set(rootGoalId, controller);
-        // 可观测性：计划已生成（或本次跳过规划），正式进入 Task 执行；UI 据此撤掉阶段占位。
-        await this.emitGoalPhase(rootGoalId, goalId, 'executing', '正在执行');
         let result: GoalRunResult;
         try {
             result = await runGoalTree(
@@ -1205,6 +1203,8 @@ export class HarnessRuntime {
                             }),
                         );
                     },
+                    onExecutionStart: () =>
+                        this.emitGoalPhase(rootGoalId, goalId, 'executing', '正在执行'),
                 },
                 goals,
             );

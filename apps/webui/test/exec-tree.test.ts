@@ -4,7 +4,6 @@ import {
     deliberationRowDecision,
     isDirectAnswerOnly,
     liveStepBodies,
-    showContractCard,
     toggleCollapsedKey,
 } from '../src/scripts/exec-tree.ts';
 
@@ -113,25 +112,13 @@ describe('exec-tree collapse toggle', () => {
     });
 });
 
-describe('exec-tree direct-route chrome', () => {
-    it('hides contract chrome only for direct answers without execution facts', () => {
+describe('exec-tree direct-answer projection', () => {
+    it('treats a zero-execution direct answer as a normal answer', () => {
         const goal = {
             negotiation: { route: 'direct', directAnswer: '巴黎。' },
             tasks: [{ steps: [] }],
         };
         expect(isDirectAnswerOnly(goal)).toBe(true);
-        expect(showContractCard(goal)).toBe(false);
-    });
-
-    it('shows the contract card on non-direct routes', () => {
-        expect(showContractCard({ negotiation: { route: 'confirmed' } })).toBe(true);
-        expect(showContractCard({ negotiation: { route: 'negotiate' } })).toBe(true);
-        expect(showContractCard({ negotiation: { route: 'escalate' } })).toBe(true);
-    });
-
-    it('shows the contract card when negotiation is missing (legacy data)', () => {
-        expect(showContractCard({})).toBe(true);
-        expect(showContractCard(null)).toBe(true);
     });
 
     it('shows execution facts even when triage classified the goal as direct', () => {
@@ -144,9 +131,7 @@ describe('exec-tree direct-route chrome', () => {
             tasks: [{ steps: [{ stepId: 's1' }] }],
         };
         expect(isDirectAnswerOnly(withStartedTask)).toBe(false);
-        expect(showContractCard(withStartedTask)).toBe(true);
         expect(isDirectAnswerOnly(withStep)).toBe(false);
-        expect(showContractCard(withStep)).toBe(true);
     });
 
     it('does not treat a missing answer or non-direct route as direct-only', () => {

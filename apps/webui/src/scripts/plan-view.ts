@@ -125,15 +125,6 @@ const PLAN_TASK_STATUS_TONE: Record<string, PlanTaskTone> = {
     skipped: 'skipped',
 };
 
-/** Triage 路线短标签（计划头部的契约摘要；完整文案见 contract-view.ROUTE_LABEL）。 */
-export const PLAN_ROUTE_LABEL: Record<string, string> = {
-    direct: '直答',
-    confirmed: '已确认',
-    negotiate: '协商',
-    escalate: '升级',
-    fallback: '回退',
-};
-
 export function planTaskStatusLabel(status: string | null | undefined): string {
     if (!status) return PLAN_TASK_STATUS_LABEL.pending;
     return PLAN_TASK_STATUS_LABEL[status] ?? status;
@@ -142,11 +133,6 @@ export function planTaskStatusLabel(status: string | null | undefined): string {
 export function planTaskStatusTone(status: string | null | undefined): PlanTaskTone {
     if (!status) return 'pending';
     return PLAN_TASK_STATUS_TONE[status] ?? '';
-}
-
-export function planRouteLabel(route: string | null | undefined): string {
-    if (!route) return '';
-    return PLAN_ROUTE_LABEL[route] ?? route;
 }
 
 /** `计划 v2`；无版本信息时为空串（历史数据不显示版本 chip）。 */

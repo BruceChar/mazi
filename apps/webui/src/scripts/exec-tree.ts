@@ -112,8 +112,3 @@ export function isDirectAnswerOnly(goal: GoalDisplayFactsLike | null | undefined
         !hasExecutionFacts(goal)
     );
 }
-
-/** 契约卡片是否展示：仅纯直答跳过，其余（含旧数据缺省）照常展示。 */
-export function showContractCard(goal: GoalDisplayFactsLike | null | undefined): boolean {
-    return !isDirectAnswerOnly(goal);
-}

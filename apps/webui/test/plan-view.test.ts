@@ -5,7 +5,6 @@ import {
     latestPlanTasks,
     planRevisionLabel,
     planRevisions,
-    planRouteLabel,
     planTaskStatusLabel,
     planTaskStatusTone,
     planVersionLabel,
@@ -94,14 +93,6 @@ describe('plan-view 状态与路线文案', () => {
         expect(planTaskStatusTone(undefined)).toBe('pending');
     });
 
-    it('triage 路线用短标签（直答/已确认/协商/升级/回退）', () => {
-        expect(planRouteLabel('direct')).toBe('直答');
-        expect(planRouteLabel('confirmed')).toBe('已确认');
-        expect(planRouteLabel('negotiate')).toBe('协商');
-        expect(planRouteLabel('escalate')).toBe('升级');
-        expect(planRouteLabel('fallback')).toBe('回退');
-        expect(planRouteLabel(undefined)).toBe('');
-    });
 });
 
 describe('plan-view 当前计划投影', () => {

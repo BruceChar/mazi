@@ -138,7 +138,7 @@ describe('HarnessRuntime × goal.phase（执行前置阶段可观测）', () => 
         }
     });
 
-    it('executeGoalTree 发出 planning → executing，且都先于 plan.created / step.started', async () => {
+    it('executeGoalTree 按 planning → plan.created → executing → step.started 串行推进', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'mazi-phase-plan-'));
         dirs.push(dir);
         const runtime = new HarnessRuntime(runtimeConfig(dir), {
@@ -163,9 +163,9 @@ describe('HarnessRuntime × goal.phase（执行前置阶段可观测）', () => 
             const planCreatedAt = types.indexOf('plan.created');
             const firstStepAt = types.findIndex((type) => type === 'step.started');
             expect(planCreatedAt).toBeGreaterThan(-1);
-            // 阶段事件必须早于它所指的工作：planning 在生成计划前，executing 在执行前。
+            // 同步串行：先完成计划并落 plan.created，之后才进入 executing / Step。
             expect(planningAt).toBeLessThan(planCreatedAt);
-            expect(executingAt).toBeLessThan(planCreatedAt);
+            expect(planCreatedAt).toBeLessThan(executingAt);
             if (firstStepAt >= 0) {
                 expect(executingAt).toBeLessThan(firstStepAt);
             }
@@ -179,7 +179,7 @@ describe('HarnessRuntime × goal.phase（执行前置阶段可观测）', () => 
         }
     });
 
-    it('跳过规划时直接发 executing（不产生 planning）', async () => {
+    it('跳过规划时先 plan.created 再 executing（不产生 planning）', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'mazi-phase-skip-'));
         dirs.push(dir);
         const runtime = new HarnessRuntime(runtimeConfig(dir), {
@@ -195,9 +195,9 @@ describe('HarnessRuntime × goal.phase（执行前置阶段可观测）', () => 
             const executingAt = events.findIndex((event) => event.type === 'goal.phase');
             const planCreatedAt = events.findIndex((event) => event.type === 'plan.created');
             expect(executingAt).toBeGreaterThan(-1);
-            // 单 Task MVP 仍会在执行期产生 plan.created；executing 先于它。
+            // 即使跳过 LLM Planner，确定的单 Task 计划也必须先落定，再开始执行。
             if (planCreatedAt >= 0) {
-                expect(executingAt).toBeLessThan(planCreatedAt);
+                expect(planCreatedAt).toBeLessThan(executingAt);
             }
         } finally {
             await runtime.close();
