@@ -156,3 +156,13 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-07
+
+[claims.project-context-lifecycle-runtime]
+text = "Project Context Lifecycle is a runtime-owned subsystem: it assembles task-scoped context packets at SessionStart, anchors long-session compaction in persisted facts and evidence, and asynchronously finalizes SessionEnd with deterministic diff/oid/research preflight plus optional bounded semantic distillation and checkpoint validation."
+status = "active"
+evidence = [
+  { file = "docs/runtime/AHF_PROJECT_CONTEXT_LIFECYCLE.md", oid = "3ae6f8698b5d8d015f78fc3a431b3be3d6522d00" },
+  { file = "packages/runtime/src/harness/context-manager.ts", oid = "bb2556f2f7c788eb23487ff11b9b3a33a3f3a8d9" },
+]
+established = 2026-11-08
+verified = 2026-11-08
