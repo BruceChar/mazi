@@ -132,13 +132,12 @@ established = 2026-11-07
 verified = 2026-11-07
 
 [claims.wiki-ui-current-status-facts-trace]
-text = "The project Wiki UI places the complete state/current document below the KPI row, opens claim/evidence details from fact counts, shows second-level times, and renders a live background Goal trace with reasoning/text streams, tool arguments/results and inline approval actions."
+text = "The Project Wiki UI shows complete state/current content, exact-second timestamps, expandable evidence facts, forgotten versus corrected claim state, and a live background maintenance trace with model stream, tool arguments/results and inline approvals."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "709e14fbeaef9094f9fd2c7261ef43842893c0e3" },
-  { file = "apps/webui/src/scripts/wiki.ts", oid = "b270425daf032a7ccaef88aea7c012e2682cd1d1" },
-  { file = "apps/webui/src/scripts/arm-live.ts", oid = "361435a430e5e59a8060d1d8aaeb2563fcb0cfec" },
-  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "95a27e9d4f1b37a9562584a25e7b53688f086a19" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "e52dbb8deb1f3cf3b5344a96ec37f3ba572e8d94" },
+  { file = "apps/webui/src/scripts/wiki.ts", oid = "b4feff423ef03e7330a6df2e40dfe39fb4795059" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "cd6dafc5cc2e305800c82ebadd16ef5b65a45962" },
 ]
 established = 2026-11-07
 verified = 2026-11-08
