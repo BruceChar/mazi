@@ -136,12 +136,12 @@ established = 2026-11-07
 verified = 2026-11-08
 
 [claims.project-wiki-incremental-preflight]
-text = "Wiki init returns without launching an Agent when existing claims or a non-TODO index prove initialization. Update and SessionEnd obtain a structured diff/status plan plus evidence-oid findings; SessionEnd additionally extracts safe files actually read by the completed session trace and starts bounded semantic capture even without a git diff. Explicit updates read only changed files, automatic capture reads only filtered research files, and true claims can be batch-verified with claim verify --ids."
+text = "Wiki init returns without launching an Agent when existing claims or a non-TODO index prove initialization. Cold init uses a bounded 24-step Agent and explicit read limits so it starts writing before exploring the whole project. Update and SessionEnd obtain a structured diff/status plan plus evidence-oid findings; SessionEnd additionally extracts safe files actually read by the completed session trace and starts bounded semantic capture even without a git diff. Explicit updates read only changed files, automatic capture reads only filtered research files, and true claims can be batch-verified with claim verify --ids."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "f1536f30a1960daa64ce0284d57dd1450fee6f1a" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "0b552d49a40c20cba70d7e25f07b251ee585b1b0" },
   { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "34b0d50c229fe2c2363ab57268f877a063dce3c3" },
-  { file = "apps/api/test/wiki-maintenance.service.test.ts", oid = "2ab0581d85ce9fa3078df15f13b7e7f081729ed8" },
+  { file = "apps/api/test/wiki-maintenance.service.test.ts", oid = "c38cc9dde1d30b3aa95f3519d1dbf4f154b1f532" },
 ]
 established = 2026-11-07
 verified = 2026-11-08
