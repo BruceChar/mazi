@@ -290,7 +290,7 @@ export function pendingNegotiationOf(
 
 /** 协商路线 → 中文标签（Trace 面板展示）。 */
 export const ROUTE_LABEL: Record<string, string> = {
-    direct: '直答（不执行）',
+    direct: '直答判定',
     confirmed: '已确认（直接冻结）',
     negotiate: '协商中（待答复）',
     escalate: '升级（待人决）',

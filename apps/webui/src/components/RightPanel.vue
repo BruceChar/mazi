@@ -739,7 +739,7 @@ watch(
                                 <span v-for="trigger in entry.negotiation.triggers" :key="trigger" class="contract-chip warn">{{ trigger }}</span>
                             </div>
                             <div v-if="entry.negotiation && entry.negotiation.directAnswer" class="contract-note">
-                                直答：{{ entry.negotiation.directAnswer }}
+                                Triage 直答候选：{{ entry.negotiation.directAnswer }}
                             </div>
                             <div v-if="entry.negotiation && entry.negotiation.escalation" class="contract-note warn">
                                 升级：{{ entry.negotiation.escalation }}

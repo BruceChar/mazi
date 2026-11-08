@@ -115,6 +115,35 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         ]);
     });
 
+    it('无 deliberation Step 时用 directAnswer 回填 assistant 历史', async () => {
+        const conversations = {
+            runs: () => [{ rootGoalId: 'r1', input: '法国的首都是哪里？', createdAt: 1 }],
+        };
+        const runtime = {
+            ...noFeatures,
+            harness: () => ({
+                goalSnapshot: async () => ({
+                    goals: [
+                        {
+                            negotiation: { route: 'direct', directAnswer: '巴黎。' },
+                            tasks: [],
+                        },
+                    ],
+                }),
+            }),
+        };
+        const service = new SessionsService(runtime as never, conversations as never);
+        const history = await (
+            service as unknown as {
+                conversationHistory: (id: string) => Promise<unknown>;
+            }
+        ).conversationHistory('c1');
+        expect(history).toEqual([
+            { role: 'user', text: '法国的首都是哪里？' },
+            { role: 'assistant', text: '巴黎。' },
+        ]);
+    });
+
     it('createSession 透传 goal.reasoningLevel 到 createGoalSession', async () => {
         const captured: Array<Record<string, unknown>> = [];
         const conversations = {

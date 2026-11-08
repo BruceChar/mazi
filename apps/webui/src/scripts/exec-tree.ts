@@ -78,20 +78,42 @@ export function toggleCollapsedKey(collapsed: ReadonlySet<string>, key: string):
     return next;
 }
 
-/** 只带协商轨迹的 Goal 形状（直答判定只依赖 route）。 */
-export interface GoalRouteLike {
-    negotiation?: { route?: string } | null;
+interface GoalTaskFactsLike {
+    startedAt?: number | null;
+    steps?: readonly unknown[] | null;
 }
 
 /**
- * 是否直答路线（triage 直接作答，没有真实任务）：该 Goal 只展示直答内容，
- * 不展示契约卡片与任务块。
+ * Goal 展示所需的最小事实：triage 判断 + harness 的 Task/Step 事实。
+ * route 只是模型判断，不能单独用来压掉执行记录。
  */
-export function isDirectRoute(goal: GoalRouteLike | null | undefined): boolean {
-    return goal?.negotiation?.route === 'direct';
+export interface GoalDisplayFactsLike {
+    negotiation?: { route?: string; directAnswer?: string | null } | null;
+    tasks?: readonly GoalTaskFactsLike[] | null;
 }
 
-/** 契约卡片是否展示：直答路线跳过，其余（含旧数据缺省）照常展示。 */
-export function showContractCard(goal: GoalRouteLike | null | undefined): boolean {
-    return !isDirectRoute(goal);
+/** 是否存在已开始的 Task 或 Step；任一事实存在就必须展示执行树。 */
+export function hasExecutionFacts(goal: GoalDisplayFactsLike | null | undefined): boolean {
+    return (goal?.tasks ?? []).some(
+        (task) => task.startedAt != null || (task.steps?.length ?? 0) > 0,
+    );
+}
+
+/**
+ * 是否可折叠为纯直答：route=direct、确有直答文本，且没有 harness 执行事实。
+ * 历史数据里 direct 与 Task/Step 并存时以执行事实为准。
+ */
+export function isDirectAnswerOnly(goal: GoalDisplayFactsLike | null | undefined): boolean {
+    const answer = goal?.negotiation?.directAnswer;
+    return (
+        goal?.negotiation?.route === 'direct' &&
+        typeof answer === 'string' &&
+        answer.trim().length > 0 &&
+        !hasExecutionFacts(goal)
+    );
+}
+
+/** 契约卡片是否展示：仅纯直答跳过，其余（含旧数据缺省）照常展示。 */
+export function showContractCard(goal: GoalDisplayFactsLike | null | undefined): boolean {
+    return !isDirectAnswerOnly(goal);
 }

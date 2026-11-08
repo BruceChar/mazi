@@ -386,7 +386,10 @@ export class SessionsService {
                 .flatMap((task) => task.steps)
                 .filter((step) => step.kind === 'deliberation');
             const last = deliberations[deliberations.length - 1];
-            const text = last?.content ?? last?.payloadText ?? '';
+            const directAnswer = snapshot.goals
+                .map((goal) => goal.negotiation?.directAnswer ?? '')
+                .find((answer) => answer.trim().length > 0);
+            const text = last?.content ?? last?.payloadText ?? directAnswer ?? '';
             return text.length > HISTORY_ANSWER_MAX_CHARS
                 ? text.slice(0, HISTORY_ANSWER_MAX_CHARS)
                 : text;
@@ -542,7 +545,8 @@ export class SessionsService {
         if (this.projectWiki === undefined) return;
         const context = this.conversations.runContext?.(rootGoalId);
         if (context?.workspace === undefined || context.projectId === undefined) return;
-        const finalMessage = result.tasks.at(-1)?.finalMessage?.trim() ?? '';
+        const finalMessage =
+            (result.finalAnswer ?? result.tasks.at(-1)?.finalMessage)?.trim() ?? '';
         const summary =
             result.rejected?.join(';').trim() ||
             finalMessage.slice(0, 1200) ||

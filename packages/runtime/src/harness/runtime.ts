@@ -148,7 +148,7 @@ function goalRunSummary(result: GoalRunResult): string {
     if (result.rejected && result.rejected.length > 0) {
         return result.rejected.join(';').slice(0, 2000);
     }
-    const summary = last?.finalMessage ?? last?.errorMessage;
+    const summary = result.finalAnswer ?? last?.finalMessage ?? last?.errorMessage;
     return summary && summary.length > 0 ? summary.slice(0, 2000) : '';
 }
 
@@ -889,6 +889,20 @@ export class HarnessRuntime {
         this.pendingProjectContext.delete(rootGoalId);
         const rootGoal = goals.find((goal) => goal.goalId === rootGoalId) ?? goals[0];
         const goalId = rootGoal?.goalId ?? rootGoalId;
+        const directAnswer =
+            !resume && rootGoal?.negotiation?.route === 'direct'
+                ? rootGoal.negotiation.directAnswer?.trim()
+                : undefined;
+        if (rootGoal !== undefined && directAnswer) {
+            this.pendingBlackboard.delete(rootGoalId);
+            await this.completeDirectGoal(rootGoal, directAnswer);
+            return {
+                rootGoalId,
+                tasks: [],
+                ok: true,
+                finalAnswer: directAnswer,
+            };
+        }
         if (projectWikiActive) {
             await this.ensureProjectWikiInitialized();
         }
@@ -1204,7 +1218,7 @@ export class HarnessRuntime {
         // Settle the Goal entities so the persisted tree/snapshot no longer reports
         // every active goal as 'active' after the run has finished. Aborted runs stay
         // resumable (Goal.status='aborted') instead of being marked failed.
-        // 没有 TaskOutcome 的 Goal（blocked 待协商 / direct 直答 / pending）保持原状态：
+        // 没有 TaskOutcome 的 Goal（blocked 待协商 / pending）保持原状态：
         // 它们根本没进入本次执行，不能被一次「空运行」改写成 succeeded。
         const outcomeByGoal = new Map(
             result.tasks.map((outcome) => [outcome.task.goalId, outcome]),
@@ -1328,6 +1342,27 @@ export class HarnessRuntime {
         }
         await this.bus.flush();
         return result;
+    }
+
+    /**
+     * direct 是零执行终态：不创建 Task/Step，也不调用 planner/executor。
+     * 直答文本进入 GoalRunResult，供 API 摘要、评估和下一轮会话历史读取。
+     */
+    private async completeDirectGoal(goal: Goal, answer: string): Promise<void> {
+        const latest = (await this.goalStoreDb.loadGoal(goal.goalId)) ?? goal;
+        latest.status = 'succeeded';
+        latest.endedAt = Date.now();
+        await this.goalStoreDb.saveGoal(latest);
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'goal.ended',
+                rootGoalId: goal.goalId,
+                payload: {
+                    outcome: { status: 'success', summary: answer.slice(0, 2000) },
+                },
+            }),
+        );
+        await this.bus.flush();
     }
 
     /** 请求停止运行中的 Goal 树；返回是否命中在跑的运行（不改变已落库事实）。 */
@@ -1739,7 +1774,11 @@ export class HarnessRuntime {
                             roleId: context.role.roleId,
                             childGoalId: child.rootGoalId,
                             ok: result.ok,
-                            summary: last?.finalMessage ?? last?.errorMessage ?? '',
+                            summary:
+                                result.finalAnswer ??
+                                last?.finalMessage ??
+                                last?.errorMessage ??
+                                '',
                         },
                     }),
                 );

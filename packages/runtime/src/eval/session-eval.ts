@@ -205,7 +205,7 @@ export function projectSessionEvaluation(input: SessionEvaluationInput): Session
         .filter((value): value is number => typeof value === 'number');
     const startedAt = starts.length > 0 ? Math.min(...starts) : Date.now();
     const completedAt = ends.length > 0 ? Math.max(...ends) : Date.now();
-    const finalAnswer = input.result?.tasks.at(-1)?.finalMessage;
+    const finalAnswer = input.result?.finalAnswer ?? input.result?.tasks.at(-1)?.finalMessage;
     return {
         evaluationId: `${input.source ?? 'session'}:${input.rootGoalId}`,
         rootGoalId: input.rootGoalId,

@@ -104,6 +104,8 @@ export interface GoalRunResult {
     rootGoalId: string;
     tasks: TaskOutcome[];
     ok: boolean;
+    /** direct 路线没有 Task 承载回答；调用方用它做终态摘要/会话历史。 */
+    finalAnswer?: string;
     rejected?: string[];
     planRevisions?: PlanRevision[];
 }

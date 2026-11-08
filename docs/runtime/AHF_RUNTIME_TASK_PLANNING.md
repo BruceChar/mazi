@@ -1,6 +1,6 @@
 # Runtime Task Planning 与失败信号（P0 修复）
 
-> 状态：已实现（2026-11-07）
+> 状态：已实现（2026-11-09 修订）
 > 关联：docs/core/AHF_CORE_GTS.md（契约与机械检查词表）、docs/web/观测看板设计.md（plan 可观测）、用户行为流设计无关。
 > 背景故障：run `01M6TJJ57BV20XRC2SS71V0QNX`（用户输入 `A`）只生成 1 个泛化 Task、
 > 17 条语义条款从未判定、模型把文件内容当最终回答即被 `final-answer` 收尾。
@@ -22,6 +22,7 @@ createGoalSession
 executeGoalTree
   ├─ await 尚未落地的 triage（上限 TRIAGE_TIMEOUT_MS；失败/超时按 fallback 继续）
   ├─ 重新加载 Goal（含 triage 追加的条款与 route）
+  ├─ route=direct 且带 answer → 记录直答终态并结束（不规划、不执行）
   ├─ generateTaskPlan(goal, tools, sessionContext, history) → LLM Task Planner
   │    └─ 失败/被拒 → 回退单 Task（MVP），并写 plan.invalid
   ├─ runGoalTree：拓扑序逐 Task 执行；Task 之间注入前置结果
@@ -29,6 +30,18 @@ executeGoalTree
 ```
 
 **不变量**：规划只能基于已落库的契约；triage 完成前不得生成计划。
+
+### 2.1 直答零执行不变量（2026-11-09 修订）
+
+- `route=direct` 表示模型判断该意图无需读取工作区、调用工具或产生副作用。非 resume 执行中，
+  只要 `directAnswer` 非空，runtime 直接以该回答结束：不生成 Task、不生成 Step、不调用工具、
+  不进入 Task Planner；Goal 落为 `succeeded`，`endedAt` 与 `goal.ended.summary` 记录直答终态。
+- 直答内容仍是由 triage 模型产出的事实，不属于 harness 执行事实。若旧数据或异常分支同时存在
+  Task/Step，UI 必须以 harness 执行事实为准展示完整树，不能因 `route=direct` 隐藏实际调用。
+- `route=direct` 但 `directAnswer` 缺失/空白时不满足直答终态条件，继续走正常规划与执行。
+- 直答没有 Task，`GoalRunResult.finalAnswer` 承载回答；Conversation 历史组装在无 deliberation
+  Step 时回退读取该字段/`directAnswer`，避免下一轮丢失上一轮回答。
+- `resume=true` 不把已存在的工作强行截断为直答；恢复路径继续复用已落库 Task/Step。
 
 ## 3. Task Planner 输入
 
@@ -84,6 +97,8 @@ executeGoalTree
 - `packages/runtime/test/tool-executor.test.ts`：pipefail、sd no-op 检测。
 - `packages/runtime/test/contract-negotiation.test.ts` / `acceptance.test.ts` / `verifier.test.ts`：结构化 check 与机械判定。
 - `packages/runtime/test/task-planner-runtime.test.ts`：runtime 注入 history 后 planner 输入正确。
+- `apps/webui/test/exec-tree.test.ts`：只有“direct 且无执行事实”才隐藏契约/Task 树。
+- `apps/api/test/sessions.service.test.ts`：无 deliberation Step 的直答可回填 Conversation 历史。
 
 ## 7. 后续（P1，待定）
 

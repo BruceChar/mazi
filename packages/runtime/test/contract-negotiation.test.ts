@@ -295,11 +295,11 @@ describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () =
         }
     });
 
-    it('direct：直答落库并可读（异步 triage 不拦截执行）', async () => {
+    it('direct：已有直答时零 Task/Step 结束，不再调用执行模型', async () => {
         const directReply = JSON.stringify({
             blocks: [{ route: 'direct', goals: ['答'], answer: '巴黎。' }],
         });
-        const { runtime } = makeRuntime([directReply, '完成。']);
+        const { runtime, calls } = makeRuntime([directReply, '完成。']);
         try {
             const created = await runtime.createGoalSession('法国的首都是哪里？', {
                 parseIntent: true,
@@ -308,9 +308,37 @@ describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () =
             const snap = await runtime.goalSnapshot(created.rootGoalId);
             expect(snap.goals[0]?.negotiation?.route).toBe('direct');
             expect(snap.goals[0]?.negotiation?.directAnswer).toBe('巴黎。');
-            // triage 在创建返回后才落地，因此不会再"替用户决定不执行"
             const result = await runtime.executeGoalTree(created.rootGoalId);
+            expect(result).toMatchObject({ ok: true, tasks: [], finalAnswer: '巴黎。' });
+            // 只有 triage 这一次模型调用；direct 不进入 planner 或 executor。
+            expect(calls).toHaveLength(1);
+            const settled = await runtime.goalSnapshot(created.rootGoalId);
+            expect(settled.goals[0]?.status).toBe('succeeded');
+            expect(settled.taskCount).toBe(0);
+            expect(settled.stepCount).toBe(0);
+            const ended = runtime.eventBus
+                .replay(created.rootGoalId)
+                .find((event) => event.type === 'goal.ended');
+            expect(ended?.payload).toMatchObject({
+                outcome: { status: 'success', summary: '巴黎。' },
+            });
+        } finally {
+            await runtime.close();
+        }
+    });
+
+    it('direct 缺回答时回落正常执行，不伪造终态', async () => {
+        const directWithoutAnswer = JSON.stringify({
+            blocks: [{ route: 'direct', goals: ['答'] }],
+        });
+        const { runtime, calls } = makeRuntime([directWithoutAnswer, '完成。']);
+        try {
+            const created = await runtime.createGoalSession('法国首都？', { parseIntent: true });
+            await waitForTriage(runtime, created.rootGoalId);
+            const result = await runtime.executeGoalTree(created.rootGoalId);
+            expect(result.ok).toBe(true);
             expect(result.tasks).toHaveLength(1);
+            expect(calls).toHaveLength(2);
         } finally {
             await runtime.close();
         }

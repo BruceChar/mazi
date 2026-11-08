@@ -14,7 +14,7 @@ import {
 } from '../scripts/contract-view.ts';
 import {
     deliberationRowDecision,
-    isDirectRoute,
+    isDirectAnswerOnly,
     liveStepBodies,
     showContractCard,
     toggleCollapsedKey,
@@ -266,6 +266,7 @@ function buildExecTree(detailObj) {
     return goals.map((goal) => {
         // 契约与验收判定都在快照里，UI 只投影不再推断（承诺 vs 事实并排）。
         const contract = contractSummaryOf(goal.contract);
+        const directAnswerOnly = isDirectAnswerOnly(goal);
         return {
             goalId: goal.goalId,
             statement: goal.statement,
@@ -273,14 +274,14 @@ function buildExecTree(detailObj) {
             contract,
             /** 契约满足度汇总（评估器机械口径；未执行时为 null）。 */
             contractStatus: goal.contractStatus ?? null,
-            /** direct 路线的直答：Goal 直接 succeeded，没有 Task，答案在这里呈现。 */
-            directAnswer: goal.negotiation?.directAnswer || '',
+            /** 纯直答：没有 Task/Step 时直接呈现 triage 的回答。 */
+            directAnswer: directAnswerOnly ? goal.negotiation?.directAnswer || '' : '',
             /** escalate 路线：挂起待人决的原因。 */
             escalation: goal.negotiation?.escalation || '',
-            /** 直答路线不展示契约卡（issue 4）：判定在归一化后的 Goal 上做一次。 */
+            /** 纯直答不展示契约；存在执行事实时模型 route 不能隐藏真实树。 */
             showContract: showContractCard(goal),
-            /** direct 路线没有真实任务：跳过任务块（也不显示 0 steps 的任务头）。 */
-            tasks: isDirectRoute(goal)
+            /** 纯直答跳过 0 steps 占位任务；旧数据有执行事实时照常展示。 */
+            tasks: directAnswerOnly
                 ? []
                 // 只展示当前计划（最高 planVersion）：被 replan 替换的旧计划尝试不进树，
                 // 完整审计仍保留在 Trace 面板。
