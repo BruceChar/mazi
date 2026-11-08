@@ -29,6 +29,7 @@ import {
     type LiveStep,
 } from './arm-live.js';
 import type { ExperimentSummaryView, ExperimentView } from './experiments.js';
+import type { PlanTaskLike, RunPlan } from './plan-view.ts';
 import { isAbortedReason, snapshotResumable } from './run-control.js';
 import { activeStream, applyStreamEvent, type LiveStream, type LiveStreamMap } from './stream.js';
 
@@ -39,6 +40,8 @@ const LIVE_EVENT_TYPES = [
     'session.ended',
     'goal.started',
     'goal.ended',
+    // 执行前的内部模型阶段（契约 triage / 任务规划）：没有 step，也还没有流式 token。
+    'goal.phase',
     'user.feedback.captured',
     'step.started',
     'step.ended',
@@ -54,6 +57,10 @@ const LIVE_EVENT_TYPES = [
     'superagent.decision',
     'prompt.pack.selected',
     'verification.completed',
+    // 计划可观测：plan.created 带初始计划的完整 Task 列表，plan.revised 带修订后的完整计划，
+    // UI 靠它们在执行中即时渲染 Goal→Task→Step 计划树（plan.invalid 供事件面板审计）。
+    'plan.created',
+    'plan.invalid',
     'plan.revised',
     'replan.rejected',
     'delegation.started',
@@ -69,6 +76,9 @@ const REFRESH_EVENT_TYPES = new Set<string>([
     // 协商问题/契约修订落库 → 立刻重取 timeline（驱动协商弹窗与 Trace 契约区）
     'goal.negotiation.requested',
     'goal.contract-revised',
+    // 计划（含 replan 修订）落库 → 刷新 timeline，补齐契约状态与 Task 落库 status/step 数
+    'plan.created',
+    'plan.revised',
 ]);
 
 function systemPrefersDark(): boolean {
@@ -285,6 +295,27 @@ export type { LiveStep };
 
 /** Live steps per run (rootGoalId -> ordered steps). */
 export const liveSteps = reactive<Record<string, LiveStep[]>>({});
+
+/** 执行前阶段进度（runtime `goal.phase`，按 rootGoalId 记录最近一次阶段）。 */
+export interface RunPhase {
+    phase: string;
+    label?: string;
+    /** 阶段事件发生时刻（用于前端显示已等待秒数）。 */
+    at: number;
+}
+
+/**
+ * 最近一次 `goal.phase`：intake（契约 triage）/ planning（任务规划）/ executing。
+ * 只有 intake / planning 会在聊天区显示阶段行，executing 之后由实时步骤/流式输出接管。
+ */
+export const runPhases = reactive<Record<string, RunPhase>>({});
+
+/**
+ * 当前计划（TaskPlan）：plan.created / plan.revised 事件按 rootGoalId 归约为最新一份，
+ * 供执行流在 timeline 刷新前就渲染 Goal→Task→Step 树（含 0 step 的待执行 Task）。
+ * 计划版本映射：初始计划 = 1，第 N 次 replan = N + 1；详见 plan-view.ts。
+ */
+export const runPlans = reactive<Record<string, RunPlan>>({});
 
 /**
  * Audit panel selection (docs/web/观测看板设计.md §3). Clicking a Step/Task in
@@ -657,6 +688,68 @@ function applyStepEnded(rootGoalId: string, event: EventItem): void {
     liveSteps[rootGoalId] = applyLiveStepEnded(liveSteps[rootGoalId] ?? [], event);
 }
 
+/** plan.created / plan.revised 的 payload.tasks → 展示用 Task 视图（字段缺失一律降级）。 */
+function planTasksOf(payload: unknown): PlanTaskLike[] {
+    const raw = (payload as { tasks?: unknown } | null | undefined)?.tasks;
+    if (!Array.isArray(raw)) return [];
+    const tasks: PlanTaskLike[] = [];
+    for (const item of raw) {
+        if (!item || typeof item !== 'object') continue;
+        const task = item as Record<string, unknown>;
+        if (typeof task.taskId !== 'string' || !task.taskId) continue;
+        const view: PlanTaskLike = {
+            taskId: task.taskId,
+            title: typeof task.title === 'string' ? task.title : '',
+        };
+        if (Array.isArray(task.dependsOn)) {
+            view.dependsOn = task.dependsOn.filter(
+                (value): value is string => typeof value === 'string',
+            );
+        }
+        if (typeof task.planVersion === 'number' && Number.isFinite(task.planVersion)) {
+            view.planVersion = task.planVersion;
+        }
+        if (typeof task.status === 'string' && task.status) view.status = task.status;
+        tasks.push(view);
+    }
+    return tasks;
+}
+
+/**
+ * 归约一条计划事件：以 rootGoalId 为键保留最新计划。
+ * - plan.created：默认 planVersion 1（旧 runtime 缺字段），tasks 可能为空（旧数据）；
+ * - plan.revised：payload 带修订后的完整计划（planVersion = revision + 1）；
+ *   旧 runtime 只带 diff/reason 时不保留旧 tasks，让 ExecStream 回退到 timeline 快照过滤。
+ * - 迟到的旧版本事件不覆盖已归约的更新计划。
+ */
+function applyPlanEvent(rootGoalId: string, event: EventItem): void {
+    const payload = (event.payload ?? {}) as {
+        planVersion?: unknown;
+        revision?: unknown;
+        tasks?: unknown;
+    };
+    const previous = runPlans[rootGoalId];
+    const eventRevision =
+        typeof payload.revision === 'number' && Number.isFinite(payload.revision)
+            ? payload.revision
+            : undefined;
+    const planVersion =
+        typeof payload.planVersion === 'number' && Number.isFinite(payload.planVersion)
+            ? payload.planVersion
+            : event.type === 'plan.created'
+              ? 1
+              : (previous?.planVersion ?? 1) + 1;
+    const revision =
+        event.type === 'plan.created' ? 0 : (eventRevision ?? (previous?.revision ?? 0) + 1);
+    if (previous && previous.planVersion > planVersion) return;
+    runPlans[rootGoalId] = {
+        planVersion,
+        revision,
+        tasks: planTasksOf(payload),
+        updatedAt: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
+    };
+}
+
 export function stopEvents(): void {
     if (eventSource) {
         eventSource.close();
@@ -668,6 +761,8 @@ export function stopEvents(): void {
     }
     liveStreams.value = {};
     for (const key of Object.keys(liveSteps)) delete liveSteps[key];
+    for (const key of Object.keys(runPhases)) delete runPhases[key];
+    for (const key of Object.keys(runPlans)) delete runPlans[key];
     approvals.value = [];
     selectedBehavior.value = null;
 }
@@ -690,6 +785,23 @@ export function watchEvents(rootGoalId: string): void {
             }
             if (!events.list.some((e) => e.eventId === event.eventId)) {
                 events.list.push(event);
+            }
+            // goal.phase：只更新阶段行状态（不刷新快照——此刻还没有任何 step 落库）。
+            if (event.type === 'goal.phase') {
+                const payload = event.payload as { phase?: unknown; label?: unknown } | undefined;
+                const phase = typeof payload?.phase === 'string' ? payload.phase : '';
+                const root = (event.rootGoalId as string | undefined) || rootGoalId;
+                if (phase && root) {
+                    runPhases[root] = {
+                        phase,
+                        label:
+                            typeof payload?.label === 'string' && payload.label
+                                ? payload.label
+                                : undefined,
+                        at: typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
+                    };
+                }
+                return;
             }
             if (event.type === 'approval.requested') {
                 const pending = event.payload as PendingApproval | undefined;
@@ -720,7 +832,22 @@ export function watchEvents(rootGoalId: string): void {
                 applyStepEnded(rootGoalId, event);
                 return;
             }
+            // 计划事件：先归约当前计划（执行流立刻可渲染 Goal→Task→Step），
+            // 不 return，继续走下面的 REFRESH 防抖刷新补齐契约/落库状态。
+            if (event.type === 'plan.created' || event.type === 'plan.revised') {
+                const root = (event.rootGoalId as string | undefined) || rootGoalId;
+                if (root) applyPlanEvent(root, event);
+            }
             if (REFRESH_EVENT_TYPES.has(event.type)) {
+                // 运行已收尾：丢掉阶段态，避免下一次「继续」时闪现上一个阶段（含巨大的已等待秒数）。
+                if (
+                    event.type === 'session.ended' ||
+                    event.type === 'goal.ended' ||
+                    event.type === 'run.aborted'
+                ) {
+                    const root = (event.rootGoalId as string | undefined) || rootGoalId;
+                    if (root) delete runPhases[root];
+                }
                 refreshLater(rootGoalId);
             }
         } catch {

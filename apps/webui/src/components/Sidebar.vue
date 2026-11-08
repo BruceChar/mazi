@@ -404,13 +404,13 @@ function latencyText() {
     min-height: 0;
 }
 .group {
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 .group-head {
     display: flex;
     align-items: center;
     gap: 2px;
-    padding: 5px 8px 5px 10px;
+    padding: 3px 8px 3px 10px;
 }
 /* Folder icon by default; becomes a fold chevron while the row is hovered. */
 .group-toggle {
@@ -546,7 +546,7 @@ function latencyText() {
 }
 .session-list li {
     position: relative;
-    padding: 6px 26px 6px 8px;
+    padding: 5px 26px 5px 8px;
     border-radius: 6px;
     cursor: pointer;
 }
@@ -566,7 +566,7 @@ function latencyText() {
 .session-time {
     font-size: 11px;
     color: var(--fg-tertiary);
-    margin-top: 2px;
+    margin-top: 1px;
 }
 .session-menu-wrap {
     position: absolute;
@@ -574,7 +574,7 @@ function latencyText() {
     right: 4px;
 }
 .empty-sidebar {
-    padding: 8px;
+    padding: 6px;
     font-size: 12px;
     color: var(--fg-tertiary);
     text-align: center;

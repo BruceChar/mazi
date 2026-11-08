@@ -155,6 +155,21 @@
 - **执行树展示**：只渲染真正拥有 Task 的 Goal（内部 intake Goal 隐藏）；只有一个 Goal 时隐藏 Goal 头，
   避免与 Task 标题重复展示用户输入。每个 Task 头显示完整日期时间（`YYYY-MM-DD HH:MM:SS`），其下 Step
   只显示时间（`HH:MM:SS.mmm`）；Task 无 Step 时不显示占位提示。
+- **执行前阶段反馈（2026-11-08 修订）**：提交后、首个 Step 落库前，runtime 还有两段内部模型工作——
+  契约 triage（`parseIntent`，上限 10s）与任务规划（`generateTaskPlan`，上限 10s）。这期间没有 Step、
+  也没有可渲染的 token，主会话**不再显示泛化的「执行中…」气泡**，而是渲染 runtime 推送的真实阶段行：
+  `goal.phase` 的 `intake` →「正在理解任务」、`planning` →「正在制定计划」，行内 spinner 与已等待秒数持续走动；
+  进入 `executing`、或出现流式思考/正文/实时 Step 后，阶段行立即退场，把位置交给真实输出。
+  事件与渲染见 `packages/runtime/src/harness/runtime.ts`（`emitGoalPhase`）、
+  `apps/webui/src/scripts/store.ts`（`runPhases`）、`apps/webui/src/components/ChatMain.vue`（阶段行）。
+  乐观回显（`pendingInput`）只显示用户气泡，不再附带假 assistant 占位。
+- **执行中计划树可见（2026-11-08 修订）**：`plan.created` / `plan.revised` 事件携带 `planVersion` 与完整
+  Task 列表；主会话在 `busy` 期间即渲染 **当前计划的 Goal→Task→Step 树**（不再只有扁平 S# 列表）：
+  顶部一行契约/计划摘要（route、条款数、`计划 vN`、`已修订 N 次`），其下按 Task 展示
+  `待执行 / 执行中 / 成功 / 失败` 状态与步骤数，实时 Step 挂到所属 Task 下；计划生成完成、真实动作 Step
+  开始之前就能看到「要执行哪些 Task」。被 replan 替换的历史尝试（`planVersion` 较小）不在主会话展开，
+  仅以折叠提示说明存在，完整审计记录保留在右侧 Trace。结束后的快照树同样只展示当前（最大 `planVersion`）
+  计划，避免把已替换的零 Step 孤儿 Task 混进任务结构。
 
 **滚动与导航**：
 

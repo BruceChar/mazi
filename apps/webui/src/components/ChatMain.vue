@@ -1,11 +1,12 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import ApprovalPrompt from './ApprovalPrompt.vue';
 import ExecStream from './ExecStream.vue';
 import Composer from './Composer.vue';
 import { VoiceController } from '../voice/controller.ts';
 import { formatCost, formatTokens } from '../scripts/audit.ts';
+import { runPlans } from '../scripts/store.ts';
 
 const props = defineProps({
     activeConversation: { type: Object, default: null },
@@ -20,6 +21,8 @@ const props = defineProps({
     liveStream: { type: Object, default: null },
     /** Append-only live steps per run (store.liveSteps), keyed by rootGoalId. */
     liveSteps: { type: Object, default: () => ({}) },
+    /** 当前 run 的执行前阶段进度（store.runPhases[current]，runtime `goal.phase`）。 */
+    phase: { type: Object, default: null },
     suggestionCards: { type: Array, default: () => [] },
     feedbackSent: { type: Boolean, default: false },
     prompt: { type: String, default: '' },
@@ -119,21 +122,46 @@ function runTitle(run) {
     return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
 /**
- * True while the run has not produced a visible step yet. The chat shows the
- * "执行中…" placeholder only in this window; afterwards the live step stream
- * (and token stream) speak for themselves.
+ * 执行前阶段行的可见窗口：当前 run 正在执行、还没有任何实时步骤、也还没有
+ * 流式思考/正文，且 runtime 正处在 intake（契约 triage）或 planning（任务规划）。
+ * 一旦进入 executing、或实时步骤/流式输出出现，就交给真实输出，不再显示阶段行。
  */
-function isAwaitingFirstStep(rootGoalId) {
-    if ((props.liveSteps?.[rootGoalId] || []).length > 0) return false;
-    const snapshot = props.runDetails[rootGoalId];
-    if (!snapshot) return true;
-    for (const goal of snapshot.goals || []) {
-        for (const task of goal.tasks || []) {
-            if ((task.steps || []).length > 0) return false;
-        }
-    }
+const phaseVisible = computed(() => {
+    if (!props.busy || !props.current) return false;
+    const phase = props.phase?.phase;
+    if (phase !== 'intake' && phase !== 'planning') return false;
+    if ((props.liveSteps?.[props.current] || []).length > 0) return false;
+    const stream = props.liveStream;
+    if (stream && (stream.text || stream.reasoning)) return false;
     return true;
-}
+});
+const phaseLabel = computed(() => {
+    if (props.phase?.label) return props.phase.label;
+    return props.phase?.phase === 'planning' ? '正在制定计划' : '正在理解任务';
+});
+/** 秒级 tick：长模型等待期间让已等待秒数持续走动，证明不是卡死。 */
+const phaseTick = ref(Date.now());
+const phaseElapsed = computed(() => {
+    const at = props.phase?.at;
+    if (!at) return 0;
+    return Math.max(0, Math.floor((phaseTick.value - at) / 1000));
+});
+let phaseTimer = null;
+watch(
+    phaseVisible,
+    (visible) => {
+        if (visible && phaseTimer === null) {
+            phaseTick.value = Date.now();
+            phaseTimer = setInterval(() => {
+                phaseTick.value = Date.now();
+            }, 1000);
+        } else if (!visible && phaseTimer !== null) {
+            clearInterval(phaseTimer);
+            phaseTimer = null;
+        }
+    },
+    { immediate: true },
+);
 
 /* ---------- Auto-follow + right-hand conversation rail (docs/webui.md §3.4) ---------- */
 const chatScroll = ref(null);
@@ -199,8 +227,9 @@ watch(
 );
 
 /**
- * Any content change — live steps, the settled tree snapshot, streaming text or
- * the busy flip — keeps the tail pinned while the user stays at the bottom.
+ * Any content change — live steps, the settled tree snapshot, streaming text, the
+ * busy flip, or the live plan tree appearing/growing (plan.created / plan.revised) —
+ * keeps the tail pinned while the user stays at the bottom.
  */
 watch(
     () => [
@@ -209,10 +238,13 @@ watch(
         props.stepCount,
         props.runDetails[props.current],
         props.liveSteps[props.current]?.length,
+        // 计划一出现/修订就要跟着滚到底：实时计划树会在首个 step 之前长出来。
+        props.current ? runPlans[props.current]?.updatedAt : undefined,
         props.liveStream?.streamId,
         props.liveStream?.updatedAt,
         props.liveStream?.text?.length,
         props.liveStream?.reasoning?.length,
+        props.phase?.at,
     ],
     async () => {
         await nextTick();
@@ -234,6 +266,10 @@ onMounted(() => {
     void voice.init();
 });
 onBeforeUnmount(() => {
+    if (phaseTimer !== null) {
+        clearInterval(phaseTimer);
+        phaseTimer = null;
+    }
     voice.destroy();
 });
 </script>
@@ -256,12 +292,14 @@ onBeforeUnmount(() => {
                                 <div class="msg-bubble">{{ run.input }}</div>
                                 <span class="msg-time">{{ fmtPrecise(run.createdAt) }}</span>
                             </div>
-                            <!-- Placeholder shown only until the first live step arrives. -->
+                            <!-- 真实阶段行：契约 triage / 任务规划的模型等待期（无 step、无 token） -->
                             <div
-                                v-if="run.rootGoalId === current && busy && isAwaitingFirstStep(run.rootGoalId)"
-                                class="msg msg-assistant"
+                                v-if="run.rootGoalId === current && phaseVisible"
+                                class="phase-row"
                             >
-                                <div class="msg-bubble thinking-bubble">执行中…</div>
+                                <span class="phase-spinner" aria-hidden="true"></span>
+                                <span class="phase-label">{{ phaseLabel }}</span>
+                                <span class="phase-elapsed">{{ phaseElapsed }}s</span>
                             </div>
                             <!-- Execution stream -->
                             <ExecStream
@@ -306,9 +344,6 @@ onBeforeUnmount(() => {
                     <div v-if="pendingInput" class="run-block pending">
                         <div class="msg msg-user">
                             <div class="msg-bubble">{{ pendingInput }}</div>
-                        </div>
-                        <div class="msg msg-assistant">
-                            <div class="msg-bubble thinking-bubble">执行中…</div>
                         </div>
                     </div>
                 </div>
@@ -512,9 +547,6 @@ onBeforeUnmount(() => {
 .msg-user {
     align-items: flex-end;
 }
-.msg-assistant {
-    align-items: flex-start;
-}
 .msg-bubble {
     max-width: 80%;
     padding: 10px 14px;
@@ -529,15 +561,36 @@ onBeforeUnmount(() => {
     border-bottom-right-radius: 4px;
     border: none;
 }
-.msg-assistant .msg-bubble {
-    background: var(--bg-panel);
-    color: var(--fg);
-    border: 1px solid var(--border-soft);
-    border-bottom-left-radius: 4px;
+/* 执行前阶段行：小 spinner + 中文阶段名 + 已等待秒数（真实 runtime 阶段，不是假占位）。 */
+.phase-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 4px;
+    min-height: 20px;
 }
-.thinking-bubble {
+.phase-spinner {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: phase-spin 0.8s linear infinite;
+}
+@keyframes phase-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+.phase-label {
+    font-size: 13px;
     color: var(--fg-secondary);
-    font-style: italic;
+}
+.phase-elapsed {
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
 }
 .msg-time {
     font-size: 11px;

@@ -19,8 +19,21 @@ import {
     showContractCard,
     toggleCollapsedKey,
 } from '../scripts/exec-tree.ts';
+import {
+    groupLiveStepsByTask,
+    latestPlanTasks,
+    planRevisionLabel,
+    planRevisions,
+    planRouteLabel,
+    planTaskStatusLabel,
+    planTaskStatusTone,
+    planVersionLabel,
+    planVersionOf,
+    planViewOf,
+    supersededAttemptCount,
+} from '../scripts/plan-view.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
-import { copyThinkingChain, ui } from '../scripts/store.ts';
+import { copyThinkingChain, current, runPlans, ui } from '../scripts/store.ts';
 
 const props = defineProps({
     runDetail: { type: Object, default: null },
@@ -49,7 +62,9 @@ function selectBehavior(behavior) {
 const copiedTaskId = ref('');
 let copiedTimer = null;
 async function copyThinking(taskId) {
-    const rootGoalId = props.runDetail?.rootGoalId;
+    // live 模式下 runDetail 可能还没刷新出来；执行中的当前 run 用 store.current 兜底。
+    const rootGoalId =
+        props.runDetail?.rootGoalId || (props.busy && current.value ? current.value : '');
     if (!rootGoalId || !taskId) return;
     try {
         await copyThinkingChain(rootGoalId, taskId);
@@ -267,7 +282,9 @@ function buildExecTree(detailObj) {
             /** direct 路线没有真实任务：跳过任务块（也不显示 0 steps 的任务头）。 */
             tasks: isDirectRoute(goal)
                 ? []
-                : (goal.tasks || []).map((task) => {
+                // 只展示当前计划（最高 planVersion）：被 replan 替换的旧计划尝试不进树，
+                // 完整审计仍保留在 Trace 面板。
+                : latestPlanTasks(goal.tasks || []).map((task) => {
                       const startedAt = taskStartedAt(task);
                       const acceptance = acceptanceRows(
                           task.acceptance,
@@ -292,6 +309,8 @@ function buildExecTree(detailObj) {
                           taskId: task.taskId,
                           title: task.title,
                           status: task.status,
+                          statusLabel: planTaskStatusLabel(task.status),
+                          statusTone: planTaskStatusTone(task.status),
                           time: startedAt ? fmtDateTime(startedAt) : '',
                           acceptance,
                           acceptanceBadge: acceptanceBadge(task.acceptanceResult),
@@ -463,76 +482,206 @@ const livePlaced = computed(() => {
         trailing: placed.trailing,
     };
 });
+
+/* ---- Plan tree (Goal → Task → Step) during execution ---- */
+/**
+ * 当前 run id：live 模式下 runDetail 可能还没刷新出来（plan.created 一到就要渲染计划树），
+ * 用 store.current 兜底。settled 分支只从 runDetail 取。
+ */
+const liveRunId = computed(() =>
+    props.runDetail?.rootGoalId || (props.busy && current.value ? current.value : ''),
+);
+/** plan.created / plan.revised 归约出的最新计划；旧 runtime / 历史数据为空。 */
+const latestPlan = computed(() => (liveRunId.value ? runPlans[liveRunId.value] : null));
+/**
+ * 当前计划 + Task 状态/步数：计划事件（含完整 Task 列表）优先，timeline 快照兜底并
+ * 补齐落库 status / step 数；历史数据没有 planVersion 时不过滤。
+ */
+const planView = computed(() =>
+    planViewOf({ plan: latestPlan.value, snapshot: props.runDetail, liveSteps: props.liveSteps }),
+);
+/** 计划头部的契约摘要：triage 路线 + successConditions 条数（快照刷新后可见）。 */
+const planMeta = computed(() => {
+    const goals = props.runDetail?.goals || [];
+    const goal = goals.find((item) => item?.negotiation || item?.contract) || goals[0] || null;
+    const contract = goal ? contractSummaryOf(goal.contract) : null;
+    return {
+        statement: goal?.statement || '',
+        routeLabel: planRouteLabel(goal?.negotiation?.route),
+        conditionCount: (contract?.conditions || []).length,
+    };
+});
+/** 实时步骤按当前计划分组；计划未知时是一个 task=null 的扁平回退组（保持旧行为）。
+ *  随心聊（chatMode）与 settled 树一致：不展示 Task 层级，只保留扁平步骤列表。 */
+const showPlanTree = computed(() => !props.chatMode && planView.value.tasks.length > 0);
+const liveGroups = computed(() =>
+    groupLiveStepsByTask(
+        livePlaced.value.steps,
+        showPlanTree.value ? planView.value.tasks : [],
+    ),
+);
+/** 被替换的旧计划尝试数（当前计划树之外；完整审计在 Trace 面板）。 */
+const supersededCount = computed(() =>
+    supersededAttemptCount(planView.value, liveGroups.value.unassigned),
+);
+/** settled 树：当前计划版本（多 Goal 取最大版本）与计划修订次数。 */
+const settledPlanVersion = computed(() => {
+    let max = null;
+    for (const goal of props.runDetail?.goals || []) {
+        const version = planVersionOf(goal.tasks);
+        if (version !== null && (max === null || version > max)) max = version;
+    }
+    return max;
+});
+const settledRevisions = computed(() => planRevisions(settledPlanVersion.value));
 </script>
 
 <template>
-    <!-- Live, append-only step list while the run executes: rows are only ever
-         appended or updated in place, so the layout stays stable. -->
-    <div v-if="busy && liveSteps.length" class="exec-stream">
+    <!-- Live Goal→Task→Step plan tree while the run executes. The plan (from
+         plan.created / plan.revised) renders as soon as it exists — even with 0 steps —
+         so the intended Task structure is visible before real action steps stream in.
+         Before any plan is known it falls back to the flat append-only step list. -->
+    <div v-if="busy && (liveSteps.length || showPlanTree)" class="exec-stream">
+        <!-- 计划头：计划版本 + 契约摘要（triage 路线 / successConditions 条数） -->
+        <div v-if="showPlanTree" class="exec-plan-head">
+            <span class="exec-plan-tag">计划</span>
+            <span v-if="planMeta.statement" class="exec-plan-goal" :title="planMeta.statement">
+                {{ planMeta.statement }}
+            </span>
+            <span v-if="planVersionLabel(planView.planVersion)" class="exec-plan-chip">
+                {{ planVersionLabel(planView.planVersion) }}
+            </span>
+            <span v-if="planRevisionLabel(planView.revisions)" class="exec-plan-revision">
+                {{ planRevisionLabel(planView.revisions) }}
+            </span>
+            <span v-if="planMeta.routeLabel" class="exec-plan-route">
+                {{ planMeta.routeLabel }}
+            </span>
+            <span v-if="planMeta.conditionCount > 0" class="exec-plan-condition">
+                契约 {{ planMeta.conditionCount }} 条
+            </span>
+            <span class="exec-plan-count">{{ planView.tasks.length }} tasks</span>
+        </div>
         <div
-            v-for="(entry, i) in livePlaced.steps"
-            :key="entry.step.stepId"
-            class="exec-step"
-            :class="[`exec-${entry.step.kind}`, { error: entry.step.status === 'error' || entry.step.status === 'failed', selected: entry.step.stepId === selectedStepId }]"
-            @click="emit('select-step', { stepId: entry.step.stepId, taskId: entry.step.taskId })"
+            v-for="(group, gIdx) in liveGroups.groups"
+            :key="group.task ? group.task.taskId : 'pre-plan'"
+            class="exec-task"
+            :class="{ flat: !group.task }"
         >
             <div
-                class="exec-step-head"
+                v-if="group.task"
+                class="exec-task-head"
+                :data-task-id="group.task.taskId"
+                :class="{ selected: group.task.taskId === selectedTaskId }"
                 title="单击查看审计 · 双击折叠/展开"
-                @dblclick="toggleLiveStep(entry)"
+                @click="emit('select-task', group.task.taskId)"
+                @dblclick="toggleTask(group.task.taskId)"
             >
+                <span
+                    class="exec-dot task-dot interactive"
+                    :class="{ collapsed: collapsedTasks.has(group.task.taskId) }"
+                    @click.stop="toggleTask(group.task.taskId)"
+                ></span>
+                <span class="exec-task-tag">T#{{ gIdx + 1 }}</span>
+                <span class="exec-task-title">{{ group.task.title }}</span>
+                <span v-if="group.task.statusLabel" class="exec-task-status" :class="group.task.tone">
+                    {{ group.task.statusLabel }}
+                </span>
+                <span v-if="group.entries.length > 0" class="exec-task-count">
+                    {{ group.entries.length }} steps
+                </span>
                 <button
-                    v-if="entry.collapsible"
-                    class="exec-step-toggle"
-                    :class="{ collapsed: liveCollapsed.has(entry.step.stepId) }"
-                    :title="liveCollapsed.has(entry.step.stepId) ? '展开' : '折叠'"
-                    @click.stop="toggleLiveStep(entry)"
+                    class="exec-task-copy"
+                    :class="{ copied: copiedTaskId === group.task.taskId }"
+                    title="Copy TOC"
+                    @click.stop="copyThinking(group.task.taskId)"
                 >
-                    <LineIcon
-                        class="kind-icon"
-                        :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'"
-                        size="16"
-                    />
-                    <span class="toggle-mark">{{ liveCollapsed.has(entry.step.stepId) ? '+' : '−' }}</span>
+                    <LineIcon name="copy" size="12" />
                 </button>
-                <span v-else-if="entry.step.status === 'active'" class="exec-spinner"></span>
-                <LineIcon v-else :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'" size="16" />
-                <span class="exec-step-tag">S#{{ i + 1 }}</span>
-                <span class="exec-step-name">{{ entry.step.toolName || entry.step.kind }}</span>
-                <span class="exec-step-summary">{{ entry.step.title || '执行中…' }}</span>
-                <span class="exec-step-time">{{ fmtTime(entry.step.startedAt) }}</span>
             </div>
-            <!-- 审批/授权挂到被阻塞的工具 Step 内：先授权，再工具结果 -->
-            <div v-if="entry.behaviors.length" class="exec-step-behaviors">
+            <div
+                v-if="!group.task || !collapsedTasks.has(group.task.taskId)"
+                class="exec-task-body"
+                :class="{ flat: !group.task }"
+            >
                 <div
-                    v-for="behavior in entry.behaviors"
-                    :key="behavior.key"
-                    class="exec-behavior clickable"
-                    :class="`exec-behavior-${behavior.type}`"
-                    title="单击在 Trace 面板查看审批/授权详情"
-                    @click.stop="selectBehavior(behavior)"
+                    v-for="(entry, sIdx) in group.entries"
+                    :key="entry.step.stepId"
+                    class="exec-step"
+                    :class="[`exec-${entry.step.kind}`, { error: entry.step.status === 'error' || entry.step.status === 'failed', selected: entry.step.stepId === selectedStepId }]"
+                    @click="emit('select-step', { stepId: entry.step.stepId, taskId: entry.step.taskId })"
                 >
-                    <LineIcon :name="behavior.icon" size="14" />
-                    <span class="exec-behavior-tag">{{ behavior.label }}</span>
-                    <span class="exec-behavior-summary">{{ behavior.summary }}</span>
-                    <span class="exec-behavior-time">{{ fmtTime(behavior.at) }}</span>
+                    <div
+                        class="exec-step-head"
+                        title="单击查看审计 · 双击折叠/展开"
+                        @dblclick="toggleLiveStep(entry)"
+                    >
+                        <button
+                            v-if="entry.collapsible"
+                            class="exec-step-toggle"
+                            :class="{ collapsed: liveCollapsed.has(entry.step.stepId) }"
+                            :title="liveCollapsed.has(entry.step.stepId) ? '展开' : '折叠'"
+                            @click.stop="toggleLiveStep(entry)"
+                        >
+                            <LineIcon
+                                class="kind-icon"
+                                :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'"
+                                size="16"
+                            />
+                            <span class="toggle-mark">{{ liveCollapsed.has(entry.step.stepId) ? '+' : '−' }}</span>
+                        </button>
+                        <span v-else-if="entry.step.status === 'active'" class="exec-spinner"></span>
+                        <LineIcon v-else :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'" size="16" />
+                        <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
+                        <span class="exec-step-name">{{ entry.step.toolName || entry.step.kind }}</span>
+                        <span class="exec-step-summary">{{
+                            entry.step.title ||
+                            (entry.step.kind === 'deliberation' ? '思考中…' : '调用中…')
+                        }}</span>
+                        <span class="exec-step-time">{{ fmtTime(entry.step.startedAt) }}</span>
+                    </div>
+                    <!-- 审批/授权挂到被阻塞的工具 Step 内：先授权，再工具结果 -->
+                    <div v-if="entry.behaviors.length" class="exec-step-behaviors">
+                        <div
+                            v-for="behavior in entry.behaviors"
+                            :key="behavior.key"
+                            class="exec-behavior clickable"
+                            :class="`exec-behavior-${behavior.type}`"
+                            title="单击在 Trace 面板查看审批/授权详情"
+                            @click.stop="selectBehavior(behavior)"
+                        >
+                            <LineIcon :name="behavior.icon" size="14" />
+                            <span class="exec-behavior-tag">{{ behavior.label }}</span>
+                            <span class="exec-behavior-summary">{{ behavior.summary }}</span>
+                            <span class="exec-behavior-time">{{ fmtTime(behavior.at) }}</span>
+                        </div>
+                    </div>
+                    <!-- 实时正文（默认展开）：deliberation 的 thinking / answer、invocation 的 output -->
+                    <template v-if="entry.collapsible && !liveCollapsed.has(entry.step.stepId)">
+                        <div v-if="entry.bodies.thinking" class="exec-step-code">
+                            <pre class="exec-step-code-inner">{{ entry.bodies.thinking }}</pre>
+                        </div>
+                        <div
+                            v-if="entry.bodies.answer"
+                            class="exec-intent-inline markdown-body"
+                            v-html="renderMarkdown(entry.bodies.answer)"
+                        ></div>
+                        <div v-if="entry.bodies.output" class="exec-step-code">
+                            <pre class="exec-step-code-inner">{{ entry.bodies.output }}</pre>
+                        </div>
+                    </template>
+                </div>
+                <!-- 当前计划里 0 step 的 Task：给出「待执行」提示，不留空档 -->
+                <div v-if="group.task && group.entries.length === 0" class="exec-task-wait">
+                    待执行
                 </div>
             </div>
-            <!-- 实时正文（默认展开）：deliberation 的 thinking / answer、invocation 的 output -->
-            <template v-if="entry.collapsible && !liveCollapsed.has(entry.step.stepId)">
-                <div v-if="entry.bodies.thinking" class="exec-step-code">
-                    <pre class="exec-step-code-inner">{{ entry.bodies.thinking }}</pre>
-                </div>
-                <div
-                    v-if="entry.bodies.answer"
-                    class="exec-intent-inline markdown-body"
-                    v-html="renderMarkdown(entry.bodies.answer)"
-                ></div>
-                <div v-if="entry.bodies.output" class="exec-step-code">
-                    <pre class="exec-step-code-inner">{{ entry.bodies.output }}</pre>
-                </div>
-            </template>
         </div>
+        <!-- 被替换的旧计划尝试不进入当前计划树；完整审计仍可在 Trace 面板查看 -->
+        <div v-if="showPlanTree && supersededCount > 0" class="exec-plan-note">
+            已替换的计划尝试 {{ supersededCount }} 个（在 Trace 中查看）
+        </div>
+        <!-- 末尾行为行：没有归属到具体 Step 时间窗的审批/反馈 -->
         <div v-if="livePlaced.trailing.length" class="exec-step-behaviors">
             <div
                 v-for="behavior in livePlaced.trailing"
@@ -550,6 +699,11 @@ const livePlaced = computed(() => {
         </div>
     </div>
     <div v-else-if="runDetail" class="exec-stream">
+        <!-- 计划修订提示：树里只展示各 Goal 的当前计划（最高 planVersion），
+             被 replan 替换的旧尝试保留在 Trace 面板，不删除数据。 -->
+        <div v-if="!chatMode && settledRevisions > 0" class="exec-plan-note">
+            计划修订 {{ settledRevisions }} 次 · 被替换的尝试在 Trace 中查看
+        </div>
         <!-- Goal → task → step. A single goal hides its own header so the user
              input is not repeated above the task title. -->
         <div
@@ -679,6 +833,11 @@ const livePlaced = computed(() => {
                         <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
                         <span class="exec-task-title">{{ task.title }}</span>
                         <span
+                            v-if="task.statusLabel"
+                            class="exec-task-status"
+                            :class="task.statusTone"
+                        >{{ task.statusLabel }}</span>
+                        <span
                             v-if="task.acceptanceBadge"
                             class="exec-task-acceptance"
                             :class="task.acceptanceBadge.tone"
@@ -693,7 +852,9 @@ const livePlaced = computed(() => {
                         >
                             验收 {{ task.acceptance.length }} 条款
                         </span>
-                        <span class="exec-task-count">{{ task.steps.length }} steps</span>
+                        <span v-if="task.steps.length > 0" class="exec-task-count">
+                            {{ task.steps.length }} steps
+                        </span>
                         <button
                             class="exec-task-copy"
                             :class="{ copied: copiedTaskId === task.taskId }"
@@ -771,6 +932,8 @@ const livePlaced = computed(() => {
                                 v-html="renderMarkdown(row.intentText)"
                             ></div>
                         </div>
+                        <!-- 当前计划里 0 step 的 Task：给出「待执行」提示，不留空档 -->
+                        <div v-if="task.steps.length === 0" class="exec-task-wait">待执行</div>
                         <div v-if="task.trailingBehaviors.length" class="exec-step-behaviors">
                             <div
                                 v-for="behavior in task.trailingBehaviors"
@@ -1711,5 +1874,121 @@ const livePlaced = computed(() => {
 .exec-task-acceptance.fail {
     border-color: var(--warn);
     color: var(--warn);
+}
+/* ---------- Goal→Task→Step plan tree（执行中实时计划树） ---------- */
+.exec-plan-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 2px 0 6px;
+    padding: 4px 6px;
+    border-left: 2px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: var(--bg-hover);
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.exec-plan-tag {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+.exec-plan-goal {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--fg);
+}
+.exec-plan-chip {
+    flex-shrink: 0;
+    font-family: ui-monospace, monospace;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+.exec-plan-revision {
+    flex-shrink: 0;
+    color: var(--warn);
+    border: 1px solid var(--warn);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+.exec-plan-route {
+    flex-shrink: 0;
+    color: var(--fg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+.exec-plan-condition {
+    flex-shrink: 0;
+    color: var(--fg-tertiary);
+}
+.exec-plan-count {
+    flex-shrink: 0;
+    font-family: ui-monospace, monospace;
+    color: var(--fg-tertiary);
+}
+/* 计划提示行：计划修订 / 被替换的旧计划尝试（旧尝试不进入当前计划树） */
+.exec-plan-note {
+    margin: 4px 0;
+    padding: 2px 6px;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    border-left: 2px solid var(--border);
+}
+/* 计划未知时的扁平回退组：去掉 Task 级缩进/边框，保持旧的实时列表观感 */
+.exec-task.flat {
+    margin: 0;
+    border-left: none;
+}
+.exec-task-body.flat {
+    /* 与旧的扁平列表一致：行间距不受块级 margin 折叠影响 */
+    display: flex;
+    flex-direction: column;
+    padding-left: 0;
+}
+/* Task 状态徽标：待执行 / 执行中 / 成功 / 失败 / 已中止 / 跳过 */
+.exec-task-status {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-family: ui-monospace, monospace;
+    border-radius: 3px;
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    color: var(--fg-tertiary);
+}
+.exec-task-status.pending {
+    color: var(--fg-tertiary);
+}
+.exec-task-status.running,
+.exec-task-status.ok {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.exec-task-status.fail {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.exec-task-status.aborted,
+.exec-task-status.skipped {
+    border-color: var(--warn);
+    color: var(--fg-tertiary);
+}
+/* 0 step 的待执行 Task：不渲染成空档，但也不喧宾夺主 */
+.exec-task-wait {
+    margin: 2px 8px 4px 14px;
+    font-size: 12px;
+    color: var(--fg-tertiary);
+    font-style: italic;
 }
 </style>

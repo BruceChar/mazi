@@ -62,6 +62,7 @@ import {
     respondApproval,
     resumeRun,
     runOutcomes,
+    runPhases,
     clearAuditSelection,
     selectBehavior,
     selectStep,
@@ -1029,6 +1030,7 @@ onBeforeUnmount(() => {
                     :busy="busy"
                     :live-stream="activeLiveStream"
                     :live-steps="liveSteps"
+                    :phase="current ? runPhases[current] : null"
                     :suggestion-cards="suggestionCards"
                     :feedback-sent="feedbackSent"
                     :prompt="prompt"
