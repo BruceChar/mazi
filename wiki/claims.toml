@@ -130,10 +130,10 @@ evidence = [
   { file = "apps/webui/src/components/WikiPage.vue", oid = "709e14fbeaef9094f9fd2c7261ef43842893c0e3" },
   { file = "apps/webui/src/scripts/wiki.ts", oid = "b270425daf032a7ccaef88aea7c012e2682cd1d1" },
   { file = "apps/webui/src/scripts/arm-live.ts", oid = "361435a430e5e59a8060d1d8aaeb2563fcb0cfec" },
-  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "2fff60a6c2527215dfc0899111674b22ea17ef82" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "baf32588defe7e65eb4badf1492ef6e556812305" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.project-wiki-incremental-preflight]
 text = "Wiki init returns without launching an Agent when existing claims or a non-TODO index prove initialization. Update and SessionEnd obtain a structured diff/status plan plus evidence-oid findings; SessionEnd additionally extracts safe files actually read by the completed session trace and starts bounded semantic capture even without a git diff. Explicit updates read only changed files, automatic capture reads only filtered research files, and true claims can be batch-verified with claim verify --ids."
