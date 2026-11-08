@@ -130,7 +130,7 @@ evidence = [
   { file = "apps/webui/src/components/WikiPage.vue", oid = "709e14fbeaef9094f9fd2c7261ef43842893c0e3" },
   { file = "apps/webui/src/scripts/wiki.ts", oid = "b270425daf032a7ccaef88aea7c012e2682cd1d1" },
   { file = "apps/webui/src/scripts/arm-live.ts", oid = "361435a430e5e59a8060d1d8aaeb2563fcb0cfec" },
-  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "baf32588defe7e65eb4badf1492ef6e556812305" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "95a27e9d4f1b37a9562584a25e7b53688f086a19" },
 ]
 established = 2026-11-07
 verified = 2026-11-08
