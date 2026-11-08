@@ -144,7 +144,7 @@ verified = 2026-11-08
 
 [claims.project-wiki-incremental-preflight]
 text = "Wiki init returns without launching an Agent when existing claims or a non-TODO index prove initialization. Cold init uses a bounded 24-step Agent and explicit read limits so it starts writing before exploring the whole project. Update and SessionEnd obtain a structured diff/status plan plus evidence-oid findings; SessionEnd additionally extracts safe files actually read by the completed session trace and starts bounded semantic capture even without a git diff. Explicit updates read only changed files, automatic capture reads only filtered research files, and true claims can be batch-verified with claim verify --ids."
-status = "active"
+status = "retracted"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "0b552d49a40c20cba70d7e25f07b251ee585b1b0" },
   { file = "packages/runtime/builtin-skills/project-wiki/scripts/wiki.py", oid = "34b0d50c229fe2c2363ab57268f877a063dce3c3" },
@@ -152,6 +152,10 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-08
+retracted_at = 2026-11-08
+retracted_reason = "Incremental Project Wiki behavior is now implemented in runtime/wiki rather than wiki.py."
+retraction_kind = "corrected"
+superseded_by = "project-wiki-incremental-preflight-runtime"
 
 [claims.runtime-acceptance-failure-replan]
 text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass; verification failures mark the task and goal failed and trigger a bounded default LLM replan that sequences the remaining work, while aborted tasks stay resumable."
@@ -198,3 +202,15 @@ evidence = [
 established = 2026-11-08
 verified = 2026-11-08
 supersedes = "project-wiki-run-activity"
+
+[claims.project-wiki-incremental-preflight-runtime]
+text = "ProjectWikiService returns immediately from init when existing claims or a non-TODO index prove initialization. It builds update plans from semantic checkpoint diffs, worktree status and all evidence oids; SessionEnd additionally extracts safe files read by the session so no-diff exploration can be distilled. Explicit updates read only changed files and context capture reads only filtered research files."
+status = "active"
+evidence = [
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "08cf2a1b20a13d3f320df68d192996f4e8cdcc24" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "354cea2ba6b47f217d8633da08ab486aa93598bc" },
+  { file = "apps/api/test/wiki-maintenance.service.test.ts", oid = "be8c05ab406596a855d3fbb97d715551063e349d" },
+]
+established = 2026-11-08
+verified = 2026-11-08
+supersedes = "project-wiki-incremental-preflight"
