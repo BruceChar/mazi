@@ -24,4 +24,5 @@
 - 2026-11-08 00:00:56 | 成功 | 重构项目 Wiki 的 SessionEnd 与增量更新工作流 | 确定性 session-end、按需语义更新、批量 oid 核验和 Python 3.9 兼容已实现，全量 1083 项测试通过
 - 2026-11-08 13:55:43 | 成功 | 修复只读探索会话不沉淀 Wiki 的问题 | SessionEnd 现在从 Goal trace 提取安全读取文件，即使无 git diff 也会异步沉淀部署、架构与流程事实；全量 1084 项测试通过
 - 2026-11-08 14:00:24 | 成功 | 修复 BOSS 项目探索会话不沉淀 Wiki | 从 Session trace 提取安全读取文件并在无 diff 时自动沉淀；BOSS Wiki 已补齐 6 份文档、8 条 claims，checkpoint 成功；全量 1085 项测试通过
+- 2026-11-08 14:48:29 | 成功 | 设计 runtime 内置 Project Context Lifecycle | 定义项目上下文生命周期、Context Packet、长会话压缩锚点、SessionEnd 自动沉淀、持久队列、安全边界、API/UI 与迁移路径
 <!-- activity:end -->
