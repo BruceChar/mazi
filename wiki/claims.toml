@@ -1,5 +1,6 @@
-# wiki/claims.toml — 只通过 runtime Project Wiki API 修改，禁止手改
+# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
+
 
 [claims.wiki-ui-repository-view]
 text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
@@ -16,8 +17,8 @@ verified = 2026-11-08
 text = "The project wiki UI projects v2 repository documents into a document navigation, Markdown body, and status/claims evidence layout, collapsing to a vertical flow on narrow screens."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "e52dbb8deb1f3cf3b5344a96ec37f3ba572e8d94" },
-  { file = "apps/webui/src/scripts/wiki.ts", oid = "b4feff423ef03e7330a6df2e40dfe39fb4795059" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "ddf497278132f180e3b9c70319722c052c141d8a" },
+  { file = "apps/webui/src/scripts/wiki.ts", oid = "6aeaea0bcd7ca41ebeaa97e1fa58a0f37791eda6" },
 ]
 established = 2026-11-07
 verified = 2026-11-08
@@ -77,8 +78,6 @@ established = 2026-11-07
 verified = 2026-11-08
 retracted_at = 2026-11-08
 retracted_reason = "SessionEnd implementation moved from Python to runtime ProjectWikiService."
-retraction_kind = "corrected"
-superseded_by = "project-wiki-run-activity-runtime"
 
 [claims.project-wiki-maintenance-actions]
 text = "Wiki init and explicit update run as hidden background Agent goals with read tools plus restricted project_wiki script/write_doc tools. SessionEnd runs deterministic session-end and derives safe research files from the persisted Goal tool trace, excluding wiki/, user data, logs, caches and secrets; it starts one bounded semantic Agent when claims drift or high-value read-only exploration should be captured. A completed wiki(checkpoint) plus final answer marks maintenance successful even when an unrelated tool step failed, while keeping the failure visible in trace."
@@ -95,8 +94,6 @@ established = 2026-11-07
 verified = 2026-11-08
 retracted_at = 2026-11-08
 retracted_reason = "Project Wiki core migrated from wiki.py into runtime/wiki; maintenance is now runtime-native."
-retraction_kind = "corrected"
-superseded_by = "project-wiki-maintenance-actions-runtime"
 
 [claims.runtime-task-planning-triage-order]
 text = "HarnessRuntime awaits the in-flight async triage before generating a Task plan, forwards conversation history into the planner prompt, retries with a strict-split hint when a multi-artifact goal collapses into one task, and plan.created events carry task titles plus dependencies for auditing."
@@ -135,8 +132,8 @@ verified = 2026-11-07
 text = "The Project Wiki UI shows complete state/current content, exact-second timestamps, expandable evidence facts, forgotten versus corrected claim state, and a live background maintenance trace with model stream, tool arguments/results and inline approvals."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "e52dbb8deb1f3cf3b5344a96ec37f3ba572e8d94" },
-  { file = "apps/webui/src/scripts/wiki.ts", oid = "b4feff423ef03e7330a6df2e40dfe39fb4795059" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "ddf497278132f180e3b9c70319722c052c141d8a" },
+  { file = "apps/webui/src/scripts/wiki.ts", oid = "6aeaea0bcd7ca41ebeaa97e1fa58a0f37791eda6" },
   { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "cd6dafc5cc2e305800c82ebadd16ef5b65a45962" },
 ]
 established = 2026-11-07
@@ -154,8 +151,6 @@ established = 2026-11-07
 verified = 2026-11-08
 retracted_at = 2026-11-08
 retracted_reason = "Incremental Project Wiki behavior is now implemented in runtime/wiki rather than wiki.py."
-retraction_kind = "corrected"
-superseded_by = "project-wiki-incremental-preflight-runtime"
 
 [claims.runtime-acceptance-failure-replan]
 text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass; verification failures mark the task and goal failed and trigger a bounded default LLM replan that sequences the remaining work, while aborted tasks stay resumable."
@@ -182,38 +177,35 @@ verified = 2026-11-08
 text = "Project Wiki is maintained by runtime-native ProjectWikiService: init, claims, oid verification, incremental plans, activity recording, checkpoint and fact correction/forgetting no longer execute wiki.py. The API maintenance service orchestrates hidden Goal work, Harness injects active facts while excluding retracted/corrected facts, and the Wiki panel exposes trace and forgotten/corrected claim state."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "354cea2ba6b47f217d8633da08ab486aa93598bc" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "4ef2be44a66bf7ffd7c1b32f872604a3153ca3e8" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "7a5ef9f7cf297283341b311bddaa6cb1798a16e1" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "e52dbb8deb1f3cf3b5344a96ec37f3ba572e8d94" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "ddf497278132f180e3b9c70319722c052c141d8a" },
 ]
 established = 2026-11-08
 verified = 2026-11-08
-supersedes = "project-wiki-maintenance-actions"
 
 [claims.project-wiki-run-activity-runtime]
 text = "Each project SessionEnd enqueues a per-workspace runtime sync without blocking the foreground response; ProjectWikiService computes the incremental plan before recording activity, and bounded semantic update runs when evidence drifts or high-value read-only exploration should become durable Project Wiki knowledge."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "354cea2ba6b47f217d8633da08ab486aa93598bc" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
 ]
 established = 2026-11-08
 verified = 2026-11-08
-supersedes = "project-wiki-run-activity"
 
 [claims.project-wiki-incremental-preflight-runtime]
 text = "ProjectWikiService returns immediately from init when existing claims or a non-TODO index prove initialization. It builds update plans from semantic checkpoint diffs, worktree status and all evidence oids; SessionEnd additionally extracts safe files read by the session so no-diff exploration can be distilled. Explicit updates read only changed files and context capture reads only filtered research files."
 status = "active"
 evidence = [
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "354cea2ba6b47f217d8633da08ab486aa93598bc" },
-  { file = "apps/api/test/wiki-maintenance.service.test.ts", oid = "be8c05ab406596a855d3fbb97d715551063e349d" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
+  { file = "apps/api/test/wiki-maintenance.service.test.ts", oid = "143e7ce962b736112c45575696fbeaf5cf0fbbcb" },
 ]
 established = 2026-11-08
 verified = 2026-11-08
-supersedes = "project-wiki-incremental-preflight"
 
 [claims.project-wiki-fact-lifecycle]
 text = "Corrected or forgotten Project Wiki facts leave active context without losing audit history: runtime claim correction creates a replacement active claim and marks the old one retracted/corrected with superseded_by; explicit forgetting marks retracted/forgotten. Doctor, update planning and Context Packet injection exclude retracted claims, while Git retains their evidence and reasons."
@@ -222,7 +214,7 @@ evidence = [
   { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "c2dbd6c632f99acf0a9e0ba3ba30084ff858980f" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
   { file = "apps/api/src/wiki/wiki.controller.ts", oid = "33a711aa0d40cbedac2f8978855f96ecc6bf52a4" },
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "e52dbb8deb1f3cf3b5344a96ec37f3ba572e8d94" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "ddf497278132f180e3b9c70319722c052c141d8a" },
   { file = "packages/runtime/test/project-wiki-runtime.test.ts", oid = "33d0c93e83bc5f708d211132d6d431ebe65545a9" },
 ]
 established = 2026-11-08

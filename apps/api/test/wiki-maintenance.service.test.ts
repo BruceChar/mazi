@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -290,5 +290,34 @@ describe('ProjectWikiMaintenanceService', () => {
         expect(service.get(started.id).trace?.map((entry) => entry.type)).toContain(
             'agent.completed-with-warnings',
         );
+    });
+
+    it('Agent 的 fenced checkpoint 摘要不进入页面提示与 state/current.md 活动行', async () => {
+        const workspace = makeRepo('mazi-wiki-fenced-');
+        const runtime = runtimeFor();
+        runtime.setExecute(async () => ({
+            ok: true,
+            rejected: [],
+            tasks: [
+                {
+                    finalMessage:
+                        '```\nwiki(checkpoint): ok\ndocs_changed:\n- INDEX.md\n```',
+                },
+            ],
+        }));
+        const service = new ProjectWikiMaintenanceService(runtime as never);
+        const started = service.start('init', workspace);
+        await vi.waitFor(() => {
+            expect(service.get(started.id)).toMatchObject({
+                state: 'succeeded',
+                summary: '初始化完成',
+            });
+        });
+        const currentDoc = readFileSync(
+            join(workspace, 'wiki', 'state', 'current.md'),
+            'utf8',
+        );
+        expect(currentDoc).not.toContain('```');
+        expect(currentDoc).toContain('初始化完成');
     });
 });

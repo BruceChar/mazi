@@ -9,6 +9,8 @@ import {
     wikiDocumentGroupLabel,
     wikiDocumentLabel,
     wikiEmptyText,
+    wikiNoticeSummary,
+    wikiOperationLabel,
     wikiRepositoryEmptyText,
     wikiUpdatedLabel,
     wikiWorkspaceFor,
@@ -90,5 +92,40 @@ describe('wiki 视图纯函数（docs/项目wiki设计.md §11）', () => {
         expect(resolveWikiDocumentPath('overview/conventions.md', '../../secret.md')).toBeNull();
         expect(resolveWikiDocumentPath('INDEX.md', 'https://example.com/a.md')).toBeNull();
         expect(resolveWikiDocumentPath('INDEX.md', '#local')).toBeNull();
+    });
+
+    it('wikiNoticeSummary 过滤 Agent 的 fenced checkpoint 输出并回退人读文案', () => {
+        expect(
+            wikiNoticeSummary({
+                kind: 'update',
+                state: 'succeeded',
+                summary: '```\nwiki(checkpoint): ok\ndocs_changed:\n- INDEX.md\n```',
+            }),
+        ).toBe('更新完成');
+        expect(
+            wikiNoticeSummary({
+                kind: 'init',
+                state: 'succeeded',
+                summary: '已初始化项目 Wiki。\n```\nwiki(checkpoint): ok\n```',
+            }),
+        ).toBe('已初始化项目 Wiki。');
+        expect(
+            wikiNoticeSummary({
+                kind: 'update',
+                state: 'succeeded',
+                summary: '自上次 Wiki checkpoint 以来没有项目变化，无需更新',
+            }),
+        ).toBe('自上次 Wiki checkpoint 以来没有项目变化，无需更新');
+        expect(
+            wikiNoticeSummary({ kind: 'init', state: 'failed', error: 'provider unavailable' }),
+        ).toBe('provider unavailable');
+        expect(wikiNoticeSummary({ kind: 'update', state: 'failed' })).toBe('未知错误');
+        expect(wikiNoticeSummary({ kind: 'sync', state: 'succeeded' })).toBe('同步完成');
+    });
+
+    it('wikiOperationLabel 使用人读动作名', () => {
+        expect(wikiOperationLabel('init')).toBe('初始化');
+        expect(wikiOperationLabel('sync')).toBe('同步');
+        expect(wikiOperationLabel('update')).toBe('更新');
     });
 });

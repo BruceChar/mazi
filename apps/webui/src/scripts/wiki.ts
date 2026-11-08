@@ -3,6 +3,8 @@
  * 数据来自 GET /api/wiki；写入侧在 runtime，前端只读。
  */
 
+import { compactWikiSummary } from '@mazi/libs';
+
 export interface WikiEntryView {
     ts: string;
     change: string;
@@ -226,4 +228,27 @@ export function resolveWikiDocumentPath(fromPath: string, href: string): string 
         }
     }
     return normalized.join('/');
+}
+
+/** 操作类型 → 人读动作名：初始化 / 同步 / 更新。 */
+export function wikiOperationLabel(kind: WikiOperationView['kind']): string {
+    if (kind === 'init') return '初始化';
+    if (kind === 'sync') return '同步';
+    return '更新';
+}
+
+/**
+ * 顶部状态提示的人读文本。
+ * Agent 完成维护时常以 fenced code block（wiki(checkpoint) 报告）收尾；
+ * 提示条只显示代码块外的正文，缺省回退到确定性的完成 / 失败文案。
+ */
+export function wikiNoticeSummary(
+    operation: Pick<WikiOperationView, 'kind' | 'state' | 'summary' | 'error'>,
+): string {
+    const text = compactWikiSummary(
+        operation.state === 'failed' ? operation.error || operation.summary : operation.summary,
+    );
+    if (text.length > 0) return text;
+    if (operation.state === 'failed') return '未知错误';
+    return `${wikiOperationLabel(operation.kind)}完成`;
 }

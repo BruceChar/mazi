@@ -21,6 +21,8 @@ import {
     wikiClaimsAttention,
     wikiDocumentGroupLabel,
     wikiDocumentLabel,
+    wikiNoticeSummary,
+    wikiOperationLabel,
     wikiRepositoryEmptyText,
 } from '../scripts/wiki.ts';
 
@@ -34,6 +36,11 @@ const loading = ref(false);
 const error = ref('');
 const operation = ref(null);
 const backgroundSync = ref(null);
+/** 本页打开后才完成的操作：短暂展示成功提示；刷新带入的旧成功状态不再占据页首。 */
+const successNotice = ref(null);
+let successTimer = null;
+let observedRunningOperation = false;
+const SUCCESS_NOTICE_TTL_MS = 8000;
 const selectedPath = ref('INDEX.md');
 const query = ref('');
 const factDialogOpen = ref(false);
@@ -76,6 +83,18 @@ const traceOperation = computed(() => {
     return operation.value ?? backgroundSync.value;
 });
 const traceEntries = computed(() => [...(traceOperation.value?.trace ?? [])].slice(-12).reverse());
+/**
+ * 顶部状态提示要显示的操作：运行中 / 排队中 / 失败始终展示；
+ * 成功只在本次打开页面后观察到完成时短暂展示，避免刷新后仍顶着旧代码块。
+ */
+const noticeOperation = computed(() => {
+    const current = operation.value;
+    if (!current) return null;
+    if (current.state === 'queued' || current.state === 'running' || current.state === 'failed') {
+        return current;
+    }
+    return successNotice.value?.id === current.id ? successNotice.value : null;
+});
 const streamText = computed(() => armStreamText(live.value));
 const liveSteps = computed(() => [...live.value.steps].slice(-24).reverse());
 const layoutStyle = computed(() => ({
@@ -154,6 +173,7 @@ async function load() {
         view.value = await api('/api/wiki' + queryForWorkspace());
         operation.value = view.value.operation ?? null;
         backgroundSync.value = view.value.backgroundSync ?? null;
+        syncNoticeState();
         syncOperationStream();
         syncSelection();
         if (operationRunning.value) scheduleOperationPoll(operation.value.id);
@@ -178,11 +198,59 @@ async function startMaintenance(kind) {
         operation.value = await api(`/api/wiki/${kind}` + queryForWorkspace(), {
             method: 'POST',
         });
+        syncNoticeState();
         syncOperationStream();
         scheduleOperationPoll(operation.value.id);
     } catch (err) {
         error.value = String(err);
     }
+}
+
+/**
+ * 成功提示只在「本页看到操作从运行中落到成功」时出现 8 秒；
+ * 刷新后 API 仍返回上一次 succeeded 操作，但不会再展示为绿色代码块。
+ */
+function syncNoticeState() {
+    const current = operation.value;
+    if (!current) {
+        observedRunningOperation = false;
+        hideSuccessNotice();
+        return;
+    }
+    if (current.state === 'queued' || current.state === 'running') {
+        observedRunningOperation = true;
+        hideSuccessNotice();
+        return;
+    }
+    if (current.state === 'failed') {
+        observedRunningOperation = false;
+        hideSuccessNotice();
+        return;
+    }
+    if (observedRunningOperation) {
+        observedRunningOperation = false;
+        showSuccessNotice(current);
+        return;
+    }
+    // 旧的 succeeded 操作（例如刷新带入的历史状态）不占页首。
+    if (successNotice.value?.id !== current.id) hideSuccessNotice();
+}
+
+function showSuccessNotice(notice) {
+    hideSuccessNotice();
+    successNotice.value = notice;
+    successTimer = setTimeout(() => {
+        successNotice.value = null;
+        successTimer = null;
+    }, SUCCESS_NOTICE_TTL_MS);
+}
+
+function hideSuccessNotice() {
+    if (successTimer) {
+        clearTimeout(successTimer);
+        successTimer = null;
+    }
+    successNotice.value = null;
 }
 
 function scheduleOperationPoll(operationId) {
@@ -191,8 +259,9 @@ function scheduleOperationPoll(operationId) {
         operationTimer = null;
         try {
             operation.value = await api(`/api/wiki/operations/${operationId}`);
+            syncNoticeState();
             syncOperationStream();
-            if (operation.value.state === 'running') {
+            if (operation.value.state === 'queued' || operation.value.state === 'running') {
                 scheduleOperationPoll(operationId);
             } else if (operation.value.state === 'succeeded') {
                 await load();
@@ -428,6 +497,7 @@ onMounted(load);
 onBeforeUnmount(() => {
     if (operationTimer) clearTimeout(operationTimer);
     if (syncTimer) clearTimeout(syncTimer);
+    hideSuccessNotice();
     closeOperationStream();
     window.removeEventListener('pointermove', resizeTrace);
 });
@@ -473,27 +543,29 @@ watch(documents, syncSelection);
 
         <p v-if="error" class="wiki-error">{{ error }}</p>
         <p
-            v-else-if="operation"
+            v-else-if="noticeOperation"
             class="wiki-notice"
-            :class="{ 'wiki-notice-error': operation.state === 'failed' }"
+            :class="{ 'wiki-notice-error': noticeOperation.state === 'failed' }"
         >
-            <template v-if="operation.state === 'running'">
-                Agent 正在{{ operation.kind === 'init' ? '分析项目并初始化' : '检查项目变化并更新' }}
-                Wiki · 已运行 {{ elapsedLabel(operation.startedAt) }}。完成后会自动刷新页面。
-                <strong v-if="operation.approvalPending" class="wiki-stall-warning">
+            <template
+                v-if="noticeOperation.state === 'queued' || noticeOperation.state === 'running'"
+            >
+                Agent 正在{{ noticeOperation.kind === 'init' ? '分析项目并初始化' : '检查项目变化并更新' }}
+                Wiki · 已运行 {{ elapsedLabel(noticeOperation.startedAt) }}。完成后会自动刷新页面。
+                <strong v-if="noticeOperation.approvalPending" class="wiki-stall-warning">
                     正在等待审批，请处理审批请求或终止任务。
                 </strong>
-                <strong v-else-if="traceMayBeStalled(operation)" class="wiki-stall-warning">
+                <strong v-else-if="traceMayBeStalled(noticeOperation)" class="wiki-stall-warning">
                     已超过 30 秒没有新 trace，可能正在等待模型响应或审批。
                 </strong>
             </template>
-            <template v-else-if="operation.state === 'failed'">
-                {{ operation.kind === 'init' ? '初始化' : '更新' }}失败：{{
-                    operation.error || '未知错误'
+            <template v-else-if="noticeOperation.state === 'failed'">
+                {{ wikiOperationLabel(noticeOperation.kind) }}失败：{{
+                    wikiNoticeSummary(noticeOperation)
                 }}
             </template>
             <template v-else>
-                {{ operation.summary || (operation.kind === 'init' ? '初始化完成' : '更新完成') }}
+                {{ wikiNoticeSummary(noticeOperation) }}
             </template>
         </p>
 

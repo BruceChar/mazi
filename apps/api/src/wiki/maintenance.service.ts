@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import type { HarnessEvent } from '@mazi/core';
+import { compactWikiSummary } from '@mazi/libs';
 import {
     type GoalRunResult,
     ProjectWikiService,
@@ -225,13 +226,22 @@ export class ProjectWikiMaintenanceService {
         } catch (caught) {
             error = errorMessage(caught);
         } finally {
+            // Agent 常以 fenced Markdown（wiki(checkpoint) 报告）收尾；页面提示与
+            // state/current.md 的活动行只保留代码块外的人读正文，避免绿色代码块噪音。
+            const displaySummary =
+                compactWikiSummary(summary) ||
+                (finalState === 'succeeded'
+                    ? operation.kind === 'init'
+                        ? '初始化完成'
+                        : '更新完成'
+                    : '');
             try {
                 await this.appendActivity(
                     operation,
                     operation.workspace,
                     operation.kind === 'init' ? '初始化项目 Wiki' : '更新项目 Wiki',
                     finalState === 'succeeded',
-                    summary || error,
+                    displaySummary || compactWikiSummary(error),
                 );
             } catch (caught) {
                 this.addTrace(
@@ -241,7 +251,7 @@ export class ProjectWikiMaintenanceService {
                 );
             }
             operation.state = finalState;
-            if (summary) operation.summary = summary;
+            if (displaySummary) operation.summary = displaySummary;
             if (error) operation.error = error;
             operation.finishedAt = Date.now();
         }

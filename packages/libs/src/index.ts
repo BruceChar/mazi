@@ -8,3 +8,4 @@ export * from './text-diff.js';
 export * from './thinking-chain.js';
 export * from './types.js';
 export * from './voice.js';
+export * from './wiki-summary.js';
