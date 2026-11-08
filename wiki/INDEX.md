@@ -34,12 +34,12 @@
 
 ## 最近更新
 <!-- recent:start -->
-- 356be84 2026-11-08 15:18:32 wiki(checkpoint): sync state & index
+- b6f4e0b 2026-11-08 20:32:11 wiki(checkpoint): sync state & index
+- 9be3ff6 2026-11-08 20:32:09 wiki(claim): verify webui-exec-stream-rendering,wiki-entry-syncs-workspace,project-wiki-maintenance-actions-runtime
+- 5da7112 2026-11-08 20:31:57 wiki(claim): add todo-file-escaped-newlines
+- 8b48e28 2026-11-08 20:31:54 wiki(claim): add todo-source-of-truth
+- ab19233 2026-11-08 20:30:33 wiki(run): record session activity
+- c4d4cfa 2026-11-08 15:18:32 wiki(checkpoint): sync state & index
 - a509b0d 2026-11-08 15:18:27 wiki(run): record session activity
 - fd77ddd 2026-11-08 15:18:20 wiki(claim): verify project-context-lifecycle-runtime,project-wiki-maintenance-actions-runtime,project-wiki-run-activity-runtime,project-wiki-incremental-preflight-runtime,project-wiki-fact-lifecycle
-- 99b3bb8 2026-11-08 15:17:11 wiki(claim): verify wiki-ui-three-pane,wiki-init-domain-neutral-template,project-context-lifecycle-runtime
-- cb90b3f 2026-11-08 15:17:06 wiki(claim): update wiki-ui-current-status-facts-trace
-- a94696d 2026-11-08 15:17:02 wiki(claim): update wiki-ui-repository-view
-- 5cfc96b 2026-11-08 15:16:54 wiki(claim): add project-wiki-fact-lifecycle
-- 56c9295 2026-11-08 15:16:49 wiki(claim): correct project-wiki-incremental-preflight -> project-wiki-incremental-preflight-runtime
 <!-- recent:end -->
