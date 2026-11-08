@@ -271,11 +271,29 @@ export class LocalAsrClient {
     /** 取消：丢弃队列并中止在途请求；不再触发回调。 */
     cancel(): void {
         if (this.closed) return;
+        const session = this.session;
+        const seq = this.seq;
+        const ended = this.ended;
         this.closed = true;
         this.queue = [];
         this.inflight?.abort();
         this.inflight = null;
         this.settle();
+        // 释放服务端 session，避免下一次录音报“语音识别繁忙”。
+        if (session && !ended) {
+            void fetch(API_BASE + '/api/voice/asr/chunk', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: session.sessionId,
+                    token: session.token,
+                    seq: seq + 1,
+                    pcmBase64: '',
+                    end: true,
+                }),
+                cache: 'no-store',
+            }).catch(() => undefined);
+        }
     }
 
     private enqueue(chunk: QueuedChunk): void {

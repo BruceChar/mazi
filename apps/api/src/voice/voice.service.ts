@@ -130,6 +130,14 @@ export class VoiceService {
         if (!this.options.models.installed(modelId)) {
             throw new VoiceServiceError(409, 'model_missing', '语音模型未安装', false);
         }
+        this.cleanup();
+        if (this.sessions.size >= this.limits.maxSessions) {
+            // 前端取消/网络中断可能留下无音频的 session；短空闲后剔除，避免“语音识别繁忙”。
+            const now = this.now();
+            for (const [id, session] of this.sessions) {
+                if (now - session.lastAt > 5_000) this.discard(id);
+            }
+        }
         if (this.sessions.size >= this.limits.maxSessions) {
             throw new VoiceServiceError(429, 'busy', '语音识别忙，请稍后再试', true);
         }
@@ -183,7 +191,13 @@ export class VoiceService {
             throw new VoiceServiceError(400, 'bad_request', 'seq 非法');
         }
         // 网络重试的幂等语义：旧 seq 直接回放上次结果，不重复喂音频。
+        // 但 end 必须始终释放 session（否则会在取消/重试后留下 stale session）。
         if (seq <= session.lastSeq) {
+            if (input?.end === true) {
+                const final = await session.engine.end();
+                this.discard(session.sessionId);
+                return { type: 'final', text: final.text.trim(), done: true };
+            }
             return {
                 type: 'partial',
                 revision: session.revision,
@@ -273,7 +287,10 @@ export class VoiceService {
     private cleanup(): void {
         const now = this.now();
         for (const [sessionId, session] of this.sessions) {
-            if (now - session.createdAt > this.limits.maxSessionMs) {
+            if (
+                now - session.createdAt > this.limits.maxSessionMs ||
+                now - session.lastAt > this.limits.maxUtteranceMs
+            ) {
                 this.discard(sessionId);
             }
         }
