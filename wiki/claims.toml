@@ -66,7 +66,7 @@ verified = 2026-11-07
 
 [claims.project-wiki-run-activity]
 text = "Each project SessionEnd enqueues a per-workspace background sync without blocking the foreground response; the deterministic session-end stage computes the incremental plan before recording activity, and a bounded semantic update is queued when evidence is stale or when the session trace shows high-value read-only exploration that should be captured for future sessions."
-status = "active"
+status = "retracted"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "0b552d49a40c20cba70d7e25f07b251ee585b1b0" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
@@ -74,6 +74,10 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-08
+retracted_at = 2026-11-08
+retracted_reason = "SessionEnd implementation moved from Python to runtime ProjectWikiService."
+retraction_kind = "corrected"
+superseded_by = "project-wiki-run-activity-runtime"
 
 [claims.project-wiki-maintenance-actions]
 text = "Wiki init and explicit update run as hidden background Agent goals with read tools plus restricted project_wiki script/write_doc tools. SessionEnd runs deterministic session-end and derives safe research files from the persisted Goal tool trace, excluding wiki/, user data, logs, caches and secrets; it starts one bounded semantic Agent when claims drift or high-value read-only exploration should be captured. A completed wiki(checkpoint) plus final answer marks maintenance successful even when an unrelated tool step failed, while keeping the failure visible in trace."
@@ -182,3 +186,15 @@ evidence = [
 established = 2026-11-08
 verified = 2026-11-08
 supersedes = "project-wiki-maintenance-actions"
+
+[claims.project-wiki-run-activity-runtime]
+text = "Each project SessionEnd enqueues a per-workspace runtime sync without blocking the foreground response; ProjectWikiService computes the incremental plan before recording activity, and bounded semantic update runs when evidence drifts or high-value read-only exploration should become durable Project Wiki knowledge."
+status = "active"
+evidence = [
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "354cea2ba6b47f217d8633da08ab486aa93598bc" },
+  { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "08cf2a1b20a13d3f320df68d192996f4e8cdcc24" },
+]
+established = 2026-11-08
+verified = 2026-11-08
+supersedes = "project-wiki-run-activity"
