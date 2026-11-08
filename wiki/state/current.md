@@ -25,4 +25,5 @@
 - 2026-11-08 13:55:43 | 成功 | 修复只读探索会话不沉淀 Wiki 的问题 | SessionEnd 现在从 Goal trace 提取安全读取文件，即使无 git diff 也会异步沉淀部署、架构与流程事实；全量 1084 项测试通过
 - 2026-11-08 14:00:24 | 成功 | 修复 BOSS 项目探索会话不沉淀 Wiki | 从 Session trace 提取安全读取文件并在无 diff 时自动沉淀；BOSS Wiki 已补齐 6 份文档、8 条 claims，checkpoint 成功；全量 1085 项测试通过
 - 2026-11-08 14:48:29 | 成功 | 设计 runtime 内置 Project Context Lifecycle | 定义项目上下文生命周期、Context Packet、长会话压缩锚点、SessionEnd 自动沉淀、持久队列、安全边界、API/UI 与迁移路径
+- 2026-11-08 15:18:27 | 成功 | 迁移 Project Wiki 到 runtime 并实现事实纠正与遗忘 | wiki.py 核心能力迁入 runtime/wiki；Harness/API 不再依赖 Python；新增 runtime CLI、claim correct/forget、API 与 UI 状态；全量 1088 项测试通过
 <!-- activity:end -->
