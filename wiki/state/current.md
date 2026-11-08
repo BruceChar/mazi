@@ -30,4 +30,5 @@
 - 2026-11-08 20:32:15 | 成功 | 更新项目 Wiki | ``` wiki(checkpoint): ok docs_changed: - INDEX.md : 一句话/技术栈/红线/模块地图（6 模块职责）补全 - overview/architecture.md : 分层依赖、模块职责、执行坐标系、设计不变量、数据流、Roadmap 入口（保留原有 Project Wiki 段） - overview/conv
 - 2026-11-08 21:14:43 | 成功 | wiki v2有没代办 | 有 3 项，全部集中在产品层；wiki v2 的核心功能已全部完成。 ## 1. 唯一的 wiki 待办清单（`docs/TODO.md:33`「项目 Wiki（后续）」） \| # \| 待办 \| 当前代码事实 \| 状态 \| \|---\|---\|---\|---\| \| 1 \| 接入模型摘要 provider \| `createLlmSum
 - 2026-11-08 21:16:23 | 失败 | 更新项目 Wiki | 项目 Wiki 维护失败
+- 2026-11-08 21:21:06 | 失败 | 更新项目 Wiki | import { resolve } from 'node:path'; /** 归一化工作区（项目）路径，用于持久化与比较： - 去掉结尾斜杠（/a/b/ → /a/b），解析 . / ..（node:path resolve）； - 纯字符串运算：不访问文件系统、不解析 symlink、macOS 大小写保持原样…
 <!-- activity:end -->
