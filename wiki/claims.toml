@@ -77,10 +77,10 @@ established = 2026-11-07
 verified = 2026-11-08
 
 [claims.project-wiki-maintenance-actions]
-text = "Wiki init and explicit update run as hidden background Agent goals with read tools plus restricted project_wiki script/write_doc tools; SessionEnd always runs the deterministic wiki.py session-end stage and only starts a bounded semantic Agent when affected claims are detected. Wiki Markdown writes are confined to wiki/, operations are recorded, and the Wiki panel streams Goal reasoning, tool arguments/results and inline approvals when an Agent runs."
+text = "Wiki init and explicit update run as hidden background Agent goals with read tools plus restricted project_wiki script/write_doc tools. SessionEnd runs deterministic session-end and derives safe research files from the persisted Goal tool trace, excluding wiki/, user data, logs, caches and secrets; it starts one bounded semantic Agent when claims drift or high-value read-only exploration should be captured. Wiki Markdown writes stay under wiki/, operations are recorded, and the Wiki panel exposes Goal reasoning, tool results and inline approvals."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "9b6034ad797e6cb0a1639dec65f36ecb3ddcb404" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "f1536f30a1960daa64ce0284d57dd1450fee6f1a" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
   { file = "apps/api/src/wiki/wiki.controller.ts", oid = "e8bb54fb610de58083cc167659cc38de6dd71bcc" },
   { file = "apps/api/src/events/events.controller.ts", oid = "4a847d15822a6ec14eb1056079b5f653ed8e6a1f" },
