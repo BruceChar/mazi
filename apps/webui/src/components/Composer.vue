@@ -105,20 +105,20 @@ function voiceLabel() {
         case 'requesting':
             return '正在准备麦克风…';
         case 'armed':
-            return '正在听…（点击暂停语音输入）';
+            return '正在录音 · 点击停止';
         case 'capturing':
         case 'partial':
-            return '识别中…（点击暂停语音输入）';
+            return '正在录音识别 · 点击停止';
         case 'finalizing':
-            return '正在确认识别结果…';
+            return '正在结束录音…';
         case 'committed':
-            return '已写入草稿（点击暂停语音输入）';
+            return '已写入草稿 · 点击停止';
         case 'paused':
-            return '语音已暂停（点击恢复）';
+            return '录音已暂停 · 点击开始录音';
         case 'error':
-            return '语音输入出错（点击重试）';
+            return '录音出错 · 点击重试';
         default:
-            return '开启语音输入';
+            return '点击开始录音';
     }
 }
 
@@ -190,25 +190,6 @@ function doExitWorkspace() {
                 </div>
                 <div class="input-footer">
                     <div class="input-footer-left">
-                        <button
-                            type="button"
-                            data-voice-toggle
-                            class="voice-btn"
-                            :class="{
-                                active: voiceOn,
-                                paused: voicePaused,
-                                error: voiceError,
-                                unavailable: !voiceAvailable,
-                            }"
-                            :aria-label="voiceLabel()"
-                            :aria-pressed="voiceOn"
-                            :title="voiceLabel()"
-                            :disabled="!voiceAvailable"
-                            @click="emit('toggle-voice')"
-                        >
-                            <LineIcon :name="voiceIcon()" size="14" />
-                            <span v-if="voiceOn" class="voice-live-dot" aria-hidden="true"></span>
-                        </button>
                         <div v-if="!activeConversation" class="ws-picker-wrap">
                             <div v-if="workspaceMenu" class="picker-backdrop" @click="workspaceMenu = false"></div>
                             <button
@@ -332,6 +313,26 @@ function doExitWorkspace() {
                             <LineIcon name="play" size="12" />
                             <span>继续</span>
                         </button>
+                        <!-- Voice: click to start recording, click again to stop. -->
+                        <button
+                            type="button"
+                            data-voice-toggle
+                            class="voice-btn voice-btn-send"
+                            :class="{
+                                active: voiceOn,
+                                paused: voicePaused,
+                                error: voiceError,
+                                unavailable: !voiceAvailable,
+                            }"
+                            :aria-label="voiceLabel()"
+                            :aria-pressed="voiceOn"
+                            :title="voiceLabel()"
+                            :disabled="!voiceAvailable"
+                            @click="emit('toggle-voice')"
+                        >
+                            <LineIcon :name="voiceIcon()" size="16" />
+                            <span v-if="voiceOn" class="voice-live-dot" aria-hidden="true"></span>
+                        </button>
                         <!-- Primary: stop while executing, send otherwise -->
                         <button v-if="busy" class="send stop" title="停止" @click="emit('stop')">
                             <LineIcon name="stop" size="14" />
@@ -436,6 +437,21 @@ function doExitWorkspace() {
 .voice-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+}
+/* Send-adjacent microphone: same 30px rhythm as the send button. */
+.voice-btn-send {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+}
+.voice-btn-send.active {
+    color: #fff;
+    background: var(--accent);
+}
+.voice-btn-send.active:hover:not(:disabled) {
+    color: #fff;
+    background: var(--accent-hover);
 }
 .voice-live-dot {
     position: absolute;
