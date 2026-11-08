@@ -28,12 +28,12 @@
 
 ## 最近更新
 <!-- recent:start -->
-- fa0bab4 2026-11-08 14:48:29 wiki(run): record session activity
-- 43f94a1 2026-11-08 14:48:22 wiki(claim): verify --ids wiki-ui-current-status-facts-trace
-- 818b307 2026-11-08 14:48:18 wiki(claim): add project-context-lifecycle-runtime
-- a094516 2026-11-08 14:00:28 wiki(checkpoint): sync state & index
-- ef7b869 2026-11-08 14:00:24 wiki(run): record session activity
-- 6422910 2026-11-08 14:00:16 wiki(claim): verify --ids project-wiki-run-activity
-- 40c445c 2026-11-08 14:00:12 wiki(claim): update project-wiki-incremental-preflight
-- 8c3977f 2026-11-08 14:00:07 wiki(claim): update project-wiki-maintenance-actions
+- 356be84 2026-11-08 15:18:32 wiki(checkpoint): sync state & index
+- a509b0d 2026-11-08 15:18:27 wiki(run): record session activity
+- fd77ddd 2026-11-08 15:18:20 wiki(claim): verify project-context-lifecycle-runtime,project-wiki-maintenance-actions-runtime,project-wiki-run-activity-runtime,project-wiki-incremental-preflight-runtime,project-wiki-fact-lifecycle
+- 99b3bb8 2026-11-08 15:17:11 wiki(claim): verify wiki-ui-three-pane,wiki-init-domain-neutral-template,project-context-lifecycle-runtime
+- cb90b3f 2026-11-08 15:17:06 wiki(claim): update wiki-ui-current-status-facts-trace
+- a94696d 2026-11-08 15:17:02 wiki(claim): update wiki-ui-repository-view
+- 5cfc96b 2026-11-08 15:16:54 wiki(claim): add project-wiki-fact-lifecycle
+- 56c9295 2026-11-08 15:16:49 wiki(claim): correct project-wiki-incremental-preflight -> project-wiki-incremental-preflight-runtime
 <!-- recent:end -->
