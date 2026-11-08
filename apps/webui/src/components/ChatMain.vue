@@ -4,7 +4,6 @@ import LineIcon from '../assets/LineIcon.vue';
 import ApprovalPrompt from './ApprovalPrompt.vue';
 import ExecStream from './ExecStream.vue';
 import Composer from './Composer.vue';
-import VoiceBar from './VoiceBar.vue';
 import { VoiceController } from '../voice/controller.ts';
 import { formatCost, formatTokens } from '../scripts/audit.ts';
 
@@ -65,21 +64,11 @@ const emit = defineEmits([
 /* ---------- 语音输入控制器（docs/web/语音输入设计.md） ---------- */
 const voice = new VoiceController({
     setPrompt: (text) => emit('update:prompt', text),
-    // 自动发送：让 prompt prop 先完成一次更新，再 emit submit（App.submitPrompt 读 prompt.value）。
-    submit: () => {
-        void nextTick(() => emit('submit'));
-    },
-    canSubmit: () => !props.busy,
 });
 voice.syncPrompt(props.prompt);
 watch(
     () => props.prompt,
     (value) => voice.syncPrompt(value),
-);
-watch(
-    () => props.busy,
-    (value) => voice.setBusy(value),
-    { immediate: true },
 );
 watch(
     () => props.activeConversation?.conversationId,
@@ -99,9 +88,9 @@ function onPromptInput(value) {
     voice.onUserInput();
     emit('update:prompt', value);
 }
-/** 提交：清理语音会话 / 倒计时，再走既有 submitPrompt（不模拟键盘事件）。 */
-function onSubmit() {
-    voice.onSubmit();
+/** 提交：若正在录音，先停止并等 final 写入输入框，再走既有 submitPrompt。 */
+async function onSubmit() {
+    await voice.onSubmit();
     emit('submit');
 }
 function onToggleVoice() {
@@ -359,7 +348,6 @@ onBeforeUnmount(() => {
                 :approvals="approvals"
                 @respond="emit('respond-approval', $event)"
             />
-            <VoiceBar :controller="voice" />
             <Composer
                 :model-value="prompt"
                 :busy="busy"
@@ -375,7 +363,7 @@ onBeforeUnmount(() => {
                 :permission-levels="permissionLevels"
                 :voice-state="voice.state.phase"
                 :voice-available="voiceAvailable"
-                :voice-partial="voice.state.partial"
+                :voice-error="voice.state.error"
                 @update:model-value="onPromptInput"
                 @submit="onSubmit"
                 @toggle-voice="onToggleVoice"

@@ -124,7 +124,7 @@ export interface VoiceChunkResponse {
 export const VOICE_DEFAULT_LIMITS: VoiceLimits = {
     maxChunkBytes: 64 * 1024,
     maxUtteranceMs: 30_000,
-    maxSessionMs: 5 * 60_000,
+    maxSessionMs: 30 * 60_000,
     maxSessions: 1,
     minFinalChars: 2,
 };

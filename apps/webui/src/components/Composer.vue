@@ -21,10 +21,10 @@ const props = defineProps({
     permissionLevels: { type: Array, default: () => [] },
     /** 语音状态机阶段（VoiceController.state.phase）。 */
     voiceState: { type: String, default: 'off' },
-    /** 语音是否可用（secure context + 引擎可解析）。 */
+    /** 语音是否可用（secure context + 麦克风可采集）。 */
     voiceAvailable: { type: Boolean, default: false },
-    /** 实时 partial（只做 ghost 展示，绝不写入 prompt）。 */
-    voicePartial: { type: String, default: '' },
+    /** 语音错误（仅错误时显示一行提示）。 */
+    voiceError: { type: String, default: '' },
 });
 const emit = defineEmits([
     'update:modelValue',
@@ -86,17 +86,12 @@ function onInput(e) {
     emit('update:modelValue', e.target.value);
 }
 
-/* ---------- Voice input entry (docs/web/语音输入设计.md §5.3) ---------- */
-const VOICE_ACTIVE_PHASES = ['requesting', 'armed', 'capturing', 'partial', 'finalizing', 'committed'];
+/* ---------- Voice input entry: local ASR, click to start/stop ---------- */
+const VOICE_ACTIVE_PHASES = ['requesting', 'armed', 'partial', 'finalizing'];
 const voiceOn = computed(() => VOICE_ACTIVE_PHASES.includes(props.voiceState));
-const voicePaused = computed(() => props.voiceState === 'paused');
-const voiceError = computed(() => props.voiceState === 'error');
+const voiceErrored = computed(() => props.voiceState === 'error');
 
 function voiceIcon() {
-    if (voicePaused.value) return 'micOff';
-    if (props.voiceState === 'capturing' || props.voiceState === 'partial' || props.voiceState === 'finalizing') {
-        return 'waveform';
-    }
     return 'mic';
 }
 function voiceLabel() {
@@ -106,15 +101,10 @@ function voiceLabel() {
             return '正在准备麦克风…';
         case 'armed':
             return '正在录音 · 点击停止';
-        case 'capturing':
         case 'partial':
-            return '正在录音识别 · 点击停止';
+            return '正在识别 · 点击停止';
         case 'finalizing':
             return '正在结束录音…';
-        case 'committed':
-            return '已写入草稿 · 点击停止';
-        case 'paused':
-            return '录音已暂停 · 点击开始录音';
         case 'error':
             return '录音出错 · 点击重试';
         default:
@@ -182,11 +172,7 @@ function doExitWorkspace() {
                         @compositionstart="onCompositionStart"
                         @compositionend="onCompositionEnd"
                     ></textarea>
-                    <!-- partial 只做 ghost 展示，不写入 modelValue（避免与 IME/Enter 判定冲突） -->
-                    <div v-if="voicePartial" class="voice-ghost" aria-hidden="true">
-                        <span class="voice-ghost-label">识别中</span>
-                        <span class="voice-ghost-text">{{ voicePartial }}</span>
-                    </div>
+                    <div v-if="voiceError" class="voice-error-line" role="alert">{{ voiceError }}</div>
                 </div>
                 <div class="input-footer">
                     <div class="input-footer-left">
@@ -320,8 +306,7 @@ function doExitWorkspace() {
                             class="voice-btn voice-btn-send"
                             :class="{
                                 active: voiceOn,
-                                paused: voicePaused,
-                                error: voiceError,
+                                error: voiceErrored,
                                 unavailable: !voiceAvailable,
                             }"
                             :aria-label="voiceLabel()"
@@ -330,7 +315,7 @@ function doExitWorkspace() {
                             :disabled="!voiceAvailable"
                             @click="emit('toggle-voice')"
                         >
-                            <LineIcon :name="voiceIcon()" size="16" />
+                            <LineIcon :name="voiceIcon()" size="24" />
                             <span v-if="voiceOn" class="voice-live-dot" aria-hidden="true"></span>
                         </button>
                         <!-- Primary: stop while executing, send otherwise -->
@@ -438,12 +423,17 @@ function doExitWorkspace() {
     opacity: 0.4;
     cursor: not-allowed;
 }
-/* Send-adjacent microphone: same 30px rhythm as the send button. */
+/* Send-adjacent microphone: intentionally larger than the send button. */
 .voice-btn-send {
-    width: 30px;
-    height: 30px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     flex: 0 0 auto;
+    color: var(--fg-secondary);
+}
+.voice-btn-send :deep(.line-icon) {
+    width: 24px;
+    height: 24px;
 }
 .voice-btn-send.active {
     color: #fff;
@@ -455,8 +445,8 @@ function doExitWorkspace() {
 }
 .voice-live-dot {
     position: absolute;
-    top: 3px;
-    right: 3px;
+    top: 4px;
+    right: 4px;
     width: 5px;
     height: 5px;
     border-radius: 50%;
@@ -468,27 +458,11 @@ function doExitWorkspace() {
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.35; transform: scale(0.8); }
 }
-.voice-ghost {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
+.voice-error-line {
     padding: 0 14px 8px;
-    min-height: 18px;
-    pointer-events: none;
-}
-.voice-ghost-label {
-    flex: none;
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    color: var(--fg-tertiary);
-    text-transform: uppercase;
-}
-.voice-ghost-text {
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.4;
-    color: var(--fg-tertiary);
-    font-style: italic;
-    word-break: break-word;
+    color: var(--error);
 }
 @media (prefers-reduced-motion: reduce) {
     .voice-live-dot {

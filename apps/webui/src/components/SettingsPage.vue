@@ -594,7 +594,7 @@ watch(
         <template v-else-if="activeTab === 'voice'">
             <h1 class="settings-title">Voice</h1>
             <p class="settings-subtitle">
-                语音输入（ASR）：本机识别优先；浏览器识别需明确同意，音频可能上传给浏览器厂商。
+                语音输入（ASR）：仅本机识别，音频不上传；点击麦克风开始/停止，识别文字直接写入输入框后手动发送。
                 不做语音播报 / TTS。
             </p>
             <VoiceSettingsSection />
