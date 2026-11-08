@@ -1,6 +1,7 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import VoiceWaveform from './VoiceWaveform.vue';
 import { shouldSubmitOnEnter } from '../scripts/composer-keys.ts';
 import { PERMISSION_META } from '../scripts/goal-contract.ts';
 
@@ -25,6 +26,8 @@ const props = defineProps({
     voiceAvailable: { type: Boolean, default: false },
     /** 语音错误（仅错误时显示一行提示）。 */
     voiceError: { type: String, default: '' },
+    /** 录音电平 0..1，用于波形动画。 */
+    voiceLevel: { type: Number, default: 0 },
 });
 const emit = defineEmits([
     'update:modelValue',
@@ -94,6 +97,55 @@ const voiceErrored = computed(() => props.voiceState === 'error');
 function voiceIcon() {
     return 'mic';
 }
+
+/* 录音计时与状态文案（底部录音条）。 */
+const voiceStartedAt = ref(0);
+const voiceNow = ref(Date.now());
+let voiceTimer = null;
+const voiceCaptureText = computed(() => {
+    if (props.voiceState === 'requesting') return '正在准备麦克风…';
+    if (props.voiceState === 'finalizing') return '正在转写录音…';
+    return '正在录音';
+});
+const voiceElapsedSeconds = computed(() => {
+    if (!voiceStartedAt.value) return 0;
+    return Math.max(0, Math.floor((voiceNow.value - voiceStartedAt.value) / 1000));
+});
+const voiceTimerLabel = computed(() => {
+    const total = voiceElapsedSeconds.value;
+    const m = String(Math.floor(total / 60)).padStart(2, '0');
+    const s = String(total % 60).padStart(2, '0');
+    return `${m}:${s}`;
+});
+function stopVoiceTimer() {
+    if (voiceTimer !== null) {
+        clearInterval(voiceTimer);
+        voiceTimer = null;
+    }
+}
+function startVoiceTimer() {
+    if (voiceTimer !== null) return;
+    voiceTimer = setInterval(() => {
+        voiceNow.value = Date.now();
+    }, 250);
+}
+watch(
+    () => props.voiceState,
+    (state) => {
+        if (state === 'armed') {
+            if (!voiceStartedAt.value) voiceStartedAt.value = Date.now();
+            voiceNow.value = Date.now();
+            startVoiceTimer();
+        } else if (state === 'off' || state === 'error') {
+            stopVoiceTimer();
+            voiceStartedAt.value = 0;
+        } else if (state === 'finalizing') {
+            stopVoiceTimer();
+        }
+    },
+    { immediate: true },
+);
+onBeforeUnmount(stopVoiceTimer);
 function voiceLabel() {
     if (!props.voiceAvailable) return '语音输入不可用（需要 HTTPS 或 localhost）';
     switch (props.voiceState) {
@@ -174,7 +226,29 @@ function doExitWorkspace() {
                     ></textarea>
                     <div v-if="voiceError" class="voice-error-line" role="alert">{{ voiceError }}</div>
                 </div>
-                <div class="input-footer">
+                <!-- 录音中：底部替换为虚线波形条，随电平和时间变化。 -->
+                <div v-if="voiceOn" class="voice-capture-row" role="status" aria-live="polite">
+                    <button
+                        type="button"
+                        class="voice-stop-btn"
+                        :disabled="voiceState === 'finalizing'"
+                        aria-label="停止录音"
+                        title="停止录音"
+                        @click="emit('toggle-voice')"
+                    >
+                        <LineIcon name="stop" size="16" />
+                    </button>
+                    <VoiceWaveform
+                        class="voice-capture-wave"
+                        :level="voiceLevel"
+                        :active="voiceState === 'armed'"
+                    />
+                    <div class="voice-capture-meta">
+                        <span class="voice-capture-text">{{ voiceCaptureText }}</span>
+                        <span class="voice-capture-timer">{{ voiceTimerLabel }}</span>
+                    </div>
+                </div>
+                <div v-else class="input-footer">
                     <div class="input-footer-left">
                         <div v-if="!activeConversation" class="ws-picker-wrap">
                             <div v-if="workspaceMenu" class="picker-backdrop" @click="workspaceMenu = false"></div>
@@ -387,6 +461,58 @@ function doExitWorkspace() {
     align-items: center;
     gap: 6px;
     margin-left: auto;
+}
+/* Recording capture row: dashed waveform + elapsed time. */
+.voice-capture-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 2px 8px 8px;
+    padding: 6px 10px;
+    min-height: 40px;
+    border: 1px dashed var(--accent);
+    border-radius: 10px;
+    background: var(--accent-soft);
+}
+.voice-stop-btn {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.voice-stop-btn:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+.voice-stop-btn:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+.voice-capture-wave {
+    flex: 1;
+    min-width: 0;
+}
+.voice-capture-meta {
+    flex: none;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    white-space: nowrap;
+}
+.voice-capture-text {
+    font-size: 12px;
+    color: var(--fg-secondary);
+}
+.voice-capture-timer {
+    font-size: 12px;
+    color: var(--fg-tertiary);
+    font-variant-numeric: tabular-nums;
 }
 /* Voice input */
 .voice-btn {

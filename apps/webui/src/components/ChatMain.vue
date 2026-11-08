@@ -364,6 +364,7 @@ onBeforeUnmount(() => {
                 :voice-state="voice.state.phase"
                 :voice-available="voiceAvailable"
                 :voice-error="voice.state.error"
+                :voice-level="voice.state.level"
                 @update:model-value="onPromptInput"
                 @submit="onSubmit"
                 @toggle-voice="onToggleVoice"
