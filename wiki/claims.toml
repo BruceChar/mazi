@@ -98,7 +98,7 @@ retracted_reason = "Project Wiki core migrated from wiki.py into runtime/wiki; m
 
 [claims.runtime-task-planning-triage-order]
 text = "HarnessRuntime awaits the in-flight async triage before generating a Task plan, forwards conversation history into the planner prompt, retries with a strict-split hint when a multi-artifact goal collapses into one task, and plan.created events carry task titles plus dependencies for auditing."
-status = "active"
+status = "retracted"
 evidence = [
   { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "94c27c25f79fc967a57304a5d40eac75994a5e18" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
@@ -106,6 +106,10 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-09
+retracted_at = 2026-11-09
+retracted_reason = "Goal and Task planning are serial phases; executing must not be emitted before plan.created."
+retraction_kind = "corrected"
+superseded_by = "runtime-goal-plan-execution-serial-v2"
 
 [claims.contract-mechanical-checks-v2]
 text = "Goal contracts support deterministic checks final-answer/no-failed-steps/file-exists/file-contains/git-has-commit/command-output-contains; triage can emit structured checks and the verifier evaluates them through an injected ConditionEnvironment."
@@ -297,3 +301,17 @@ evidence = [
 established = 2026-11-09
 verified = 2026-11-09
 supersedes = "webui-exec-stream-fact-projection-v2"
+
+[claims.runtime-goal-plan-execution-serial-v2]
+text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, plan.created carries task titles plus dependencies, and the executing phase is emitted only after the plan is recorded and before the first Step starts."
+status = "active"
+evidence = [
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "7313f22d6fea27ceece92543300ece3f4a176186" },
+  { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "f59da54118a39e080156815f19fdec9d682ec5a5" },
+  { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "de245a7ab0768f11fe33f0466d9eac27d23c59a7" },
+]
+established = 2026-11-09
+verified = 2026-11-09
+supersedes = "runtime-task-planning-triage-order"
