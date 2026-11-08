@@ -566,6 +566,12 @@ export class ProjectWikiService {
         for (const file of [...files]) {
             if (file === relWiki || file.startsWith(`${relWiki}/`)) files.delete(file);
         }
+        const deletedFiles = new Set<string>();
+        for (const file of files) {
+            if (existsSync(join(repo, file))) continue;
+            deletedFiles.add(file);
+            files.delete(file);
+        }
         const claims = readProjectWiki(this.workspace)?.claims ?? [];
         const byFile = new Map<string, string[]>();
         for (const claim of claims) {
@@ -615,8 +621,9 @@ export class ProjectWikiService {
         return {
             checkpoint: checkpoint ? this.gitSync(['rev-parse', checkpoint], repo) : null,
             changed_files: [...files].sort(),
+            deleted_files: [...deletedFiles].sort(),
             claims: rows,
-            no_changes: files.size === 0 && rows.length === 0,
+            no_changes: files.size === 0 && deletedFiles.size === 0 && rows.length === 0,
             needs_semantic_update: findings.length > 0,
         };
     }

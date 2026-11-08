@@ -121,6 +121,7 @@ export interface ProjectWikiUpdateClaim {
 export interface ProjectWikiUpdatePlan {
     checkpoint: string | null;
     changed_files: string[];
+    deleted_files: string[];
     claims: ProjectWikiUpdateClaim[];
     no_changes: boolean;
     needs_semantic_update: boolean;

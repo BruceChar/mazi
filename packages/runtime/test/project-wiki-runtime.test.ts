@@ -162,6 +162,27 @@ describe('runtime Project Wiki', () => {
         );
     });
 
+    it('增量计划把已删除文件与可读取文件分开，并继续标记受影响 claim', async () => {
+        const root = repo();
+        const wiki = new ProjectWikiService({ workspace: root });
+        await wiki.init();
+        await wiki.addClaim({
+            id: 'http-port',
+            text: '服务监听 8787',
+            evidence: [{ file: 'src/config.ts' }],
+        });
+        unlinkSync(join(root, 'src', 'config.ts'));
+        git(root, 'add', '-u', 'src/config.ts');
+
+        const plan = await wiki.updatePlan();
+
+        expect(plan.changed_files).not.toContain('src/config.ts');
+        expect(plan.deleted_files).toContain('src/config.ts');
+        expect(plan.no_changes).toBe(false);
+        expect(plan.claims.map((claim) => claim.id)).toContain('http-port');
+        expect(plan.claims[0]?.evidence[0]?.status).toBe('missing');
+    });
+
     it('staged doctor 用 index oid 拦截未同步的事实', async () => {
         const root = repo();
         const wiki = new ProjectWikiService({ workspace: root });

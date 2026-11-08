@@ -493,6 +493,7 @@ SessionEnd 不先启动模型，而是完成以下工作：
 ```ts
 interface FinalizePlan {
   changedFiles: string[];
+  deletedFiles: string[];
   affectedClaims: string[];
   staleClaims: string[];
   missingEvidence: string[];
@@ -503,6 +504,10 @@ interface FinalizePlan {
   estimatedWork: 'none' | 'small' | 'medium' | 'large';
 }
 ```
+
+`changedFiles` 只包含当前工作区仍可读取的文件，供维护 Agent 按清单读取；
+已删除文件进入 `deletedFiles`，不得放入可读取清单。删除项可能命中 claims 的
+`missing` evidence，仍需参与语义判断，但 Agent 不得尝试读取不存在的路径。
 
 ### 9.2 阶段 B：分类
 
