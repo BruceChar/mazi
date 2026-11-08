@@ -22,4 +22,5 @@
 ## 会话活动
 <!-- activity:start -->
 - 2026-11-08 00:00:56 | 成功 | 重构项目 Wiki 的 SessionEnd 与增量更新工作流 | 确定性 session-end、按需语义更新、批量 oid 核验和 Python 3.9 兼容已实现，全量 1083 项测试通过
+- 2026-11-08 13:55:43 | 成功 | 修复只读探索会话不沉淀 Wiki 的问题 | SessionEnd 现在从 Goal trace 提取安全读取文件，即使无 git diff 也会异步沉淀部署、架构与流程事实；全量 1084 项测试通过
 <!-- activity:end -->
