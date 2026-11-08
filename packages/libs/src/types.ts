@@ -431,6 +431,11 @@ export interface TaskNodeView {
     taskId: string;
     status: string;
     title: string;
+    /**
+     * 产生该 Task 的计划版本：初始计划 = 1；第 N 次 replan = N + 1。
+     * UI 据此只渲染当前计划；旧数据缺省。
+     */
+    planVersion?: number;
     /** Task 开始时间（executor 进入 running 时落库；旧数据缺省） */
     startedAt?: number;
     /** Task 结束时间（进入终态时落库） */

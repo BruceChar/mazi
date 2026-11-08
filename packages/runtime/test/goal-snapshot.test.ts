@@ -301,4 +301,16 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
             failed: 0,
         });
     });
+
+    it('Task 投影透传 planVersion（旧数据缺省不输出）', () => {
+        const root = ulid();
+        const work = goal(ulid(), root);
+        const planned = { ...task(ulid(), work.goalId), planVersion: 2 };
+        const legacy = task(ulid(), work.goalId);
+        const snap = snapshotGoalTree(root, [work], [planned, legacy], []);
+        const tasks = snap.goals[0]?.tasks ?? [];
+        expect(tasks[0]?.planVersion).toBe(2);
+        // 旧数据没有 planVersion：投影不输出该字段，UI 回退到「不过滤」。
+        expect(tasks[1]).not.toHaveProperty('planVersion');
+    });
 });

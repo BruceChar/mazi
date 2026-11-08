@@ -194,6 +194,8 @@ export function snapshotGoalTree(
                 taskId: task.taskId,
                 status: task.status,
                 title: task.title,
+                // 计划版本透传：UI 用最大 planVersion 过滤当前计划，旧数据缺省。
+                ...(task.planVersion !== undefined ? { planVersion: task.planVersion } : {}),
                 ...(task.startedAt !== undefined ? { startedAt: task.startedAt } : {}),
                 ...(task.endedAt !== undefined ? { endedAt: task.endedAt } : {}),
                 acceptance: acceptanceViewOf(task),

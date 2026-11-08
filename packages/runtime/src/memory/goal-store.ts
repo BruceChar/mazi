@@ -14,6 +14,11 @@ export interface GoalStore {
     saveTask(task: Task): Promise<void>;
     loadTask(taskId: string): Promise<Task | undefined>;
     listTasks(goalId: string): Promise<Task[]>;
+    /**
+     * 删除一条 Task 行（计划代际更替时清理从未执行过的孤儿 Task）。
+     * 不触碰 steps：调用方只对零 Step 的 pending Task 调用本方法。
+     */
+    deleteTask(taskId: string): Promise<void>;
     saveStep(step: Step): Promise<void>;
     loadStep(stepId: string): Promise<Step | undefined>;
     listSteps(taskId: string): Promise<Step[]>;
@@ -59,6 +64,9 @@ export class MemoryGoalStore implements GoalStore {
         return [...this.tasks.values()]
             .filter((t) => t.goalId === goalId)
             .map((t) => structuredClone(t));
+    }
+    async deleteTask(taskId: string): Promise<void> {
+        this.tasks.delete(taskId);
     }
     async saveStep(step: Step): Promise<void> {
         this.steps.set(step.stepId, structuredClone(step));
@@ -167,6 +175,10 @@ export class SqliteGoalStore implements GoalStore {
             .prepare('SELECT json FROM goal_tasks WHERE goal_id = ?')
             .all(goalId) as Row[];
         return rows.map((r) => fromJson<Task>(r.json)).filter((t): t is Task => t !== undefined);
+    }
+    async deleteTask(taskId: string): Promise<void> {
+        // 只删 Task 行；steps 不随删（约定调用方只对零 Step 的 pending Task 调用）。
+        this.db.prepare('DELETE FROM goal_tasks WHERE task_id = ?').run(taskId);
     }
     async saveStep(step: Step): Promise<void> {
         this.db

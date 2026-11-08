@@ -1,4 +1,4 @@
-import type { Goal } from '@mazi/core';
+import type { Goal, Task } from '@mazi/core';
 import { describe, expect, it } from 'vitest';
 import {
     buildReplanPlannerPrompt,
@@ -53,6 +53,7 @@ describe('createPlanRevision', () => {
           acceptance: { conditions: ['c1'] },
           status: 'failed',
         },
+        remainingTasks: [],
         failureReason: 'failed',
         evidence: ['tool failed'],
         remainingBudget: { maxCostUsd: 5 },
@@ -84,6 +85,53 @@ describe('createPlanRevision', () => {
     });
   });
 
+  it('保留尚未执行的 remaining Task（同一 taskId）、重映射对失败 Task 的依赖，planVersion = 2', async () => {
+    const remaining: Task = {
+      taskId: 'remaining',
+      goalId: 'g1',
+      title: '汇总结果',
+      acceptance: { conditions: ['c1'] },
+      status: 'pending',
+      dependsOn: ['failed'],
+    };
+    const result = await createPlanRevision({
+      request: {
+        goal: goal(),
+        revision: 0,
+        completedTasks: [],
+        failedTask: {
+          taskId: 'failed',
+          goalId: 'g1',
+          title: '失败任务',
+          acceptance: { conditions: ['c1'] },
+          status: 'failed',
+        },
+        remainingTasks: [remaining],
+        failureReason: 'exit 1',
+        evidence: [],
+        remainingBudget: { maxCostUsd: 10 },
+      },
+      proposal: [{ key: 'fix', title: '重新扫描', acceptanceConditionIds: ['c1'] }],
+    });
+    expect(result.revision?.revision).toBe(1);
+    expect(result.revision?.planVersion).toBe(2);
+    const preserved = result.revision?.tasks.find((task) => task.taskId === 'remaining');
+    const remediation = result.revision?.tasks.find((task) => task.title === '重新扫描');
+    expect(preserved?.title).toBe('汇总结果');
+    // 依赖从失败 Task 重映射到补救 Task：先补救、再执行剩余的汇总工作。
+    expect(preserved?.dependsOn).toEqual([remediation?.taskId]);
+    expect(preserved?.planVersion).toBe(2);
+    expect(remediation?.planVersion).toBe(2);
+    expect(result.revision?.tasks.map((task) => task.title)).toEqual(['汇总结果', '重新扫描']);
+    expect(result.revision?.diff).toMatchObject({
+      added: ['重新扫描'],
+      removed: ['失败任务'],
+      retained: ['汇总结果'],
+    });
+    // 剩余 Task 原样保留，不被重新规划复制。
+    expect(result.revision?.tasks.filter((task) => task.title === '汇总结果')).toHaveLength(1);
+  });
+
   it('rejects repeated plans, budget overflow and permission escalation', async () => {
     const base = {
       goal: goal(),
@@ -96,6 +144,7 @@ describe('createPlanRevision', () => {
         acceptance: { conditions: ['c1'] },
         status: 'failed' as const,
       },
+      remainingTasks: [],
       failureReason: 'failed',
       evidence: [],
       remainingBudget: { maxCostUsd: 1 },
@@ -150,6 +199,15 @@ describe('replan planner prompt / factory', () => {
         acceptance: { conditions: ['c1'] },
         status: 'failed',
       },
+      remainingTasks: [
+        {
+          taskId: 'remaining',
+          goalId: 'g1',
+          title: '汇总结果',
+          acceptance: { conditions: ['c1'] },
+          status: 'pending',
+        },
+      ],
       failureReason: 'failed',
       evidence: ['tool failed: exit code 1'],
       remainingBudget: { maxCostUsd: 5 },
@@ -159,6 +217,11 @@ describe('replan planner prompt / factory', () => {
     expect(prompt).toContain('已完成');
     expect(prompt).toContain('tool failed');
     expect(prompt).toContain('剩余预算');
+    // 尚未执行的 Task 必须原样保留，并明确要求 Replan 不要重复规划。
+    expect(prompt).toContain('原计划中尚未执行、仍然有效的 Task（必须保留，不要重复规划）');
+    expect(prompt).toContain('汇总结果');
+    expect(prompt).toContain('必须保留，不要重复规划');
+    expect(prompt).toContain('边界必须清晰、互不重叠');
   });
 
   it('LLM replan 输出合法 JSON 时解析为 PlannedTask[]，非法时返回 undefined', async () => {
@@ -180,6 +243,7 @@ describe('replan planner prompt / factory', () => {
           acceptance: { conditions: ['c1'] },
           status: 'failed',
         },
+        remainingTasks: [],
         failureReason: 'failed',
         evidence: [],
         remainingBudget: { maxCostUsd: 5 },
@@ -199,6 +263,7 @@ describe('replan planner prompt / factory', () => {
           acceptance: { conditions: ['c1'] },
           status: 'failed',
         },
+        remainingTasks: [],
         failureReason: 'failed',
         evidence: [],
         remainingBudget: { maxCostUsd: 5 },

@@ -286,6 +286,14 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
             const maxReplans = deps.replan?.maxReplans ?? 2;
             if (deps.replan === undefined || planRevisions.length >= maxReplans) break;
             const failure = failureFromOutcome(outcome, verificationReport);
+            const executedTaskIds = new Set(outcomes.map((item) => item.task.taskId));
+            // 尚未执行、仍然有效的计划节点：Replan 必须原样保留，只允许补失败补救 Task。
+            const remainingTasks = tasks.filter(
+                (candidate) =>
+                    candidate.taskId !== outcome.task.taskId &&
+                    !executedTaskIds.has(candidate.taskId) &&
+                    (candidate.status === 'pending' || candidate.status === 'active'),
+            );
             const request: ReplanRequest = {
                 goal,
                 revision: planRevisions.length,
@@ -293,11 +301,11 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                     .slice(0, -1)
                     .filter(
                         (candidate) =>
-                            candidate.ok &&
-                            (candidate.task.acceptanceResult?.passed ?? true),
+                            candidate.ok && (candidate.task.acceptanceResult?.passed ?? true),
                     )
                     .map((candidate) => candidate.task),
                 failedTask: outcome.task,
+                remainingTasks,
                 failureReason: failure.failureReason,
                 ...(failure.failureCategory !== undefined
                     ? { failureCategory: failure.failureCategory }
@@ -327,9 +335,23 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                     break;
                 }
                 outcomes.pop();
+                // 计划代际更替：删除被替换掉、且从未执行过的孤儿 Task（pending 且零 Step）。
+                // 失败/已执行的尝试留在 store 供审计，因此不删 steps，也不删非 pending 行。
+                const revisedIds = new Set(
+                    revised.revision.tasks.map((candidate) => candidate.taskId),
+                );
+                for (const executableGoal of executable) {
+                    for (const storedTask of await deps.store.listTasks(executableGoal.goalId)) {
+                        if (revisedIds.has(storedTask.taskId)) continue;
+                        if (storedTask.status !== 'pending') continue;
+                        if ((await deps.store.listSteps(storedTask.taskId)).length > 0) continue;
+                        await deps.store.deleteTask(storedTask.taskId);
+                    }
+                }
                 tasks = revised.revision.tasks;
+                // 整棵当前计划重新落库：保留的 Task 也写入新的 planVersion 与重映射后的依赖。
                 for (const nextTask of tasks) {
-                    if (nextTask.status !== 'succeeded') await deps.store.saveTask(nextTask);
+                    await deps.store.saveTask(nextTask);
                 }
                 planRevisions.push(revised.revision);
                 deps.onReplan?.(revised.revision);

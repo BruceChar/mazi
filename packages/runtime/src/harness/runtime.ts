@@ -162,6 +162,9 @@ function goalRunSummary(result: GoalRunResult): string {
 /** triage 超时上限：协商是增强能力，绝不能拖住创建会话（进而拖住主会话输出）。 */
 const TRIAGE_TIMEOUT_MS = 10_000;
 
+/** goal.phase 的阶段：执行前置的内部模型工作（triage / 规划）与执行开始。 */
+type GoalPhase = 'intake' | 'planning' | 'executing';
+
 /** 给 promise 加超时；超时或失败都返回 undefined（调用方回落 fallback，不抛错）。 */
 function withTriageTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
     return new Promise((resolve) => {
@@ -664,6 +667,8 @@ export class HarnessRuntime {
         // 异步 triage：创建请求不等待；执行入口会 await 尚未落地的 triage，保证
         // Task Planner 看到的是完整契约（含 goals/constraints 与 route）。
         if (opts.parseIntent === true) {
+            // 可观测性：triage 是首个 Step 之前的一次模型轮次，先让 UI 进入「理解任务」阶段。
+            await this.emitGoalPhase(rootGoalId, rootGoalId, 'intake', '正在理解任务');
             this.pendingTriage.set(rootGoalId, this.scheduleIntentTriage(rootGoalId, input, opts));
         }
         return { rootGoalId, goalId: rootGoalId };
@@ -982,12 +987,19 @@ export class HarnessRuntime {
         const projectWikiFragment = projectWikiActive
             ? this.projectWikiPromptFragment()
             : undefined;
-        const effectivePlanProposal =
-            planProposal ??
-            (!resume &&
+        const willGeneratePlan =
+            planProposal === undefined &&
+            !resume &&
             taskPlanning &&
             exec.allowedTools.length > 0 &&
-            rootGoal?.negotiation?.route !== 'direct'
+            rootGoal?.negotiation?.route !== 'direct';
+        if (willGeneratePlan) {
+            // 可观测性：计划生成同样是首个 Step 之前的模型轮次，先让 UI 显示「制定计划」。
+            await this.emitGoalPhase(rootGoalId, goalId, 'planning', '正在制定计划');
+        }
+        const effectivePlanProposal =
+            planProposal ??
+            (willGeneratePlan
                 ? await this.generateTaskPlan(
                       rootGoalId,
                       rootGoal,
@@ -1037,6 +1049,8 @@ export class HarnessRuntime {
         const verificationByTask = new Map<string, VerificationReport>();
         const controller = new AbortController();
         this.running.set(rootGoalId, controller);
+        // 可观测性：计划已生成（或本次跳过规划），正式进入 Task 执行；UI 据此撤掉阶段占位。
+        await this.emitGoalPhase(rootGoalId, goalId, 'executing', '正在执行');
         let result: GoalRunResult;
         try {
             result = await runGoalTree(
@@ -1121,10 +1135,21 @@ export class HarnessRuntime {
                                     revision !== undefined
                                         ? {
                                               revision: revision.revision,
+                                              // 计划版本：初始 = 1，第 N 次 Replan = N + 1；UI 按它过滤当前计划。
+                                              planVersion: revision.planVersion,
                                               diff: revision.diff,
                                               reason: revision.reason,
                                               evidence: revision.evidence,
                                               digest: revision.digest,
+                                              // 修订后的完整 Task 列表：UI 无需再等 timeline 刷新即可渲染新计划。
+                                              tasks: revision.tasks.map((task) => ({
+                                                  taskId: task.taskId,
+                                                  title: task.title,
+                                                  dependsOn: task.dependsOn ?? [],
+                                                  planVersion:
+                                                      task.planVersion ?? revision.planVersion,
+                                                  status: task.status,
+                                              })),
                                           }
                                         : { rejected },
                             }),
@@ -1135,6 +1160,10 @@ export class HarnessRuntime {
                         if (this.projectWiki === undefined) this.wiki.observeStep(step);
                     },
                     onPlan: (taskCount, digest, rejected, tasks) => {
+                        const planVersion =
+                            tasks !== undefined && tasks.length > 0
+                                ? Math.max(...tasks.map((task) => task.planVersion ?? 1))
+                                : 1;
                         this.bus.emit(
                             newHarnessEvent({
                                 type: rejected === undefined ? 'plan.created' : 'plan.invalid',
@@ -1148,11 +1177,14 @@ export class HarnessRuntime {
                                         ? {
                                               taskCount,
                                               digest,
-                                              // 计划可观测：Task 标题/依赖让 UI 与复盘能审计 TaskPlan。
+                                              // 初始计划 = 1；恢复运行沿用计划自身的版本。
+                                              planVersion,
+                                              // 计划可观测：Task 标题/依赖/版本让 UI 与复盘能审计 TaskPlan。
                                               tasks: (tasks ?? []).map((task) => ({
                                                   taskId: task.taskId,
                                                   title: task.title,
                                                   dependsOn: task.dependsOn ?? [],
+                                                  planVersion: task.planVersion ?? planVersion,
                                               })),
                                           }
                                         : { taskCount, rejected },
@@ -1972,6 +2004,27 @@ export class HarnessRuntime {
                 payload: { values: { ...values }, trace: trace.map((step) => ({ ...step })) },
             }),
         );
+    }
+
+    /**
+     * 执行前置阶段的进度事件（仅观测）：triage/规划这类发生在首个 Step 之前的模型工作
+     * 也必须有可观测锚点，UI 才能显示真实阶段而非泛化占位。goal 级事件，不带 taskId/stepId。
+     */
+    private async emitGoalPhase(
+        rootGoalId: string,
+        goalId: string,
+        phase: GoalPhase,
+        label: string,
+    ): Promise<void> {
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'goal.phase',
+                rootGoalId,
+                goalId,
+                payload: { phase, label },
+            }),
+        );
+        await this.bus.flush();
     }
 
     /** Skill 运行边界事件：携 harness.skill_id（可回放"本次运行带上了哪些技能"）。 */

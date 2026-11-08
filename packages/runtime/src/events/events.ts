@@ -39,6 +39,12 @@ export const RUNTIME_EVENT_TYPES = [
     'goal.contract-revised',
     /** 运行收尾的契约满足度机械判定（评估器视角；goal 级，无 taskId） */
     'goal.contract-evaluated',
+    /**
+     * 执行前置阶段的进度（triage → 计划生成 → 开始执行）。
+     * goal 级事件（无 taskId/stepId）：这些模型轮次发生在首个 Step 之前，
+     * 没有 Step 可承载，UI 据此显示真实阶段而不是泛化的「执行中」占位。
+     */
+    'goal.phase',
 ] as const;
 
 export type RuntimeEventType = (typeof RUNTIME_EVENT_TYPES)[number];

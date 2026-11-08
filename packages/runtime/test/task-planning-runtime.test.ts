@@ -189,11 +189,22 @@ describe('HarnessRuntime × Task Planner 上下文与 triage 顺序', () => {
                 .map((line) => JSON.parse(line) as { type: string; payload?: unknown });
             const plan = events.find((event) => event.type === 'plan.created');
             const payload = plan?.payload as
-                | { taskCount?: number; tasks?: Array<{ title: string; dependsOn: string[] }> }
+                | {
+                      taskCount?: number;
+                      planVersion?: number;
+                      tasks?: Array<{
+                          title: string;
+                          dependsOn: string[];
+                          planVersion?: number;
+                      }>;
+                  }
                 | undefined;
             expect(payload?.taskCount).toBe(2);
+            // 初始计划 = planVersion 1；每个 Task 也带自己的 planVersion。
+            expect(payload?.planVersion).toBe(1);
             expect(payload?.tasks?.map((task) => task.title)).toEqual(['第一步', '第二步']);
             expect(payload?.tasks?.[1]?.dependsOn).toHaveLength(1);
+            expect(payload?.tasks?.map((task) => task.planVersion)).toEqual([1, 1]);
         } finally {
             await runtime.close();
         }
@@ -322,6 +333,40 @@ describe('HarnessRuntime × 验收失败与默认 replan', () => {
             const events = readEvents(dir, created.rootGoalId);
             const revised = events.filter((event) => event.type === 'plan.revised');
             expect(revised.length).toBeGreaterThanOrEqual(1);
+            // plan.revised 契约：planVersion + 修订后的完整 Task 列表（UI 可直接渲染新计划树）。
+            const payloads = revised.map(
+                (event) =>
+                    event.payload as
+                        | {
+                              revision?: number;
+                              planVersion?: number;
+                              diff?: unknown;
+                              reason?: string;
+                              evidence?: unknown;
+                              digest?: string;
+                              tasks?: Array<{
+                                  taskId?: string;
+                                  title?: string;
+                                  dependsOn?: string[];
+                                  planVersion?: number;
+                                  status?: string;
+                              }>;
+                          }
+                        | undefined,
+            );
+            expect(payloads[0]?.revision).toBe(1);
+            // 初始计划 = 1，第一次 Replan = 2，第二次 = 3（PlanRevision.revision + 1）。
+            expect(payloads.map((payload) => payload?.planVersion)).toEqual([2, 3]);
+            const firstRevised = payloads[0];
+            expect(firstRevised?.tasks).toHaveLength(1);
+            expect(firstRevised?.tasks?.[0]).toMatchObject({
+                title: '重新实现 DFS 第 1 次',
+                dependsOn: [],
+                planVersion: 2,
+                status: 'pending',
+            });
+            expect(typeof firstRevised?.tasks?.[0]?.taskId).toBe('string');
+            expect(firstRevised?.reason).toContain('verifier:');
             expect(result.ok).toBe(false);
             // 至少发生一次 replan，且该轮已执行（失败 Task 被替换，故 tasks 只留最后一轮）。
             expect((result.planRevisions?.length ?? 0)).toBeGreaterThanOrEqual(1);

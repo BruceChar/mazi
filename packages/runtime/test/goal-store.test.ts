@@ -73,6 +73,28 @@ describe('GoalStore（并存存储，C3a，扁平模型）', () => {
             }
         });
 
+        it(`deleteTask 删除单条 Task 行且不级联其它数据（${make().constructor.name}）`, async () => {
+            const store = make();
+            try {
+                const g = goal(ulid());
+                await store.saveGoal(g);
+                const kept = task(ulid(), g.goalId);
+                const removed = task(ulid(), g.goalId);
+                await store.saveTask(kept);
+                await store.saveTask(removed);
+                const s = step(ulid(), removed.taskId, g.goalId);
+                await store.saveStep(s);
+                await store.deleteTask(removed.taskId);
+                expect(await store.loadTask(removed.taskId)).toBeUndefined();
+                expect((await store.loadTask(kept.taskId))?.taskId).toBe(kept.taskId);
+                expect((await store.loadGoal(g.goalId))?.goalId).toBe(g.goalId);
+                // 约定：只对零 Step 的 pending Task 调用 deleteTask，故 steps 不随删。
+                expect((await store.listSteps(removed.taskId))[0]?.stepId).toBe(s.stepId);
+            } finally {
+                store.close();
+            }
+        });
+
         it(`round-trip + 按 run/goal/task 投影（${make().constructor.name}）`, async () => {
             const store = make();
             try {

@@ -46,6 +46,12 @@ executeGoalTree
 | 写工具静默 no-op（`sd` 模式未匹配仍退出 0） | ok，Step succeeded | 执行前后对比目标文件，内容未变 → `ok:false` |
 | 工具失败 | Step error → 验收 failed → replan（受 maxReplans 限制） | 同上，信号不再被吞 |
 | 管道下游提前关闭（`| head` 的 SIGPIPE，exit 141） | 被当作命令失败 | 视为正常结束（命令已执行；输出附 `SIGPIPE ignored` 提示） |
+| `rg` 无匹配（exit 1） | 被当作命令失败 → 误触发验收失败/replan | 工具 spec 声明 `noMatchExitCodes:[1]` → `ok:true`，内容 `(no matches)`；exit 2 仍是真实错误 |
+| `fd` 传入 glob（如 `*.md`） | 按正则解析报错 → 失败 | `globFlag:'--glob'`：含 glob 元字符且非法 regex 时自动加 `--glob`；合法 regex 语义不变 |
+
+> 2026-11-08 修订：一次真实运行（`项目有代办吗`）中大量 `rg` 无匹配与 `fd *.md` 被误判为失败 Step，
+> 触发 `no-failed-steps` 验收失败并进入 replan 循环。工具层现已显式区分「无结果」与「真实错误」，
+> 避免 false-failure 驱动无意义 replan。
 
 ## 5. 验收（与 P2 机械检查联动）
 
@@ -57,8 +63,20 @@ executeGoalTree
 - **验收失败不再算运行成功**：Task 机械验收 `passed=false` 时 Task 置 `failed`，
   `GoalRunResult.ok` / `goal.ended` / `Goal.status` 一并记为失败（aborted 仍保持可恢复）。
 - **默认连续处理（replan）**：项目会话未显式注入 replan planner 时，失败会触发一次有界 LLM Replan
-  （`createLlmReplanPlanner`，最多 `maxReplans` 次）：只补剩余工作、保留已完成 Task，然后继续执行；
+  （`createLlmReplanPlanner`，最多 `maxReplans` 次）：只补失败 Task 的补救工作，保留已完成 Task，然后继续执行；
   Replan 被拒绝或次数用尽才终止。失败分类账同时记录验收失败。
+- **计划代际（planVersion）与 replan 卫生（2026-11-08 修订）**：
+  - 计划版本：初始计划 `planVersion=1`；第 N 次 Replan（`PlanRevision.revision=N`）产出的
+    revision 内全部 Task `planVersion=N+1`。UI 据此只渲染当前计划，历史尝试保留在 Trace。
+  - 保留剩余 Task：`ReplanRequest.remainingTasks` 携带当前计划中尚未执行的 Task（pending/active），
+    Replan prompt 明确「必须保留、不要重复规划」；`createPlanRevision` 以同一 taskId 把它们原样带入新
+    revision（失败 Task 的依赖重映射为本次补救 Task 的 id），只追加补救 Task，避免整段工作被重复规划。
+  - 清理孤儿：应用 revision 时扫描 store，删除所有「不在新计划内、`status=pending` 且零 Step」的 Task
+    （含更早 revision 遗留），失败/已执行尝试保留不动（审计证据不丢）。
+  - `GoalStore.deleteTask` 仅删 Task 行、不删 steps（调用方保证只对零 Step 的 pending Task 调用）。
+  - 事件：`plan.created` payload 增加 `planVersion` 与 `tasks[{taskId,title,dependsOn,planVersion}]`；
+    `plan.revised` payload 增加 `planVersion` 与完整 `tasks[{taskId,title,dependsOn,planVersion,status}]`，
+    UI 无需等 timeline 刷新即可渲染修订后的计划。
 
 ## 6. 测试
 
