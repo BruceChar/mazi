@@ -161,9 +161,9 @@ retracted_reason = "Incremental Project Wiki behavior is now implemented in runt
 text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass; verification failures mark the task and goal failed and trigger a bounded default LLM replan that sequences the remaining work, while aborted tasks stay resumable."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "94c27c25f79fc967a57304a5d40eac75994a5e18" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "7313f22d6fea27ceece92543300ece3f4a176186" },
   { file = "packages/runtime/src/gts/replan.ts", oid = "8ba51582a108d6f7fcc0b55bf117464c60654dc0" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "da317621d1c0079e2709b2b90bb2c8faa1cd660b" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "de245a7ab0768f11fe33f0466d9eac27d23c59a7" },
 ]
 established = 2026-11-07
 verified = 2026-11-09
@@ -183,7 +183,7 @@ text = "Project Wiki is maintained by runtime-native ProjectWikiService: init, c
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "fccbf19537d7705120f749165d087c2d7fd7b67e" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "f59da54118a39e080156815f19fdec9d682ec5a5" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "41cfd732a0447b23c711f06c74a07d2e633e29ae" },
 ]
