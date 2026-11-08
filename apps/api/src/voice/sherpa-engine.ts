@@ -180,8 +180,10 @@ export async function discoverModelFiles(modelDir: string): Promise<SherpaModelF
         if (candidates.length === 0) {
             throw new SherpaLoadError('model_missing', `模型目录缺少 ${kind} 文件：${modelDir}`);
         }
-        const int8 = candidates.filter((name) => name.toLowerCase().includes('int8'));
-        return (int8.length > 0 ? int8 : candidates).sort()[0];
+        // 优先 fp32：部分预编译 int8 权重在流式解码时会截断长音频，fp32 结果完整。
+        // 归档只有 int8 时再回退，保证仍可安装/启动。
+        const nonInt8 = candidates.filter((name) => !name.toLowerCase().includes('int8'));
+        return (nonInt8.length > 0 ? nonInt8 : candidates).sort()[0];
     };
     const tokens =
         names.find((name) => name === 'tokens.txt') ??

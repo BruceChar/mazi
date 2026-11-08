@@ -145,7 +145,7 @@ describe('SherpaHost.availability', () => {
 });
 
 describe('模型文件扫描与 recognizer 配置（纯逻辑）', () => {
-    it('优先选择 int8 encoder/decoder/joiner', async () => {
+    it('优先选择 fp32 encoder/decoder/joiner（int8 作为回退）', async () => {
         const base = tempDir();
         const dir = join(base, 'model');
         mkdirSync(dir, { recursive: true });
@@ -162,11 +162,29 @@ describe('模型文件扫描与 recognizer 配置（纯逻辑）', () => {
         }
         const files = await discoverModelFiles(dir);
         expect(files).toEqual({
-            encoder: 'encoder-epoch-1.int8.onnx',
-            decoder: 'decoder-epoch-1.int8.onnx',
-            joiner: 'joiner-epoch-1.int8.onnx',
+            encoder: 'encoder-epoch-1.onnx',
+            decoder: 'decoder-epoch-1.onnx',
+            joiner: 'joiner-epoch-1.onnx',
             tokens: 'tokens.txt',
         });
+    });
+
+    it('只有 int8 文件时回退到 int8', async () => {
+        const base = tempDir();
+        const dir = join(base, 'model-int8-only');
+        mkdirSync(dir, { recursive: true });
+        for (const name of [
+            'encoder-epoch-1.int8.onnx',
+            'decoder-epoch-1.int8.onnx',
+            'joiner-epoch-1.int8.onnx',
+            'tokens.txt',
+        ]) {
+            writeFileSync(join(dir, name), 'x');
+        }
+        const files = await discoverModelFiles(dir);
+        expect(files.encoder).toBe('encoder-epoch-1.int8.onnx');
+        expect(files.decoder).toBe('decoder-epoch-1.int8.onnx');
+        expect(files.joiner).toBe('joiner-epoch-1.int8.onnx');
     });
 
     it('缺少必需文件 → model_missing', async () => {
