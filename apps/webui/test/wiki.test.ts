@@ -3,6 +3,7 @@ import {
     entryCountLabel,
     recentEntries,
     resolveWikiDocumentPath,
+    resolveWikiSelectedPath,
     snapshotSections,
     wikiClaimStatusLabel,
     wikiClaimsAttention,
@@ -127,5 +128,17 @@ describe('wiki 视图纯函数（docs/项目wiki设计.md §11）', () => {
         expect(wikiOperationLabel('init')).toBe('初始化');
         expect(wikiOperationLabel('sync')).toBe('同步');
         expect(wikiOperationLabel('update')).toBe('更新');
+    });
+
+    it('resolveWikiSelectedPath 恢复有效文档，失效/缺省回退索引页', () => {
+        const docs = [{ path: 'INDEX.md' }, { path: 'state/current.md' }];
+        expect(resolveWikiSelectedPath('state/current.md', docs)).toBe('state/current.md');
+        expect(resolveWikiSelectedPath('  state/current.md  ', docs)).toBe('state/current.md');
+        expect(resolveWikiSelectedPath('deleted.md', docs)).toBe('INDEX.md');
+        expect(resolveWikiSelectedPath(undefined, docs)).toBe('INDEX.md');
+        expect(resolveWikiSelectedPath('INDEX.md', [])).toBe('');
+        expect(resolveWikiSelectedPath('', [{ path: 'overview/architecture.md' }])).toBe(
+            'overview/architecture.md',
+        );
     });
 });

@@ -2,7 +2,6 @@
  * 项目 wiki 只读视图的纯函数与类型（docs/项目wiki设计.md §11）。
  * 数据来自 GET /api/wiki；写入侧在 runtime，前端只读。
  */
-
 import { compactWikiSummary } from '@mazi/libs';
 
 export interface WikiEntryView {
@@ -230,6 +229,8 @@ export function resolveWikiDocumentPath(fromPath: string, href: string): string 
     return normalized.join('/');
 }
 
+const WIKI_SELECTED_DOC_KEY = 'mazi.wiki.selectedDoc';
+
 /** 操作类型 → 人读动作名：初始化 / 同步 / 更新。 */
 export function wikiOperationLabel(kind: WikiOperationView['kind']): string {
     if (kind === 'init') return '初始化';
@@ -251,4 +252,40 @@ export function wikiNoticeSummary(
     if (text.length > 0) return text;
     if (operation.state === 'failed') return '未知错误';
     return `${wikiOperationLabel(operation.kind)}完成`;
+}
+
+/**
+ * 刷新后恢复上次阅读的知识文档；记录失效（文档被删/工作区切换）时回退索引页。
+ * 只接受仓库里真实存在的文档路径。
+ */
+export function resolveWikiSelectedPath(
+    savedPath: string | null | undefined,
+    docs: readonly Pick<WikiDocumentView, 'path'>[],
+): string {
+    const saved = (savedPath ?? '').trim();
+    if (saved.length > 0 && docs.some((doc) => doc.path === saved)) return saved;
+    return docs.find((doc) => doc.path === 'INDEX.md')?.path ?? docs[0]?.path ?? '';
+}
+
+function wikiSelectedDocKey(workspace: string): string {
+    return `${WIKI_SELECTED_DOC_KEY}:${workspace.trim() || '__default__'}`;
+}
+
+/** 当前 tab 内记住项目 wiki 正在阅读的文档（sessionStorage：不跨 tab 串页）。 */
+export function readWikiSelectedPath(workspace: string): string {
+    try {
+        return sessionStorage.getItem(wikiSelectedDocKey(workspace)) ?? '';
+    } catch {
+        return '';
+    }
+}
+
+export function saveWikiSelectedPath(workspace: string, path: string): void {
+    try {
+        const key = wikiSelectedDocKey(workspace);
+        if (path.length > 0) sessionStorage.setItem(key, path);
+        else sessionStorage.removeItem(key);
+    } catch {
+        // sessionStorage 不可用（隐私模式）时不影响阅读。
+    }
 }

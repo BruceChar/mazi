@@ -15,7 +15,10 @@ import {
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { freeChatWorkspace, workspaceRoot } from '../scripts/store.js';
 import {
+    readWikiSelectedPath,
     resolveWikiDocumentPath,
+    resolveWikiSelectedPath,
+    saveWikiSelectedPath,
     wikiClaimDisplayStatus,
     wikiClaimStatusLabel,
     wikiClaimsAttention,
@@ -424,11 +427,11 @@ function stopTraceResize() {
 }
 
 function syncSelection() {
-    if (documents.value.some((doc) => doc.path === selectedPath.value)) return;
-    selectedPath.value =
-        documents.value.find((doc) => doc.path === 'INDEX.md')?.path ??
-        documents.value[0]?.path ??
-        '';
+    // 刷新 / 切回同一工作区时恢复上次阅读的文档；记录失效则回退索引页。
+    selectedPath.value = resolveWikiSelectedPath(
+        readWikiSelectedPath(targetWorkspace.value),
+        documents.value,
+    );
 }
 
 function queryForWorkspace() {
@@ -505,6 +508,10 @@ watch(targetWorkspace, () => {
     void load();
 });
 watch(documents, syncSelection);
+watch(selectedPath, (path) => {
+    if (!path || !documents.value.some((doc) => doc.path === path)) return;
+    saveWikiSelectedPath(targetWorkspace.value, path);
+});
 </script>
 
 <template>

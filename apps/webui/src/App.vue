@@ -21,6 +21,7 @@ import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run
 import { SETTINGS_TABS } from './scripts/settings-tabs.ts';
 import { DEFAULT_USER_CENTER_TAB, userCenterTabOf } from './scripts/user-center.ts';
 import { wikiWorkspaceFor } from './scripts/wiki.ts';
+import { readViewState, saveViewState } from './scripts/view-state.ts';
 import { buildAuditView } from './scripts/audit.ts';
 import { pendingNegotiationOf } from './scripts/contract-view.ts';
 import { API_BASE } from './api.js';
@@ -52,6 +53,7 @@ import {
     pickFreeChatWorkspace,
     saveFreeChatWorkspace,
     negotiateRun,
+    openConversation as openConversationState,
     openRun,
     pendingInput,
     pickWorkspace,
@@ -635,7 +637,14 @@ function backToChat() {
 
 /** 项目「…」菜单打开的项目 wiki：锁定并切换全局工作区。 */
 async function openProjectWiki(project) {
-    const target = wikiWorkspaceFor(project?.path, headerWorkspace.value);
+    await openWikiWorkspace(wikiWorkspaceFor(project?.path, headerWorkspace.value));
+}
+
+/**
+ * 打开项目 Wiki 并锁定工作区；刷新恢复与菜单入口共用，保证页首显示的是
+ * 同一项目路径。锁定失败（工作区已被移除）仍显示 Wiki 自身的加载错误。
+ */
+async function openWikiWorkspace(target) {
     wikiWorkspace.value = target;
     if (target.length > 0 && target !== workspaceRoot.value) {
         try {
@@ -910,21 +919,39 @@ onMounted(async () => {
         searchOpen.value = false;
     });
     window.addEventListener('keydown', onKeydown);
+    // 刷新前的页面位置：先恢复页面外壳（避免先闪一下对话页），再准备会话上下文。
+    // 打开第一个会话只准备聊天数据，不再把视图带回对话页。
+    const restored = readViewState();
+    if (restored) {
+        wikiWorkspace.value = restored.wikiWorkspace;
+        ui.view = restored.view;
+    }
     try {
         await loadConfig();
         await loadConversations();
         await loadWorkspace();
         const firstConversation = activeConvList.value[0];
         if (firstConversation) {
-            await openConversation(firstConversation);
+            await openConversationState(firstConversation.conversationId);
         }
     } catch (error) {
         ui.err = String(error);
+    }
+    if (restored?.view === 'wiki') {
+        // 工作区列表在 loadWorkspace 后才有，Wiki 恢复要等它可用再锁定同一项目。
+        await openWikiWorkspace(
+            restored.wikiWorkspace || workspaceRoot.value || freeChatWorkspace.value,
+        );
     }
     pingApi();
     latencyTimer = setInterval(pingApi, 5000);
 });
 
+/** 页面位置按 tab 持久化：刷新后回到刷新前的页面（不再默认回对话页）。 */
+watch(
+    [() => ui.view, wikiWorkspace],
+    () => saveViewState({ view: ui.view, wikiWorkspace: wikiWorkspace.value }),
+);
 
 onBeforeUnmount(() => {
     stopEvents();
