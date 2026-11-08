@@ -227,3 +227,13 @@ evidence = [
 ]
 established = 2026-11-08
 verified = 2026-11-08
+
+[claims.todo-source-of-truth]
+text = "Pending product work is tracked only in docs/TODO.md (user behavior tracing; Provider monitoring panel with default execute/verify/plan model roles and a radar chart comparing cost/performance/completion; template features; later Project Wiki enhancements), and README section 13 Roadmap restates the same items from a user perspective. Answering \"what is left to do\" therefore requires reading docs/TODO.md and cross-checking the README Roadmap; TODO hits inside source are Wiki skeleton templates and Agent prompt text, not a tech-debt list."
+status = "active"
+evidence = [
+  { file = "docs/TODO.md", oid = "4e467b5f4e00419dd01f47156a0ec9a4d0502ae7" },
+  { file = "README.md", oid = "ee7e26971d0d460c962264331c1da515abae7635" },
+]
+established = 2026-11-08
+verified = 2026-11-08

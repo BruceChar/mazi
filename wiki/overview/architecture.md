@@ -1,11 +1,54 @@
 # 架构
-TODO：模块划分、数据流、依赖关系。只写代码无法自述的全局认知。
 
-## 模块
-TODO
+> 事实来源：`README.md`（架构总览、分层依赖、仓库结构）、`docs/C3-goal-migration.md`（Goal 坐标系迁移收口）。
 
-## 数据流
-TODO
+## 分层与依赖方向
+
+```
+apps/webui   Vue 3 生产界面（对话流 / Context / 审计 / 存储 / 设置）
+apps/api     NestJS + Fastify，REST + SSE，会话 / 工作区 / 审批 / 目录 / 事件
+    │
+packages/runtime   执行实现：Goal 编排 · ToolGateway · 事件总线 · Provider 供给 · 目录计费
+packages/provider  厂商适配：DeepSeek · pi-ai 适配器 · 模型发现 · 官方价目解析
+packages/core      契约层（无实现依赖）：authz · gts · observability · permissions · usage · id
+packages/libs      跨端共享类型（Goal 树投影等）
+```
+
+依赖方向单向向下：**契约层不依赖实现，实现不依赖界面**。改代码时先判断落点：
+契约/类型进 `core`，厂商适配进 `provider`，编排与治理进 `runtime`，界面只消费 API 与共享类型。
+
+## 模块职责
+
+| 路径 | 职责 |
+|---|---|
+| apps/api | REST + SSE 面：会话运行、工作区、Goal 快照、审批、事件 SSE、模型目录与用量、存储、健康与配置热更新；`/api` 前缀 |
+| apps/webui | 对话流（thinking → 工具 → 观察 → 文本）、实时指标、Context 装配投影、审计面板、存储面板、审批门、设置、工作区切换 |
+| packages/core | 契约层：Goal-Task-Step 坐标系、权限三原语与派生规则、观测事件信封、provider 内容/工具/Usage 契约、usage |
+| packages/provider | 厂商适配与模型发现、官方价目解析；可插拔 Provider 抽象 |
+| packages/runtime | Harness 执行：Goal 编排、工具网关 11 阶段管线、事件总线、上下文装配与 Project Wiki / Context Lifecycle |
+| packages/libs | 跨端共享类型（Goal 树投影等） |
+
+## 执行坐标系
+
+Goal（意图/委托）→ Task（可独立验收的子目标）→ Step（thinking / tool / observation）。
+两条底线：归因链必须终止于 `origin.kind ∈ {human, system}` 的根 Goal；
+委托边 `permissionCeiling` 与 `budget` 单调递减，唯一升权路径是人工审批。
+`docs/C3-goal-migration.md` 记录了 Session/Turn/Step → Goal/Task/Step 的映射与旧路径删除过程
+（core 已无 Session/Turn/Capacity 导出）。
+
+## 设计不变量
+
+> 每一步的「判断」由模型做出，每一步的「事实」由 harness 记录。
+
+事件信封 = 四元组坐标 `{rootGoalId, goalId, taskId, stepId}` + `seq` 全序 + `prevHash/hash` 哈希链 +
+`causedBy` 因果边 + `actor`；append-only、闭集 kind 注册，无 update/delete API。
+
+## 数据流（局部）
+
+- 请求：WebUI → `/api` → runtime 编排 → Provider 流式 → 事件总线 → SSE 回传 WebUI。
+- 长任务：Session 运行落 Goal 树；Task 验收由机械 checks（final-answer / file-exists / git-has-commit 等）判定，
+  失败标记 Task/Goal 失败并触发有界 replan。
+- 项目知识：SessionEnd → API 后台队列 → runtime ProjectWikiService 计算增量计划 → 隐藏 Goal 维护 `wiki/`。
 
 ## 项目知识库
 
@@ -25,3 +68,8 @@ TODO
   不完整重读项目。
 - Wiki 页在 KPI 下方展示完整 `state/current.md`；有效/待核验 KPI 可打开事实与 evidence
   明细；右侧独立订阅后台 Goal SSE，显示 reasoning/text stream、工具参数与输出、审批操作。
+
+## 待办与 Roadmap 入口
+
+- 未做的产品功能只在 `docs/TODO.md` 维护（用户行为追踪、Provider 监控面板、模版功能、Wiki 增强）；
+  README Roadmap 是同一批事项的用户视角表述，两者需同步核对，不要用源码 grep TODO 代替待办清单。
