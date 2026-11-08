@@ -1,5 +1,6 @@
-# wiki/claims.toml — 只通过 runtime Project Wiki API 修改，禁止手改
+# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
+
 
 [claims.wiki-ui-repository-view]
 text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
@@ -121,11 +122,11 @@ verified = 2026-11-07
 text = "shell.run runs under bash pipefail, downstream SIGPIPE (exit 141) is treated as success, and mutating CLI tools (sd) return an error when the target file did not change, so swallowed command failures surface as tool errors and can trigger replan."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/harness/tool-executor.ts", oid = "e146df8a431fe6a3624e5d153a31c7365d482d72" },
-  { file = "packages/runtime/test/tool-executor.test.ts", oid = "796ea0702515fbb8199ba596ce041c682176ea5a" },
+  { file = "packages/runtime/src/harness/tool-executor.ts", oid = "34976a7de97906be9e805511da9280d780a786b1" },
+  { file = "packages/runtime/test/tool-executor.test.ts", oid = "4bea4a9b4eca6af782f168a045c0bb487b0c0f7b" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.wiki-ui-current-status-facts-trace]
 text = "The Project Wiki UI shows complete state/current content, exact-second timestamps, expandable evidence facts, forgotten versus corrected claim state, and a live background maintenance trace with model stream, tool arguments/results and inline approvals."
@@ -230,8 +231,6 @@ established = 2026-11-08
 verified = 2026-11-08
 retracted_at = 2026-11-08
 retracted_reason = "旧表述称 README §13 Roadmap 复述了同一批待办（含 Wiki 增强），与实际不符：README §13 未列用户行为追踪与 Wiki 后续，并把项目 Wiki 标为已实现；实际核对 docs/TODO.md 与 README §13 后修正。"
-retraction_kind = "corrected"
-superseded_by = "todo-source-of-truth-v2"
 
 [claims.todo-file-escaped-newlines]
 text = "docs/TODO.md contains a literal backslash-n sequence instead of real newlines from the \"项目 Wiki（后续）\" section onward, collapsing those items into a single line and breaking Markdown rendering; editing that file should convert the escapes back to real newlines first."
@@ -252,7 +251,6 @@ evidence = [
 ]
 established = 2026-11-08
 verified = 2026-11-08
-supersedes = "todo-source-of-truth"
 
 [claims.project-wiki-followups-location]
 text = "The remaining Project Wiki work is only the three product-level follow-ups in docs/TODO.md 项目 Wiki（后续）, restated in docs/项目wiki设计.md section 17 后续可选: wiring a model summary provider (wiki.summaryModel / createLlmSummarizer), a graph-wiki style plugin (graph sidecar plus new tool surface), and cross-project search / wiki history rollback. docs/runtime/AHF_PROJECT_WIKI.md section 14 演进路线 additionally lists 按需 items (SessionStart/SessionEnd hook, wiki_checkpoint tool, init --per-module, claim_oid) that are optional evolution notes, not a separate backlog. So scoping wiki work requires reading docs/TODO.md plus the v2 design doc section 17; the README Roadmap cannot be used for that."
