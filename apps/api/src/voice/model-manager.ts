@@ -189,10 +189,11 @@ export class ModelManager implements VoiceModelStore {
 
     /** 服务启动时自动安装默认模型的进度（无需用户选择）。 */
     autoInstallStatus(): VoiceInstallStatus | undefined {
-        const defaultModel = this.models.find((item) => item.recommended) ?? this.models[0];
-        if (defaultModel && this.installed(defaultModel.id)) {
+        // 任一已注册模型已安装即可用（优先旧版中英混模型，避免升级误判未安装）。
+        const installedModel = this.models.find((item) => this.installed(item.id));
+        if (installedModel) {
             this.autoInstallSnapshot = {
-                modelId: defaultModel.id,
+                modelId: installedModel.id,
                 status: 'done',
                 progress: 1,
             };
@@ -222,12 +223,18 @@ export class ModelManager implements VoiceModelStore {
      * 幂等：并发的启动安装请求复用同一个 Promise；失败由调用方（main）重试。
      */
     async ensureDefaultModel(): Promise<VoiceInstallStatus | null> {
-        const model = this.models.find((item) => item.recommended) ?? this.models[0];
-        if (!model) return null;
-        if (this.installed(model.id)) {
-            this.autoInstallSnapshot = { modelId: model.id, status: 'done', progress: 1 };
+        // 已有任一模型（包括旧版中英混）就直接使用，不重复下载。
+        const installedModel = this.models.find((item) => this.installed(item.id));
+        if (installedModel) {
+            this.autoInstallSnapshot = {
+                modelId: installedModel.id,
+                status: 'done',
+                progress: 1,
+            };
             return this.autoInstallSnapshot;
         }
+        const model = this.models.find((item) => item.recommended) ?? this.models[0];
+        if (!model) return null;
         if (this.autoInstallPromise) return this.autoInstallPromise;
         this.autoInstallPromise = this.runAutoInstall(model).finally(() => {
             this.autoInstallPromise = null;

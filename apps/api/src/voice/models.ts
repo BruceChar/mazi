@@ -30,6 +30,24 @@ export interface VoiceModelDefinition {
  * 默认模型只选可商用许可的权重；新增模型前必须核对 model card。
  */
 export const VOICE_MODELS: readonly VoiceModelDefinition[] = [
+    // 旧版已安装模型：保留注册，避免升级后把用户本地已有模型判为未安装。
+    {
+        id: 'sherpa-streaming-small-bilingual-zh-en',
+        name: '中英混合流式模型（旧版，已安装优先使用）',
+        description: 'sherpa-onnx streaming zipformer small bilingual zh-en；本机已有安装时直接使用。',
+        languages: ['zh', 'en'],
+        sizeBytes: 458_187_351,
+        license: 'Apache-2.0',
+        licenseUrl: 'https://github.com/k2-fsa/sherpa-onnx/blob/master/LICENSE',
+        url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16.tar.bz2',
+        files: [
+            { pattern: '*encoder*.onnx', required: true },
+            { pattern: '*decoder*.onnx', required: true },
+            { pattern: '*joiner*.onnx', required: true },
+            { pattern: 'tokens.txt', required: true },
+        ],
+        recommended: false,
+    },
     {
         id: 'sherpa-streaming-zipformer-zh-14m-mobile',
         name: '中文流式模型（轻量）',

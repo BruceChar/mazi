@@ -28,8 +28,6 @@ export interface SherpaHostOptions {
     childScript?: URL;
     /** 覆盖单次 IPC 请求超时（默认 open 15s / push 5s / end 10s）。 */
     requestTimeoutMs?: number;
-    /** 可用性探测使用的默认模型 id；缺省取注册表 recommended。 */
-    defaultModelId?: string;
 }
 
 interface PendingRequest {
@@ -69,7 +67,6 @@ export class SherpaHost implements VoiceEngineHost {
     private readonly logger: Logger;
     private readonly childScript: URL;
     private readonly openTimeoutMs: number;
-    private readonly defaultModelId: string;
     private readonly sessions = new Map<string, SherpaSession>();
     private readonly pending = new Map<number, PendingRequest>();
     private child: ChildProcess | null = null;
@@ -87,7 +84,6 @@ export class SherpaHost implements VoiceEngineHost {
         this.openTimeoutMs = override ?? DEFAULT_OPEN_TIMEOUT_MS;
         this.pushTimeoutMs = override ?? DEFAULT_PUSH_TIMEOUT_MS;
         this.endTimeoutMs = override ?? DEFAULT_END_TIMEOUT_MS;
-        this.defaultModelId = options.defaultModelId ?? registryDefaultModelId();
     }
 
     availability(): VoiceEngineAvailability {
@@ -101,7 +97,8 @@ export class SherpaHost implements VoiceEngineHost {
         if (!probe.available) {
             return { available: false, reason: probe.reason ?? 'engine_missing' };
         }
-        if (!this.models.installed(this.defaultModelId)) {
+        // 任一注册模型已安装即可（兼容旧版已安装的中英混模型）。
+        if (!VOICE_MODELS.some((model) => this.models.installed(model.id))) {
             return { available: false, reason: 'model_missing' };
         }
         return { available: true };
@@ -469,11 +466,6 @@ export class SherpaSession implements VoiceEngineSession {
         this.closed = true;
         this.host.closeSession(this.sessionId);
     }
-}
-
-function registryDefaultModelId(): string {
-    const recommended = VOICE_MODELS.find((model) => model.recommended);
-    return recommended?.id ?? VOICE_MODELS[0]?.id ?? '';
 }
 
 function describeError(error: unknown): string {

@@ -78,24 +78,23 @@ export class VoiceService {
     capabilities(): VoiceCapabilities {
         const availability = this.options.engine.availability();
         const models = this.options.models.list();
+        const installedModels = models.filter((model) => model.installed);
         const defaultModel = findVoiceModel(VOICE_DEFAULT_MODEL_ID);
-        const defaultInstalled = defaultModel
-            ? this.options.models.installed(defaultModel.id)
-            : false;
+        const activeModel = installedModels[0] ?? defaultModel;
         const install = this.options.models.autoInstallStatus?.();
         let reason: string | undefined;
         if (!availability.available) {
             reason = availability.reason ?? 'sherpa_unavailable';
-        } else if (!defaultInstalled) {
+        } else if (installedModels.length === 0) {
             reason = 'model_missing';
         }
         return {
             version: VOICE_PROTOCOL_VERSION,
             engines: {
                 local: {
-                    available: availability.available && defaultInstalled,
+                    available: availability.available && installedModels.length > 0,
                     reason,
-                    ...(defaultModel ? { modelId: defaultModel.id } : {}),
+                    ...(activeModel ? { modelId: activeModel.id } : {}),
                 },
             },
             models,
@@ -119,7 +118,11 @@ export class VoiceService {
                 true,
             );
         }
-        const modelId = normalizeModelId(input?.modelId);
+        let modelId = normalizeModelId(input?.modelId);
+        if (!input?.modelId) {
+            const installed = this.options.models.list().find((model) => model.installed);
+            if (installed) modelId = installed.id;
+        }
         const definition = findVoiceModel(modelId);
         if (!definition) {
             throw new VoiceServiceError(400, 'bad_request', `未知模型：${modelId}`);
