@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CliCommandSpec } from '../src/config.js';
 import { effectPathsForTool } from '../src/effects/effect-store.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from '../src/harness/tool-executor.js';
+import { BUILTIN_TOOL_PRESET } from '../src/tool-gateway/builtin.js';
 
 const roots: string[] = [];
 
@@ -19,20 +20,35 @@ afterEach(() => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-/** Locate the sd binary: prefer absolute homebrew paths, then PATH lookup (keeps tests stable). */
-function resolveSdBin(): string | undefined {
-    for (const candidate of ['/opt/homebrew/bin/sd', '/usr/local/bin/sd', '/opt/local/bin/sd']) {
+/** Locate a CLI binary: prefer absolute homebrew paths, then PATH lookup (keeps tests stable). */
+function resolveBinary(name: string): string | undefined {
+    for (const candidate of [
+        `/opt/homebrew/bin/${name}`,
+        `/usr/local/bin/${name}`,
+        `/opt/local/bin/${name}`,
+    ]) {
         if (existsSync(candidate)) return candidate;
     }
     try {
-        const found = execFileSync('bash', ['-lc', 'command -v sd'], { encoding: 'utf8' }).trim();
+        const found = execFileSync('bash', ['-lc', `command -v ${name}`], {
+            encoding: 'utf8',
+        }).trim();
         return found.length > 0 ? found : undefined;
     } catch {
         return undefined;
     }
 }
 
-const SD_BIN = resolveSdBin();
+const SD_BIN = resolveBinary('sd');
+const RG_BIN = resolveBinary('rg');
+const FD_BIN = resolveBinary('fd');
+
+/** Use the real builtin command spec (so config wiring is covered) with a resolved binary. */
+function builtinCommand(name: string, bin: string | undefined): CliCommandSpec {
+    const tool = BUILTIN_TOOL_PRESET.find((entry) => entry.name === name);
+    if (!tool?.command) throw new Error(`builtin tool ${name} has no command spec`);
+    return { ...tool.command, bin: bin ?? tool.command.bin };
+}
 
 function sdSpec(): CliCommandSpec {
     return {
@@ -40,6 +56,14 @@ function sdSpec(): CliCommandSpec {
         args: ['{pattern}', '{replacement}', '{path}'],
         timeoutMs: 15_000,
     };
+}
+
+function rgSpec(): CliCommandSpec {
+    return builtinCommand('rg', RG_BIN);
+}
+
+function fdSpec(): CliCommandSpec {
+    return builtinCommand('fd', FD_BIN);
 }
 
 describe('fs.read 路径边界', () => {
@@ -143,6 +167,112 @@ describe.skipIf(!SD_BIN)('sd 无改动检测（expectMutation）', () => {
 
         expect(res.ok).toBe(false);
         expect(res.error).toBeTruthy();
+    });
+});
+
+describe.skipIf(!RG_BIN)('rg 无匹配退出码（noMatchExitCodes）', () => {
+    it('无匹配（exit 1）→ ok:true + "(no matches)"，不误报失败', async () => {
+        const workspace = tempDir('mazi-rg-nomatch-');
+        writeFileSync(join(workspace, 'a.txt'), 'hello world\n', 'utf8');
+
+        const res = await runCliTool(rgSpec(), { pattern: 'absent_token_xyz' }, workspace);
+
+        expect(res.ok).toBe(true);
+        expect(res.content).toBe('(no matches)');
+    });
+
+    it('真实错误（搜索路径不存在，exit 2）→ 仍然 ok:false', async () => {
+        const workspace = tempDir('mazi-rg-error-');
+
+        const res = await runCliTool(rgSpec(), { pattern: 'x', path: 'missing-dir' }, workspace);
+
+        expect(res.ok).toBe(false);
+        expect(res.error).toBeTruthy();
+        expect(res.error).toMatch(/no such file|io error/i);
+    });
+
+    it('命中 → ok:true 且返回匹配内容', async () => {
+        const workspace = tempDir('mazi-rg-hit-');
+        writeFileSync(join(workspace, 'a.txt'), 'hello needle\n', 'utf8');
+
+        const res = await runCliTool(rgSpec(), { pattern: 'needle' }, workspace);
+
+        expect(res.ok).toBe(true);
+        expect(res.content).toContain('needle');
+    });
+});
+
+// 输出契约：纯文本（path:line:text），不用 --json。
+// --json 的 JSONL 体积约为纯文本 10 倍，既易撞 8MB maxBuffer，40k 截断还会把一行 JSON 劈成非法片段。
+describe.skipIf(!RG_BIN)('rg 输出契约（纯文本，非 --json）', () => {
+    it('输出形如 path:line:text，不含 JSON 事件', async () => {
+        const workspace = tempDir('mazi-rg-text-');
+        writeFileSync(join(workspace, 'a.txt'), 'hello needle\n', 'utf8');
+
+        const res = await runCliTool(rgSpec(), { pattern: 'needle' }, workspace);
+
+        expect(res.ok).toBe(true);
+        expect(res.content).toContain(':1:hello needle');
+        expect(res.content).not.toContain('{"type"');
+    });
+
+    it('maxOutputChars 生效并带截断标记', async () => {
+        const workspace = tempDir('mazi-rg-truncate-');
+        writeFileSync(join(workspace, 'a.txt'), 'needle\n'.repeat(200), 'utf8');
+
+        const res = await runCliTool(
+            { ...rgSpec(), maxOutputChars: 60 },
+            { pattern: 'needle' },
+            workspace,
+        );
+
+        expect(res.ok).toBe(true);
+        expect(res.content?.endsWith('…（output truncated）')).toBe(true);
+    });
+});
+
+describe.skipIf(!FD_BIN)('fd glob/regex 模式（globFlag）', () => {
+    it('glob `*.md`（fd 默认按 regex 会 parse error）→ ok:true 且只返回匹配文件', async () => {
+        const workspace = tempDir('mazi-fd-glob-');
+        writeFileSync(join(workspace, 'alpha.md'), '# alpha\n', 'utf8');
+        writeFileSync(join(workspace, 'beta.txt'), 'beta\n', 'utf8');
+
+        const res = await runCliTool(fdSpec(), { pattern: '*.md' }, workspace);
+
+        expect(res.ok).toBe(true);
+        expect(res.content).toContain('alpha.md');
+        expect(res.content).not.toContain('beta.txt');
+    });
+
+    it('glob 无匹配（fd exit 0）→ ok:true 空结果', async () => {
+        const workspace = tempDir('mazi-fd-glob-empty-');
+        writeFileSync(join(workspace, 'alpha.md'), '# alpha\n', 'utf8');
+
+        const res = await runCliTool(fdSpec(), { pattern: '*.rs' }, workspace);
+
+        expect(res.ok).toBe(true);
+        expect(res.content ?? '').not.toContain('alpha.md');
+    });
+
+    it('合法 regex（含 * 元字符，如 `.*\\.md$`）仍按 regex 语义执行 → ok:true', async () => {
+        const workspace = tempDir('mazi-fd-regex-');
+        writeFileSync(join(workspace, 'alpha.md'), '# alpha\n', 'utf8');
+        writeFileSync(join(workspace, 'beta.txt'), 'beta\n', 'utf8');
+
+        const res = await runCliTool(fdSpec(), { pattern: '.*\\.md$' }, workspace);
+
+        expect(res.ok).toBe(true);
+        expect(res.content).toContain('alpha.md');
+        expect(res.content).not.toContain('beta.txt');
+    });
+
+    it('既非 glob 也非法 regex（如 `a(b`）→ ok:false（真实错误不吞）', async () => {
+        const workspace = tempDir('mazi-fd-bad-regex-');
+
+        const res = await runCliTool(fdSpec(), { pattern: 'a(b' }, workspace);
+
+        expect(res.ok).toBe(false);
+        expect(res.error).toContain('regex parse error');
     });
 });
 

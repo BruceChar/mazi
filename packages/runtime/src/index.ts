@@ -270,6 +270,12 @@ export type {
 export { ApprovalBroker, DEFAULT_APPROVAL_TTL_MS } from './tool-gateway/approval.js';
 export { RuntimeToolGateway } from './tool-gateway/permission.js';
 export { RuntimePolicyAuditSink } from './tool-gateway/policy-audit.js';
+// 启动期可执行路径兜底（内置 CLI 工具按名字 execFile，见 docs/runtime/AHF_RUNTIME_CLI_TOOLS.md §6）
+export {
+    augmentedExecutablePath,
+    ensureExecutablePath,
+    executablePathCandidates,
+} from './utils/path-env.js';
 export * from './verifier/index.js';
 // 项目 wiki（runtime 事实/契约层；设计见 docs/项目wiki设计.md §2.1/§6）
 export {

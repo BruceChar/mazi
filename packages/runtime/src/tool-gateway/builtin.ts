@@ -29,7 +29,7 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'rg',
         description:
-            'Search file contents in the workspace with a regex pattern. Use to find where something is referenced or defined. If unsure about flags or syntax, run `rg --help` first.',
+            'Search file contents in the workspace with a regex pattern. Use to find where something is referenced or defined. A search with no matches succeeds and returns "(no matches)" — that is a normal empty result, not an error. If unsure about flags or syntax, run `rg --help` first.',
         parameters: {
             type: 'object',
             properties: {
@@ -46,20 +46,28 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
         sideEffects: [],
         command: {
             bin: 'rg',
-            args: ['--json', '-n', '{pattern}', '{path?}'],
+            // 纯文本 path:line:text，不用 --json：JSONL 体积约为纯文本 10 倍，易撞 8MB 缓冲，
+            // 且 40k 截断会把一行 JSON 劈成非法片段，让模型误判「工具坏了」。
+            args: ['--no-heading', '--line-number', '--color=never', '{pattern}', '{path?}'],
             installPackage: 'ripgrep',
+            maxOutputChars: 60_000,
+            // ripgrep exits 1 when there are no matches: a normal empty result, not a tool failure.
+            noMatchExitCodes: [1],
+            noMatchContent: '(no matches)',
+            // Without a path, rg reads stdin (non-TTY) and blocks until timeout: default to '.'.
+            argDefaults: { path: '.' },
         },
     },
     {
         name: 'fd',
         description:
-            'Find files and directories in the workspace by name. Use to explore the project structure and locate files. If unsure about flags, run `fd --help` first.',
+            'Find files and directories in the workspace by name using a file-name glob (e.g. `*.md`) or regex. Use to explore the project structure and locate files. If unsure about flags, run `fd --help` first.',
         parameters: {
             type: 'object',
             properties: {
                 pattern: {
                     type: 'string',
-                    description: 'File name glob or regex (omit to list everything)',
+                    description: 'File name glob (e.g. `*.md`) or regex (omit to list everything)',
                 },
                 path: {
                     type: 'string',
@@ -74,6 +82,8 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
             bin: 'fd',
             args: ['--color=never', '{pattern?}', '{path?}'],
             installPackage: 'fd',
+            // `*.md` is a glob, not a valid regex: runCliTool inserts --glob before the pattern.
+            globFlag: '--glob',
         },
     },
     {

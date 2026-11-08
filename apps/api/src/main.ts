@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { resolve } from 'node:path';
+import { ensureExecutablePath } from '@mazi/runtime';
 import { NestFactory } from '@nestjs/core';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import { FastifyAdapter } from '@nestjs/platform-fastify';
@@ -27,6 +28,11 @@ const HOST = process.env.MAZI_SERVER_HOST ?? '0.0.0.0';
 const CORS_ORIGIN = process.env.MAZI_CORS_ORIGIN ?? true;
 
 async function bootstrap(): Promise<void> {
+    // 内置 CLI 工具（rg/fd/xh…）按名字 execFile，继承本进程 PATH；从 Finder/launchd 启动时
+    // PATH 常缺 /opt/homebrew/bin，会表现成「grep 能用、rg 不能用」。启动期补齐，幂等。
+    const addedPathDirs = ensureExecutablePath();
+    if (addedPathDirs.length > 0) logger.log(`PATH 补齐: ${addedPathDirs.join('、')}`);
+
     const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
         logger: false,
     });
