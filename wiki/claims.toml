@@ -237,3 +237,12 @@ evidence = [
 ]
 established = 2026-11-08
 verified = 2026-11-08
+
+[claims.todo-file-escaped-newlines]
+text = "docs/TODO.md contains a literal backslash-n sequence instead of real newlines from the \"项目 Wiki（后续）\" section onward, collapsing those items into a single line and breaking Markdown rendering; editing that file should convert the escapes back to real newlines first."
+status = "active"
+evidence = [
+  { file = "docs/TODO.md", oid = "4e467b5f4e00419dd01f47156a0ec9a4d0502ae7" },
+]
+established = 2026-11-08
+verified = 2026-11-08
