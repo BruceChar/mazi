@@ -69,8 +69,6 @@ async function bootstrap(): Promise<void> {
 
 void bootstrap();
 
-async function startup(): Promise<void> {}
-
 /** 启动时自动安装默认语音模型（后台重试，不阻塞 API 启动）。 */
 async function installDefaultVoiceModel(store: SenseVoiceStore, log: Logger): Promise<void> {
     for (let attempt = 1; attempt <= 3; attempt += 1) {

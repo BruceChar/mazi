@@ -4,7 +4,7 @@
  * validateProviderConfig 硬失败即抛 ConfigValidationError（进程 abort 语义），警告以数组返回。
  */
 
-import type { ContentType, ProviderCapabilities } from '@mazi/core';
+import type { ProviderCapabilities } from '@mazi/core';
 import type { PricingSchedule } from './pricing.js';
 
 export interface ProviderLimitsConfig {

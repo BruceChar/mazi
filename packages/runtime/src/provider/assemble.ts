@@ -10,7 +10,6 @@
  * faux 轮次（adapter='faux'）由 candidate() 标记 synthetic，不落画像/账本（§9.3）。
  */
 
-import type { LLMRequest } from '@mazi/core';
 import type { ProviderConfig } from './config.js';
 import { HealthTracker } from './health.js';
 import { EndpointLimiter } from './limiter.js';

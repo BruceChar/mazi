@@ -1,9 +1,7 @@
+import { execFile } from 'node:child_process';
 import { access, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
-// import { type ToolCallResult } from '../config.js';
-import { ToolResult } from '@mazi/core';
-import { execFile } from 'child_process';
 import type { CliCommandSpec } from '../config.js';
 import { detectPackageManager } from './system-probe.js';
 
@@ -288,7 +286,7 @@ export async function runCliTool(
         : undefined;
 
     try {
-        const { stdout, stderr } = await execFileAsync(spec.bin, argv, {
+        const { stdout } = await execFileAsync(spec.bin, argv, {
             cwd: rootAbs,
             timeout: spec.timeoutMs ?? 60_000,
             maxBuffer: 8 * 1_048_576, // 8MB buffer

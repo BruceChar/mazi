@@ -230,7 +230,6 @@ export class ProfileCollector {
         const sumCost = rec.econ.cost.reduce((a, b) => a + b, 0);
         const sumIn = rec.econ.input.reduce((a, b) => a + b, 0);
         const sumOut = rec.econ.output.reduce((a, b) => a + b, 0);
-        const success = rec.econ.ok.filter((v) => v).length;
         const retried = rec.econ.attempts.filter((v) => v > 1).length;
         const perTag: Partial<Record<string, TagEconomics>> = {};
         const tagIndex = new Map<string, number[]>();

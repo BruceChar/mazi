@@ -8,7 +8,7 @@ import {
 import { DEFAULT_IGNORED_DIRS } from './naming.js';
 import { type WikiDoc, type WikiEntry, WikiStore } from './store.js';
 import { TemplateSummarizer, type WikiSummarizer } from './summarizer.js';
-import { DEFAULT_SNAPSHOT_THRESHOLD, type WikiFlushContext, WikiWriter } from './writer.js';
+import { type WikiFlushContext, WikiWriter } from './writer.js';
 
 export * from './injector.js';
 export * from './naming.js';

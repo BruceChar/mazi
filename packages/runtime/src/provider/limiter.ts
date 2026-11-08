@@ -65,12 +65,13 @@ export function refillBucket(
 /**
  * 距下一次可获得 amount 个 token 的等待时长（ms）。
  * perMinute ≤ 0 视为无该维度限额。
+ * `_now` 保留以与其他限流函数签名对齐：本计算只依赖桶内 token 余额，不依赖墙钟。
  */
 export function msUntilTokens(
     bucket: Bucket,
     perMinute: number,
     amount: number,
-    now: number,
+    _now: number,
 ): number {
     if (perMinute <= 0) return 0;
     const missing = Math.max(0, amount - bucket.tokens);

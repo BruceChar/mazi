@@ -1,7 +1,6 @@
 import {
     VOICE_PROTOCOL_VERSION,
     VOICE_DEFAULT_LIMITS,
-    VOICE_DEFAULT_LANGUAGE,
     type VoiceCapabilities,
     type VoiceErrorCode,
     type VoiceLimits,
