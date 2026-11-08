@@ -1,5 +1,6 @@
-# wiki/claims.toml — 只通过 runtime Project Wiki API 修改，禁止手改
+# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
+
 
 [claims.wiki-ui-repository-view]
 text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
@@ -248,22 +249,22 @@ status = "active"
 evidence = [
   { file = "docs/TODO.md", oid = "4e467b5f4e00419dd01f47156a0ec9a4d0502ae7" },
   { file = "README.md", oid = "ee7e26971d0d460c962264331c1da515abae7635" },
-  { file = "docs/项目wiki设计.md", oid = "7d53d7c81d72ec688a80bd8160943b48dd342fb9" },
+  { file = "docs/项目wiki设计.md", oid = "386bc747e86c8b76440353d17bdbdca004820117" },
 ]
 established = 2026-11-08
-verified = 2026-11-08
+verified = 2026-11-09
 
 [claims.project-wiki-followups-location]
 text = "The remaining Project Wiki work is only the three product-level follow-ups in docs/TODO.md 项目 Wiki（后续）, restated in docs/项目wiki设计.md section 17 后续可选: wiring a model summary provider (wiki.summaryModel / createLlmSummarizer), a graph-wiki style plugin (graph sidecar plus new tool surface), and cross-project search / wiki history rollback. docs/runtime/AHF_PROJECT_WIKI.md section 14 演进路线 additionally lists 按需 items (SessionStart/SessionEnd hook, wiki_checkpoint tool, init --per-module, claim_oid) that are optional evolution notes, not a separate backlog. So scoping wiki work requires reading docs/TODO.md plus the v2 design doc section 17; the README Roadmap cannot be used for that."
 status = "active"
 evidence = [
   { file = "docs/TODO.md", oid = "4e467b5f4e00419dd01f47156a0ec9a4d0502ae7" },
-  { file = "docs/项目wiki设计.md", oid = "7d53d7c81d72ec688a80bd8160943b48dd342fb9" },
+  { file = "docs/项目wiki设计.md", oid = "386bc747e86c8b76440353d17bdbdca004820117" },
   { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "cd6dafc5cc2e305800c82ebadd16ef5b65a45962" },
   { file = "README.md", oid = "ee7e26971d0d460c962264331c1da515abae7635" },
 ]
 established = 2026-11-08
-verified = 2026-11-08
+verified = 2026-11-09
 
 [claims.webui-exec-stream-fact-projection-v2]
 text = "ExecStream renders bare-code answers as one code block, collapses only true zero-execution direct answers (contract/task chrome hidden when route=direct has an answer and no started task/step), renders legacy direct-route goals with execution facts as the full contract/task/step tree, keeps completed settled steps expanded while live execution rows are expandable/collapsible (only the active streaming reasoning is one line), and places approval/authorization behavior rows inline in the gated tool Step."
