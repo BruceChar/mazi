@@ -24,6 +24,24 @@ export interface CliCommandSpec {
     installPackage?: string;
     /** 指定包管理器（缺省按平台探测：macOS brew / Linux apt-get|dnf|apk） */
     installManager?: 'brew' | 'apt' | 'dnf' | 'apk';
+    /**
+     * “无结果”退出码：命中这些非零退出码时视为成功空结果（如 rg 无匹配 exit 1）。
+     * 真实错误（如 rg 路径不存在 exit 2）仍返回 ok:false。
+     */
+    noMatchExitCodes?: readonly number[];
+    /** “无结果”退出码对应的返回内容（缺省 '(no matches)'） */
+    noMatchContent?: string;
+    /**
+     * 可选 glob 开关（如 fd 的 '--glob'）：当 `{pattern}` 参数含 glob 元字符（* ? [）且不是
+     * 合法 regex 时，把该 flag 插到 pattern 参数之前，使 `*.md` 这类 glob 能被工具正确解析；
+     * 合法 regex 仍按 regex 语义执行。
+     */
+    globFlag?: string;
+    /**
+     * 可选参数的缺省字面值（如 rg 的 path='.'）：args 模板中的可选占位符未提供时插入该值。
+     * 用于避免 `rg <pattern>`（无 path）改为读取 stdin 而挂起/空结果。
+     */
+    argDefaults?: Record<string, string>;
 }
 
 /** 工具配置：spec（schema/白名单）+ 可选实现 */

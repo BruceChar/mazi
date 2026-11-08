@@ -167,6 +167,35 @@ async function detectMissingMutation(
     return undefined;
 }
 
+/** Argument key (in `spec.args`) that an optional `spec.globFlag` is inserted before. */
+const GLOB_FLAG_ARG_KEY = 'pattern';
+
+/**
+ * Returns the flag that switches `spec` to glob mode for a pattern argument, or undefined to keep
+ * regex semantics. Glob mode is used only when the pattern contains glob metacharacters AND cannot
+ * be compiled as a regex (e.g. fd's `*.md`); valid regex patterns such as `.*\.md$` are untouched.
+ */
+function globFlagFor(spec: CliCommandSpec, key: string, pattern: string): string | undefined {
+    if (spec.globFlag === undefined || key !== GLOB_FLAG_ARG_KEY) return undefined;
+    const hasGlobMeta = pattern.includes('*') || pattern.includes('?') || pattern.includes('[');
+    if (!hasGlobMeta) return undefined;
+    try {
+        new RegExp(pattern);
+        return undefined; // Valid regex: keep the tool's default regex semantics.
+    } catch {
+        return spec.globFlag;
+    }
+}
+
+/** True when a non-zero exit code is declared as a successful "no result" signal (e.g. rg exit 1). */
+function isNoMatchExit(spec: CliCommandSpec, code: unknown): boolean {
+    return typeof code === 'number' && spec.noMatchExitCodes?.includes(code) === true;
+}
+
+function noMatchResult(spec: CliCommandSpec): { ok: boolean; content: string } {
+    return { ok: true, content: spec.noMatchContent ?? '(no matches)' };
+}
+
 /**
  * Executes a CLI tool with arguments defined in a spec.
  *
@@ -175,6 +204,7 @@ async function detectMissingMutation(
  * - Checks for symlink escapes on existing paths.
  * - Handles missing tools via auto-installation.
  * - Truncates output to prevent context overflow.
+ * - Maps declared "no result" exit codes to success (e.g. rg exit 1 = no matches).
  *
  * @param spec - The command specification.
  * @param args - Dynamic arguments for the command.
@@ -196,12 +226,14 @@ export async function runCliTool(
         const optional = token.match(/^\{(\w+)\?\}$/);
         if (required !== null || optional !== null) {
             const key = (required ?? optional)?.[1] ?? '';
-            const value = args[key];
+            let value = args[key];
             if (value === undefined || value === null || value === '') {
                 if (required !== null) {
                     return { ok: false, error: `Missing required parameter: ${key}` };
                 }
-                continue;
+                const fallback = spec.argDefaults?.[key];
+                if (fallback === undefined) continue;
+                value = fallback;
             }
 
             if (key === 'path') {
@@ -227,6 +259,10 @@ export async function runCliTool(
                     // Path does not exist; standard resolve check is sufficient for creation scenarios.
                 }
             }
+
+            // Glob-mode switch for pattern arguments (e.g. fd `*.md` → `--glob *.md`).
+            const globFlag = typeof value === 'string' ? globFlagFor(spec, key, value) : undefined;
+            if (globFlag !== undefined) argv.push(globFlag);
 
             // Expand array values into multiple argv items (e.g., for git status --short)
             if (Array.isArray(value)) {
@@ -271,7 +307,15 @@ export async function runCliTool(
         }
         return { ok: true, content: text };
     } catch (error) {
-        const err = error as { code?: string; stderr?: string; message?: string };
+        const err = error as {
+            code?: string | number;
+            stderr?: string;
+            message?: string;
+        };
+
+        // A declared non-zero "no result" exit (e.g. rg exit 1 = no matches) is a successful
+        // empty result, not a tool failure. Real errors (rg exit 2, fd parse error) stay ok:false.
+        if (isNoMatchExit(spec, err.code)) return noMatchResult(spec);
 
         if (err.code === 'ENOENT') {
             // Auto-install missing tools and retry once
@@ -305,13 +349,18 @@ export async function runCliTool(
                             : text,
                 };
             } catch (retryError) {
-                const retryErr = retryError as { code?: string; stderr?: string; message?: string };
+                const retryErr = retryError as {
+                    code?: string | number;
+                    stderr?: string;
+                    message?: string;
+                };
                 if (retryErr.code === 'ENOENT') {
                     return {
                         ok: false,
                         error: `${spec.bin} still missing after install attempt`,
                     };
                 }
+                if (isNoMatchExit(spec, retryErr.code)) return noMatchResult(spec);
                 const stderr = String(retryErr.stderr ?? '').trim();
                 return { ok: false, error: stderr.slice(0, 2000) || String(retryErr.message) };
             }
@@ -393,10 +442,7 @@ export async function runShellTool(
                 .join('\n');
             return {
                 ok: true,
-                content: [
-                    piped,
-                    '[exit 141: SIGPIPE ignored; downstream consumer closed early]',
-                ]
+                content: [piped, '[exit 141: SIGPIPE ignored; downstream consumer closed early]']
                     .filter((part) => part.length > 0)
                     .join('\n'),
             };
