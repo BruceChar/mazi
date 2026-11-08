@@ -28,12 +28,12 @@
 
 ## 最近更新
 <!-- recent:start -->
+- fa0bab4 2026-11-08 14:48:29 wiki(run): record session activity
+- 43f94a1 2026-11-08 14:48:22 wiki(claim): verify --ids wiki-ui-current-status-facts-trace
+- 818b307 2026-11-08 14:48:18 wiki(claim): add project-context-lifecycle-runtime
+- a094516 2026-11-08 14:00:28 wiki(checkpoint): sync state & index
 - ef7b869 2026-11-08 14:00:24 wiki(run): record session activity
 - 6422910 2026-11-08 14:00:16 wiki(claim): verify --ids project-wiki-run-activity
 - 40c445c 2026-11-08 14:00:12 wiki(claim): update project-wiki-incremental-preflight
 - 8c3977f 2026-11-08 14:00:07 wiki(claim): update project-wiki-maintenance-actions
-- 426d418 2026-11-08 13:55:47 wiki(checkpoint): sync state & index
-- 745822b 2026-11-08 13:55:43 wiki(run): record session activity
-- 155ee3f 2026-11-08 13:55:22 wiki(claim): verify --ids wiki-ui-current-status-facts-trace
-- 83361c0 2026-11-08 13:55:19 wiki(claim): update project-wiki-incremental-preflight
 <!-- recent:end -->
