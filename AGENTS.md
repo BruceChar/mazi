@@ -184,3 +184,15 @@
    - 不要手改 wiki/claims.toml；纠正事实用 claim correct，遗忘用 claim forget
    - 协议说明见 packages/runtime/builtin-skills/project-wiki/SKILL.md
    - 项目地图见 wiki/INDEX.md
+
+## 十二、常用命令
+
+```bash
+pnpm build                      # turbo 全仓构建
+pnpm test                       # vitest 全量（默认 testTimeout 15s，见 vitest.config.ts）
+pnpm exec vitest run <test file>   # 单文件
+pnpm lint                       # biome check .
+```
+
+- `vitest.config.ts` 将 testTimeout/hookTimeout 放宽到 15s：project-wiki 用例需起 git/python 子进程，单条 2.5–7s，默认 5s 在满并行下会假失败。
+- 提交前门禁：`.husky/pre-commit` 调 `wiki.py doctor --staged`，staged 的 evidence 文件 oid 与 claims 声明不一致会拒提交；修法 `wiki.py claim verify --ids <id>` 并随提交带上 `wiki/` 变更，禁止手改 `wiki/claims.toml`。
