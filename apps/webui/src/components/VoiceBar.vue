@@ -3,7 +3,8 @@
  * 语音状态条（docs/web/语音输入设计.md §5.3）。
  *
  * 显示状态 / 波形 / 暂停恢复 / 自动发送倒计时 / 浏览器云识别首次同意卡片 /
- * 本机模型安装入口。partial 只在 Composer 里做 ghost 展示，这里只播报状态。
+ * 本机模型自动安装进度（由服务启动时自动安装，不提供手动选择）。
+ * partial 只在 Composer 里做 ghost 展示，这里只播报状态。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
@@ -32,6 +33,7 @@ const PAUSE_LABELS = {
     idle: '已暂停（空闲超时）',
     'other-tab': '另一标签页正在使用语音输入',
     consent: '等待浏览器识别确认',
+    model: '本机语音模型正在自动安装，请稍候',
     gesture: '点麦克风恢复语音输入',
 };
 
@@ -56,29 +58,22 @@ const browserEngine = computed(
     () => state.value.engine === 'browser-cloud' || state.value.engine === 'browser-on-device',
 );
 const consentRequired = computed(() => Boolean(state.value.browserConsentRequired));
-const modelMissing = computed(
-    () => state.value.modelStatus === 'missing' || state.value.modelStatus === 'error',
+/** 服务启动时自动安装本机模型：running → 进度；error → 失败说明（可重试自动安装）。 */
+const autoInstalling = computed(
+    () => state.value.modelStatus === 'downloading' || Boolean(state.value.installing),
 );
-const showModelCard = computed(
-    () =>
-        Boolean(state.value.installing) ||
-        Boolean(state.value.downloadError) ||
-        (phase.value === 'error' && state.value.error?.code === 'model_missing'),
+const autoInstallFailed = computed(
+    () => state.value.modelStatus === 'error' || Boolean(state.value.downloadError),
 );
-const showInstallHint = computed(
-    () =>
-        !consentRequired.value &&
-        !showModelCard.value &&
-        browserEngine.value &&
-        state.value.modelStatus !== 'ready' &&
-        !state.value.capabilitiesError,
+const showModelRow = computed(
+    () => !consentRequired.value && (autoInstalling.value || autoInstallFailed.value),
 );
 const visible = computed(
     () =>
         phase.value !== 'off' ||
         consentRequired.value ||
-        Boolean(state.value.installing) ||
-        Boolean(state.value.downloadError) ||
+        autoInstalling.value ||
+        autoInstallFailed.value ||
         Boolean(state.value.tabConflict),
 );
 
@@ -162,26 +157,25 @@ function cancelAndEdit() {
             </div>
             <p class="voice-card-text">
                 当前将使用浏览器内置语音识别，<strong>音频可能会发送给浏览器厂商（云端）</strong>。
-                安装本机语音模型后，音频只在本机处理，更私密。
+                本机语音模型会在服务启动时自动安装，安装完成后音频只在本机处理，更私密。
             </p>
             <div class="voice-card-actions">
                 <button type="button" class="voice-btn-primary" @click="controller.grantBrowserConsent()">
                     同意并启用浏览器识别
                 </button>
-                <button type="button" class="voice-btn-secondary" @click="controller.installModel()">
-                    安装本机模型（约 48MB）
-                </button>
                 <button type="button" class="voice-btn-text" @click="controller.declineBrowserConsent()">
                     仅用文字
                 </button>
             </div>
-            <div v-if="state.installing" class="voice-install">
+            <div v-if="autoInstalling" class="voice-install">
                 <div class="voice-progress" role="progressbar" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100">
                     <span :style="{ width: `${percent}%` }"></span>
                 </div>
-                <span>正在下载本机语音模型… {{ percent }}%</span>
+                <span>本机语音模型自动安装中 {{ percent }}%</span>
             </div>
-            <div v-else-if="state.downloadError" class="voice-error-inline">{{ state.downloadError }}</div>
+            <div v-else-if="autoInstallFailed" class="voice-error-inline">
+                {{ state.downloadError || '本机语音模型自动安装失败。' }}
+            </div>
         </div>
 
         <template v-else>
@@ -238,37 +232,28 @@ function cancelAndEdit() {
 
             <div v-if="state.notice" class="voice-notice" role="status">{{ state.notice }}</div>
 
-            <!-- 本机模型安装入口（浏览器降级时仍可升级为更私密的本机识别） -->
-            <div v-if="showInstallHint || showModelCard" class="voice-model-row">
-                <template v-if="state.installing">
+            <!-- 本机模型由服务启动时自动安装：只展示进度 / 失败，不提供手动选择 -->
+            <div v-if="showModelRow" class="voice-model-row">
+                <template v-if="autoInstalling">
                     <div class="voice-progress" role="progressbar" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100">
                         <span :style="{ width: `${percent}%` }"></span>
                     </div>
-                    <span class="voice-model-text">正在下载本机语音模型… {{ percent }}%</span>
+                    <span class="voice-model-text">本机语音模型自动安装中 {{ percent }}%</span>
                 </template>
                 <template v-else>
-                    <span class="voice-model-text">
-                        <template v-if="state.downloadError">{{ state.downloadError }}</template>
-                        <template v-else-if="showInstallHint">本机识别不可用，当前为浏览器识别。</template>
-                        <template v-else>首次使用需安装本机语音模型（约 48MB，音频不会上传）。</template>
+                    <span class="voice-model-text voice-model-error">
+                        {{ state.downloadError || '本机语音模型自动安装失败。' }}
                     </span>
-                    <button type="button" class="voice-btn-secondary" aria-label="安装本机语音模型" @click="controller.installModel()">
-                        {{ state.downloadError ? '重试安装' : '安装本机模型' }}
+                    <button type="button" class="voice-btn-secondary" aria-label="重试自动安装" @click="controller.installModel()">
+                        重试自动安装
                     </button>
+                    <button type="button" class="voice-btn-text" @click="controller.disable()">仅用文字</button>
                 </template>
-                <button
-                    v-if="state.downloadError || (phase === 'error' && !state.installing)"
-                    type="button"
-                    class="voice-btn-text"
-                    @click="controller.disable()"
-                >
-                    仅用文字
-                </button>
             </div>
 
             <!-- 非模型类错误：重试 / 降级文字 -->
             <div
-                v-if="phase === 'error' && !showModelCard"
+                v-if="phase === 'error' && !showModelRow"
                 class="voice-card error"
                 role="alert"
             >
@@ -512,6 +497,9 @@ function cancelAndEdit() {
 .voice-model-text {
     font-size: 11px;
     color: var(--fg-tertiary);
+}
+.voice-model-text.voice-model-error {
+    color: #ef4444;
 }
 .voice-error-inline {
     margin-top: 6px;

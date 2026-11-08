@@ -1,4 +1,4 @@
-import type { VoiceModelInfo } from '@mazi/libs';
+import type { VoiceInstallStatus, VoiceModelInfo } from '@mazi/libs';
 
 export interface VoiceModelFileSpec {
     /** 归档解压后用于定位文件的 glob（简单 * 匹配）。 */
@@ -31,14 +31,14 @@ export interface VoiceModelDefinition {
  */
 export const VOICE_MODELS: readonly VoiceModelDefinition[] = [
     {
-        id: 'sherpa-streaming-small-bilingual-zh-en',
-        name: '中英混合流式模型（小）',
-        description: 'sherpa-onnx streaming zipformer small bilingual zh-en，适合日常中英混说。',
-        languages: ['zh', 'en'],
-        sizeBytes: 50_331_648,
+        id: 'sherpa-streaming-zipformer-zh-14m-mobile',
+        name: '中文流式模型（轻量）',
+        description: 'sherpa-onnx streaming zipformer zh 14M mobile，中文实时识别，适合首次自动安装。',
+        languages: ['zh'],
+        sizeBytes: 54_344_380,
         license: 'Apache-2.0',
         licenseUrl: 'https://github.com/k2-fsa/sherpa-onnx/blob/master/LICENSE',
-        url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-small-bilingual-zh-en-2023-02-16.tar.bz2',
+        url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23-mobile.tar.bz2',
         files: [
             { pattern: '*encoder*.onnx', required: true },
             { pattern: '*decoder*.onnx', required: true },
@@ -63,6 +63,8 @@ export interface VoiceModelStore {
         jobId: string,
     ): { status: 'running' | 'done' | 'error'; progress: number; error?: string } | undefined;
     remove?(id: string): void;
+    /** 服务启动时自动安装默认模型的进度；未启用/未开始时返回 undefined。 */
+    autoInstallStatus?(): VoiceInstallStatus | undefined;
 }
 
 export function voiceModelInfo(model: VoiceModelDefinition, installed: boolean): VoiceModelInfo {

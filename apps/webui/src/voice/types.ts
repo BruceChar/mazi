@@ -7,11 +7,19 @@ import type {
     VoiceApiError,
     VoiceCapabilities,
     VoiceChunkResponse,
+    VoiceInstallStatus,
     VoiceLimits,
     VoiceModelInfo,
 } from '@mazi/libs';
 
-export type { VoiceApiError, VoiceCapabilities, VoiceChunkResponse, VoiceLimits, VoiceModelInfo };
+export type {
+    VoiceApiError,
+    VoiceCapabilities,
+    VoiceChunkResponse,
+    VoiceInstallStatus,
+    VoiceLimits,
+    VoiceModelInfo,
+};
 
 /** 监听模式：continuous 为默认连续监听；push-to-talk 预留。 */
 export type VoiceMode = 'continuous' | 'push-to-talk';

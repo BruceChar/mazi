@@ -44,6 +44,10 @@ async function bootstrap(): Promise<void> {
     // 语音输入：裸 Fastify 路由 + 本机 ASR 宿主（模型/依赖缺失时 capabilities 降级）。
     const voiceModels = new ModelManager({ logger });
     const voiceEngine = new SherpaHost({ models: voiceModels, logger });
+    // 服务启动即自动安装默认本机模型；MAZI_VOICE_AUTO_INSTALL=0 可关闭（离线/CI）。
+    if (process.env.MAZI_VOICE_AUTO_INSTALL !== '0') {
+        void installDefaultVoiceModel(voiceModels, logger);
+    }
     await fastify.register(voicePlugin, {
         engine: voiceEngine,
         models: voiceModels,
@@ -60,3 +64,26 @@ async function bootstrap(): Promise<void> {
 void bootstrap();
 
 async function startup(): Promise<void> {}
+
+/** 启动时自动安装默认语音模型（后台重试，不阻塞 API 启动）。 */
+async function installDefaultVoiceModel(models: ModelManager, log: Logger): Promise<void> {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+            const status = await models.ensureDefaultModel();
+            if (!status) return;
+            if (status.status === 'done') {
+                log.log('voice model ready (auto-installed)');
+                return;
+            }
+            log.warn(
+                `voice model auto-install failed (attempt ${attempt}/3): ${status.error ?? 'unknown'}`,
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            log.warn(`voice model auto-install failed (attempt ${attempt}/3): ${message}`);
+        }
+        if (attempt < 3) {
+            await new Promise((resolve) => setTimeout(resolve, attempt * 5_000));
+        }
+    }
+}

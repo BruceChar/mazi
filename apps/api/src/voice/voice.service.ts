@@ -82,6 +82,7 @@ export class VoiceService {
         const defaultInstalled = defaultModel
             ? this.options.models.installed(defaultModel.id)
             : false;
+        const install = this.options.models.autoInstallStatus?.();
         let reason: string | undefined;
         if (!availability.available) {
             reason = availability.reason ?? 'sherpa_unavailable';
@@ -100,6 +101,7 @@ export class VoiceService {
             models,
             limits: this.limits,
             security: { loopbackOnly: true, secureContextRequired: true },
+            ...(install ? { install } : {}),
         };
     }
 

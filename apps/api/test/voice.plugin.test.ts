@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import {
     VOICE_DEFAULT_LIMITS,
     VOICE_DEFAULT_MODEL_ID,
+    type VoiceInstallStatus,
     type VoiceModelInfo,
 } from '@mazi/libs';
 import type {
@@ -46,6 +47,7 @@ class FakeEngine implements VoiceEngineHost {
 
 class FakeModels implements VoiceModelStore {
     installedModel = true;
+    installStatus: VoiceInstallStatus | undefined = undefined;
     downloads = new Map<
         string,
         { status: 'running' | 'done' | 'error'; progress: number; error?: string }
@@ -84,6 +86,10 @@ class FakeModels implements VoiceModelStore {
         return this.downloads.get(jobId);
     }
 
+    autoInstallStatus(): VoiceInstallStatus | undefined {
+        return this.installStatus;
+    }
+
     remove(): void {
         this.installedModel = false;
     }
@@ -114,6 +120,23 @@ describe('voice API plugin', () => {
         expect(body.models[0].id).toBe(VOICE_DEFAULT_MODEL_ID);
         expect(body.limits.maxChunkBytes).toBe(VOICE_DEFAULT_LIMITS.maxChunkBytes);
         expect(body.security.loopbackOnly).toBe(true);
+        expect(body.install).toBeUndefined();
+    });
+
+    it('capabilities 暴露服务启动自动安装进度', async () => {
+        models.installStatus = {
+            modelId: VOICE_DEFAULT_MODEL_ID,
+            status: 'running',
+            progress: 0.42,
+        };
+        const res = await app.inject({ method: 'GET', url: '/api/voice/capabilities' });
+        expect(res.statusCode).toBe(200);
+        expect(res.json().install).toMatchObject({
+            modelId: VOICE_DEFAULT_MODEL_ID,
+            status: 'running',
+            progress: 0.42,
+        });
+        models.installStatus = undefined;
     });
 
     it('创建 session 并分块识别，end 返回 final', async () => {
@@ -202,7 +225,7 @@ describe('voice API plugin', () => {
     it('模型下载与状态接口', async () => {
         const started = await app.inject({
             method: 'POST',
-            url: '/api/voice/models/sherpa-streaming-small-bilingual-zh-en/download',
+            url: `/api/voice/models/${VOICE_DEFAULT_MODEL_ID}/download`,
         });
         expect(started.statusCode).toBe(200);
         expect(started.json().jobId).toBe('job-1');

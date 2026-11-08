@@ -58,6 +58,15 @@ export interface VoiceModelInfo {
     recommended?: boolean;
 }
 
+/** 服务启动时自动安装本机模型的进度（不需要用户手动选择）。 */
+export interface VoiceInstallStatus {
+    modelId: string;
+    status: 'running' | 'done' | 'error';
+    /** 0-1。 */
+    progress: number;
+    error?: string;
+}
+
 export interface VoiceCapabilities {
     version: number;
     engines: {
@@ -73,6 +82,8 @@ export interface VoiceCapabilities {
         loopbackOnly: boolean;
         secureContextRequired: boolean;
     };
+    /** 服务启动时自动安装本机模型的进度；已安装时通常为 done。 */
+    install?: VoiceInstallStatus;
 }
 
 export interface CreateVoiceSessionRequest {
@@ -121,4 +132,4 @@ export const VOICE_DEFAULT_LIMITS: VoiceLimits = {
 export const VOICE_DEFAULT_LANGUAGE = 'zh-CN';
 
 /** 服务端默认模型（与 API 模型注册表保持一致）。 */
-export const VOICE_DEFAULT_MODEL_ID = 'sherpa-streaming-small-bilingual-zh-en';
+export const VOICE_DEFAULT_MODEL_ID = 'sherpa-streaming-zipformer-zh-14m-mobile';

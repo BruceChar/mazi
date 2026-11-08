@@ -15,7 +15,7 @@ import {
 import { SherpaHost } from '../src/voice/sherpa-host.js';
 
 const SHERPA_ENV = 'MAZI_VOICE_SHERPA_NODE_PATH';
-const DEFAULT_MODEL_ID = 'sherpa-streaming-small-bilingual-zh-en';
+const DEFAULT_MODEL_ID = 'sherpa-streaming-zipformer-zh-14m-mobile';
 
 const silentLogger = {
     log: () => undefined,

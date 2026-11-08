@@ -109,6 +109,7 @@ export class VoiceController {
     private removeGlobalListeners: (() => void) | null = null;
     private stopSettingsWatch: (() => void) | null = null;
     private removeModelListener: (() => void) | null = null;
+    private capsPollTimer: ReturnType<typeof setTimeout> | null = null;
     private downloadToken = 0;
 
     constructor(options: VoiceControllerOptions) {
@@ -167,6 +168,7 @@ export class VoiceController {
         this.removeGlobalListeners = null;
         this.stopSettingsWatch?.();
         this.stopSettingsWatch = null;
+        this.clearCapsPoll();
         this.removeModelListener?.();
         this.removeModelListener = null;
         try {
@@ -289,7 +291,15 @@ export class VoiceController {
             // 后端未启动 / 端点未实现：不整体报错，浏览器识别仍可降级使用。
             this.state.capabilities = null;
             this.state.capabilitiesError = toVoiceErrorInfo(error).message;
-            this.state.modelStatus = 'unknown';
+            if (this.state.modelStatus === 'downloading' || this.state.installing) {
+                // 自动安装轮询失败：停止轮询并明确提示，避免一直卡在进度条。
+                this.clearCapsPoll();
+                this.state.installing = false;
+                this.state.modelStatus = 'error';
+                this.state.downloadError = '无法连接本机语音服务，自动安装状态未知。';
+            } else {
+                this.state.modelStatus = 'unknown';
+            }
         }
     }
 
@@ -302,7 +312,64 @@ export class VoiceController {
             null;
         this.state.modelId = local?.modelId ?? installedModel?.id ?? this.state.modelId ?? null;
         this.state.modelInstalled = Boolean(local?.available) || Boolean(installedModel?.installed);
+        const wasDownloading = this.state.modelStatus === 'downloading' || this.state.installing;
         this.state.modelStatus = this.state.modelInstalled ? 'ready' : 'missing';
+
+        const install = capabilities.install;
+        if (!install) {
+            // 旧版后端没有自动安装状态：保持按模型安装情况推导。
+            this.clearCapsPoll();
+            this.state.installing = false;
+            this.state.downloadError = '';
+            this.state.downloadProgress = this.state.modelInstalled ? 1 : 0;
+            return;
+        }
+        const progress = Number.isFinite(install.progress)
+            ? Math.min(1, Math.max(0, install.progress))
+            : 0;
+        this.state.modelId = install.modelId || this.state.modelId;
+        if (install.status === 'running') {
+            this.state.modelStatus = 'downloading';
+            this.state.installing = true;
+            this.state.downloadProgress = progress;
+            this.state.downloadError = '';
+            this.scheduleCapsPoll();
+            return;
+        }
+        if (install.status === 'done') {
+            this.state.modelStatus = 'ready';
+            this.state.modelInstalled = true;
+            this.state.installing = false;
+            this.state.downloadProgress = 1;
+            this.state.downloadError = '';
+            this.clearCapsPoll();
+            if (wasDownloading) this.state.notice = '本机语音模型已就绪。';
+            return;
+        }
+        // install.status === 'error'
+        this.state.modelStatus = 'error';
+        this.state.installing = false;
+        this.state.downloadProgress = progress;
+        this.state.downloadError =
+            install.error || '本机语音模型自动安装失败，服务重启时会再次尝试。';
+        this.clearCapsPoll();
+    }
+
+    /** 自动安装中：每 1.5s 重新拉 capabilities，直到 done/error。 */
+    private scheduleCapsPoll(): void {
+        if (this.capsPollTimer !== null) return;
+        this.capsPollTimer = this.addTimer(() => {
+            this.capsPollTimer = null;
+            if (this.disposed) return;
+            if (this.state.modelStatus !== 'downloading') return;
+            void this.refreshCapabilities();
+        }, 1500);
+    }
+
+    private clearCapsPoll(): void {
+        if (this.capsPollTimer === null) return;
+        this.clearTimer(this.capsPollTimer);
+        this.capsPollTimer = null;
     }
 
     private async detectBrowser(): Promise<void> {
@@ -322,7 +389,10 @@ export class VoiceController {
                 ? { engine: 'local' }
                 : {
                       engine: 'none',
-                      reason: local?.reason || '本机语音模型未安装，请先安装本机模型。',
+                      reason:
+                          this.state.modelStatus === 'downloading'
+                              ? '本机语音模型正在自动安装，请稍候'
+                              : local?.reason || '本机语音模型尚未就绪。',
                   };
         }
         if (preference === 'browser-on-device') {
@@ -331,6 +401,10 @@ export class VoiceController {
                 : { engine: 'none', reason: '浏览器本机识别不可用。' };
         }
         if (localReady) return { engine: 'local' };
+        // 本机模型由服务启动时自动安装：安装中不回退浏览器云识别，避免误用云端。
+        if (this.state.modelStatus === 'downloading') {
+            return { engine: 'none', reason: '本机语音模型正在自动安装，请稍候' };
+        }
         if (this.state.browserSupported && this.state.browserOnDevice) {
             return { engine: 'browser-on-device' };
         }
@@ -374,6 +448,13 @@ export class VoiceController {
 
         const { engine, reason } = this.resolveEngine();
         if (engine === 'none') {
+            if (this.state.modelStatus === 'downloading') {
+                // 模型自动安装中：暂歇等待，不算错误，也不回退浏览器云识别。
+                this.pause('model');
+                this.state.notice = '本机语音模型正在自动安装，请稍候；完成后点麦克风即可。';
+                this.scheduleCapsPoll();
+                return;
+            }
             this.fail({
                 code: 'engine_unavailable',
                 message: reason ? `${reason} 已切回文字输入。` : '语音识别不可用，已切回文字输入。',
@@ -453,7 +534,7 @@ export class VoiceController {
         if (!this.state.modelInstalled) {
             this.fail({
                 code: 'model_missing',
-                message: '首次使用需安装本机语音模型（约 48MB，音频不会上传）。',
+                message: '本机语音模型正在由服务自动安装（约 52MB，音频不会上传）。',
                 retryable: true,
             });
             this.state.modelStatus = this.state.modelStatus === 'unknown' ? 'unknown' : 'missing';
@@ -825,7 +906,8 @@ export class VoiceController {
         this.state.browserConsentRequired = false;
         this.wantEnabled = false;
         saveVoiceSettings({ browserConsent: false });
-        this.state.notice = '已取消浏览器识别；可继续使用文字输入，或安装本机模型。';
+        this.state.notice =
+            '已取消浏览器识别；本机模型会在服务启动后自动安装，也可继续用文字输入。';
     }
 
     /* ---------------------------- tab coordination ------------------------- */
@@ -1000,7 +1082,13 @@ export class VoiceController {
         if (!voiceSettings.enabled || this.disposed) return;
         if (this.machine.phase !== 'off' || this.manualPaused || this.busy) return;
         const { engine } = this.resolveEngine();
-        if (engine === 'none') return;
+        if (engine === 'none') {
+            if (this.state.modelStatus === 'downloading') {
+                this.state.notice = '本机语音模型正在自动安装，请稍候；完成后点麦克风即可。';
+                this.scheduleCapsPoll();
+            }
+            return;
+        }
         if (engine === 'browser-cloud' && !voiceSettings.browserConsent) {
             // 只展示首次同意卡片；不自动申请任何权限。
             this.state.browserConsentRequired = true;

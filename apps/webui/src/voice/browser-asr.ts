@@ -138,7 +138,7 @@ export function mapSpeechError(errorCode: string): VoiceErrorInfo {
         case 'network':
             return {
                 code: 'engine_unavailable',
-                message: '浏览器识别网络不可用，请改用文字输入，或安装本机模型。',
+                message: '浏览器识别网络不可用，请改用文字输入；本机模型会在服务启动后自动安装。',
                 retryable: true,
             };
         case 'language-not-supported':

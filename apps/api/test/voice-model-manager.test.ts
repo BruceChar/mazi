@@ -74,7 +74,7 @@ function makeModel(
     };
 }
 
-/** 构造一个真实的小 tar.bz2（依赖系统 tar），避免测试下载 48MB 模型。 */
+/** 构造一个真实的小 tar.bz2（依赖系统 tar），避免测试下载 52MB 模型。 */
 function buildTarBz2(base: string, files: Record<string, string> = MODEL_FILES): string {
     const source = join(base, 'fixture');
     mkdirSync(source, { recursive: true });
@@ -222,6 +222,45 @@ describe('下载 → 解压 → 校验 → 安装', () => {
         );
         expect(Number.isNaN(Date.parse(manifest.models[model.id].installedAt))).toBe(false);
         expect(readdirSync(root).filter((name) => name.startsWith('.download-'))).toEqual([]);
+    });
+
+    it('ensureDefaultModel：服务启动自动安装推荐模型，幂等且状态可查询', async () => {
+        const base = tempDir();
+        const root = join(base, 'voice', 'models');
+        const archive = buildTarBz2(base);
+        const model = makeModel('m1', { recommended: true });
+        let calls = 0;
+        const fetchImpl = (async () => {
+            calls += 1;
+            return responseFromFile(archive);
+        }) as unknown as typeof fetch;
+        const manager = new ModelManager({
+            root,
+            logger: silentLogger,
+            models: [model],
+            fetchImpl,
+        });
+        expect(manager.autoInstallStatus()).toBeUndefined();
+        const first = await manager.ensureDefaultModel();
+        expect(first).toMatchObject({ modelId: 'm1', status: 'done', progress: 1 });
+        expect(manager.installed('m1')).toBe(true);
+        expect(calls).toBe(1);
+        expect(manager.autoInstallStatus()).toMatchObject({ modelId: 'm1', status: 'done' });
+        const second = await manager.ensureDefaultModel();
+        expect(second).toMatchObject({ status: 'done' });
+        expect(calls).toBe(1);
+
+        // 手工/其他路径完成后，新 manager 也应按“已安装”报告 done。
+        const restarted = new ModelManager({
+            root,
+            logger: silentLogger,
+            models: [model],
+        });
+        expect(restarted.autoInstallStatus()).toMatchObject({
+            modelId: 'm1',
+            status: 'done',
+            progress: 1,
+        });
     });
 
     it('重复调用进行中的下载返回同一 jobId；并发上限为 1', async () => {

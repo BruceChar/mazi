@@ -4,7 +4,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { mkdir, open, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import type { VoiceApiError, VoiceModelInfo } from '@mazi/libs';
+import type { VoiceApiError, VoiceInstallStatus, VoiceModelInfo } from '@mazi/libs';
 import Logger from '../common/log.js';
 import {
     VOICE_MODELS,
@@ -115,6 +115,10 @@ export class ModelManager implements VoiceModelStore {
     private readonly jobs = new Map<string, DownloadJob>();
     private readonly queue: string[] = [];
     private activeJobId: string | null = null;
+    /** 服务启动时自动安装默认模型的任务与最近一次结果。 */
+    private autoInstallJobId: string | null = null;
+    private autoInstallSnapshot: VoiceInstallStatus | null = null;
+    private autoInstallPromise: Promise<VoiceInstallStatus | null> | null = null;
 
     constructor(options: ModelManagerOptions = {}) {
         this.root = resolve(options.root ?? defaultModelRoot());
@@ -181,6 +185,71 @@ export class ModelManager implements VoiceModelStore {
     downloadStatus(jobId: string): VoiceDownloadStatus | undefined {
         const job = this.jobs.get(jobId);
         return job ? this.snapshot(job) : undefined;
+    }
+
+    /** 服务启动时自动安装默认模型的进度（无需用户选择）。 */
+    autoInstallStatus(): VoiceInstallStatus | undefined {
+        const defaultModel = this.models.find((item) => item.recommended) ?? this.models[0];
+        if (defaultModel && this.installed(defaultModel.id)) {
+            this.autoInstallSnapshot = {
+                modelId: defaultModel.id,
+                status: 'done',
+                progress: 1,
+            };
+            return this.autoInstallSnapshot;
+        }
+        if (this.autoInstallJobId) {
+            const job = this.jobs.get(this.autoInstallJobId);
+            if (job) {
+                return {
+                    modelId: job.modelId,
+                    status:
+                        job.status === 'running'
+                            ? 'running'
+                            : job.status === 'done'
+                              ? 'done'
+                              : 'error',
+                    progress: job.progress,
+                    ...(job.error ? { error: job.error } : {}),
+                };
+            }
+        }
+        return this.autoInstallSnapshot ?? undefined;
+    }
+
+    /**
+     * 确保默认模型已安装：已安装直接返回 done；否则启动下载并等待完成。
+     * 幂等：并发的启动安装请求复用同一个 Promise；失败由调用方（main）重试。
+     */
+    async ensureDefaultModel(): Promise<VoiceInstallStatus | null> {
+        const model = this.models.find((item) => item.recommended) ?? this.models[0];
+        if (!model) return null;
+        if (this.installed(model.id)) {
+            this.autoInstallSnapshot = { modelId: model.id, status: 'done', progress: 1 };
+            return this.autoInstallSnapshot;
+        }
+        if (this.autoInstallPromise) return this.autoInstallPromise;
+        this.autoInstallPromise = this.runAutoInstall(model).finally(() => {
+            this.autoInstallPromise = null;
+        });
+        return this.autoInstallPromise;
+    }
+
+    private async runAutoInstall(model: VoiceModelDefinition): Promise<VoiceInstallStatus> {
+        const { jobId } = this.startDownload(model.id);
+        this.autoInstallJobId = jobId;
+        const status = await this.waitForDownload(jobId);
+        const result: VoiceInstallStatus =
+            status.status === 'done'
+                ? { modelId: model.id, status: 'done', progress: 1 }
+                : {
+                      modelId: model.id,
+                      status: 'error',
+                      progress: status.progress,
+                      ...(status.error ? { error: status.error } : {}),
+                  };
+        this.autoInstallSnapshot = result;
+        return result;
     }
 
     /** 等待下载 job 结束（成功/失败）后返回最终状态；供 warmup 与测试使用。 */

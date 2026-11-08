@@ -2,18 +2,15 @@
 /**
  * 设置 → Voice 分区（docs/web/语音输入设计.md §9）。
  *
- * 只负责语音输入（ASR）：偏好、暂停规则、浏览器识别同意、本机模型状态 / 下载 / 删除、
+ * 只负责语音输入（ASR）：偏好、暂停规则、浏览器识别同意、本机模型自动安装状态、
  * 诊断（安全上下文 + 测试麦克风电平）。设置写 localStorage（mazi.web.voice-settings）。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { AudioCapture, isCaptureSupported, mapCaptureError } from '../voice/capture.ts';
 import { detectBrowserAsr } from '../voice/browser-asr.ts';
 import {
-    deleteVoiceModel,
     fetchVoiceCapabilities,
-    fetchVoiceModelDownload,
     fetchVoiceModels,
-    startVoiceModelDownload,
     toVoiceErrorInfo,
 } from '../voice/local-asr.ts';
 import { resetVoiceSettings, saveVoiceSettings, voiceSettings } from '../voice/settings.ts';
@@ -39,12 +36,9 @@ const capsLoading = ref(false);
 const browserSupported = ref(false);
 const browserOnDevice = ref(false);
 const notice = ref('');
-
-const installingId = ref('');
-const downloadProgress = ref(0);
-const downloadError = ref('');
-const deletingId = ref('');
-let downloadToken = 0;
+/** 服务启动时自动安装的本机模型状态（capabilities.install）。 */
+const install = ref(null);
+let installPollTimer = null;
 
 const micTesting = ref(false);
 const micLevel = ref(0);
@@ -52,6 +46,13 @@ const micNotice = ref('');
 let micCapture = null;
 
 const installedModels = computed(() => models.value.filter((model) => model.installed));
+const installRunning = computed(() => install.value?.status === 'running');
+const installFailed = computed(() => install.value?.status === 'error');
+const installProgress = computed(() => {
+    const raw = Number(install.value?.progress ?? 0);
+    const normalized = raw > 1 ? raw / 100 : raw;
+    return Math.round(Math.min(1, Math.max(0, normalized)) * 100);
+});
 const engineHint = computed(() => {
     if (voiceSettings.engine === 'local') return '仅本机 sherpa 流式识别；不可用时明确报错并降级文字。';
     if (voiceSettings.engine === 'browser-on-device') return '只使用浏览器 on-device 识别；不可用时明确报错。';
@@ -79,8 +80,10 @@ async function refresh() {
         const capabilities = await fetchVoiceCapabilities();
         caps.value = capabilities;
         models.value = capabilities.models ?? [];
+        install.value = capabilities.install ?? null;
     } catch (error) {
         caps.value = null;
+        install.value = null;
         capsError.value = toVoiceErrorInfo(error).message || '无法连接本机语音服务';
         try {
             models.value = await fetchVoiceModels();
@@ -98,68 +101,23 @@ async function refresh() {
         browserSupported.value = false;
         browserOnDevice.value = false;
     }
+    scheduleInstallPoll();
 }
 
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+/** 自动安装 running 时每 1.5s 轮询 capabilities，直到 done/error。 */
+function scheduleInstallPoll() {
+    clearInstallPoll();
+    if (install.value?.status !== 'running') return;
+    installPollTimer = setTimeout(() => {
+        installPollTimer = null;
+        void refresh();
+    }, 1500);
 }
 
-/** 通知已挂载的语音 controller 重新拉取 capabilities（模型安装/删除后无需刷新页面）。 */
-function notifyModelsChanged() {
-    if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('mazi:voice-models-changed'));
-    }
-}
-
-async function installModel(id) {
-    if (!id || installingId.value) return;
-    installingId.value = id;
-    downloadProgress.value = 0;
-    downloadError.value = '';
-    notice.value = '';
-    const token = ++downloadToken;
-    try {
-        const { jobId } = await startVoiceModelDownload(id);
-        for (let attempt = 0; attempt < 900; attempt += 1) {
-            await sleep(800);
-            if (token !== downloadToken) return;
-            const status = await fetchVoiceModelDownload(jobId);
-            if (token !== downloadToken) return;
-            const progress = Number(status.progress) || 0;
-            downloadProgress.value = progress > 1 ? Math.min(1, progress / 100) : progress;
-            if (status.status === 'done') {
-                await refresh();
-                notifyModelsChanged();
-                notice.value = '本机语音模型安装完成。';
-                return;
-            }
-            if (status.status === 'error') {
-                downloadError.value = status.error || '语音包下载失败，可重试。';
-                return;
-            }
-        }
-        downloadError.value = '语音包下载超时，可重试。';
-    } catch (error) {
-        downloadError.value = toVoiceErrorInfo(error).message || '语音包下载失败，可重试。';
-    } finally {
-        if (token === downloadToken) installingId.value = '';
-    }
-}
-
-async function removeModel(id) {
-    if (!id || deletingId.value) return;
-    if (typeof window !== 'undefined' && !window.confirm(`删除本机语音模型 ${id}？`)) return;
-    deletingId.value = id;
-    downloadError.value = '';
-    try {
-        await deleteVoiceModel(id);
-        await refresh();
-        notifyModelsChanged();
-        notice.value = '本机语音模型已删除。';
-    } catch (error) {
-        downloadError.value = `删除失败：${toVoiceErrorInfo(error).message}`;
-    } finally {
-        deletingId.value = '';
+function clearInstallPoll() {
+    if (installPollTimer !== null) {
+        clearTimeout(installPollTimer);
+        installPollTimer = null;
     }
 }
 
@@ -222,7 +180,7 @@ onMounted(() => {
     void refresh();
 });
 onBeforeUnmount(() => {
-    downloadToken += 1;
+    clearInstallPoll();
     stopMicTest();
 });
 </script>
@@ -281,7 +239,7 @@ onBeforeUnmount(() => {
             <div class="setting-item">
                 <div class="setting-info">
                     <div class="setting-name">识别语言</div>
-                    <div class="setting-desc">默认中文，中英混说由本机模型覆盖。</div>
+                    <div class="setting-desc">默认中文；本机模型由服务启动时自动安装。</div>
                 </div>
                 <select class="vs-select" :value="voiceSettings.language" @change="update('language', $event.target.value)">
                     <option value="zh-CN">中文（zh-CN）</option>
@@ -453,7 +411,7 @@ onBeforeUnmount(() => {
                     <div class="setting-name">允许浏览器识别（可能上传音频）</div>
                     <div class="setting-desc">
                         浏览器 Web Speech 可能把音频发送给浏览器厂商（云端）。默认关闭，只在用户明确同意后启用；
-                        安装本机模型后音频只在本机处理。
+                        本机模型自动安装完成后，音频只在本机处理。
                     </div>
                 </div>
                 <label class="vs-switch">
@@ -484,21 +442,39 @@ onBeforeUnmount(() => {
             </div>
         </div>
 
-        <!-- 本机模型 -->
+        <!-- 本机模型：服务启动时自动安装，用户无需选择/操作 -->
         <div class="settings-group">
             <div class="settings-group-title">本机模型</div>
             <div v-if="capsError" class="setting-desc">
-                无法读取模型列表（本机语音服务未启动）。
+                无法读取自动安装状态（本机语音服务未启动）。服务恢复后会自动继续。
             </div>
-            <div v-else-if="!models.length && capsLoading" class="setting-desc">读取中…</div>
-            <div v-else-if="!models.length" class="setting-desc">后端未返回模型列表。</div>
+            <template v-else>
+                <div v-if="installRunning" class="vs-install-status">
+                    <div class="vs-progress" role="progressbar" :aria-valuenow="installProgress" aria-valuemin="0" aria-valuemax="100">
+                        <span :style="{ width: `${installProgress}%` }"></span>
+                    </div>
+                    <span class="setting-desc">本机语音模型自动安装中 {{ installProgress }}%（服务启动时自动安装）</span>
+                </div>
+                <div v-else-if="installFailed" class="vs-error" role="alert">
+                    {{ install?.error || '本机语音模型自动安装失败。' }}
+                    <div class="setting-desc">服务下次启动会自动重试；无需手动安装。</div>
+                </div>
+                <div v-else-if="install?.status === 'done'" class="setting-desc">
+                    本机语音模型已就绪（服务启动时自动安装）。
+                </div>
+                <div v-else class="setting-desc">
+                    本机语音模型由服务启动时自动安装，无需手动选择或安装。
+                </div>
+            </template>
+            <div v-if="!models.length && capsLoading" class="setting-desc">读取中…</div>
+            <div v-else-if="!models.length && !capsError" class="setting-desc">后端未返回模型信息。</div>
             <div v-for="model in models" :key="model.id" class="vs-model">
                 <div class="vs-model-info">
                     <div class="setting-name">
                         {{ model.name }}
-                        <span v-if="model.recommended" class="vs-badge ok">推荐</span>
+                        <span v-if="model.recommended" class="vs-badge ok">默认</span>
                         <span v-if="model.installed" class="vs-badge ok">已安装</span>
-                        <span v-else class="vs-badge">未安装</span>
+                        <span v-else class="vs-badge">待安装</span>
                     </div>
                     <div class="setting-desc">
                         {{ model.description }}
@@ -506,37 +482,10 @@ onBeforeUnmount(() => {
                         <template v-if="model.license"> · {{ model.license }}</template>
                         <template v-if="model.languages?.length"> · {{ model.languages.join('/') }}</template>
                     </div>
-                    <div v-if="installingId === model.id" class="vs-progress-wrap">
-                        <div class="vs-progress" role="progressbar" :aria-valuenow="Math.round(downloadProgress * 100)" aria-valuemin="0" aria-valuemax="100">
-                            <span :style="{ width: `${Math.round(downloadProgress * 100)}%` }"></span>
-                        </div>
-                        <span>{{ Math.round(downloadProgress * 100) }}%</span>
-                    </div>
-                </div>
-                <div class="vs-model-actions">
-                    <button
-                        v-if="!model.installed"
-                        type="button"
-                        class="vs-btn primary"
-                        :disabled="Boolean(installingId)"
-                        @click="installModel(model.id)"
-                    >
-                        {{ installingId === model.id ? '安装中…' : '安装' }}
-                    </button>
-                    <button
-                        v-else
-                        type="button"
-                        class="vs-btn"
-                        :disabled="Boolean(deletingId)"
-                        @click="removeModel(model.id)"
-                    >
-                        {{ deletingId === model.id ? '删除中…' : '删除' }}
-                    </button>
                 </div>
             </div>
-            <div v-if="downloadError" class="vs-error" role="alert">{{ downloadError }}</div>
             <div class="setting-desc vs-hint">
-                模型不提交进仓库，首次安装约 48MB；下载校验后原子落盘到本机数据目录。音频不会上传。
+                模型不提交进仓库，由服务启动时自动下载、校验后原子落盘到本机数据目录；音频不会上传。
             </div>
         </div>
 
@@ -766,18 +715,11 @@ onBeforeUnmount(() => {
     flex: 1;
     min-width: 0;
 }
-.vs-model-actions {
-    flex: none;
+.vs-install-status {
     display: flex;
+    flex-direction: column;
     gap: 6px;
-}
-.vs-progress-wrap {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 6px;
-    font-size: 11px;
-    color: var(--fg-secondary);
+    padding: 6px 0 8px;
 }
 .vs-progress {
     width: 140px;
