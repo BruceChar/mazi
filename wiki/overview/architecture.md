@@ -68,8 +68,16 @@ Goal（意图/委托）→ Task（可独立验收的子目标）→ Step（think
   不完整重读项目。
 - Wiki 页在 KPI 下方展示完整 `state/current.md`；有效/待核验 KPI 可打开事实与 evidence
   明细；右侧独立订阅后台 Goal SSE，显示 reasoning/text stream、工具参数与输出、审批操作。
+- 剩余 Wiki 工作只有 `docs/TODO.md`「项目 Wiki（后续）」三项：模型摘要 provider 接入
+  （`wiki.summaryModel` / `createLlmSummarizer`，设计见 `docs/项目wiki设计.md` §7.3/§12）、
+  graph-wiki 类插件（图谱 sidecar + 新工具面）、跨项目检索 / 历史版本链回滚。
 
 ## 待办与 Roadmap 入口
 
-- 未做的产品功能只在 `docs/TODO.md` 维护（用户行为追踪、Provider 监控面板、模版功能、Wiki 增强）；
-  README Roadmap 是同一批事项的用户视角表述，两者需同步核对，不要用源码 grep TODO 代替待办清单。
+- 未做的产品功能只在 `docs/TODO.md` 维护：用户行为追踪、Provider 监控面板、模版功能、项目 Wiki（后续）。
+- README §13 Roadmap 只是部分重述，且两份清单并不等价：
+  - 重叠：Provider 监控面板、模板功能；
+  - README 独有：评估深化、策略生态、多Agent编排、知识库、Agent监督；
+  - 仅 `docs/TODO.md` 有：用户行为追踪、项目 Wiki 三项后续；
+  - README 已将项目 Wiki 标记为「✅ 已实现」，不要把 Roadmap 当 Wiki 待办来源。
+- 源码与 `wiki/` 中的 `TODO` 命中多为 Wiki 骨架模板文本与 Agent prompt 文案，**不能用源码 grep TODO 代替待办清单**。
