@@ -7,7 +7,7 @@ status = "active"
 evidence = [
   { file = "apps/api/src/wiki/wiki.controller.ts", oid = "33a711aa0d40cbedac2f8978855f96ecc6bf52a4" },
   { file = "apps/api/src/wiki/repository.ts", oid = "73e120a4cc1fd3b9c4fce34dd56cb4c56adbbe3c" },
-  { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "c2dbd6c632f99acf0a9e0ba3ba30084ff858980f" },
+  { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "6c7f7184a8d6a3deefd742beaf2d34f211051051" },
 ]
 established = 2026-11-07
 verified = 2026-11-08
@@ -166,7 +166,7 @@ verified = 2026-11-07
 text = "Project Context Lifecycle is a runtime-owned subsystem: it assembles task-scoped context packets at SessionStart, anchors long-session compaction in persisted facts and evidence, and asynchronously finalizes SessionEnd with deterministic diff/oid/research preflight plus optional bounded semantic distillation and checkpoint validation."
 status = "active"
 evidence = [
-  { file = "docs/runtime/AHF_PROJECT_CONTEXT_LIFECYCLE.md", oid = "fca248093765bebd991cf369db6952e50506307c" },
+  { file = "docs/runtime/AHF_PROJECT_CONTEXT_LIFECYCLE.md", oid = "6d2cb27579401e5fa29d195c0fbfaa0fafd45196" },
   { file = "packages/runtime/src/harness/context-manager.ts", oid = "bb2556f2f7c788eb23487ff11b9b3a33a3f3a8d9" },
 ]
 established = 2026-11-08
@@ -178,7 +178,7 @@ status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "7a5ef9f7cf297283341b311bddaa6cb1798a16e1" },
-  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "41cfd732a0447b23c711f06c74a07d2e633e29ae" },
 ]
 established = 2026-11-08
@@ -190,7 +190,7 @@ status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
-  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
 ]
 established = 2026-11-08
 verified = 2026-11-08
@@ -199,7 +199,7 @@ verified = 2026-11-08
 text = "ProjectWikiService returns immediately from init when existing claims or a non-TODO index prove initialization. It builds update plans from semantic checkpoint diffs, worktree status and all evidence oids; SessionEnd additionally extracts safe files read by the session so no-diff exploration can be distilled. Explicit updates read only changed files and context capture reads only filtered research files."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
   { file = "apps/api/test/wiki-maintenance.service.test.ts", oid = "143e7ce962b736112c45575696fbeaf5cf0fbbcb" },
 ]
@@ -210,11 +210,11 @@ verified = 2026-11-08
 text = "Corrected or forgotten Project Wiki facts leave active context without losing audit history: runtime claim correction creates a replacement active claim and marks the old one retracted/corrected with superseded_by; explicit forgetting marks retracted/forgotten. Doctor, update planning and Context Packet injection exclude retracted claims, while Git retains their evidence and reasons."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "c2dbd6c632f99acf0a9e0ba3ba30084ff858980f" },
-  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
+  { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "6c7f7184a8d6a3deefd742beaf2d34f211051051" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/api/src/wiki/wiki.controller.ts", oid = "33a711aa0d40cbedac2f8978855f96ecc6bf52a4" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "41cfd732a0447b23c711f06c74a07d2e633e29ae" },
-  { file = "packages/runtime/test/project-wiki-runtime.test.ts", oid = "33d0c93e83bc5f708d211132d6d431ebe65545a9" },
+  { file = "packages/runtime/test/project-wiki-runtime.test.ts", oid = "a255c7a22e326c798b9d6c61eb2e0ccce726add4" },
 ]
 established = 2026-11-08
 verified = 2026-11-08
