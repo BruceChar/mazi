@@ -1,505 +1,173 @@
-# Agent Harness 权限系统 V4：分级 + 阈值的最小模型
+# Agent Harness 权限系统设计 v4.1（定稿）
 
-**文档编号**：AHF-AUTH-DESIGN-V4
-**版本**：v0.2（设计稿）
-**状态**：设计待评审，**未实现**
-**文档定位**：对 v1/v2/v3 与当前 `packages/core/src/authz` 实现做收敛。v0.1 的七步判定仍然偏重、且把"未知命令"变成了需要维护的清单；v0.2 改为 **三级风险分级 + 三档阈值**：判定压到三步，未知命令走内置分级、不需要任何命令白名单。本文档先给设计与对比，不改代码。
-**关联**：`docs/core/AHF_CORE_AUTHORIZATION.md`（v1）、`docs/core/AHF_CORE_AUTHORIZATION_V3.md`、`docs/core/AHF_CORE_TOOL-GATEWAY.md`、`docs/webui.md` §3.5。
+**状态**：设计待评审，未实现
+**关联**：AHF_CORE_AUTHORIZATION、AHF_CORE_TOOL-GATEWAY、docs/webui.md §3.5
 
-### 修订记录
+## 1. 公理层：三问
 
-| 版本 | 变化 |
-|---|---|
-| v0.1 | 7 步判定；两个模式（Ask / Approve for me）；规则数据化；未知命令在两种模式下都 ask |
-| v0.2 | 判定压到 **3 步**（分级 → 硬闸 → 阈值）；Approve for me 增加 **严格 / 宽松** 两档；未知命令是 **L2 分级**而不是白名单，**不需要用户维护命令清单**；规则降级为可选例外层 |
+每个操作在三问上各有一个答案，三轴取最大即其风险等级。
+**Q1 后果轴——操作在当前时点可撤回吗？**
+可逆（workspace 内写，可重生成）→ 低；补偿（push 回退、重新部署上一版本、有备份）→ 中；不可逆（付款、删除、DDL、强制覆盖远端历史）→ 人审。执行类按边界性而非类别判定：来源可信 + 本地 + 无网可自动；来源不可信或越域人审。
+**Q2 认知轴——操作把什么放进或送出模型上下文？**
+敏感级：读取放行但记账 + 打污点，出站时裁决（读 CSV → 清洗 → 上传 S3 不被误杀）；秘密级：断流，根本不进上下文，解锁是独立带外动作。裁决点在出站不在读取——单步合法、组合违规，污点必须跨步保留。
+**Q3 包络轴——操作会改变后续操作的能力边界吗？**
+一切“改变未来执行环境”的写入：shell rc、authorized_keys、crontab、git hooks、package.json scripts、remote 配置、本系统策略文件。策略文件 → 带外确认；其余持久化点 → 人审；Agent 通道发起的模式变更 → 拒绝 + 审计。
+**为什么是这三条**：任何攻击链必然落在至少一轴——破坏/泄密落在后果轴，注入/诱导落在认知轴，提权/持久化落在包络轴。三轴全堵死则安全；每轴放松多少，就是阈值量化对象。
 
----
-
-## 1. 一句话与结论
-
-> 给每个动作打一个风险等级 L0–L3，模式只设置"自动放行上限"（阈值）。
-> Ask = 只自动放行 L0；Approve·严格 = 自动放行到 L1；Approve·宽松 = 自动放行到 L2；L3 默认人审（红线类直接 deny），命中人工批准的记忆时放行（once-only 类别除外）。来源直通、审批记忆、可选规则只在这个阈值模型上做加减，不再有第二套判定体系。
-
-五个结论：
-
-1. **3 步判定**：① 分级（classify）→ ② 硬闸（guard）→ ③ 阈值（threshold + 来源/记忆/规则）。审计只是记录，不是判定步骤。
-2. **未知命令不需要白名单**：内置启发式把它判为 L2（"本地、但无法确认安全"）。Ask / 严格会问，宽松会自动执行并留痕；人批准一次可选"本会话/本项目"，之后自动记住。**不需要在注册表或配置文件里逐条声明命令。**
-3. **Approve for me 有两档强度**：严格（默认，L2 就 ask）与宽松（L3 才 ask）。宽松 ≈ 当前"工作区写"的 shell 免问体验，但网络/宿主机/不可逆/支付/凭证仍然 ask——它不是 Full access。
-4. **规则是可选的例外层**，不是运行前提：默认跑起来不需要写任何规则；规则只用于团队收紧、或显式预授权（支付限额/域名白名单）。
-5. **原则不变**：支付人审、敏感数据不出站、影响范围与可逆性决定免审边界、缺件拒绝、审计可回放。
-
----
-
-## 2. 为什么这样改（v0.1 的问题）
-
-| v0.1 的问题 | v0.2 的解法 |
-|---|---|
-| 7 步判定（注册/不变量/deny/来源/边界/模式/记忆）概念太多，每步都要解释 | 3 步：分级、硬闸、阈值。边界/可逆/污点/来源都折叠进"分级"和"阈值" |
-| 未知命令在两种模式下都 ask，要减少询问就得给命令建白名单，太繁琐 | 未知命令 = L2；不想被问就用 Approve·宽松，或批准一次选 session/project；**没有任何命令白名单要维护** |
-| 只有"问/不问"两态，用户无法表达"我能接受多大不确定性" | Approve for me 增加严格/宽松两档，本质是阈值 L1 / L2 |
-| 规则层看起来是必需品（红线全在规则里） | 红线拆成：极小硬闸（代码）+ 内置分级（代码）；规则文件**可选**，只做收紧或显式预授权 |
-
----
-
-## 3. 当前实现对照（事实未变）
-
-### 3.1 调用链
+## 2. 分级 L0–L3
 
 ```
-UI 三档（只读 / 工作区写 / 完全）
-  → settings.json: goal.permissionCeiling + permissions["workspace:<path>" | "conversation:<id>"]
-  → Goal.permissionCeiling 钉版
-  → RuntimeToolGateway
-      grantForPermissionLevel → 14 capability，档内 auto / 档外 gated
-      derive(meet + Q1/Q2/Q3 下限 + 硬底线 + 钉版)
-  → DefaultToolGateway 8 阶段：supply→scope→risk→ledger→approval→execute→writeback→audit
-  → ApprovalBroker（TTL 5 分钟，fail-closed）→ ApprovalPrompt（once/session/workspace）→ 内存 store
+level = 三轴取最大；若三轴皆 ≤1 且操作语义无法静态证实 → L2；
+来源链 / 目标链命中或命中修正项 → 升 L3
 ```
 
-证据：`apps/webui/src/scripts/goal-contract.ts:11-30`、`packages/core/src/authz/permissions.ts:13-19`、`apps/api/src/common/runtime.service.ts:1175-1204`、`packages/runtime/src/tool-gateway/permission.ts:98-106`、`packages/core/src/authz/gateway-types.ts:233-242`、`packages/runtime/src/tool-gateway/approval.ts:66-138`。
+| 轴      | 0              | 1                  | 2                                                | 3                                              |
+| ------- | -------------- | ------------------ | ------------------------------------------------ | ---------------------------------------------- |
+| 后果 Q1 | 纯读、无副作用 | workspace 内可逆写 | 本地执行但语义未证实；**自有域补偿性同步** | 不可逆；任意目标网络外发；越域（宿主机、外部） |
+| 认知 Q2 | 无摄入         | 普通内容入上下文   | 继承 0–1（污点未涉出站）                        | 敏感内容出站（secret → 硬闸）                 |
+| 包络 Q3 | 无             | —                 | 继承 0（无持久化影响）                           | 持久化点写入（策略文件 → 带外）               |
 
-### 3.2 真正生效的闸门（只有 5 条）
+ **L2 的构成规则** ：三轴均低，但操作属于“无法静态证实安全”的类别——未知本地命令、非内置目标的脚本执行、基线内目标的补偿性网络同步。含义是“有界但未证实”，不是“安全”也不是“危险”。
 
-| # | 闸门 | 落点 | 实际效果 |
-|---|---|---|---|
-| 1 | 闭世界注册 | `gateway.ts:162-171` | 未注册工具不可调用 |
-| 2 | 三问下限 + secret 写/读底线 | `risk.ts:87-124`、`gateway.ts:206-244` | 不可逆/边界写 → gated；secret 写 → forbidden；secret 读（不断流）→ 硬拒 |
-| 3 | 命令分类审批 | `command.ts:135-223` | dangerous 永远逐次；readonly 按命令名记忆；unknown 按完整命令行 |
-| 4 | 出站账本审批（INV-A/B） | `gateway.ts:246-281,316-326`、`ledger.ts:100-145` | 敏感读入账；出站账本破缺 → 审批 |
-| 5 | 审批缺件 fail-closed | `gateway.ts:288-295` | 无审批 seam 时 gated 调用拒绝 |
+ **自有域** ：凭证属于用户本人 + 目标是会话基线中已存在的自有资源（自己的仓库、自己的服务器）→ 该域内的补偿性操作不按任意外部目标对待。Agent 使用自己申请的凭证或共享服务账号时，不享受自有域降级。
 
-### 3.3 有设计、但生产路径无消费方的机制
+ **升 L3 的修正项** ：
 
-沙箱、出网代理、`SecretService` 断流、压缩继承账本、污点阻断、`maxLabel`、支付限额、签名审计链、疲劳度量 R/F1/F2、用户标注加载——均只有接口/类型/测试，**没有真实执行**。证据：`core/src/authz/sandbox.ts:11-37`、`runtime/src/harness/tool-executor.ts:250`（"beyond CWD 不隔离"）、`runtime/src/tool-gateway/permission.ts:236`（账本每网关新建）、`gateway.ts:389-391,440`（taint 只展示）、`permission.ts:294-303`（`untrusted` 标志被丢弃）、`trust.ts:88-170`、`telemetry.ts:39-107`。
+| 修正项       | 说明                                                                  |
+| ------------ | --------------------------------------------------------------------- |
+| 来源链       | 执行 Agent 本会话写入 / 网络下载 / 新装依赖提供的脚本                 |
+| 目标链       | 会话内新增或修改的 remote、新域名、新收件人——目标不在基线中即不可信 |
+| 发布语义     | deploy / publish / release / upload 字样，宁可多问                    |
+| 解释器内联   | `sh -c`、`python -c`等，边界无法界定                              |
+| shell 元字符 | 管道、重定向、命令替换、多行                                          |
+| 未归类工具   | 无策略声明或声明版本不匹配                                            |
 
-**这正是简化的依据**：v0.2 只保留有消费路径的 5 条闸门，其余删除或降级。
+ **免责（写入文档与实现）** ：分级是启发式路由，不是安全边界。命令替换与参数间接是无穷空间，未知解释器语法一律升 L3；真正的边界是硬闸 + 沙箱。
 
-### 3.4 当前实现的十个问题
+## 3. 两个模式
 
-| 编号 | 问题 | 主要证据 |
-|---|---|---|
-| I1 | 名义档位与实际边界脱节（模式改可触达范围） | `tool-gateway/permission.ts:1-11,98-106` |
-| I2 | "工作区写"下未知 shell 自动执行且无沙箱；`echo x > ~/.bashrc` 可越域 | `tool-gateway/permission.ts:49-55`、`command.ts:160,219-223`、`tool-executor.ts:250` |
-| I3 | "只读"可经一次 workspace 授权长期自动执行 | `gateway.ts:444-478` |
-| I4 | UI 3 档 / core 5 档 / 运行时 6 档；`workspace-write` 不在类型里 | `goal-contract.ts:14`、`permissions.ts:13-19`、`health.controller.ts:8-12` |
-| I5 | `workspace` 作用域忽略路径、仅内存、无撤销入口 | `gateway-types.ts:180-193`、`runtime.ts:205` |
-| I6 | 支付原则无实现（无 pay 工具/限额/收款方） | `tool-gateway/permission.ts:33,61` |
-| I7 | 敏感数据半实现：`.env` 硬拒无解锁、账本单 run、污点不裁决 | `gateway.ts:223-234`、`ledger.ts` |
-| I8 | 文档承诺 > 实际强制（沙箱/代理/断流/签名链/疲劳度量未接线） | §3.3 |
-| I9 | "完全"名不副实（危险命令仍拦） | `gateway.ts:284-287`、`goal-contract.ts:25` |
-| I10 | 事件契约漂移（rejected 复用 cancelled、审批事件缺 key） | `tool-gateway/approval.ts:124`、`arm-live.ts:128-135` |
+| 模式             | 阈值 | 自动放行       | 会问   |
+| ---------------- | ---- | -------------- | ------ |
+| Ask for approval | 0    | L0             | L1–L3 |
+| Approve for me   | 2    | L0–L2（留痕） | L3     |
 
----
+内部是数值参数，将来加档改数字不改架构。 **无全自动档** ：系统不存在 L3 自动执行状态，预授权唯一通道是人写规则。Ask 不是永久税——批准一次选 for project，收敛后等于按项目个性化的阈值。
 
-## 4. 与用户建议的对比
+## 4. 判定管线（3 步）
 
-### 4.1 五步管线 → 3 步判定
+**① 分级（纯函数）**：查注册表，未注册拒绝；核工具策略声明与版本，不符按未归类；三轴评估取最大；来源链 / 目标链与修正项上调；输出等级与原因码。
+**② 硬闸**：六类（见 §7），任何模式、任何配置、任何用户指令不可放宽；规则层的拒绝也在此拦。
+**③ 阈值**：规则收紧 → 来源直通（抬升阈值）→ 规则预授权 → 阈值比较 → 记忆命中 → 询问；无审批者时拒绝（fail-closed）。每次询问必附原因码与具体判据（“未知本地脚本”“此脚本由 Agent 于 5 分钟前创建”），不只显示命令行。
 
-| 用户建议 | v0.2 落点 | 说明 |
-|---|---|---|
-| 1. 来源判定 → 直接放行 | **第 3 步内的"阈值提升"**：人类本轮明确 + 参数逐字一致 → 阈值临时抬到 L2 | 保留"用户敲的命令不再问"；不给 L3 开口子 |
-| 2. 红线规则（含条件） | **第 1 步"分级"里的 L3 + 第 2 步硬闸 + 可选规则文件** | 红线从"必写规则"变成"内置分级 + 5 条硬闸" |
-| 3. 沙箱能兜住 → allow | **不假装有**：域/可逆性进分级；当前无 OS 沙箱，如实披露，P3 再补 | 现状为 0 |
-| 4. 可逆且边界内 → allow | **第 1 步分级**：workspace + reversible → L1；越域/不可逆 → L3 | 可逆性作为分级输入 |
-| 5. 兜底 ask 人工 | **第 3 步阈值** + once/session/project 记忆 + fail-closed | 阈值决定问不问，记忆决定问过之后 |
+## 5. 来源直通
 
-用户管线里"来源判定放第一"与我们"硬闸先于来源"的差异见 §5.3：来源只抬阈值、不绕过 deny/L3。
+| 形式   | 条件                                                                                                                            | 效果                        |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| 强形式 | 用户逐字输入的命令，工具与参数完全一致                                                                                          | 阈值临时抬到 L2，仅当次调用 |
+| 弱形式 | 用户自然语言明确点名操作与目标（“改完 commit 并 push”“跑一下测试”），Agent 执行的操作与目标与点名一致，未附加改变语义的参数 | 同上                        |
 
-### 4.2 未知命令到底怎么处理（直接回答）
+共同约束：本轮无不可信内容；输入来自真人交互通道（键盘 / 会话），非 Agent shell 或 API；上限 L2——用户逐字指定的 L3 操作（`rm -rf dist`、`curl`）仍问一次，但回显标注“来自你的指令”以加速确认。锚点原则：命名的对象是用户原话中的操作与目标，不是 Agent 的转述计划；“按 README 执行”的锚点是 README 不是用户，不满足直通。
 
-**不需要在注册表或配置里声明白名单。** 处理顺序：
+## 6. 审批记忆：通用授权选择器
 
-1. 内置命令分析给出分级（详见 §5.1）：只读 → L0；已知常规构建/测试 → L1；危险/解释器/网络/含 shell 元字符/引用工作区外路径 → L3；**其余未知的简单命令 → L2**。
-2. L2 的含义是"本地、但无法确认安全"，不是"危险"，也不是"安全"：
-   - Ask：ask；
-   - Approve·严格：ask；
-   - Approve·宽松：**自动执行 + 审计**（这就是宽松档存在的意义）。
-3. 被问之后，人可以选"允许一次 / 本会话 / 本项目"。选后同指纹命令自动记住，**下次不用再问，也不用写配置**。泛化（如 `npm run deploy` → 任意 `npm run *`）不会自动学，需要显式配置。
-4. 团队想强制收紧时，才写一条项目规则（如 `unknown: ask`），属于可选能力，不是运行前提。
+凡走到询问的动作（含 L3），人可选择作用域：
 
-所以：**白名单不是权限系统的必需品；它是"规则层"的一个可选用法。** 默认体验由内置分级 + 模式阈值提供。
+| 作用域      | 语义                 | 摩擦与默认建议                                |
+| ----------- | -------------------- | --------------------------------------------- |
+| just once   | 本次                 | 默认高亮；不可逆类红色警示                    |
+| for session | 会话内同指纹         | L2、固定目标（host / 收件人 / 分支+远端）建议 |
+| for project | 项目内同指纹，可撤销 | 不可逆类需额外确认                            |
+| for all     | 全局同指纹           | 键入确认；提示跨项目影响                      |
 
-### 4.3 为 Approve for me 增加"严格 / 宽松"
+规则：
 
-| 档位 | 自动放行上限 | 仍然会问 | 定位 |
-|---|---|---|---|
-| Ask | L0（只读） | L1–L3 | 陌生项目/高风险 |
-| Approve·严格（默认） | L1（工作区可逆写、已知常规命令） | L2（未知本地命令）、L3 | 日常默认 |
-| Approve·宽松 | L2（未知本地命令也自动） | L3（网络/外发/宿主机/不可逆/支付/凭证/规则） | 低摩擦，信任项目与 Agent |
+1. **指纹精确绑定 + 内容哈希**：命令按归一化命令行（realpath 解析、空白折叠、路径展开、引号等价；歧义即新指纹）；执行类绑定目标脚本内容哈希——脚本被改，记忆失效重新问；固定目标按 host / 收件人 / 分支+远端 / 收款方绑定。
+3. **泛化只能手写规则**：批准 `npm test` 不等于批准 `npm run *`。
+4. **不可记忆的只有两类**：包络修改（走带外确认，记忆它等于一次说服永久提权）与硬闸拒绝（不产生询问）。
+5. **for all 的跨项目提示**：路径绑定命令因绝对路径归一化天然隔离；非路径绑定命令（如 `git push --force`）指纹跨项目相同，键入确认文案必须提示。
+6. project / all 记忆在设置中可见、逐条撤销、可过期；规则或工具策略版本变更时失效清理。
+   原则表述：**人是主体；系统让选择知情、授权窄、可撤销。**
 
-> 表中的"会问"是首次行为；命中人工批准的记忆（once/session/project）时不再问，once-only 类别除外。
+## 7. 硬闸（6 类，代码级）
 
-- **宽松不是 Full access**：L3 永远问；硬闸永远生效；沙箱/边界不变。
-- **严格与宽松只差一个阈值**，实现上是同一个 `mode.level` 参数（0/1/2），不是两套代码。
-- 默认严格；切宽松需要显式选择并接受一次性风险提示（可被项目规则强制锁回严格）。
+1. 未注册工具拒绝；未归类工具或策略版本不匹配 → 询问一次。
+2. 秘密级：读（未解锁）/ 写 / 落盘（含写出工作区）/ 出站 → 拒绝。
+3. 灾难模式（`rm -rf /`、`mkfs`、`dd of=/dev/*`、fork bomb）→ 拒绝。
+4. 策略文件写 → 带外确认（系统通知级；会话内询问不覆盖；不可记忆）。
+5. 需人审而审批不可用 → 拒绝（fail-closed）。
+6. 模式 / 阈值变更仅接受真人交互通道；Agent 通道的变更请求 → 拒绝 + 审计。
 
-### 4.4 三方总表
-
-| 维度 | 当前实现 | 用户建议 | v0.2 |
-|---|---|---|---|
-| 用户可见 | 3 档 | 自动 + ask，可分层 | **Ask / Approve·严格 / Approve·宽松**（内部是 mode + level） |
-| 模式语义 | 能力天花板 | 策略预设 | **自动放行阈值**，不改变边界 |
-| 判定步数 | 8 阶段 + derive + Q1-Q3 | 5 步 | **3 步**（分级→硬闸→阈值） |
-| 未知命令 | 工作区写下自动执行（无沙箱），危险命令才问 | 未明确 | **L2：严格问、宽松自动、可记忆**，无白名单 |
-| 规则 | 命令规则数据化，红线硬编码 | 全局+项目两级规则 | 内置分级 + 可选规则层（只做收紧/预授权） |
-| 支付 | 仅类型 | 保留原则 | L3 + 可选规则（限额/收款方） |
-| 敏感数据 | 账本真、断流/污点假 | 污点近似 | 硬闸 secret + taint-lite 出站判定 |
-| 影响范围 | Domain 未使用 | 影响面 | 域+可逆性进 L1/L3 分级 |
-| 审批记忆 | once/session/workspace（内存） | 三种 allow | once/session/**project**（持久化、可撤销） |
-
----
-
-## 5. 设计
-
-### 5.1 风险分级 L0–L3
-
-分级是纯函数：`classify(toolPolicy, args, taint) → { level, effect, domain, reversibility, targets, scopes }`。
-
-| 等级 | 名称 | 典型 | 判据 |
-|---|---|---|---|
-| **L0** | 安全只读 | 读文件、rg、git status、ls | 工具声明 `effect=read`；命令是只读头且无 shell 元字符 |
-| **L1** | 常规可逆 | 编辑工作区文件、格式化、`npm test`、构建 | 目标在 workspace；可逆/可重生成；命令属内置常规类别 |
-| **L2** | 不确定（本地） | 未知简单命令、`npm run <任意脚本>`、运行工作区脚本 | 无明显危险、无 shell 元字符、未引用工作区外路径，但无法确认安全 |
-| **L3** | 严重 | `rm`、`git push --force`、`curl`、写 `~/.ssh`、支付、发布、读 `.env`、改规则 | 不可逆；越域（host/external）；网络；含 shell 元字符/解释器/内联代码；凭证；规则文件；未归类工具 |
-
-**分级不是白名单**：它由内置启发式（代码内，产品维护）计算；用户不需要逐条声明命令。
-
-内置命令启发式（与现有 `commands.json` 合并为"内置默认 + 可选覆盖"）：
-
-| 类别 | 规则 | 等级 |
-|---|---|---|
-| 只读头 | `ls/cat/rg/fd/git status/diff/log/ping/dig/...` + 无 `; & | < > \` $()` 等元字符 | L0 |
-| 常规构建 | 包管理器 `test/build/lint/fmt/typecheck`、`pytest/vitest/jest/tsc/biome`、`cargo/go test`、`make` 的已知目标；`npm run <script>` 仅当 script 名属于内置安全名（test/build/lint/fmt/typecheck） | L1 |
-| 自定义脚本 | `npm run deploy`、`make deploy` 等无法确认目标的脚本 | L2 |
-| 危险头 | `rm/dd/mkfs/chmod/chown/mv/cp/tee/sudo/...` | L3（灾难模式 deny） |
-| 解释器/内联 | `sh -c`、`bash -c`、`python -c`、`node -e`、`eval/exec/source` | L3 |
-| 解释器跑脚本 | `python script.py`、`node script.js`（脚本在 workspace） | L2 |
-| 网络 | `curl/wget`、`xh`、`git push/fetch` | L3 |
-| 元字符 | 管道/重定向/命令替换/多行 | L3（无法分析） |
-| 越域引用 | 参数含绝对路径、`~`、`..` 逃出 workspace | L3 |
-| 其他未知 | 无上述特征 | L2 |
-
-工具级声明（`ToolPolicy`，见附录 B）优先于命令启发式：`effect=read/write/exec/fetch/send/publish/payment/delete`、`reversibility`、`domain`、参数投影。**新工具未声明策略 → 归为 L3 + 全部模式 ask**（fail-safe；这是工具提供方写一次，不是用户日常维护）。
-
-各等级的默认可授予 scope：L0–L2 为 `once/session/project`；L3 默认 `once`，其中网络读取（fetch）例外为 `once/session/project`（人批准一次等于信任该 host 组合）；未归类工具为 `once`。
-
-污点（taint）只会上调等级：`taint=sensitive` + 出站 → L3；`taint=secret` + 出站 → 硬闸 deny；`taint=secret` 本身会让后续读取 secret 的路径保持 L3。
-
-### 5.2 模式 = 阈值
-
-| 模式 | 内部参数 | 自动放行 | 会 ask |
-|---|---|---|---|
-| Ask | threshold = L0 | L0 | L1 / L2 / L3 |
-| Approve·严格（默认） | threshold = L1 | L0 / L1 | L2 / L3 |
-| Approve·宽松 | threshold = L2 | L0 / L1 / L2 | L3 |
-
-补充规则：
-
-1. **来源直通**：人类本轮明确指令 + 参数逐字一致 + 期间无 untrusted 内容 → `threshold = max(threshold, L2)`（只对当前调用）。它让 Ask 模式下"用户自己敲的命令"也免问，但 L3 仍问。
-2. **审批记忆**：一次 ask 后可选 once/session/project；命中后同指纹直接 allow（L3 中不可记忆的类别除外）。**记忆不改变阈值，只回答本次 ask。**
-3. **规则层**（可选）：deny/ask 可收紧任意等级；allow 可预授权（如支付限额、域名白名单）。规则不能越过硬闸。
-4. **宽松的边界不变**：网络/宿主机/外发/发布/不可逆/支付/凭证/规则修改仍是 L3，宽松也 ask。
-
-模式选择的 UI：
-
-```
-权限：[ Ask（逐项确认） ▾ ]
-      ├─ Ask · 逐项确认        写文件、跑命令、联网都先问
-      ├─ Approve for me · 严格  工作区可逆操作自动；未知命令/联网/不可逆仍问
-      └─ Approve for me · 宽松  未知本地命令也自动；严重操作仍问（风险提示）
-```
-
-内部存 `mode: 'ask' | 'approve'` + `level: 'strict' | 'loose'`，旧档位映射见 §8。
-
-### 5.3 三步判定管线
-
-```ts
-decide(call, ctx): Decision {
-  // ① 分级：纯函数，无副作用
-  tool = registry.get(call.tool);
-  if (!tool) return deny('UNREGISTERED');
-  plan = classify(tool.policy, call.args, ctx.taint);
-  // plan = { level: 0|1|2|3, effect, domain, reversibility, targets, scopes }
-  if (plan.unclassifiedTool) return ask('UNCLASSIFIED_TOOL', { scopes: ['once'] });
-
-  // ② 硬闸：任何模式、任何配置、任何人指令都不放宽
-  if (plan.secretWrite)                    return deny('SECRET_WRITE');
-  if (plan.secretRead && !ctx.unlocked)    return deny('SECRET_READ');
-  if (ctx.taint === 'secret' && plan.egress)
-                                           return deny('SECRET_EGRESS');
-  if (plan.catastrophic)                   return deny('CATASTROPHIC');
-  if (plan.policyWrite)                    return ask('POLICY_SELF_MODIFY', { scopes: ['once'] });
-  const rule = evaluateRules(plan, ctx);   // 可选：deny / ask / allow
-  if (rule?.action === 'deny')             return deny(rule.id);
-
-  // ③ 阈值：规则收紧 → 来源抬升 → 规则放行 → 阈值 → 记忆 → ask
-  if (rule?.action === 'ask')              return ask(rule.id);
-  let threshold = MODE_THRESHOLD[ctx.mode.level];   // ask:0 / strict:1 / loose:2
-  if (isHumanExplicit(call, ctx))
-      threshold = Math.max(threshold, 2);           // 只抬到 L2，L3 仍 ask
-  if (rule?.action === 'allow')            return allow(rule.id);
-  if (plan.level <= threshold)             return allow('CLASSIFIED');
-  if (ctx.memory.find(plan, ctx))          return allow('APPROVED_BEFORE');
-  if (!ctx.approvalAvailable)              return deny('APPROVAL_UNAVAILABLE');
-  return ask('THRESHOLD', { scopes: plan.scopes });
-}
-```
-
-每一步的失败方向：
-
-| 步骤 | 决策 | 失败方向 |
-|---|---|---|
-| ① 分级 | 未注册 deny；未归类 L3+ask；其余 L0–L3 | fail-safe，未知偏保守 |
-| ② 硬闸 | deny / ask-once（规则 deny 也在此拦） | fail-closed，不可被来源或模式绕过 |
-| ③ 阈值 | allow / ask；记忆命中可 allow | 无审批者 → deny；L3 不可记忆类只 once |
-
-**为什么不是"来源判定第一步"**：来源直通在实现里只是"把阈值临时抬到 L2"，天然排在硬闸之后；这既保留了"用户亲手敲的命令不再问"，又不会让注入内容/转述借"用户说过"越过 deny 与 L3。这是对用户方案唯一的修正。
-
-### 5.4 审批记忆：once / session / project
-
-| 作用域 | 生命周期 | 存储 | 适用 |
-|---|---|---|---|
-| `once` | 本次调用 | 不落盘 | 所有 ask；L3 默认只允许这个 |
-| `session` | 当前会话 | 内存，含 sessionId | L2 未知命令、网络读取（人类显式批准后）、L1 |
-| `project` | 当前工作区，跨会话/重启 | `<MAZI_HOME>/config/auth/approvals.json`，按 workspace 路径索引 | L1/L2；网络读取（等于项目级域名信任）；Settings 可撤销 |
-
-规则（对应"信任累积但单向"）：
-
-1. **只有人能创建记忆**：UI 的允许按钮或人直接编辑文件；自动审核永不写记忆。
-2. **指纹绑定**：命令按归一化命令行、文件写按工具+路径、网络按 host、支付按 payee+金额+用途；不绑定能力类别。只读命令可按命令名粒度记忆。
-3. **不可记忆类别**：不可逆、支付、凭证、规则修改、宿主机/系统操作 → 只能 `once`（UI 不显示其他按钮）。网络读取可 `session/project`（人显式批准 = 信任该 host 组合）。
-4. **泛化必须显式**：`npm test` → `npm run *` 不会自动学；要么人直接改规则，要么逐条批准。
-5. **收紧容易、放松难**：Agent 只能读规则/记忆；任何写入命中 `POLICY_SELF_MODIFY`（ask once）；项目规则默认只收紧。
-6. **可撤销、可过期**：project 记忆在 Settings 列出、可逐条撤销；可配过期时间；规则/工具策略版本变化时失效清理。
-
-### 5.5 硬闸（代码）与可选规则层
-
-**硬闸只有 5 类（代码，不可配置放宽）**：
-
-1. 未注册工具 → deny；未归类工具 → ask。
-2. secret 写 → deny；secret 读未解锁 → deny；`taint=secret` 时任何出站 → deny。
-3. 灾难模式（`rm -rf /`、`mkfs`、`dd of=/dev/*`、fork bomb）→ deny。
-4. 权限规则/工具策略文件写入 → ask once（防自我提权）。
-5. 审批不可用且需要人审 → deny（fail-closed）。
-
-**规则层（可选）** 只做三件事：
-
-| 用途 | 例子 | 默认 |
-|---|---|---|
-| 收紧 | 项目禁用 `git push`，或所有 `unknown` 强制 ask | 可随时加 |
-| 预授权 allow | 支付 ≤ 限额 + 收款方白名单；域名 allowlist | 必须由人写 |
-| 单命令例外 | 团队约定某命令必须逐次审批 | 可随时加 |
-
-规则文件（可选）：
-
-- 全局：`<MAZI_HOME>/config/auth/permissions.json`
-- 项目：`<workspace>/.mazi/permissions.json`（默认**只能收紧**；放宽需人打开 `trustProjectRules`）
-
-规则求值：硬闸之后、阈值之前；deny/ask 无论等级一律生效；allow 只对"人写配置"生效且入审计；**不参与"未知命令是否有害"的推断**——那由分级负责。
-
-> 关键区别：v0.1 把规则当主判定，导致"要免问就得写白名单"；v0.2 把规则降为可选的收紧/预授权层，默认行为完全由分级 + 阈值决定。
-
-### 5.6 数据流污点（lite）
-
-- 每个会话维护 `taint: none | sensitive | secret` 与来源（路径/host/tool）。
-- `ingest` 工具命中 `sensitivePaths` → sensitive；命中 secret（仅解锁后可能）→ secret。
-- 出站动作（send/publish/网络命令/支付）：sensitive → 至少 L3（ask）；secret → 硬闸 deny。
-- 清除：新会话或人工显式"重置数据流"；**压缩不清除**（保留 v3 防"洗账"的结论）。
-- 不做全量账本/残留文件追踪（P2 可选）；如实声明"文件作为中继"这一缺口。
-
-### 5.7 Approve·宽松下"谁在批"
-
-v4.0 没有 AI 自评：宽松的自动放行来自**分级阈值**（L0–L2），确定性、可解释、可审计。P3 可选独立 reviewer 只处理灰区（L2），必须满足：独立实例、不读整段不可信上下文、只能 allow/ask、不确定就 ask、只对本次有效、不能写记忆/规则。AI 只缩小灰区，不替代红线。
-
-### 5.8 审计
-
-每次 `decide()` 一条记录：
-
-```ts
-interface PolicyDecision {
-  decisionId: string; ts: number;
-  sessionId: string; workspacePath: string;
-  mode: 'ask' | 'approve'; level: 'strict' | 'loose';
-  tool: string; actionDigest: string;
-  riskLevel: 0 | 1 | 2 | 3;
-  effect: EffectKind;
-  domain: 'sandbox' | 'workspace' | 'host' | 'external';
-  reversibility: 'reversible' | 'compensable' | 'irreversible';
-  taint: 'none' | 'sensitive' | 'secret';
-  provenance: 'human-explicit' | 'agent';
-  threshold: 0 | 1 | 2;
-  ruleId?: string;
-  outcome: 'allow' | 'ask' | 'deny';
-  reason: string;
-  approval?: { scope: 'once' | 'session' | 'project'; by: 'user'; latencyMs: number };
-  policyVersion: string;
-}
-```
-
-事件：`policy.decision` 每条 + 现有 `approval.requested/granted/denied/cancelled`（补齐 `actionDigest/ruleId/scopes/riskLevel`）。复用现有事件总线（JSONL + 哈希链）回放。审批回显保留：工具、动作摘要、目标、命令、host、金额/收款方/用途、等级、污点来源、规则 id、允许的 scope。
-
----
-
-## 6. 与现有代码的映射
-
-### 6.1 保留
-
-`ApprovalBroker` 与 TTL fail-closed、审批 UI/store、`/api/approvals`、事件总线与行为流、`effect-store` 回滚、路径 glob 与动作指纹工具、审批 echo/summarize（补字段）。
-
-### 6.2 改造
-
-| 模块 | 动作 |
-|---|---|
-| `permissions.ts`（5 档） | → `mode.ts`：`mode: ask \| approve` + `level: strict \| loose` |
-| `tool-gateway/permission.ts`（305 行） | → `decision-gateway.ts`（约 120 行）：注册 → 分级 → decide → 适配 `ToolCallResult` |
-| `core/authz/gateway.ts`（503 行，8 阶段） | → `permission/decide.ts`（约 150 行，3 步）+ `permission/classify.ts`（约 150 行） |
-| `core/authz/command.ts` + `command-policy.ts` | 保留命令分析，改为返回 L0–L3；内置启发式 + 可选覆盖 |
-| `runtime/config.ts`、`builtin.ts` | `minPermission/sideEffects` → `ToolPolicy` |
-| API/UI 的 `permissionCeiling`、scoped permissions | → `mode` + `level`（解析优先级不变） |
-| 审批作用域 | `workspace` → `project`，持久化 + 撤销 |
-
-### 6.3 删除
-
-`types.ts` 的 Grant/CapabilitySpec/EffectTier/PinnedVersions/Question、`derive.ts`、`risk.ts`（并入分级）、`labels.ts`（只留 secret/sensitive 路径清单）、`ledger.ts`、`secret.ts`、`trust.ts`、`telemetry.ts`、`egress.ts`、`sandbox.ts`（P3 真接入时再建）、`gateway-types.ts` 的 8 阶段契约、`permissions.ts` 档位；运行时的 `grantForPermissionLevel`/derive 调用/`ToolSpec`/`coCapabilities`；规划与实验台的档位概念。
-
-### 6.4 新增
-
-```
-packages/core/src/permission/
-  types.ts        # Mode/Level/RiskLevel/EffectKind/Domain/Decision/ToolPolicy
-  classify.ts     # 分级：工具策略 + 命令启发式 + taint
-  decide.ts       # 3 步管线
-  rules.ts        # 可选规则层：解析、合并、求值
-packages/runtime/src/permission/
-  tool-policy.ts        # 内置工具 ToolPolicy、未归类 fail-safe
-  decision-gateway.ts
-  approval-memory.ts    # once/session/project
-```
-
-目标：约 500–700 行实现 + 约 800–1000 行测试（比 v0.1 再降一档）。
-
----
-
-## 7. 场景走查
-
-| # | 场景 | 等级 | Ask | Approve·严格 | Approve·宽松 |
-|---|---|---|---|---|---|
-| 1 | `cat src/app.ts` | L0 | allow | allow | allow |
-| 2 | 编辑 `src/app.ts` | L1 | ask | allow | allow |
-| 3 | `npm test` | L1 | ask | allow | allow |
-| 4 | `npm run build` | L1 | ask | allow | allow |
-| 5 | `python3 scripts/gen.py`（未知但本地） | L2 | ask | ask | **allow**（留痕） |
-| 6 | `make deploy`（未知目标） | L2 | ask | ask | **allow**（留痕，可被项目规则收紧） |
-| 7 | `npm run deploy` | L2 | ask | ask | allow（留痕） |
-| 8 | `rm -rf dist` | L3 | ask once | ask once | ask once |
-| 9 | `curl https://x` | L3 | ask once/session | ask | ask |
-| 10 | 写 `~/.bashrc` | L3（越域） | ask once | ask once | ask once |
-| 11 | `git push --force` | L3 | ask once | ask once | ask once |
-| 12 | 读 `.env` | 硬闸 | deny | deny | deny |
-| 13 | 读 `customers.csv` 后 `curl` | 硬闸/ L3 | deny/ask | deny/ask | deny/ask |
-| 14 | 支付 ¥5（白名单内） | L3 | ask | ask（规则 allow 则 allow+审计） | 同左 |
-| 15 | 写 `.mazi/permissions.json` | 硬闸 ask once | ask | ask | ask |
-| 16 | 未归类新工具 | L3+askAll | ask | ask | ask |
-| 17 | 用户当轮："运行 `pnpm build`"，模型执行同命令 | L1 → 来源直通 | **allow** | allow | allow |
-| 18 | 网页内容诱导 `rm -rf /` | L3/灾难 | deny | deny | deny |
-| 19 | 批准"本会话允许 `python3 scripts/gen.py`" | L2 记忆 | 后续同指纹 allow | 同左 | 同左 |
-| 20 | 非交互遇到 L2/L3 | — | deny（无审批者） | deny | deny |
-| 21 | 项目规则要求 unknown 一律 ask | L2 收紧 | ask | ask | ask（宽松被收紧） |
-
-关键行为变化（相对当前）：
-- 宽松下 `python3 scripts/gen.py`、`make deploy` 会自动执行——这是用户要的"没有严重风险就放开"；严格下会问。
-- 任何网络/越域/不可逆/支付在宽松下仍然问；当前"工作区写"下 `curl` 其实可能自动执行，v0.2 反而更严。
-
----
-
-## 8. 迁移计划与验收
-
-### 8.1 分期
-
-| 阶段 | 内容 | 验收 |
-|---|---|---|
-| **P0 设计** | 确认 §9 决策 | 用户确认 mode/level 命名与默认 |
-| **P1 词汇** | `mode` + `level` 进配置/API/UI；旧档位映射：`read-only → ask`、`workspace-write → approve·strict`、`autonomous → approve·loose`（提示"宽松仍有 L3 人审"）、`text → ask + 空工具面` | 三个端点同一集合；旧 settings 可升级 |
-| **P2 分级引擎** | `classify.ts` + `ToolPolicy` + 命令启发式；`decision-gateway` 替换旧判权；规则层可选加载 | 场景 1–18 全过；`classify` 纯函数单测 |
-| **P3 记忆/污点** | once/session/project 持久化 + Settings 撤销；taint；事件补字段 | 场景 19–21；重启后 project 记忆仍在 |
-| **P4 清理** | 删除 §6.3；docs 同步；grep 无旧档位 | lint + test 通过 |
-
-### 8.2 验收
-
-- 矩阵：`等级 L0–L3 × 模式 3 档 × taint 3 态 × 域 4 类` 断言 outcome 与 scope；由 `ToolPolicy`/分级表机械生成。
-- 红队：注入诱导、项目规则放宽、shell 元字符绕过 readonly、`~/.bashrc` 越域、`.env` 后外发、宽松下未知命令留痕、非交互 fail-closed。
-- 回放：从 `policy.decision` 重建一次 ask（等级 → 阈值 → 规则 → 审批 → scope）。
-
----
-
-## 9. 待决策
-
-| # | 问题 | 建议 |
-|---|---|---|
-| D1 | 默认档位？ | **Approve·严格**。宽松需显式切换并接受提示；安全优先 |
-| D2 | 宽松下未知命令自动执行，接受吗？ | 这是 v0.2 的核心取舍：**接受**（L2 自动、留痕、可被项目规则收紧）；若把 L2 改成宽松也 ask，宽松档就退化回严格档，失去意义 |
-| D3 | 网络/越域/不可逆在宽松下是否也自动？ | **不**。它们是 L3，宽松只到 L2；这也是"宽松 ≠ Full access"的边界 |
-| D4 | 来源直通的上限？ | **L2**：用户亲手敲的普通命令免问，但 `rm/curl/.env` 等 L3 仍问（可配置放开） |
-| D5 | 命令白名单要不要？ | **不要**。内置分级 + 记忆 + 可选规则三层已经覆盖；白名单只作为项目规则的可选写法 |
-| D6 | UI 呈现？ | 一个选择器三项（Ask / Approve·严格 / Approve·宽松），内部 model 仍是 mode+level |
-
----
-
-## 附录 A：风险分级速查（实现时直接照此写）
-
-```text
-未注册工具                     → deny
-未归类工具（无 ToolPolicy）     → L3 + ask all（once）
-effect=read & 无副作用          → L0
-effect=write & workspace & 可逆 → L1
-effect=delete / irreversible    → L3
-effect=fetch                    → L3（网络；可被规则/记忆预授权）
-effect=send/publish/payment     → L3
-domain=host/external            → L3
-secret 读/写                    → 硬闸 deny
-policy 文件写                   → 硬闸 ask once
-灾难命令                        → 硬闸 deny
-未知命令                        → L2（严格问 / 宽松自动）
-```
-
-## 附录 B：ToolPolicy
-
-```ts
-interface ToolPolicy {
-  effect: 'read' | 'write' | 'exec' | 'fetch' | 'send' | 'publish' | 'payment' | 'delete' | 'delegate';
-  reversibility: 'reversible' | 'compensable' | 'irreversible';
-  domain: 'sandbox' | 'workspace' | 'host' | 'external';
-  targets?: {
-    pathParams?: string[]; hostParams?: string[]; commandParam?: string; commandPrefix?: string;
-    amountParam?: string; payeeParam?: string; purposeParam?: string;
-  };
-  ingest?: boolean;          // 输出进上下文，用于 taint
-  untrustedOutput?: boolean; // 网络/MCP 输出，不触发来源直通
-}
-```
-
-## 附录 C：术语
-
-| 术语 | 含义 |
-|---|---|
-| 等级 Level | L0 只读 / L1 常规可逆 / L2 不确定 / L3 严重 |
-| 模式 Mode | ask / approve（Approve 带 level：strict / loose） |
-| 阈值 Threshold | 自动放行的最高等级：Ask=0、严格=1、宽松=2 |
-| 硬闸 Guard | 5 类代码级、不可放宽的 deny/ask-once |
-| 审批记忆 Grant | once / session / project |
-| 来源直通 | 人类明确指令把阈值临时抬到 L2 |
-| 规则 Rule | 可选例外层：收紧或显式预授权 |
-
-## 附录 D：原则保留
-
-| 原原则 | v0.2 落点 |
-|---|---|
-| 授权只在人、Agent 不能自提权 | 硬闸 `POLICY_SELF_MODIFY`；记忆只能人创建 |
-| 单向收紧 | 项目规则只收紧；泛化必须人显式配置 |
-| 不可逆/支付/发布必须人审 | 归为 L3，宽松也 ask |
-| 支付限额是唯一预授权 | 可选规则 `pay.limit`，allow 需人写并审计 |
-| 敏感数据不出站 | secret 读写 deny、taint=secret 出站 deny、敏感出站 L3 |
-| 影响范围/可逆性 | 分级 L1 vs L3；域与可逆性是核心判据 |
-| 缺件拒绝、审计可回放 | 无审批者 deny；`policy.decision` + 事件哈希链 |
-| 新工具默认不可信 | 未归类工具 L3 + ask all |
-| （删除）沙箱/代理/签名 TCB/疲劳度量/钉版 | P3 再评估；文档明确披露 |
+## 8. 可选规则层
+
+只做三件事：**收紧**（项目禁某操作、未知命令强制问、`untrusted_in_session: escalate`——本轮出现不可信内容时 L2 降为询问）、**预授权**（支付限额 + 收款方白名单、域名白名单、部署到自有环境）、**单命令例外**。全局 + 项目两级，项目默认只收紧。求值在硬闸后、阈值前；拒绝与询问无论等级生效；预授权需人写并入审计。规则不参与“未知命令是否有害”的推断——那是分级的职责。
+
+## 9. 污点：路径集 + 文件中继
+
+会话维护污点路径集与内容指纹，级别分无 / 敏感 / 秘密。读入敏感内容入集；Agent 写出的文件携带标记（扩展属性或 sidecar），再读入时延续——堵“秘密 → 临时文件 → 读回 → 外发”的洗账路径。出站判定看引用关系而非一票否决：请求引用污点内容 → 升 L3；引用秘密 → 硬闸。清除：新会话或人工重置；上下文压缩不清除。
+
+## 10. 沙箱：最后的机械底线
+
+分级是路由、硬闸是底线、**沙箱是边界**。三件套必须同时落地，单独封文件没有用：
+
+| 组件 | Linux                                         | macOS              |
+| ---- | --------------------------------------------- | ------------------ |
+| 文件 | Landlock / bubblewrap（工作区可写、其余只读） | Seatbelt           |
+| 网络 | 隔离网络命名空间 + 出站白名单代理             | PF 出站规则 + 代理 |
+| 凭证 | 不进 Agent 进程，代理在出站处注入 / 替换      | 同左               |
+
+每次决策记录隔离自报（完整 / 部分 / 无），如实上报不假设。**未接线期间的已知缺口随文档发布**：解释器进程内的网络请求无解；越域写仅靠分级 + 询问；本地未鉴权 API 不在权限系统范围。Approve for me 在含不可信内容的工作流、共享多租户环境下以沙箱三件套为推广硬前置；单人单机可在来源链落地后灰度。
+
+## 11. 非交互与审批疲劳
+
+**非交互**（CI、定时、长程）：按 Approve 阈值执行，凡本应询问的动作 → 拒绝 + 留痕。运行清单（人写声明：工具 / 命令模板 / 域名 / 目标）等于一次性审批一个明确计划；清单外拒绝；清单不豁免硬闸。
+**疲劳是安全指标**：询问必须展示“为什么问”；L3 审批交互差异化（红框、键入确认、不可逆标记），打断统一肌肉记忆；审批延迟滑动窗口（均值 <1 秒且 ≥20 次）触发告警。固定目标操作可记忆，正是为了把询问量从最危险的类别上移走。
+
+## 12. 审计
+
+一次决策一条记录：时间、会话、项目、模式、工具与动作摘要、等级与原因码、三轴取值、污点状态、来源（用户显式 / Agent）与通道、隔离自报、规则 id、结果、审批信息（作用域、延迟）。追加日志 + 哈希链，可回放重建任意一次决策。审批回显：动作摘要、目标、等级、为什么问（原因码 + 判据）、可选作用域、不可逆标记、是否来自用户指令。
+
+## 13. 场景速查
+
+| 场景                                                           | 判定                        | Ask                                | Approve for me     |
+| -------------------------------------------------------------- | --------------------------- | ---------------------------------- | ------------------ |
+| 读工作区文件、检索                                             | L0                          | 放行                               | 放行               |
+| 编辑工作区文件、跑测试                                         | L1                          | 问                                 | 放行               |
+| 运行人写且会话前已存在的脚本                                   | L2                          | 问（可记忆）                       | 放行留痕           |
+| 运行本会话 Agent 所写脚本                                      | L3 来源链                   | 问                                 | 问                 |
+| 运行 Agent 改过 package.json 后的脚本                          | L3 来源链 + 内容哈希        | 问                                 | 问                 |
+| `make deploy`                                                | L3 发布语义                 | 问                                 | 问                 |
+| **普通 `git push`**（非 force、既有 remote、自有仓库） | **L2 自有域补偿同步** | 问；批准后可记忆                   | **放行留痕** |
+| **用户明确“改完 commit 并 push”**                      | **弱直通命中**        | **放行**                     | 放行               |
+| `git push --force`                                           | L3 不可逆                   | 问（选择器；project/all 键入确认） | 问                 |
+| push 到会话内新增 / 修改的 remote                              | L3 目标链                   | 问                                 | 问                 |
+| push 内容引用污点数据                                          | L3 污点出站                 | 问                                 | 问                 |
+| `rm -rf dist`                                                | L3 不可逆                   | 问（选择器）                       | 问                 |
+| `curl` 任意目标                                              | L3 任意目标网络             | 问；批准后按 host 记忆             | 同左               |
+| 读 `.env`                                                    | 硬闸                        | 拒绝                               | 拒绝               |
+| 读客户数据后 curl 引用其内容                                   | L3 污点出站                 | 问                                 | 问                 |
+| Agent 写 git hooks                                             | L3 包络                     | 问                                 | 问                 |
+| 写权限策略文件                                                 | 硬闸带外                    | 系统通知确认                       | 系统通知确认       |
+| 用户逐字命令                                                   | 强直通                      | 放行（≤L2）                       | 放行               |
+| 网页内容诱导删除系统                                           | 灾难                        | 拒绝                               | 拒绝               |
+| 非交互无清单遇 L2 / L3                                         | —                          | —                                 | 拒绝 + 留痕        |
+| 审批延迟均值 <1s × 20 次                                      | 疲劳                        | 告警                               | 告警               |
+
+## 14. 实施顺序与验收
+
+P1 词汇：两模式落地，旧档位映射（只读→Ask；工作区写→Approve；全自动→Approve 并提示“L3 仍问、预授权走规则”）。P2 分级引擎：三轴评估、来源链 / 目标链、内容哈希指纹、归一化测试集。P3 记忆持久化、污点文件中继、沙箱三件套、疲劳指标。P4 清理旧档位路径。
+验收：等级 × 模式 × 污点 × 域矩阵机械断言；红队清单（Agent 写脚本再执行、复制粘贴注入、Agent 冒充用户改模式、指纹归一化变体、文件中继洗账、元字符绕过、非交互 fail-closed、新增 remote 后 push 外发）。
+
+## 15. 决策记录
+
+| #   | 决策                                                                                   | 状态         |
+| --- | -------------------------------------------------------------------------------------- | ------------ |
+| D1  | 默认 Ask；Approve for me 显式切换                                                      | 已定         |
+| D2  | Approve 对 L2 自动 + 留痕；前置 = 来源链进分级                                         | 已定         |
+| D3  | 询问路径动作一律进入通用选择器（once / session / project / all）；不可记忆仅包络与硬闸 | 已定         |
+| D4  | 来源直通强 / 弱双形式；本轮无不可信内容 + 真人通道 + 上限 L2 + 不得附加语义参数        | 已定         |
+| D5  | 不要命令白名单；内置分级 + 记忆 + 可选规则                                             | 已定         |
+| D6  | UI 两项选择器；内部数值阈值                                                            | 已定         |
+| D7  | 非交互：would-ask → 拒绝；运行清单预授权                                              | 已定         |
+| D8  | 网络后果分级：自有域补偿性同步 L2，任意目标 / 目标链命中 L3；push 永不 deny            | 已定（本轮） |
+| D9  | 包络修改带外确认的形态（系统通知级）                                                   | 待定         |
+| D10 | 疲劳告警动作：仅提示，还是自动降级 Ask                                                 | 待定         |
