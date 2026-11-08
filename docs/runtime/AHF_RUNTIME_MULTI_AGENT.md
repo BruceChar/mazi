@@ -92,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_delegation_parent ON delegation_edges(parent_goal
 
 
 ```
-// packages/core/src/delegation.ts（新增；index 导出）
+// packages/runtime/src/agent/delegation.ts（新增；index 导出）
 export interface DelegationEdge { /* §3.2 的类型投影，不含存储细节 */ }
 export interface DelegationValidationInput {
   edges: readonly DelegationEdge[];

@@ -51,12 +51,14 @@
 
 ## 3. 实现位置
 
-- `packages/provider/src/pi-ai-mapper.ts`：纯映射函数（toContext/toVendorUsage/translateEvent…）
-- `packages/provider/src/pi-ai-driver.ts`：`PiAiDriver implements LLMDriver`（`Models.getModel` 惰性解析、env 校验、`models.stream/complete`）
-- `packages/provider/src/pi-ai-mapper.ts`：纯映射（LLMRequest/Context ⇄ pi-ai Context/Tool/Message；事件翻译）
-- `packages/provider/src/default-registry.ts`：`DefaultDriverRegistry`（type=pi-ai）
-- 测试：pi-ai **faux provider**（`fauxProvider()` + `createModels()`）离线端到端验证 stream/complete 映射，无需真实凭据
-- `packages/runtime/src/runtime.ts`：装配点改用 `DefaultDriverRegistry`
+> 现状对齐：早期设计的 `PiAiDriver` / `DefaultDriverRegistry` / `pi-ai-mapper` 已收敛为「适配器桥 + 目录装配」，下述为当前实现。
+
+- `packages/provider/src/pi-ai-adapter.ts`：`createPiProvider(options): LLMProvider` —— pi-ai ⇄ 本仓 `LLMProvider` 的桥接（惰性解析模型、env 校验、stream/complete 映射）；`normalizePiUsage` 把厂商用量归一为本仓 usage
+- `packages/provider/src/deepseek.ts`：DeepSeek 适配器，内部复用 `createPiProvider`
+- `packages/provider/src/from-config.ts`：`deepseekAdapter` / `providerCatalog` / `SUPPORTED_ADAPTERS` / `discoverModels`（适配器装配与模型发现）
+- `packages/provider/src/index.ts`：包级导出面，runtime 只从这里取
+- 测试：`packages/provider/test/pi-ai-adapter.test.ts` 用 faux provider 离线验证 stream/complete 映射，无需真实凭据
+- 装配点：`packages/runtime/src/provider/assemble.ts`（端点/画像/限流编排），调用方在 `packages/runtime/src/harness/runtime.ts`
 
 ## 4. 验收（对应 MVP 文档 §6 扩展）
 

@@ -2,7 +2,7 @@
 
 **文档版本**：v1.0 | **状态**：设计定稿 
 
-**契约位置**：`packages/core/src/tool-gateway.ts` 
+**契约位置**：`packages/core/src/authz/gateway.ts` 
 
  **实现位置**：`packages/runtime/src/tool-gateway/`
 

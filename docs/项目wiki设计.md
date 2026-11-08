@@ -250,7 +250,7 @@ $MAZI_HOME/wiki/
 
 **WebUI**
 
-- `apps/webui/test/wiki-page.test.ts`：空态渲染；有数据时的快照与时间线条目渲染。
+- `apps/webui/test/wiki.test.ts`：空态渲染；有数据时的快照与时间线条目渲染。
 
 **端到端手动验收**
 
