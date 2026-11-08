@@ -315,3 +315,16 @@ evidence = [
 established = 2026-11-09
 verified = 2026-11-09
 supersedes = "runtime-task-planning-triage-order"
+
+[claims.webui-trace-audit-anchor]
+text = "The right-side Trace panel preserves an explicit audit anchor for the selected scope: Step anchors include R/T/S coordinates plus rootGoalId, goalId, taskId, stepId, timestamps and step/task status; Task and run scopes retain their corresponding IDs and timing. Contract, acceptance, context, token, cost and tool facts therefore remain attributable to the exact audited Step even though the conversation surface omits that audit metadata."
+status = "active"
+evidence = [
+  { file = "apps/webui/src/scripts/audit.ts", oid = "ff739856c33827b540fc2cef848e619e390e1bfb" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "c8a0cda59998077d034998aebb7b779770cd81c7" },
+  { file = "apps/webui/test/audit.test.ts", oid = "e34b955fe34f7413cc87fb579ffc7cb21714fac1" },
+  { file = "docs/webui.md", oid = "90ff763296dc4e1fa27e391b46a124e012126d05" },
+  { file = "docs/web/观测看板设计.md", oid = "8cda9e2076c72cd2baf00cf35662749104250756" },
+]
+established = 2026-11-09
+verified = 2026-11-09
