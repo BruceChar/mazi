@@ -37,7 +37,7 @@ verified = 2026-11-08
 text = "ExecStream renders bare-code answers as one code block, hides the contract card and task block for direct-route answers, keeps completed settled steps expanded while live execution rows are expandable/collapsible (only the active streaming reasoning is one line), and places approval/authorization behavior rows inline in the gated tool Step."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/ExecStream.vue", oid = "12bea42e3895331a97d54c5058483dda18d0fc5d" },
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "3f6dba24ca334102c6b10ddb41dac77021513018" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "1454c6b42dd10de6a3c3fa28dc6a734db7f18950" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
   { file = "apps/webui/src/scripts/behavior-placement.ts", oid = "8c500d77c8039b573e8d38aab6584e0398dacd11" },
@@ -61,7 +61,7 @@ verified = 2026-11-07
 text = "Opening a project wiki from the project menu switches the global workspace so the top bar shows that wiki project's path."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/App.vue", oid = "c24dadfc00c2eb798e16126934d849e0d9942b9b" },
+  { file = "apps/webui/src/App.vue", oid = "f53f5a6499b4abd768ad389debaba9fef940e3ef" },
 ]
 established = 2026-11-07
 verified = 2026-11-08
@@ -99,12 +99,12 @@ retracted_reason = "Project Wiki core migrated from wiki.py into runtime/wiki; m
 text = "HarnessRuntime awaits the in-flight async triage before generating a Task plan, forwards conversation history into the planner prompt, retries with a strict-split hint when a multi-artifact goal collapses into one task, and plan.created events carry task titles plus dependencies for auditing."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "85e2244f7290f0a533773d6ff2f5d511a21a587c" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "fccd52e795225257aa1de366e8afc589affdf335" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "d8a1c79aabb3ad04aca7b448d20ca11d8d8eac11" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "7d96b61baa2289e47b67943d5ab7c578b833ef58" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.contract-mechanical-checks-v2]
 text = "Goal contracts support deterministic checks final-answer/no-failed-steps/file-exists/file-contains/git-has-commit/command-output-contains; triage can emit structured checks and the verifier evaluates them through an injected ConditionEnvironment."
@@ -156,12 +156,12 @@ retracted_reason = "Incremental Project Wiki behavior is now implemented in runt
 text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass; verification failures mark the task and goal failed and trigger a bounded default LLM replan that sequences the remaining work, while aborted tasks stay resumable."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "85e2244f7290f0a533773d6ff2f5d511a21a587c" },
-  { file = "packages/runtime/src/gts/replan.ts", oid = "0b4ae77b2a2ae95644ae42716e8264f936a9ce58" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "d8a1c79aabb3ad04aca7b448d20ca11d8d8eac11" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "fccd52e795225257aa1de366e8afc589affdf335" },
+  { file = "packages/runtime/src/gts/replan.ts", oid = "8ba51582a108d6f7fcc0b55bf117464c60654dc0" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "7d96b61baa2289e47b67943d5ab7c578b833ef58" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.project-context-lifecycle-runtime]
 text = "Project Context Lifecycle is a runtime-owned subsystem: it assembles task-scoped context packets at SessionStart, anchors long-session compaction in persisted facts and evidence, and asynchronously finalizes SessionEnd with deterministic diff/oid/research preflight plus optional bounded semantic distillation and checkpoint validation."
