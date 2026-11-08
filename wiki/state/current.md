@@ -26,4 +26,5 @@
 - 2026-11-08 14:00:24 | 成功 | 修复 BOSS 项目探索会话不沉淀 Wiki | 从 Session trace 提取安全读取文件并在无 diff 时自动沉淀；BOSS Wiki 已补齐 6 份文档、8 条 claims，checkpoint 成功；全量 1085 项测试通过
 - 2026-11-08 14:48:29 | 成功 | 设计 runtime 内置 Project Context Lifecycle | 定义项目上下文生命周期、Context Packet、长会话压缩锚点、SessionEnd 自动沉淀、持久队列、安全边界、API/UI 与迁移路径
 - 2026-11-08 15:18:27 | 成功 | 迁移 Project Wiki 到 runtime 并实现事实纠正与遗忘 | wiki.py 核心能力迁入 runtime/wiki；Harness/API 不再依赖 Python；新增 runtime CLI、claim correct/forget、API 与 UI 状态；全量 1088 项测试通过
+- 2026-11-08 20:30:33 | 失败 | 项目有代办吗 | 有，但不多。扫描命令均正常退出（`exit=0`）。 ## 1. 唯一的待办清单文件：`docs/TODO.md` \| 行 \| 主题 \| 内容 \| \|---\|---\|---\| \| 2-5 \| 用户行为追踪 \| 思维链、授权等行为链 \| \| 7-25 \| Provider 监控面板 \| 模型性能/延迟/能力/收费/满意度展示，默认
 <!-- activity:end -->
