@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SessionsService } from '../src/sessions/sessions.service.js';
 
 /** FeatureRuntime 空替身：无开关 = 无运行级覆盖（SessionsService 现在也读全局 Feature）。 */
@@ -177,6 +177,46 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         expect(captured[0]?.taskPlanning).toBe(true);
         expect(captured[0]).not.toHaveProperty('allowedTools');
         expect(String(captured[0]?.promptFragment ?? '')).not.toContain('随心聊模式');
+    });
+
+    it('Session 执行结束后只把 Wiki 同步任务入队，不阻塞当前会话', async () => {
+        const scheduleSessionSync = vi.fn();
+        const runtime = {
+            ...noFeatures,
+            harness: () => ({
+                executeGoalTree: async () => ({
+                    ok: true,
+                    rejected: [],
+                    tasks: [{ finalMessage: '回答完成' }],
+                }),
+            }),
+            runExclusive: async (operation: () => Promise<unknown>) => operation(),
+        };
+        const conversations = {
+            runContext: () => ({
+                conversationId: 'c1',
+                title: '你好',
+                input: '你好',
+                workspace: '/project',
+                projectId: 'project-id',
+            }),
+        };
+        const maintenance = { scheduleSessionSync };
+        const service = new SessionsService(
+            runtime as never,
+            conversations as never,
+            undefined,
+            maintenance as never,
+        );
+        await service.executeSession('session-1');
+        expect(scheduleSessionSync).toHaveBeenCalledWith({
+            rootGoalId: 'session-1',
+            workspace: '/project',
+            projectId: 'project-id',
+            input: '你好',
+            ok: true,
+            summary: '回答完成',
+        });
     });
 
     it('无最终回答时只输出 user 输入', async () => {

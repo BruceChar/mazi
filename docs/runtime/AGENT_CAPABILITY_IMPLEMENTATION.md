@@ -14,7 +14,8 @@
   `mazi.db`），以及
   `/api/projects/blackboard(+reconcile)` / `/api/projects/:id/blackboard(+reconcile)` 项目黑板接口。
 - **WebUI**：新增 Eval Dashboard（全局/项目/会话）；个人记忆治理并入用户中心，项目黑板通过
-  `GET /api/wiki` 并入原项目 Wiki，支持查看结构化知识、证据、版本与源漂移检查。
+  `GET /api/wiki` 作为兼容数据保留；项目 Wiki 页面优先展示 repository-backed v2 文档、
+  claims 校验状态和 Git 来源，不再以编程项目专用的黑板字段作为主视图。
 
 P0 当前仍为基础版：评测任务环境 fixture、真实在线数据集、记忆向量语义索引和黑板章节自动语义重写仍属于后续增强。
 
@@ -102,8 +103,11 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 - `GET /api/eval/tasks`：读取 30 个 P0 Benchmark 基线任务。
 - `POST /api/eval/runs`：运行指定 Eval Task 并返回报告；运行中、完成和失败状态均落 SQLite。
 - `GET /api/eval/runs` / `GET /api/eval/runs/:id/report`：查询运行和完整报告。
-- `GET /api/wiki`：项目 Wiki 复合视图（Wiki 快照、变更日志、项目黑板）。
+- `GET /api/wiki`：项目 Wiki 复合视图（v2 repository 文档与 claims，兼容旧快照、变更日志和项目黑板）。
 - `POST /api/wiki/reconcile`：从项目 Wiki 入口执行项目知识源漂移检查。
+- `POST /api/wiki/init`：启动隐藏 Agent 读取项目并完成首次 Wiki 填库。
+- `POST /api/wiki/update`：启动隐藏 Agent 检查项目变化，更新文档、claims 与 oid。
+- `GET /api/wiki/operations/:id`：查询 Wiki 后台维护任务状态。
 - `DELETE /api/agent/roles/:id`：删除 Agent Role，并以 disabled 记录持久化。
 - `GET /api/sessions/:id/effects`：读取副作用 journal。
 - `POST /api/sessions/:id/rollback`：逆序恢复可逆文件副作用。

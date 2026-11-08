@@ -1,6 +1,10 @@
 # 项目 Agent Wiki 设计文档（v2）
 
-> 形态：Skill（程序）+ Wiki（产物）· 零第三方依赖 · Git 硬依赖 · 不绑定任何 agent 框架
+> 状态：存储格式与校验机制参考。生命周期、上下文组装、压缩和异步编排以
+> [AHF_PROJECT_CONTEXT_LIFECYCLE.md](./AHF_PROJECT_CONTEXT_LIFECYCLE.md) 为准。
+
+> 形态：Runtime Project Wiki Provider + Git 产物 · 零第三方运行时依赖 ·
+> Git 硬依赖 · 不绑定任何 agent 框架
 
 ---
 
@@ -8,7 +12,7 @@
 
 ### 1.1 问题
 
-Agent 每次接手项目都要重读代码对齐上下文：成本高、易漏易错、且每次重复。静态文档写完即过期，无法承载“项目现在进行到哪”的动态状态。
+Agent 每次接手项目都要重读材料对齐上下文：成本高、易漏易错、且每次重复。静态文档写完即过期，无法承载“项目现在进行到哪”的动态状态。
 本设计把项目知识做成一个**活的、可验证的、随会话演化的 wiki**：会话开始时从它建立项目认知，会话进行中学到的事实当场写回，会话结束打点持久化——下次会话从这里继续，而不是从零开始。
 
 ### 1.2 目标
@@ -98,12 +102,12 @@ project-wiki/                     ← 安装到 harness 的 skills 目录
 repo/                            ← 唯一的 .git 在仓库根
 ├── AGENTS.md                    # L0 入口（3-5 行），指针指向 SKILL.md 与 wiki
 └── wiki/                        # ★ skill 的产物：纯数据，无可执行物
-    ├── INDEX.md                 # 路由表 ≤50 行（L1），含模块地图
+    ├── INDEX.md                 # 路由表 ≤50 行（L1），含项目地图
     ├── overview/                # 静态事实层（人工主责，偶尔改）
-    │   ├── architecture.md
-    │   ├── conventions.md
-    │   ├── commands.md          # init 从 Makefile 等预填
-    │   ├── deployment.md
+    │   ├── architecture.md      # 项目全貌、组成部分、关系与工作流
+    │   ├── conventions.md       # 协作方式、质量要求与红线
+    │   ├── commands.md          # 人工流程 + init 提取到的可执行入口
+    │   ├── deployment.md        # 环境、资源、交付与维护
     │   └── decisions/           # ADR
     ├── state/                   # 动态状态层（agent 主责，频繁改）
     │   ├── current.md
@@ -117,8 +121,8 @@ repo/                            ← 唯一的 .git 在仓库根
 repo/
 ├── AGENTS.md
 ├── .claude/skills/project-wiki/ # skill 全仓库唯一一份（项目级安装）
-├── wiki/                        # 根 wiki：只放跨模块事实
-│   ├── INDEX.md                 # 模块地图（枢纽）
+├── wiki/                        # 根 wiki：只放跨部分事实
+│   ├── INDEX.md                 # 项目地图（枢纽）
 │   ├── overview/
 │   └── claims.toml
 └── services/
@@ -134,7 +138,7 @@ repo/
 |---|---|---|
 | 模块内部事实 | 该模块 claims.toml | "auth 的 JWT 过期时间 15 分钟" |
 | 跨模块事实 | **永远归根 wiki**（单一归属，两处存必然漏改一处） | "auth 通过 Kafka 发 order-events 给 billing" |
-| 全局约定/架构 | 根 overview/ | 部署拓扑、跨服务命名规范 |
+| 全局工作方式/结构 | 根 overview/ | 协作规则、交付条件、跨部分关系 |
 -----------------------------------------------------------
 
 ## 5. 信息分层与准入
@@ -151,8 +155,8 @@ repo/
 
 ### 5.2 准入原则
 
-> **代码无法自述的全局认知才写；代码能自述且单次读取成本可控的局部细节不写。**
-> Wiki 定位：**“代码无法自述的那部分认知的缓存”**。
+> **材料无法直接表达、但会影响后续工作的全局认知才写；材料本身已清楚且读取成本可控的局部细节不写。**
+> Wiki 定位：**“项目材料无法直接表达的那部分认知的缓存”**。
 >
 > | 类型                                   | 写否 |
 > | -------------------------------------- | ---- |
@@ -195,7 +199,7 @@ retracted_reason = "迁移至 PASETO v4，JWT 相关事实全部失效"
 ### 6.2 oid 的语义
 
 **blob oid 是文件内容的纯函数**：`oid = H("blob " + size + "\0" + content)`，`git hash-object <file>` 直接读工作区文件计算，**与该文件是否被 commit 无关**。
-wiki commit 的本质是固化一个**数值声明**：“写下这条 claim 的时刻，工作区里 `src/auth/jwt.py` 的内容对应的 oid 是 fb947d…”。它不存储文件内容——内容在后续的代码 commit 才进 git 历史，两者通过同一个 oid 数值对齐，不需要在同一个 commit 里。
+wiki commit 的本质是固化一个**数值声明**：“写下这条 claim 的时刻，工作区里 `src/auth/jwt.py` 的内容对应的 oid 是 fb947d…”。它不存储文件内容——内容在后续的项目内容 commit 才进 git 历史，两者通过同一个 oid 数值对齐，不需要在同一个 commit 里。
 **“读哪个 oid”随场景而变，见 §7.2 四模式表**——这是正确性的关键细节。
 
 ### 6.3 Claim 与 Evidence 是 N:M 映射
@@ -269,25 +273,25 @@ flowchart TD
 
 ### 8.1 两个前提
 
-**时机**：触发点是 **task 完成**（代码+claim 一致性）与 **session 结束**（checkpoint），不是每轮对话。
-**对象**：自动 commit **严格限定为 wiki 自身**。工作区可能有用户 WIP、实验代码、密钥——agent 无权替人判断“该不该进历史”。
+**时机**：触发点是 **task 完成**（项目内容与 claim 一致）与 **session 结束**（checkpoint），不是每轮对话。
+**对象**：自动 commit **严格限定为 wiki 自身**。工作区可能有用户 WIP、实验内容、密钥——agent 无权替人判断“该不该进历史”。
 
 ### 8.2 内容一致性铁律
 
-同一 claim 的所有 evidence 必须在任意时点描述同一个代码状态；禁止“evidence[0] 新、evidence[1] 旧”的半新半旧中间态。两条达成路径，门禁只验**终态一致**：
+同一 claim 的所有 evidence 必须在任意时点描述同一个项目状态；禁止“evidence[0] 新、evidence[1] 旧”的半新半旧中间态。两条达成路径，门禁只验**终态一致**：
 
 | 路径                                                                         | 流程                                                                  |
 | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| **A 同 commit**                                                        | 代码与 claim 变更一起提交                                             |
-| **B wiki 先行**                                                        | claim 即时 commit → 代码随后提交，两次 commit 之间 evidence 内容未变 |
-| 风险窗口（两次 commit 之间 evidence 又被改）由门禁在代码 commit 时抓住拦截。 |                                                                       |
+| **A 同 commit**                                                        | 项目内容与 claim 变更一起提交                                          |
+| **B wiki 先行**                                                        | claim 即时 commit → 项目内容随后提交，两次 commit 之间 evidence 内容未变 |
+| 风险窗口（两次 commit 之间 evidence 又被改）由门禁在项目内容 commit 时抓住拦截。 |                                                                       |
 
 ### 8.3 三层自动化架构
 
 ```mermaid
 flowchart TD
     A["层1: wiki 写入即 commit<br/>wiki.py 内置，确定性 100%<br/>git commit wiki/ ← pathspec 限定"] --> B["层2: 提交门禁<br/>pre-commit → doctor --staged<br/>index oid vs claim 声明"]
-    B --> C["层3: session 收尾<br/>wiki.py checkpoint<br/>兜底 + 报告未 commit 代码"]
+    B --> C["层3: session 收尾<br/>wiki.py checkpoint<br/>兜底 + 报告未 commit 内容"]
     C --> D["wiki 演化完整落历史<br/>声明与现实始终一致<br/>用户 WIP 永不被裹挟"]
 ```
 
@@ -295,7 +299,7 @@ flowchart TD
 
 ```python
 def auto_commit(wiki_root, message, no_commit=False):
-    if no_commit:                       # 逃生门：攒着和代码一起提
+    if no_commit:                       # 逃生门：攒着和项目内容一起提
         return
     run(["git", "add", str(wiki_root)])
     run(["git", "commit", str(wiki_root), "-m", message])   # pathspec 限定
@@ -313,7 +317,7 @@ python3 "$(git rev-parse --show-toplevel)/.claude/skills/project-wiki/scripts/wi
 （用户级安装时由 init 写入绝对路径并提示 CI 需同装。项目使用
 `core.hooksPath`/Husky 时，init 写入当前生效的 hook 入口；Husky 下落到
 `.husky/pre-commit`，不覆盖 `.husky/_` 的转发脚本。）
-wiki.py 内部：`git diff --cached --name-only` 取 staged 清单 → `git ls-files -s` 读 **index oid** → tomllib 解析 claims.toml 建精确 path→oid 映射 → 逐一比对。无子串误匹配（`jwt.py` 不会误命中 `jwt.py.old`），无 hash 长度硬编码。
+wiki.py 内部：`git diff --cached --name-only` 取 staged 清单 → `git ls-files -s` 读 **index oid** → 解析 claims.toml 建精确 path→oid 映射 → 逐一比对。Python 3.11+ 使用 tomllib，3.9/3.10 使用内置 claims 格式解析回退。无子串误匹配（`jwt.py` 不会误命中 `jwt.py.old`），无 hash 长度硬编码。
 **“staged 后又被修改”场景的闭环**：
 
 | 场景                                                                                                                        | index oid | claim oid | 结果                                                                    |
@@ -321,7 +325,7 @@ wiki.py 内部：`git diff --cached --name-only` 取 staged 清单 → `git ls-f
 | 声明后未再改                                                                                                                | D         | D         | 放行 ✓                                                                 |
 | add 后又被改（工作区 = E）                                                                                                  | D         | D         | 放行 ✓（提交的是 D，与声明一致；E 是未提交 WIP，运行时 doctor 报漂移） |
 | add 了旧内容 C，claim 声明 D                                                                                                | C         | D         | **拦截**：重新 `git add` 或 `claim update`                    |
-| **层 3 —— checkpoint 兜底**（§9.4）：doctor 不过关拒绝打点；发现未 commit 代码涉及 claims 时**报告不代劳**。 |           |           |                                                                         |
+| **层 3 —— checkpoint 兜底**（§9.4）：doctor 不过关拒绝打点；发现未 commit 内容涉及 claims 时**报告不代劳**。 |           |           |                                                                         |
 
 ### 8.4 Git 硬依赖
 
@@ -375,11 +379,12 @@ flowchart LR
 
 ### 9.3 首次冷启动（overview 不是 init 自动编出来的）
 
-1. `wiki.py init` 只生成骨架，并确定性预填技术栈与从 Makefile、package scripts、
+1. `wiki.py init` 只生成骨架，并确定性预填项目类型与从 Makefile、package scripts、
    justfile、Taskfile 提取到的命令。
-2. INDEX 仍是 TODO 或 claims 为空时，agent 读取 README、包/工作区清单、
-   AGENTS 约定以及关键入口源码。
-3. agent 填写 architecture、conventions、INDEX 简介/模块地图与 state/current；
+2. INDEX 仍是 TODO 或 claims 为空时，agent 读取 README、项目清单、
+   AGENTS 约定以及关键材料或入口。
+3. agent 填写 architecture、conventions、commands、deployment，以及
+   INDEX 摘要/项目地图与 state/current；
    无法确认的内容保留 TODO。
 4. agent 为核心机制建立首批 claims，evidence 指向真实文件，然后 checkpoint。
 
@@ -389,11 +394,24 @@ README 是首次理解的输入之一，不是自动事实源；`init` 不会把
 ### 9.4 checkpoint：SessionEnd 收尾
 
 1. doctor 全量校验（工作区现算，不依赖 commit 状态）
-2. 发现未 commit 的代码改动涉及 N 条 claims → **报告，不代劳**
+2. 发现未 commit 的项目内容改动涉及 N 条 claims → **报告，不代劳**
 3. agent 更新 state/current.md（语义部分）
 4. commit wiki 变更 + 刷新 INDEX 最近更新块
 5. 打印会话摘要（checkpoint = HEAD，下次会话从这里继续）
    双重语义：**wiki 的同步点** + **runtime context 的持久化锚点**（隐式 = `git log -1 -- wiki/`）。不引入状态文件，就没有状态文件自己过期的问题。
+
+每个项目 Session 结束后，宿主把同步任务投递到独立后台队列，不阻塞当前会话响应。后台先执行
+一次 `wiki.py session-end --json`：基于 git diff/status 和 claims evidence oid 生成增量清单，
+再把用户请求、运行结果和最终摘要确定性追加到 `state/current.md > 会话活动`。这一步不需要模型，
+也不要求常驻后台 Agent 进程。
+
+宿主还会从 Session trace 中提取只读探索实际访问的安全项目文件（排除 `wiki/`、`data/`、
+日志、缓存与密钥）。只有清单命中受影响 claims，或高价值探索已经读取多个文件并形成可复用结论时，
+才可选地排队一次有界语义更新。探索型沉淀没有 git diff 也会执行，因为它要避免下一次会话重复读取；
+它只读候选文件，并把答案背后的部署、架构、流程等事实写入对应 overview/claims。
+普通问候、无探索的只读闲聊不会启动模型。
+未提供语义更新适配器的宿主仍可完成活动记录、漂移检测和显式 `update`，因此 Skill 的核心能力
+不依赖第二个 Agent 程序。
 
 ---
 
@@ -401,7 +419,7 @@ README 是首次理解的输入之一，不是自动事实源；`init` 不会把
 
 ### 10.1 设计原则
 
-- 单文件、纯 stdlib（tomllib / pathlib / subprocess），当前约 1100 行，自带 `--version`
+- 单文件、纯 stdlib（Python 3.9+；pathlib / subprocess / 可选 tomllib），自带 `--version`
 - 模板内嵌字符串常量 → init 自包含
 - 就近解析：从 cwd 向上找最近 wiki root（AGENTS.md / wiki/），所有子命令自动作用于它——skill 装在何处无关紧要，工具操作的是**调用时所在的项目**
 - oid 永远脚本现算（按 §7.2 四模式），**从不信任 agent 报的数**；TOML 原子写入（.tmp + rename）
@@ -416,6 +434,8 @@ wiki.py
 │   └── retract --id --reason        # reason 必填
 ├── doctor  [--all | --claim <id> | --git-status | --staged | --ci]
 ├── update  --plan                   # 漂移修复工作清单
+├── record --input --status --summary # 确定性记录一次项目 run
+├── session-end --input --status --summary [--json] # 增量清单 + 活动记录
 ├── checkpoint                       # SessionEnd 收尾（一级命令）
 ├── setup-env [--auto]               # git 安装引导
 └── root                             # 打印就近 wiki root（调试）
@@ -435,10 +455,10 @@ python3 .claude/skills/project-wiki/scripts/wiki.py init
 
 | 检测目标                                                                                                                                                                                 | 来源                                                                    | 产出                                                                      |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| 技术栈                                                                                                                                                                                   | pyproject / go.mod / package.json / Cargo.toml / pom.xml                | INDEX 简介、architecture 骨架                                             |
-| 真实命令                                                                                                                                                                                 | Makefile / package.json scripts / justfile / Taskfile                   | commands.md **直接预填**                                            |
-| monorepo 结构                                                                                                                                                                            | pnpm-workspace / go.work / turbo.json / services\|apps\|packages 启发式 | INDEX 模块地图预填（`--per-module` 同时生成各模块 wiki/，skill 不复制） |
-| 部署线索                                                                                                                                                                                 | .github/workflows / Dockerfile / helm                                   | deployment.md 章节                                                        |
+| 项目类型                                                                                                                                                                                 | pyproject / go.mod / package.json / Cargo.toml / pom.xml                | INDEX 项目类型、architecture 骨架；无清单时为通用项目                     |
+| 真实流程命令                                                                                                                                                                             | Makefile / package.json scripts / justfile / Taskfile                   | commands.md **直接预填**，无命令项目仅保留人工流程入口               |
+| monorepo 结构                                                                                                                                                                            | pnpm-workspace / go.work / turbo.json / services\|apps\|packages 启发式 | INDEX 项目地图预填（`--per-module` 同时生成各部分 wiki/，skill 不复制） |
+| 交付线索                                                                                                                                                                                 | .github/workflows / Dockerfile / helm                                   | deployment.md 的环境与交付线索                                            |
 | **收尾**：探测自身安装路径写入 pre-commit hook + AGENTS.md 追加 `<!-- WIKI:START/END -->` 指针块（已存在则不重复）+ 打印首会话引导提示（可粘贴给 agent），把冷启动填库纳入协议。 |                                                                         |                                                                           |
 
 ### 10.3 doctor —— 分层校验引擎（oid 来源见 §7.2）
@@ -460,6 +480,8 @@ python3 .claude/skills/project-wiki/scripts/wiki.py init
 | claim      | oid 计算（四模式）、TOML 写入、自动 commit | 提供 text、判定 verify/update/retract |
 | doctor     | index/工作区 oid 比对、链接检查            | 修复动作执行                          |
 | update     | 漂移检测、按 claim 分组的工作清单          | 逐条核验                              |
+| record     | 追加 `state/current.md` 会话活动并 commit | 无需模型判断                          |
+| session-end | 增量清单 + 活动记录，一次完成且不阻塞前台 | 可选：仅命中 claims 时做语义核验     |
 | checkpoint | 全量校验、INDEX 刷新、wiki commit          | 写 state/current.md                   |
 
 ---
@@ -478,13 +500,13 @@ description: 项目知识库(wiki/)的读写与维护协议。检索项目背景
 wiki/ 是本项目对 agent 的唯一事实库。三条铁律：
 1. 动手前先查 wiki，不推测项目约定
 2. 会话中学到 durable 事实，当场写入（写入即自动 commit，无需手动提交）
-3. 代码改动使已记录事实漂移 → 满足内容一致性（同 commit 或 wiki 先行均可）
+3. 项目内容改动使已记录事实漂移 → 满足内容一致性（同 commit 或 wiki 先行均可）
 ## 会话生命周期
 - SessionStart：读 wiki/INDEX.md 建立基础认知（若 hook 注入了 doctor
   --git-status 报告，先扫一眼哪些事实可能 stale）
-- 任务完成：代码 commit 前，同步更新受影响的 claims
-- SessionEnd / 任务收尾：执行 python3 <skill-dir>/scripts/wiki.py checkpoint
-  （或调用 wiki_checkpoint tool，若本环境已注册）
+- 任务完成：项目内容 commit 前，同步更新受影响的 claims
+- SessionEnd：宿主异步执行 `wiki.py session-end --json` 生成增量清单并记录活动；
+  有受影响 claims 时可再执行一次有界语义更新，最后 checkpoint
 ## 读取（渐进式，禁止整库通读）
 1. 需要细节：grep -rni --include="*.md" -e "<关键词>" wiki/overview wiki/state
 2. 命中后 cat 文件
@@ -498,12 +520,13 @@ wiki/ 是本项目对 agent 的唯一事实库。三条铁律：
   同时把可读版本写进对应 overview/ 或 state/ 文档
 事实漂移（doctor 报 stale/missing，或本次改动涉及某 claim 的 evidence）：
   1. python3 <skill-dir>/scripts/wiki.py update --plan 拿清单
-  2. 逐条重读源文件 → verify / update / retract 三选一
-  3. 满足内容一致性铁律后提交代码
+  2. 只读清单内文件，每个最多一次 → verify / update / retract 三选一
+  3. 多条仍成立时用 claim verify --ids "id1,id2" 一次批量刷新 oid
+  4. 满足内容一致性铁律后提交项目内容
 ## 红线
-- 代码能自述的不写；只写事实/规则/指针，不写叙述散文
+- 材料能直接看出的不写；只写事实/规则/指针，不写叙述散文
 - claims.toml 禁止手改，oid 一律由脚本计算
-- 绝不自动 commit 用户的代码改动，wiki.py 只提交 wiki/ 路径
+- 绝不自动 commit 用户的项目内容改动，wiki.py 只提交 wiki/ 路径
 - 单个 wiki 文档 >150 行必须拆分
 ```
 
@@ -513,10 +536,10 @@ wiki/ 是本项目对 agent 的唯一事实库。三条铁律：
 
 ```markdown
 # Agent 指南
-- 项目知识库在 wiki/INDEX.md，会话开始必读；改代码前先查对应模块 wiki
+- 项目知识库在 wiki/INDEX.md，会话开始必读；开始工作前先查对应项目 wiki
 - wiki 读写协议见 .claude/skills/project-wiki/SKILL.md
 - 工具：python3 .claude/skills/project-wiki/scripts/wiki.py（不要手改 claims.toml）
-- 模块地图见 wiki/INDEX.md
+- 项目地图见 wiki/INDEX.md
 ```
 
 ### 11.3 wiki_checkpoint tool call（可选注册）
@@ -527,13 +550,79 @@ wiki/ 是本项目对 agent 的唯一事实库。三条铁律：
 {
   "name": "wiki_checkpoint",
   "description": "会话收尾：校验 wiki 一致性、持久化当前 state、提交 wiki 变更。
-                  在任务完成或会话结束时调用。不会 commit 用户的代码改动。",
+                  在任务完成或会话结束时调用。不会 commit 用户的项目内容改动。",
   "parameters": { "summary": "本次会话做了什么（写入 state/current.md）" }
 }
 ```
 
-description 里“不会 commit 用户的代码改动”同时消除 agent 的调用顾虑和使用者的安全疑虑。自有框架可进一步在 `task_complete` / `session_end` 生命周期事件上挂 `checkpoint --auto`（state 摘要由事件参数传入，不经 LLM 决策），“agent 忘了”被彻底消掉。
+description 里“不会 commit 用户的项目内容改动”同时消除 agent 的调用顾虑和使用者的安全疑虑。自有框架可进一步在 `task_complete` / `session_end` 生命周期事件上挂 `checkpoint --auto`（state 摘要由事件参数传入，不经 LLM 决策），“agent 忘了”被彻底消掉。
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+### 11.4 WebUI（只读投影）
+
+WebUI 不维护第二套 wiki 数据，也不把旧版 `$MAZI_HOME/wiki` 快照当作 v2 内容。
+`GET /api/wiki?workspace=<abs>` 在保留旧字段的同时返回 `repository`：
+
+```json
+{
+  "root": "/path/to/project",
+  "index": "# project ...",
+  "docs": [{ "path": "overview/conventions.md", "title": "工作方式与约定", "group": "overview", "content": "..." }],
+  "claims": [{ "id": "fact-id", "status": "active", "evidence": [{ "file": "notes/source.md", "status": "active" }] }],
+  "summary": { "documents": 7, "claims": 3, "active": 2, "stale": 1, "missing": 0, "retracted": 0 },
+  "latestCommit": { "hash": "abc1234", "subject": "wiki(checkpoint): ...", "committedAt": "..." }
+}
+```
+
+页面采用三栏知识工作台：
+
+| 区域 | 内容 |
+|---|---|
+| 左侧 | `INDEX.md` 与按 overview / state / decisions / lessons 分组的文档导航，可筛选 |
+| 中间 | 当前 Markdown 文档；相对 `.md` 链接在页面内切换 |
+| 右侧 | 后台任务 Trace、claims 校验分布、Git 来源 |
+
+顶部展示文档数、有效事实、待核验数、项目类型与最近知识提交；时间精确到秒。
+`state/current.md` 的完整 Markdown 以独立卡片放在 KPI 下方，可滚动查看全部内容。
+点击有效事实或待核验可打开事实明细，查看 claim id、状态和 evidence 文件。
+`claims` 状态按工作区文件当前 oid 计算。页面提供两个维护动作：
+
+| 动作 | API | Agent 职责 |
+|---|---|---|
+| 初始化 | `POST /api/wiki/init` | 读取 README、AGENTS、清单和关键入口，执行冷启动填库、建立首批 claims、doctor + checkpoint |
+| 更新 | `POST /api/wiki/update` | 执行 `update --plan`，读取变更，逐条 verify/update/retract claims 并刷新 oid，更新 overview/state 后 checkpoint |
+
+初始化先检查 `wiki/claims.toml`、已有 claims 和 INDEX：有效 Wiki 直接返回
+“已初始化，无需重复初始化”，不启动 Agent。只有缺失骨架或仍是空模板时才进入冷启动。
+
+更新是增量流程，不重读整个项目：以上次 `wiki/` commit 为 checkpoint，取
+`git diff --name-only <checkpoint> HEAD` 与 `git status --porcelain`，排除
+`wiki/` 自身，再通过 evidence 反向索引得到受影响的 claims；只为这些 claims
+重算当前工作区 oid 并读取相关源文件。完整项目扫描只用于 init 冷启动、结构变化，
+或 update 清单明确需要补充新事实的情况。
+没有 changed files 时更新直接返回“无需更新”；有变化时也不启用 Task Planner，
+把结构化变更清单直接传给单任务 Agent，并限制为最多 8 轮。
+
+两个动作都以隐藏项目 Goal 启动，不创建侧边栏会话；返回 operation 状态，
+WebUI 轮询 `GET /api/wiki/operations/:id`，完成后自动刷新知识库并展示 Agent 摘要。
+维护 Agent 不暴露 `shell.run` 或其他项目写工具，只暴露只读工具和受限
+`project_wiki` 工具。后者既能以 argv 直接调用 `wiki.py`
+（init / update --plan / doctor / claim / checkpoint / root），也能用
+`mode=write_doc` 创建或替换 `wiki/**/*.md`。因此 Agent 可以正常维护文档，
+但不能执行 `rm`、shell 元字符、`git checkout` 或写 wiki/ 外的文件，也不会触发对应审批。
+每个普通项目 Session 结束后还会自动投递一个 `sync` 后台任务。该任务先记录会话活动，
+再启动隐藏 Agent 判断是否需要更新语义内容；WebUI 在事实来源区显示最近一次后台同步状态。
+后台 operation 会保留隐藏 Goal 最近 60 条 trace 事件、最后心跳和运行时长。右侧
+“后台任务 Trace”独立订阅该隐藏 Goal 的 SSE
+`/api/events/<rootGoalId>?follow=1&workspace=<workspace>`，复用主会话实时投影：
+显示 reasoning/text token stream、模型 Step、工具名、工具参数、工具输出和状态；
+超过 30 秒无事件时提示可能正在等待模型或审批。
+若确有 `approval.requested`，Trace 状态立即切换为“等待审批”，审批通过/取消后恢复，
+并在 Wiki Trace 内直接展示审批摘要与“拒绝 / 允许一次 / 本工作区允许”按钮；
+按钮调用 `POST /api/approvals/:id`，不是只读提示。
+右侧 Trace 栏默认 340px，可拖动左边缘在 260–720px 间调整，宽度保存在本地。
+无 v2 wiki 时展示初始化空态，不退回编程项目专用的 blackboard 术语。
+从项目菜单进入 Wiki 时，页面会同时切换全局工作区；顶部栏始终显示当前 Wiki 的项目路径。
 
 ## 12. 初始化流程（端到端）
 
@@ -590,20 +679,22 @@ description 里“不会 commit 用户的代码改动”同时消除 agent 的�
 
 ```markdown
 # <项目名>
-> 一句话：<做什么、给谁用、当前阶段>
+> 项目摘要：<做什么、给谁用、当前阶段>
+> 项目类型：<软件 / 研究 / 写作 / 设计 / 运营 / 其他>
 ## 速查
 | 想知道 | 去哪 |
 |---|---|
-| 架构与模块 | overview/architecture.md |
-| 怎么写代码 | overview/conventions.md |
-| 常用命令 | overview/commands.md |
+| 项目全貌与结构 | overview/architecture.md |
+| 工作方式与约定 | overview/conventions.md |
+| 常用流程与命令 | overview/commands.md |
+| 环境、资源与交付 | overview/deployment.md |
 | 当前进行中的事 | state/current.md |
 | 历史决策 | overview/decisions/ |
-## 红线（违反会出 bug）
-1. src/generated/ 任何情况下不要手改
-2. 数据库迁移必须走 make migrate
-3. 提交前必须跑 make check
-## 模块地图（monorepo 时）
+## 红线（违反会损害结果或造成返工）
+1. 未经确认，不得覆盖原始材料
+2. 对外交付前必须完成约定的复核
+3. 修改事实后必须同步来源与 claims
+## 项目地图（monorepo 时）
 <见 §4.3>
 ## 最近更新
 <!-- recent:start -->
@@ -616,9 +707,9 @@ description 里“不会 commit 用户的代码改动”同时消除 agent 的�
 | --------------------------------- | --------------------------------------------------------------------------------------------------- |
 | 程序在哪、数据在哪                | 程序 = skill 包（harness skills 目录，SKILL.md + scripts/wiki.py）；数据 = 项目仓库内 wiki/，纯产物 |
 | oid 从哪来                        | 按场景四模式（§7.2）：写入读工作区，门禁读 index，漂移检测读工作区，初筛用 status                  |
-| wiki commit 存了什么              | oid **数值声明** + text，不存文件内容；内容在代码 commit 进历史                               |
-| 两份历史如何对齐                  | 同一个 blob oid 数值；门禁在代码 commit 时验声明 vs index 现实                                      |
-| 单独 commit wiki 会不会碰用户代码 | 不会，pathspec 限定只提交 `wiki/` 路径，用户暂存区原样保留                                        |
+| wiki commit 存了什么              | oid **数值声明** + text，不存文件内容；内容在项目内容 commit 进历史                           |
+| 两份历史如何对齐                  | 同一个 blob oid 数值；门禁在项目内容 commit 时验声明 vs index 现实                                  |
+| 单独 commit wiki 会不会碰用户内容 | 不会，pathspec 限定只提交 `wiki/` 路径，用户暂存区原样保留                                        |
 | 同一 claim 的 evidence oid 相同吗 | 不同文件通常不同 oid，但内容相同的文件共享 blob oid；校验按路径逐一比对，不依赖相异性               |
 | 换 harness 怎么办                 | 复制/symlink skill 到新 harness 的 skills 目录；AGENTS.md 指针同步更新即可，wiki/ 数据不动          |
 

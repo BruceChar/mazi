@@ -292,7 +292,7 @@ function latencyText() {
                 <button @click="emit('start-project-conversation', menuTarget.item); closeMenu()">
                     <LineIcon name="plus" size="13" />添加新会话
                 </button>
-                <button title="项目状态快照与最近变更" @click="emit('open-wiki', menuTarget.item); closeMenu()">
+                <button title="查看、初始化与更新项目知识库" @click="emit('open-wiki', menuTarget.item); closeMenu()">
                     <LineIcon name="observation" size="13" />项目 Wiki
                 </button>
                 <button class="danger" @click="emit('remove-project', menuTarget.item); closeMenu()">

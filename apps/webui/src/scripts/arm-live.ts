@@ -20,6 +20,8 @@ export interface LiveStep {
     taskId: string;
     kind: string;
     toolName: string;
+    /** invocation：工具参数。 */
+    toolArguments?: Record<string, unknown>;
     /** deliberation：推理文本。 */
     thinking?: string;
     /** deliberation：模型回答。 */
@@ -79,11 +81,19 @@ export function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
     const content = typeof payload.content === 'string' ? payload.content : '';
     const status = typeof payload.status === 'string' ? payload.status : fallbackStatus;
     const at = timestampOf(event);
+    const toolName =
+        typeof payload.toolName === 'string'
+            ? payload.toolName
+            : typeof payload.tool === 'string'
+              ? payload.tool
+              : '';
+    const toolArguments = argumentsFromPayload(payload, content, toolName);
     return {
         stepId: String(event.stepId ?? ''),
         taskId: String(event.taskId ?? ''),
         kind: String(payload.kind ?? 'step'),
-        toolName: typeof payload.toolName === 'string' ? payload.toolName : '',
+        toolName,
+        ...(toolArguments ? { toolArguments } : {}),
         thinking: typeof payload.thinking === 'string' ? payload.thinking : undefined,
         answer: typeof payload.answer === 'string' ? payload.answer : undefined,
         output: typeof payload.output === 'string' ? payload.output : undefined,
@@ -95,6 +105,29 @@ export function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
         endedAt: status === 'active' || status === 'pending' ? null : at,
         usage: (payload.usage as StepUsage | undefined) ?? null,
     };
+}
+
+function argumentsFromPayload(
+    payload: Record<string, unknown>,
+    content: string,
+    toolName: string,
+): Record<string, unknown> | undefined {
+    if (
+        payload.arguments !== null &&
+        typeof payload.arguments === 'object' &&
+        !Array.isArray(payload.arguments)
+    ) {
+        return payload.arguments as Record<string, unknown>;
+    }
+    if (!toolName || !content.startsWith(`${toolName} `)) return undefined;
+    try {
+        const parsed = JSON.parse(content.slice(toolName.length + 1)) as unknown;
+        return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 /** step.started：追加一行，并把仍标记 active 的步骤收尾。 */
@@ -119,6 +152,10 @@ export function applyStepEnded(list: readonly LiveStep[], event: EventItem): Liv
                   content: updated.content,
                   title: updated.title,
                   ...(updated.toolName ? { toolName: updated.toolName } : {}),
+                  ...(updated.thinking ? { thinking: updated.thinking } : {}),
+                  ...(updated.answer ? { answer: updated.answer } : {}),
+                  ...(updated.output ? { output: updated.output } : {}),
+                  ...(updated.toolArguments ? { toolArguments: updated.toolArguments } : {}),
                   endedAt: updated.endedAt,
               }
             : step,
@@ -128,7 +165,12 @@ export function applyStepEnded(list: readonly LiveStep[], event: EventItem): Liv
 function approvalOf(event: EventItem): ArmApproval {
     const payload = (event.payload || {}) as Record<string, unknown>;
     const invocationId = typeof payload.invocationId === 'string' ? payload.invocationId : '';
-    const toolName = typeof payload.toolName === 'string' ? payload.toolName : '';
+    const toolName =
+        typeof payload.toolName === 'string'
+            ? payload.toolName
+            : typeof payload.tool === 'string'
+              ? payload.tool
+              : '';
     const summary =
         typeof payload.summary === 'string'
             ? payload.summary

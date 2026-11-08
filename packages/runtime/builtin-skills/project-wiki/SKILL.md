@@ -1,94 +1,68 @@
 ---
 name: project-wiki
-description: 项目知识库(wiki/)的读写与维护协议。检索项目背景、确认事实、
-  记录新知识、更新任务状态或校验 claims 时使用。启用后按本文件执行，
-  不要调用旧版 wiki.read/wiki.update。
+description: Project Wiki 的读取与事实治理说明。需要查询项目事实、修正旧结论、
+  遗忘失效信息或写入项目知识时使用。
 ---
-# 项目 Wiki 协议
+# Project Wiki
 
-wiki/ 是本项目对 agent 的唯一事实库。三条铁律：
+Project Wiki 是 Mazi runtime 内置的项目上下文能力。Runtime 负责初始化、上下文注入、
+SessionEnd 沉淀、事实 oid 校验、纠错、遗忘和 checkpoint。
 
-1. 动手前先查 wiki，不推测项目约定
-2. 会话中学到 durable 事实，当场写入（写入即自动 commit，无需手动提交）
-3. 代码改动使已记录事实漂移 → 满足内容一致性（同 commit 或 wiki 先行均可）
+Wiki 数据位于项目仓库：
 
-## 前置条件
+```text
+wiki/
+├── INDEX.md
+├── overview/
+├── state/
+└── claims.toml
+```
 
-- 项目已完成初始化（wiki/ 目录存在）。未初始化时执行：
-  python3 "{skill-dir}/scripts/wiki.py" init
-- `{skill-dir}` 指本 SKILL.md 所在目录，具体路径见 AGENTS.md 的指针。
+## 读取原则
 
-## 首次初始化与 overview
+1. 开始项目任务前先读 `wiki/INDEX.md`。
+2. 需要细节时按索引读取相关文档，不整库通读。
+3. 有争议时按 claim id 查询 `wiki/claims.toml` 和相关 evidence。
+4. `retracted` claim 不再作为事实使用，只保留历史与审计价值。
 
-`init` 只生成确定性骨架，不根据 README 编写架构结论。若 INDEX 仍是 TODO 或
-claims 为空，按以下顺序完成首次冷启动：
+## 写入事实
 
-1. 读取 `README.md`、包/工作区清单（`package.json`、`pnpm-workspace.yaml`、
-   `pyproject.toml`、`go.work` 等）以及现有 `AGENTS.md`/`AGENT.md`。
-2. 只针对关键入口、公共包和跨模块边界补充读取源码或文档。
-3. 填写 `wiki/overview/architecture.md`：模块职责、关键数据流、依赖关系；
-   填写 `conventions.md` 中的真实约定与红线；核对 `commands.md` 的提取命令。
-4. 更新 `wiki/INDEX.md` 的一句话定位、模块地图和确认过的红线；
-   更新 `wiki/state/current.md` 的进行中事项、阻塞与下一步。
-5. 为核心机制建立首批 claims，evidence 必须指向真实文件；
-   不把函数签名、单文件细节或 README 宣传语写成事实。
-6. 执行 `checkpoint`，让冷启动结果成为下次会话的起点。
+使用 runtime 提供的 `project_wiki` 工具：
 
-无法从项目内容确认的信息保留 TODO，不推测。
+- `claim_add`：新增事实，必须提供仓库内 evidence。
+- `claim_update`：更新事实措辞或 evidence。
+- `claim_verify`：语义仍成立时刷新 evidence oid。
+- `claim_correct`：事实被修正时创建新 claim，并自动遗忘旧 claim。
+- `claim_forget`：用户要求忘记、事实失效或不再适用时撤回事实。
+- `write_doc`：写入 `wiki/` 下的 Markdown。
+- `checkpoint`：校验并提交 Wiki。
 
-## 会话生命周期
+Evidence oid 由 runtime 计算，不要手写。
 
-- SessionStart：读 wiki/INDEX.md 建立基础认知（若 hook 注入了 doctor
-  --git-status 报告，先扫一眼哪些事实可能 stale）
-- 任务完成：代码 commit 前，同步更新受影响的 claims
-- SessionEnd / 任务收尾：执行 python3 "{skill-dir}/scripts/wiki.py" checkpoint
-  （或调用 wiki_checkpoint tool，若本环境已注册）
+## 修正与遗忘
 
-## 读取（渐进式，禁止整库通读）
+事实发生语义变化时不要直接覆盖旧结论：
 
-1. 需要细节：grep -rni --include="*.md" -e "<关键词>" wiki/overview wiki/state
-2. 命中后 cat 文件
-3. 质疑某条事实：grep "{claim-id}" wiki/claims.toml，
-   然后 python3 "{skill-dir}/scripts/wiki.py" doctor --claim "{claim-id}"
-   单点校验（毫秒级，不要全量 doctor）
+```text
+claim_correct(
+  id = 旧 claim id,
+  newId = 新 claim id,
+  text = 新事实,
+  evidence = [真实来源],
+  reason = 为什么旧事实失效
+)
+```
 
-## 写入
+旧 claim 会标记为 `retracted/corrected` 并指向 `superseded_by`；新 claim 使用
+`supersedes` 指回旧事实。后续 Context Packet 只使用新事实。
 
-新增事实：
-  python3 "{skill-dir}/scripts/wiki.py" claim add --id "{claim-id}" \
-    --text "{一句话事实}" --ev "{文件}" [--ev ...]
-  同时把可读版本写进对应 overview/ 或 state/ 文档
-
-事实漂移（doctor 报 stale/missing，或本次改动涉及某 claim 的 evidence）：
-
-1. python3 "{skill-dir}/scripts/wiki.py" update --plan 拿清单
-2. 逐条重读源文件 → verify / update / retract 三选一
-3. 满足内容一致性铁律后提交代码
-
-## 命令速查
-
-| 场景                           | 命令                                         |
-| ------------------------------ | -------------------------------------------- |
-| 新增事实                       | claim add --id X --text "..." --ev 文件      |
-| 事实仍成立（代码变了语义没变） | claim verify --id X                          |
-| 事实部分变化                   | claim update --id X --text "新表述" --ev ... |
-| 事实失效                       | claim retract --id X --reason "..."          |
-| 会话启动初筛                   | doctor --git-status                          |
-| 单点核验                       | doctor --claim X                             |
-| 全量体检                       | doctor（或 doctor --all 递归所有嵌套 root）  |
-| 漂移清单                       | update --plan                                |
-| 会话收尾                       | checkpoint                                   |
+用户明确要求忘记某项事实时使用 `claim_forget` 并填写 reason。物理审计历史仍保留在 Git，
+但被遗忘事实不会进入后续上下文。
 
 ## 红线
 
-- 代码能自述的不写；只写事实/规则/指针，不写叙述散文
-- claims.toml 禁止手改，oid 一律由脚本计算
-- 绝不自动 commit 用户的代码改动，wiki.py 只提交 wiki/ 路径
-- 单个 wiki 文档 >150 行必须拆分
-
-## 排错
-
-- 提示"未检测到 git" → python3 "{skill-dir}/scripts/wiki.py" setup-env
-- 提示"未找到 wiki root" → 回到项目根执行，或先 init
-- checkpoint 被拒 → 存在未修复漂移，先跑 update --plan 流程；
-  确认要带漂移打点时加 --force（不推荐）
+- 不写入无法由 evidence 支持的推测。
+- 不把用户隐私、日志正文或密钥写入 Project Wiki。
+- 不手改 `claims.toml`。
+- 不提交用户源码；runtime 只提交 `wiki/`。
+- 不把陈旧事实继续注入上下文；必须 verify、correct 或 forget。

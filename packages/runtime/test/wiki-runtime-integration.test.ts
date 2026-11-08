@@ -1,15 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { SkillProvider } from '../src/capabilities/runtime.js';
-import type { RuntimeConfig, ToolConfig } from '../src/config.js';
 import { HarnessRuntime } from '../src/harness/index.js';
-import { WikiStore } from '../src/wiki/index.js';
+import { ProjectWikiService } from '../src/wiki/index.js';
 
 const dirs: string[] = [];
 const originalHome = process.env.MAZI_HOME;
@@ -20,46 +17,25 @@ function tempDir(prefix: string): string {
     return dir;
 }
 
-function systemText(request: LLMRequest): string {
-    const system = request.system;
-    if (typeof system === 'string') return system;
-    return JSON.stringify(system ?? '');
+function git(cwd: string, ...args: string[]): string {
+    return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 }
 
-/** 首轮给出 fs.write 调用，次轮给最终回答；记录每轮 system 提示。 */
-function writingProvider(): { provider: LLMProvider; systems: string[] } {
-    const systems: string[] = [];
-    const provider: LLMProvider = {
-        id: 'faux',
-        name: 'faux',
-        defaultModel: 'faux-model',
-        models: [],
-        async ask() {
-            throw new Error('ask unused');
-        },
-        async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
-            systems.push(systemText(request));
-            yield { type: 'start', model: 'faux-model' };
-            const hasToolResult = request.messages.some((message) => message.role === 'tool');
-            if (!hasToolResult) {
-                yield { type: 'tool_call_start', index: 0, callId: 'c1', name: 'fs.write' };
-                yield {
-                    type: 'tool_call_delta',
-                    index: 0,
-                    argumentsDelta: JSON.stringify({
-                        path: 'src/a.ts',
-                        content: 'export const a = 1;\n',
-                    }),
-                };
-                yield { type: 'tool_call_stop', index: 0 };
-                yield { type: 'finish', finishReason: 'tool_calls' };
-                return;
-            }
-            yield { type: 'text_delta', text: '已完成' };
-            yield { type: 'finish', finishReason: 'stop' };
-        },
-    };
-    return { provider, systems };
+function makeRepo(prefix: string): string {
+    const workspace = tempDir(prefix);
+    git(workspace, 'init', '-q');
+    git(workspace, 'config', 'user.email', 'project-wiki@example.com');
+    git(workspace, 'config', 'user.name', 'Project Wiki Test');
+    writeFileSync(join(workspace, 'README.md'), '# Project\n', 'utf8');
+    git(workspace, 'add', '.');
+    git(workspace, 'commit', '-q', '--no-verify', '-m', 'initial');
+    return workspace;
+}
+
+function systemText(request: LLMRequest): string {
+    return typeof request.system === 'string'
+        ? request.system
+        : JSON.stringify(request.system ?? '');
 }
 
 afterEach(() => {
@@ -68,17 +44,11 @@ afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
-    it('项目会话启用 project-wiki：SessionStart 直接初始化仓库内 wiki/ 且不暴露 blackboard.read', async () => {
+describe('runtime Project Wiki × HarnessRuntime', () => {
+    it('项目会话无需挂载 Skill 即初始化 Project Wiki，并提供结构化 project_wiki 工具', async () => {
         const home = tempDir('mazi-wikihome-');
         process.env.MAZI_HOME = home;
-        const workspace = tempDir('mazi-project-wiki-init-');
-        execFileSync('git', ['init', '-q'], { cwd: workspace });
-        execFileSync('git', ['config', 'user.email', 'project-wiki@example.com'], {
-            cwd: workspace,
-        });
-        execFileSync('git', ['config', 'user.name', 'Project Wiki Test'], { cwd: workspace });
-        writeFileSync(join(workspace, 'package.json'), '{"name":"auto-init"}', 'utf8');
+        const workspace = makeRepo('mazi-project-wiki-init-');
         const requests: LLMRequest[] = [];
         const provider: LLMProvider = {
             id: 'faux',
@@ -91,54 +61,71 @@ describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
             async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
                 requests.push(request);
                 yield { type: 'start', model: 'faux-model' };
-                yield { type: 'text_delta', text: '初始化完成' };
+                if (!request.messages.some((message) => message.role === 'tool')) {
+                    yield { type: 'tool_call_start', index: 0, callId: 'wiki-doc', name: 'project_wiki' };
+                    yield {
+                        type: 'tool_call_delta',
+                        index: 0,
+                        argumentsDelta: JSON.stringify({
+                            action: 'write_doc',
+                            path: 'state/agent-note.md',
+                            content: '# Agent note\n',
+                        }),
+                    };
+                    yield { type: 'tool_call_stop', index: 0 };
+                    yield { type: 'finish', finishReason: 'tool_calls' };
+                    return;
+                }
+                yield { type: 'text_delta', text: '已经记录' };
                 yield { type: 'finish', finishReason: 'stop' };
             },
         };
-        const skillDir = fileURLToPath(
-            new URL('../builtin-skills/project-wiki/', import.meta.url),
-        );
         const runtime = new HarnessRuntime(
             {
                 providers: [],
                 tools: [],
                 dbPath: ':memory:',
                 eventDir: home,
-                goal: { allowedTools: [], permissionCeiling: 'read-only' },
+                goal: { allowedTools: ['project_wiki'], permissionCeiling: 'workspace-write' },
                 contextWindow: 64000,
             },
             { llmProviders: { faux: provider }, workspaceRoot: workspace },
         );
-        runtime.setSkillProvider({
-            mounted: () => ['project-wiki'],
-            catalog: () => [
-                {
-                    id: 'project-wiki',
-                    name: '项目 Wiki',
-                    description: '维护仓库内 wiki/',
-                    path: join(skillDir, 'SKILL.md'),
-                },
-            ],
-        });
         try {
-            const created = await runtime.createGoalSession('你好', { projectId: 'auto-init' });
-            await runtime.executeGoalTree(created.rootGoalId);
+            const created = await runtime.createGoalSession('你好');
+            const result = await runtime.executeGoalTree(created.rootGoalId);
+            expect(result.ok).toBe(true);
             expect(existsSync(join(workspace, 'wiki', 'claims.toml'))).toBe(true);
             expect(existsSync(join(workspace, 'AGENTS.md'))).toBe(true);
-            expect((requests[0]?.tools ?? []).map((tool) => tool.name)).not.toContain(
-                'blackboard.read',
-            );
+            expect(existsSync(join(workspace, 'wiki', 'state', 'agent-note.md'))).toBe(true);
+            expect((requests[0]?.tools ?? []).map((tool) => tool.name)).toContain('project_wiki');
         } finally {
             await runtime.close();
         }
     });
 
-    it('挂载 project-wiki：关闭 v1 wiki 注入、记录与工具面', async () => {
+    it('SessionStart 注入相关 Project Wiki 事实，已纠正或遗忘的旧事实不进入上下文', async () => {
         const home = tempDir('mazi-wikihome-');
         process.env.MAZI_HOME = home;
-        const workspace = tempDir('mazi-wikiws-');
+        const workspace = makeRepo('mazi-wiki-context-');
+        writeFileSync(join(workspace, 'config.ts'), 'export const port = 9000;\n', 'utf8');
+        git(workspace, 'add', 'config.ts');
+        git(workspace, 'commit', '-q', '--no-verify', '-m', 'config');
+        const wiki = new ProjectWikiService({ workspace });
+        await wiki.init();
+        await wiki.addClaim({
+            id: 'port-v1',
+            text: '服务监听旧端口 8787',
+            evidence: [{ file: 'config.ts' }],
+        });
+        await wiki.correctClaim({
+            oldId: 'port-v1',
+            newId: 'port-v2',
+            text: '服务监听端口 9000',
+            evidence: [{ file: 'config.ts' }],
+            reason: '端口配置已修正',
+        });
         const systems: string[] = [];
-        const requests: LLMRequest[] = [];
         const provider: LLMProvider = {
             id: 'faux',
             name: 'faux',
@@ -148,24 +135,12 @@ describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
                 throw new Error('ask unused');
             },
             async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
-                requests.push(request);
                 systems.push(systemText(request));
                 yield { type: 'start', model: 'faux-model' };
                 yield { type: 'text_delta', text: '已读取' };
                 yield { type: 'finish', finishReason: 'stop' };
             },
         };
-        const skills: SkillProvider = {
-            mounted: () => ['project-wiki'],
-            catalog: () => [
-                {
-                    id: 'project-wiki',
-                    name: '项目 Wiki',
-                    description: '维护仓库内 wiki/',
-                    path: '/builtin/project-wiki/SKILL.md',
-                },
-            ],
-        };
         const runtime = new HarnessRuntime(
             {
                 providers: [],
@@ -177,38 +152,23 @@ describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
             },
             { llmProviders: { faux: provider }, workspaceRoot: workspace },
         );
-        runtime.setSkillProvider(skills);
         try {
-            const created = await runtime.createGoalSession('读取项目 wiki');
+            const created = await runtime.createGoalSession('项目端口是多少');
             await runtime.executeGoalTree(created.rootGoalId);
-
-            expect(systems[0]).toContain('项目 Wiki');
-            expect(systems[0]).toContain('## Session Context');
-            expect(systems[0]).toContain(`- Workspace: ${workspace}`);
-            expect(systems[0]).toContain('## 项目 Wiki 尚未初始化');
-            expect(systems[0]).toContain('/builtin/project-wiki/scripts/wiki.py');
+            expect(systems[0]).toContain('## Project Wiki');
+            expect(systems[0]).toContain('服务监听端口 9000');
+            expect(systems[0]).not.toContain('服务监听旧端口 8787');
             expect(systems[0]).not.toContain('## 项目 wiki（');
-            expect((requests[0]?.tools ?? []).map((tool) => tool.name)).not.toContain('wiki.read');
-            expect((requests[0]?.tools ?? []).map((tool) => tool.name)).not.toContain(
-                'wiki.update',
-            );
             expect(existsSync(join(home, 'wiki'))).toBe(false);
         } finally {
             await runtime.close();
         }
     });
 
-    it('项目 wiki 已初始化：SessionStart 自动注入 INDEX.md', async () => {
+    it('只读项目会话也会落地 runtime Project Wiki 骨架', async () => {
         const home = tempDir('mazi-wikihome-');
         process.env.MAZI_HOME = home;
-        const workspace = tempDir('mazi-wikiws-');
-        mkdirSync(join(workspace, 'wiki'), { recursive: true });
-        writeFileSync(
-            join(workspace, 'wiki', 'INDEX.md'),
-            '# Project\n\n## 模块地图\n- API -> packages/api\n',
-            'utf8',
-        );
-        const systems: string[] = [];
+        const workspace = makeRepo('mazi-wiki-ready-');
         const provider: LLMProvider = {
             id: 'faux',
             name: 'faux',
@@ -217,10 +177,9 @@ describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
             async ask() {
                 throw new Error('ask unused');
             },
-            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
-                systems.push(systemText(request));
+            async *askStream(): AsyncIterable<StreamCompletionEvent> {
                 yield { type: 'start', model: 'faux-model' };
-                yield { type: 'text_delta', text: '完成' };
+                yield { type: 'text_delta', text: '只回答' };
                 yield { type: 'finish', finishReason: 'stop' };
             },
         };
@@ -235,133 +194,12 @@ describe('项目 wiki × HarnessRuntime（设计 §7/§8）', () => {
             },
             { llmProviders: { faux: provider }, workspaceRoot: workspace },
         );
-        runtime.setSkillProvider({
-            mounted: () => ['project-wiki'],
-            catalog: () => [
-                {
-                    id: 'project-wiki',
-                    name: '项目 Wiki',
-                    description: '维护仓库内 wiki/',
-                    path: '/builtin/project-wiki/SKILL.md',
-                },
-            ],
-        });
-        try {
-            const created = await runtime.createGoalSession('项目状态');
-            await runtime.executeGoalTree(created.rootGoalId);
-            expect(systems[0]).toContain('## 项目 Wiki');
-            expect(systems[0]).toContain('API -> packages/api');
-            expect(systems[0]).not.toContain('## 项目 Wiki 尚未初始化');
-        } finally {
-            await runtime.close();
-        }
-    });
-
-    it('新会话注入 wiki 快照；写工具改动落一条『时间 | 改动』', async () => {
-        const home = tempDir('mazi-wikihome-');
-        process.env.MAZI_HOME = home;
-        const workspace = tempDir('mazi-wikiws-');
-        mkdirSync(join(workspace, 'src'), { recursive: true });
-
-        const store = new WikiStore({ home, workspace });
-        await store.writeSnapshot('## 项目概览\nmazi 是 Agent Harness');
-
-        const writeTool: ToolConfig = {
-            name: 'fs.write',
-            description: 'write a file',
-            parameters: {},
-            minPermission: 'draft',
-            sideEffects: ['fs'],
-            impl: async (args) => {
-                const path = String(args.path ?? '');
-                mkdirSync(join(workspace, 'src'), { recursive: true });
-                writeFileSync(join(workspace, path), String(args.content ?? ''), 'utf8');
-                return { ok: true, content: 'written' };
-            },
-        };
-        const config: RuntimeConfig = {
-            providers: [],
-            tools: [writeTool],
-            dbPath: ':memory:',
-            eventDir: home,
-            goal: { allowedTools: ['fs.write'], permissionCeiling: 'draft' },
-            contextWindow: 64000,
-        };
-        const fake = writingProvider();
-        const runtime = new HarnessRuntime(config, {
-            llmProviders: { faux: fake.provider },
-            workspaceRoot: workspace,
-        });
-        try {
-            const created = await runtime.createGoalSession('给项目加个文件');
-            const result = await runtime.executeGoalTree(created.rootGoalId);
-            expect(result.ok).toBe(true);
-
-            // 注入：会话开始即拿到项目状态快照
-            expect(fake.systems[0]).toContain('## 项目 wiki');
-            expect(fake.systems[0]).toContain('mazi 是 Agent Harness');
-
-            // 记录：写工具改动 → 功能级条目（时间列 + 改动）
-            const doc = store.read();
-            const last = doc?.entries[doc.entries.length - 1];
-            expect(doc?.entries.length).toBe(1);
-            expect(last?.change).toContain('src');
-            expect(last?.ts).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
-            expect(readFileSync(join(workspace, 'src', 'a.ts'), 'utf8')).toContain('export const a');
-            // 快照区不被日志写入破坏
-            expect(doc?.snapshot).toContain('mazi 是 Agent Harness');
-        } finally {
-            await runtime.close();
-        }
-    });
-
-    it('无写入的只读会话：仍注入并落地项目概览（首次会话不再空白）', async () => {
-        const home = tempDir('mazi-wikihome-');
-        process.env.MAZI_HOME = home;
-        const workspace = tempDir('mazi-wikiws-');
-        mkdirSync(join(workspace, 'packages', 'core'), { recursive: true });
-        writeFileSync(join(workspace, 'package.json'), JSON.stringify({ name: 'whoami' }), 'utf8');
-        const store = new WikiStore({ home, workspace });
-
-        const systems: string[] = [];
-        const provider: LLMProvider = {
-            id: 'faux',
-            name: 'faux',
-            defaultModel: 'faux-model',
-            models: [],
-            async ask() {
-                throw new Error('ask unused');
-            },
-            async *askStream(request: LLMRequest): AsyncIterable<StreamCompletionEvent> {
-                systems.push(systemText(request));
-                yield { type: 'start', model: 'faux-model' };
-                yield { type: 'text_delta', text: '只是回答问题' };
-                yield { type: 'finish', finishReason: 'stop' };
-            },
-        };
-        const config: RuntimeConfig = {
-            providers: [],
-            tools: [],
-            dbPath: ':memory:',
-            eventDir: home,
-            goal: { allowedTools: [], permissionCeiling: 'read-only' },
-            contextWindow: 64000,
-        };
-        const runtime = new HarnessRuntime(config, {
-            llmProviders: { faux: provider },
-            workspaceRoot: workspace,
-        });
         try {
             const created = await runtime.createGoalSession('项目现在什么状态？');
             await runtime.executeGoalTree(created.rootGoalId);
-            const doc = store.read();
-            expect(doc?.entries).toHaveLength(0);
-            // 首次会话即落地确定性项目概览（无模型、无写入也要有状态可读）
-            expect(doc?.snapshot).toContain('## 项目概览');
-            expect(doc?.snapshot).toContain('packages/core');
-            // 且当轮 system prompt 已注入该快照
-            expect(systems[0]).toContain('## 项目 wiki');
-            expect(systems[0]).toContain('packages/core');
+            expect(existsSync(join(workspace, 'wiki', 'INDEX.md'))).toBe(true);
+            expect(existsSync(join(workspace, 'wiki', 'claims.toml'))).toBe(true);
+            expect(existsSync(join(home, 'wiki'))).toBe(false);
         } finally {
             await runtime.close();
         }

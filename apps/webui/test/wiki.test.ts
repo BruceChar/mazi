@@ -2,8 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
     entryCountLabel,
     recentEntries,
+    resolveWikiDocumentPath,
     snapshotSections,
+    wikiClaimStatusLabel,
+    wikiClaimsAttention,
+    wikiDocumentGroupLabel,
+    wikiDocumentLabel,
     wikiEmptyText,
+    wikiRepositoryEmptyText,
     wikiUpdatedLabel,
     wikiWorkspaceFor,
 } from '../src/scripts/wiki.ts';
@@ -42,5 +48,47 @@ describe('wiki 视图纯函数（docs/项目wiki设计.md §11）', () => {
         );
         expect(wikiWorkspaceFor(undefined, '/tmp/other')).toBe('/tmp/other');
         expect(wikiWorkspaceFor('   ', '  ')).toBe('');
+    });
+
+    it('v2 文档与 claims 使用面向任意项目的中文标签', () => {
+        expect(wikiDocumentLabel({ path: 'overview/conventions.md', title: '约定' })).toBe(
+            '工作方式',
+        );
+        expect(wikiDocumentLabel({ path: 'notes/research.md', title: '研究笔记' })).toBe(
+            '研究笔记',
+        );
+        expect(wikiDocumentGroupLabel('overview')).toBe('项目知识');
+        expect(wikiClaimStatusLabel('stale')).toBe('待复核');
+        expect(wikiClaimsAttention({ documents: 4, claims: 5, active: 3, stale: 1, missing: 1, retracted: 0 })).toBe(2);
+        expect(wikiRepositoryEmptyText(undefined)).toContain('v2 知识库');
+        expect(
+            wikiRepositoryEmptyText({
+                root: '/tmp/project',
+                indexPath: '/tmp/project/wiki/INDEX.md',
+                index: '',
+                docs: [],
+                claims: [],
+                summary: {
+                    documents: 0,
+                    claims: 0,
+                    active: 0,
+                    stale: 0,
+                    missing: 0,
+                    retracted: 0,
+                },
+            }),
+        ).toContain('还没有文档');
+    });
+
+    it('resolveWikiDocumentPath 只解析 wiki 内的相对 Markdown 链接', () => {
+        expect(resolveWikiDocumentPath('INDEX.md', 'overview/conventions.md#约定')).toBe(
+            'overview/conventions.md',
+        );
+        expect(resolveWikiDocumentPath('overview/conventions.md', '../state/current.md')).toBe(
+            'state/current.md',
+        );
+        expect(resolveWikiDocumentPath('overview/conventions.md', '../../secret.md')).toBeNull();
+        expect(resolveWikiDocumentPath('INDEX.md', 'https://example.com/a.md')).toBeNull();
+        expect(resolveWikiDocumentPath('INDEX.md', '#local')).toBeNull();
     });
 });

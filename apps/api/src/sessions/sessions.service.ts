@@ -8,6 +8,7 @@ import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { EvalService } from '../eval/eval.service.js';
+import { ProjectWikiMaintenanceService } from '../wiki/maintenance.service.js';
 
 /** Conversation 续聊时携带的最大历史轮数（防止上下文无界增长）。 */
 const HISTORY_MAX_RUNS = 10;
@@ -33,6 +34,7 @@ export class SessionsService {
         private readonly runtime: ApiRuntimeService,
         private readonly conversations: ConversationsService,
         private readonly evaluations: EvalService,
+        private readonly projectWiki?: ProjectWikiMaintenanceService,
     ) {}
 
     /**
@@ -415,6 +417,7 @@ export class SessionsService {
             this.runtime.harness().executeGoalTree(sessionId),
         );
         await this.recordEvaluation(sessionId, result);
+        this.scheduleProjectWikiSessionSync(sessionId, result);
         const last = result.tasks[result.tasks.length - 1];
         this.logger.log(
             `executeSession done ${sessionId} ms=${Date.now() - started} ok=${result.ok} tasks=${result.tasks.length} reason=${last?.reason ?? '-'} error=${JSON.stringify((last?.errorMessage ?? '').slice(0, 160))}`,
@@ -464,6 +467,7 @@ export class SessionsService {
             }),
         );
         await this.recordEvaluation(sessionId, result);
+        this.scheduleProjectWikiSessionSync(sessionId, result);
         const last = result.tasks[result.tasks.length - 1];
         this.logger.log(
             `resumeSession done ${sessionId} ms=${Date.now() - started} ok=${result.ok} tasks=${result.tasks.length} reason=${last?.reason ?? '-'} rejected=${JSON.stringify(result.rejected ?? [])}`,
@@ -528,6 +532,30 @@ export class SessionsService {
             `recordFeedback ${sessionId} type=${feedback.type} rating=${feedback.rating ?? '-'} content=${JSON.stringify((feedback.content ?? '').slice(0, 120))}`,
         );
         return { ok: true };
+    }
+
+    /** SessionEnd：只入队，不等待；当前会话响应不受后台 Wiki 维护影响。 */
+    private scheduleProjectWikiSessionSync(
+        rootGoalId: string,
+        result: Awaited<ReturnType<HarnessRuntime['executeGoalTree']>>,
+    ): void {
+        if (this.projectWiki === undefined) return;
+        const context = this.conversations.runContext?.(rootGoalId);
+        if (context?.workspace === undefined || context.projectId === undefined) return;
+        const finalMessage = result.tasks.at(-1)?.finalMessage?.trim() ?? '';
+        const summary =
+            result.rejected?.join(';').trim() ||
+            finalMessage.slice(0, 1200) ||
+            (result.ok ? 'Session 完成' : 'Session 失败');
+        this.projectWiki.scheduleSessionSync({
+            rootGoalId,
+            workspace: context.workspace,
+            projectId: context.projectId,
+            input: context.input,
+            ok: result.ok,
+            summary,
+        });
+        this.logger.log(`queueProjectWikiSync rootGoalId=${rootGoalId}`);
     }
 
     private async recordEvaluation(

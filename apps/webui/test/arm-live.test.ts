@@ -49,7 +49,7 @@ describe('arm-live（单臂实时投影）', () => {
 
     it('approval.requested 入列、granted/cancelled 出列；无 invocationId 忽略', () => {
         let live = initialArmLive('running');
-        live = applyArmEvent(live, event('approval.requested', { invocationId: 'inv1', toolName: 'shell.run', summary: '需要写权限' }));
+        live = applyArmEvent(live, event('approval.requested', { invocationId: 'inv1', tool: 'shell.run', summary: '需要写权限' }));
         expect(live.approvals).toEqual([
             { invocationId: 'inv1', toolName: 'shell.run', summary: '需要写权限', requestedAt: 1000 },
         ]);
@@ -71,5 +71,44 @@ describe('arm-live（单臂实时投影）', () => {
         const live = initialArmLive('running');
         expect(applyArmEvent(live, event('provider.selected', {}))).toBe(live);
         expect(liveStepOf(event('step.ended', { content: 'x' }, { stepId: 's9' }), 'succeeded')).toMatchObject({ stepId: 's9', title: 'x' });
+    });
+
+    it('从 invocation content 还原工具参数，保留思考文本与输出', () => {
+        const invocation = liveStepOf(
+            event(
+                'step.started',
+                {
+                    kind: 'invocation',
+                    toolName: 'project_wiki',
+                    content: 'project_wiki {"mode":"script","args":["update","--plan"]}',
+                    status: 'active',
+                },
+                { stepId: 'tool-1', taskId: 't1' },
+            ),
+            'active',
+        );
+        expect(invocation.toolArguments).toEqual({
+            mode: 'script',
+            args: ['update', '--plan'],
+        });
+
+        let live = applyArmEvent(initialArmLive('running'), event('step.started', invocation as never, { stepId: 'tool-1', taskId: 't1' }));
+        live = applyArmEvent(
+            live,
+            event(
+                'step.ended',
+                {
+                    kind: 'invocation',
+                    status: 'succeeded',
+                    toolName: 'project_wiki',
+                    output: 'updated',
+                },
+                { stepId: 'tool-1', taskId: 't1' },
+            ),
+        );
+        expect(live.steps[0]).toMatchObject({
+            toolArguments: { mode: 'script', args: ['update', '--plan'] },
+            output: 'updated',
+        });
     });
 });

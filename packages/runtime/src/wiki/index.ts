@@ -12,6 +12,10 @@ import { DEFAULT_SNAPSHOT_THRESHOLD, type WikiFlushContext, WikiWriter } from '.
 
 export * from './injector.js';
 export * from './naming.js';
+export * from './project-wiki.js';
+export * from './project-wiki-claims.js';
+export * from './project-wiki-templates.js';
+export * from './project-wiki-types.js';
 export * from './store.js';
 export * from './summarizer.js';
 export * from './writer.js';

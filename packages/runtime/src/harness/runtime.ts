@@ -1,7 +1,4 @@
-import { execFile } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { promisify } from 'node:util';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type {
     EventBus,
     Goal,
@@ -132,14 +129,13 @@ import {
     type VerificationFailureCategory,
     type VerificationReport,
 } from '../verifier/index.js';
-import { WikiService } from '../wiki/index.js';
+import { ProjectWikiService, WikiService } from '../wiki/index.js';
 import { conversationMessages, type FeedbackInput, type RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
 
 const DEFAULT_AGENT_SYSTEM_PROMPT = GENERAL_PROMPT;
-const execFileAsync = promisify(execFile);
 
 /** 取值兜底：非有限数 → 0（花费回填的 token 字段）。 */
 function numberOf(value: unknown): number {
@@ -191,7 +187,9 @@ export class HarnessRuntime {
     private readonly llmProviders: Map<string, LLMProvider>;
     private readonly stepEvents: StepEventEmitter;
     private readonly roundRunner: RoundRunner;
-    /** 项目 wiki 事实层：写工具捕获 + 回合末条目 + 新会话注入（docs/项目wiki设计.md）。 */
+    /** Runtime-native Git-backed Project Wiki lifecycle. */
+    private readonly projectWiki: ProjectWikiService | undefined;
+    /** Legacy MAZI_HOME wiki retained only for compatibility with non-project runs. */
     private readonly wiki: WikiService;
     /** TOC/Iterations 独立存储与编排（不进 Goal 坐标系） */
     private readonly tocStore: TocStore;
@@ -384,6 +382,10 @@ export class HarnessRuntime {
             ...(options.workspaceRoot !== undefined ? { workspace: options.workspaceRoot } : {}),
             ...(config.wiki ?? {}),
         });
+        this.projectWiki =
+            options.workspaceRoot !== undefined
+                ? new ProjectWikiService({ workspace: options.workspaceRoot })
+                : undefined;
         this.roundRunner = new RoundRunner({
             bus: this.bus,
             executor: new RoundExecutor(),
@@ -756,7 +758,8 @@ export class HarnessRuntime {
                     ],
                     systemPrompt:
                         GOAL_PARSER_PROMPT +
-                        (this.sessionContextFragment(opts.workspaceRoot ?? this.workspaceRoot) ?? ''),
+                        (this.sessionContextFragment(opts.workspaceRoot ?? this.workspaceRoot) ??
+                            ''),
                     tools: [],
                 },
                 opts.reasoningLevel,
@@ -860,7 +863,7 @@ export class HarnessRuntime {
         const requestedSkills = this.pendingSkills.get(rootGoalId);
         this.pendingSkills.delete(rootGoalId);
         const skillIds = requestedSkills ?? this.skillProvider?.mounted() ?? [];
-        const projectWikiSkillActive = skillIds.includes('project-wiki');
+        const projectWikiActive = this.projectWiki !== undefined;
         const allowedToolsOverride = this.pendingAllowedTools.get(rootGoalId);
         this.pendingAllowedTools.delete(rootGoalId);
         const planProposal = this.pendingPlanProposal.get(rootGoalId);
@@ -878,22 +881,20 @@ export class HarnessRuntime {
         const model = this.resolver.resolveModelChoice(modelId);
         const sessionId = this.pendingSessionId.get(rootGoalId);
         this.pendingSessionId.delete(rootGoalId);
-        const projectContext = this.pendingProjectContext.get(rootGoalId);
         this.pendingProjectContext.delete(rootGoalId);
         const rootGoal = goals.find((goal) => goal.goalId === rootGoalId) ?? goals[0];
         const goalId = rootGoal?.goalId ?? rootGoalId;
-        if (projectWikiSkillActive && projectContext !== undefined) {
-            await this.ensureProjectWikiInitialized(rootGoalId, goalId, skillIds);
+        if (projectWikiActive) {
+            await this.ensureProjectWikiInitialized();
         }
-        const blackboardContext = projectWikiSkillActive
-            ? undefined
-            : (this.pendingBlackboard.get(rootGoalId) ??
-              (this.workspaceRoot !== undefined
-                  ? {
-                        projectId: projectIdForWorkspace(this.workspaceRoot),
-                        workspace: this.workspaceRoot,
-                    }
-                  : undefined));
+        const blackboardContext =
+            this.pendingBlackboard.get(rootGoalId) ??
+            (this.workspaceRoot !== undefined
+                ? {
+                      projectId: projectIdForWorkspace(this.workspaceRoot),
+                      workspace: this.workspaceRoot,
+                  }
+                : undefined);
         const board =
             blackboardContext !== undefined
                 ? await this.blackboard.ensure(
@@ -976,11 +977,10 @@ export class HarnessRuntime {
                 },
             }),
         );
-        // project-wiki 挂载后由项目内 wiki/ 协议接管；v1 外部快照静默退出本 run。
-        if (!projectWikiSkillActive) await this.wiki.beginRun();
-        const wikiFragment = projectWikiSkillActive ? '' : this.wiki.promptFragment();
-        const projectWikiFragment = projectWikiSkillActive
-            ? this.projectWikiPromptFragment(rootGoalId, goalId, skillIds)
+        // Runtime-owned Project Wiki supersedes the legacy MAZI_HOME snapshot.
+        const wikiFragment = projectWikiActive ? '' : this.wiki.promptFragment();
+        const projectWikiFragment = projectWikiActive
+            ? this.projectWikiPromptFragment()
             : undefined;
         const effectivePlanProposal =
             planProposal ??
@@ -1132,7 +1132,7 @@ export class HarnessRuntime {
                     },
                     onStep: (step) => {
                         this.stepEvents.emitStep(rootGoalId, step);
-                        if (!projectWikiSkillActive) this.wiki.observeStep(step);
+                        if (this.projectWiki === undefined) this.wiki.observeStep(step);
                     },
                     onPlan: (taskCount, digest, rejected, tasks) => {
                         this.bus.emit(
@@ -1285,8 +1285,8 @@ export class HarnessRuntime {
             );
         }
         this.pendingBlackboard.delete(rootGoalId);
-        // project-wiki 通过 checkpoint 维护项目内 wiki；v1 只在未挂载时收尾。
-        if (!projectWikiSkillActive) {
+        // project-wiki 的会话后同步由宿主后台队列处理；未挂载时保留 v1 收尾。
+        if (this.projectWiki === undefined) {
             await this.wiki.flushRun({
                 ...(sessionId !== undefined ? { sessionId } : {}),
                 ...(rootGoal?.statement !== undefined && rootGoal.statement.length > 0
@@ -1509,8 +1509,10 @@ export class HarnessRuntime {
         const toolSnapshot = this.toolRegistry.snapshot();
         const skillReadRoots = this.skillReadRoots(rootGoalId, goalId, activeSkillIds);
         const merged: ToolConfig[] = toolSnapshot.tools;
-        // 项目 wiki 内置工具（wiki.read 只读免审批；wiki.update 归写能力，走既有判权）。
-        if (this.wiki.enabled && !activeSkillIds.includes('project-wiki')) {
+        // Project Wiki is a runtime capability, independent of mounted skills.
+        if (this.projectWiki !== undefined) {
+            merged.push(projectWikiToolConfig(this.projectWiki));
+        } else if (this.wiki.enabled) {
             merged.push(...wikiToolConfigs(this.wiki));
         }
         if (projectId !== undefined && this.workspaceRoot !== undefined) {
@@ -1527,8 +1529,7 @@ export class HarnessRuntime {
             taskId: goalId,
             level,
             tools: merged,
-            execute: (tool, args, ctx) =>
-                this.executeEffectful(tool, args, ctx, skillReadRoots),
+            execute: (tool, args, ctx) => this.executeEffectful(tool, args, ctx, skillReadRoots),
             ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
             audit: new RuntimePolicyAuditSink({ emit: (event) => this.bus.emit(event) }),
             ...(this.approvalSeam ? { approval: this.approvalSeam } : {}),
@@ -1562,10 +1563,12 @@ export class HarnessRuntime {
             tools,
             invoker: { invoke },
             allowedTools: names,
-            planTools: merged.map((tool) => ({
-                name: tool.name,
-                minPermission: permissionForTool(tool),
-            })),
+            planTools: merged
+                .filter((tool) => names.includes(tool.name))
+                .map((tool) => ({
+                    name: tool.name,
+                    minPermission: permissionForTool(tool),
+                })),
             toolsetVersion: toolSnapshot.version,
             toolsetDigest: toolSnapshot.digest,
         };
@@ -1900,35 +1903,20 @@ export class HarnessRuntime {
         }
     }
 
-    /** SessionStart 确定性初始化：项目会话挂载 project-wiki 时直接建立 wiki/。 */
-    private async ensureProjectWikiInitialized(
-        rootGoalId: string,
-        goalId: string,
-        skillIds: readonly string[],
-    ): Promise<void> {
-        if (this.workspaceRoot === undefined) return;
-        if (existsSync(join(this.workspaceRoot, 'wiki', 'claims.toml'))) return;
-        const context = { rootGoalId, goalId };
-        const entries =
-            this.skillProvider?.catalogFor?.(skillIds, context) ??
-            (this.skillProvider?.catalog(context) ?? []).filter((entry) =>
-                skillIds.includes(entry.id),
-            );
-        const skill = entries.find((entry) => entry.id === 'project-wiki');
-        if (skill === undefined) return;
-        const script = resolve(skill.path, '..', 'scripts', 'wiki.py');
-        if (!existsSync(script)) {
-            this.warn(`project-wiki 脚本不存在：${script}`);
+    /** SessionStart：runtime 直接确保项目内 Git-backed Project Wiki 骨架存在。 */
+    private async ensureProjectWikiInitialized(): Promise<void> {
+        if (
+            this.projectWiki === undefined ||
+            !this.projectWiki.hasGitRepository() ||
+            !this.projectWiki.isProjectRoot() ||
+            this.projectWiki.isInitialized()
+        ) {
             return;
         }
         try {
-            await execFileAsync(
-                process.env.MAZI_PYTHON?.trim() || 'python3',
-                [script, 'init'],
-                { cwd: this.workspaceRoot, timeout: 30_000, maxBuffer: 2 * 1024 * 1024 },
-            );
+            await this.projectWiki.init();
         } catch (error) {
-            this.warn(`project-wiki 初始化失败：${error instanceof Error ? error.message : error}`);
+            this.warn(`Project Wiki 初始化失败：${error instanceof Error ? error.message : error}`);
         }
     }
 
@@ -1936,33 +1924,14 @@ export class HarnessRuntime {
         process.stderr.write('[project-wiki] ' + message + '\n');
     }
 
-    private projectWikiPromptFragment(
-        rootGoalId: string,
-        goalId: string,
-        skillIds: readonly string[],
-    ): string | undefined {
-        if (this.workspaceRoot === undefined) return undefined;
-        const context = { rootGoalId, goalId };
-        const entries =
-            this.skillProvider?.catalogFor?.(skillIds, context) ??
-            (this.skillProvider?.catalog(context) ?? []).filter((entry) =>
-                skillIds.includes(entry.id),
-            );
-        const skill = entries.find((entry) => entry.id === 'project-wiki');
-        if (skill === undefined) return undefined;
-
-        const indexFile = join(this.workspaceRoot, 'wiki', 'INDEX.md');
-        if (existsSync(indexFile)) {
-            const index = readFileSync(indexFile, 'utf8').trim().slice(0, 6000);
-            return index.length > 0 ? '## 项目 Wiki\n' + index : undefined;
-        }
-        const script = resolve(skill.path, '..', 'scripts', 'wiki.py');
+    private projectWikiPromptFragment(): string | undefined {
+        if (this.projectWiki === undefined) return undefined;
+        const fragment = this.projectWiki.promptFragment();
         return [
-            '## 项目 Wiki 尚未初始化',
-            '开始项目任务前必须先读取 ' + skill.path + '。',
-            '然后执行：python3 "' + script + '" init',
-            '初始化后按 SKILL.md 的“首次初始化与 overview”读取 README、工作区清单和关键入口，',
-            '填写 overview/ 与 state/，建立首批 claims，最后执行 checkpoint。',
+            fragment,
+            '',
+            'Project Wiki 由 runtime 生命周期自动维护。除非用户明确询问 Wiki，',
+            '不要主动提出初始化、更新或补全 Wiki，也不要请求用户确认这类操作。',
         ].join('\n');
     }
 
@@ -2314,6 +2283,159 @@ function blackboardToolConfigs(
             },
         },
     ];
+}
+
+function projectWikiToolConfig(projectWiki: ProjectWikiService): ToolConfig {
+    return {
+        name: 'project_wiki',
+        description:
+            'Maintain the Git-backed Project Wiki. Use structured actions; claims and oids are computed by runtime. Corrected facts must use claim_correct and removed facts use claim_forget.',
+        parameters: {
+            type: 'object',
+            properties: {
+                action: {
+                    type: 'string',
+                    enum: [
+                        'write_doc',
+                        'claim_add',
+                        'claim_update',
+                        'claim_correct',
+                        'claim_forget',
+                        'claim_verify',
+                        'doctor',
+                        'update_plan',
+                        'checkpoint',
+                    ],
+                },
+                path: {
+                    type: 'string',
+                    description: 'Wiki-relative Markdown path for write_doc.',
+                },
+                content: {
+                    type: 'string',
+                    description: 'Complete Markdown content for write_doc.',
+                },
+                id: {
+                    type: 'string',
+                    description: 'Claim id for claim_update / claim_correct / claim_forget.',
+                },
+                newId: {
+                    type: 'string',
+                    description: 'Replacement claim id for claim_correct.',
+                },
+                text: {
+                    type: 'string',
+                    description: 'Claim text for claim_add / claim_update / claim_correct.',
+                },
+                reason: {
+                    type: 'string',
+                    description: 'Required audit reason for claim_correct / claim_forget.',
+                },
+                evidence: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Repository-relative evidence files.',
+                },
+                ids: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Claim ids for batched verification.',
+                },
+                all: {
+                    type: 'boolean',
+                    description: 'Verify all active claims.',
+                },
+                changed: {
+                    type: 'boolean',
+                    description: 'Verify claims affected by the current incremental plan.',
+                },
+            },
+            required: ['action'],
+        },
+        minPermission: 'draft',
+        sideEffects: ['fs'],
+        impl: async (args) => {
+            try {
+                const action = typeof args.action === 'string' ? args.action : '';
+                const evidence = Array.isArray(args.evidence)
+                    ? args.evidence.filter(
+                          (item): item is string => typeof item === 'string' && item.length > 0,
+                      )
+                    : [];
+                const ids = Array.isArray(args.ids)
+                    ? args.ids.filter((item): item is string => typeof item === 'string')
+                    : [];
+                if (action === 'write_doc') {
+                    if (typeof args.path !== 'string' || typeof args.content !== 'string') {
+                        return { ok: false, error: 'write_doc 需要 path 和 content' };
+                    }
+                    const result = await projectWiki.writeDoc(args.path, args.content);
+                    return { ok: result.ok, content: result.message };
+                }
+                if (action === 'claim_add') {
+                    const result = await projectWiki.addClaim({
+                        id: typeof args.id === 'string' ? args.id : '',
+                        text: typeof args.text === 'string' ? args.text : '',
+                        evidence: evidence.map((file) => ({ file })),
+                    });
+                    return { ok: result.ok, content: result.message };
+                }
+                if (action === 'claim_update') {
+                    const result = await projectWiki.updateClaim({
+                        id: typeof args.id === 'string' ? args.id : '',
+                        ...(typeof args.text === 'string' ? { text: args.text } : {}),
+                        ...(evidence.length > 0
+                            ? { evidence: evidence.map((file) => ({ file })) }
+                            : {}),
+                    });
+                    return { ok: result.ok, content: result.message };
+                }
+                if (action === 'claim_correct') {
+                    const result = await projectWiki.correctClaim({
+                        oldId: typeof args.id === 'string' ? args.id : '',
+                        newId: typeof args.newId === 'string' ? args.newId : '',
+                        text: typeof args.text === 'string' ? args.text : '',
+                        evidence: evidence.map((file) => ({ file })),
+                        reason: typeof args.reason === 'string' ? args.reason : '',
+                    });
+                    return { ok: result.ok, content: result.message };
+                }
+                if (action === 'claim_forget') {
+                    const result = await projectWiki.forgetClaim({
+                        id: typeof args.id === 'string' ? args.id : '',
+                        reason: typeof args.reason === 'string' ? args.reason : '',
+                    });
+                    return { ok: result.ok, content: result.message };
+                }
+                if (action === 'claim_verify') {
+                    const result = await projectWiki.verifyClaims({
+                        ...(ids.length > 0 ? { ids } : {}),
+                        all: args.all === true,
+                        changed: args.changed === true,
+                    });
+                    return { ok: result.ok, content: result.message };
+                }
+                if (action === 'doctor') {
+                    const report = await projectWiki.doctor();
+                    return { ok: report.missing === 0, content: JSON.stringify(report) };
+                }
+                if (action === 'update_plan') {
+                    const plan = await projectWiki.updatePlan();
+                    return { ok: true, content: JSON.stringify(plan) };
+                }
+                if (action === 'checkpoint') {
+                    const result = await projectWiki.checkpoint();
+                    return { ok: result.ok, content: result.message };
+                }
+                return { ok: false, error: `不支持的 Project Wiki action: ${action}` };
+            } catch (error) {
+                return {
+                    ok: false,
+                    error: error instanceof Error ? error.message : String(error),
+                };
+            }
+        },
+    };
 }
 
 function assertInsideWorkspace(workspaceRoot: string, path: string): void {

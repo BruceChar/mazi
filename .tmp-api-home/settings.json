@@ -1,0 +1,10 @@
+{
+  "pricing": {
+    "vendors": {
+      "deepseek": {
+        "lastSyncedAt": 1794137559810,
+        "models": 2
+      }
+    }
+  }
+}

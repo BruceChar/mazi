@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""project-wiki: git-anchored knowledge base for coding agents.
+"""LEGACY compatibility CLI for Project Wiki.
 
-Single-file, stdlib-only (Python >= 3.11, uses tomllib).
+Mazi runtime no longer calls this file. The authoritative implementation is
+packages/runtime/src/wiki/project-wiki.ts and ProjectWikiService. This command
+is retained only for external projects that still invoke wiki.py directly.
+
+Single-file, stdlib-only (Python >= 3.9; uses tomllib with a claims fallback).
 All write operations auto-commit the wiki/ path only (pathspec-limited);
 user's staged WIP is never swept in.
 
@@ -23,7 +27,12 @@ import sys
 import tempfile
 from pathlib import Path, PurePosixPath
 
-__version__ = "1.0.0"
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.9/3.10 fallback for claims.toml
+    tomllib = None
+
+__version__ = "1.3.0"
 
 HOOK_MARK = "# project-wiki gate"
 AGENTS_MARK_START = "<!-- WIKI:START -->"
@@ -33,6 +42,9 @@ CLAIMS_HEADER = (
     "# status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导\n"
 )
 LINE_WARN = 150
+ACTIVITY_START = "<!-- activity:start -->"
+ACTIVITY_END = "<!-- activity:end -->"
+ACTIVITY_COMMIT_SUBJECT = "wiki(run): record session activity"
 
 
 # ---------------------------------------------------------------- errors ---
@@ -77,6 +89,66 @@ def dump_claims(claims: dict) -> str:
             lines.append(f"claim_oid = {toml_str(c['claim_oid'])}")
         lines.append("")
     return "\n".join(lines)
+
+
+def parse_claim_string(body: str, key: str):
+    match = re.search(
+        rf"(?:^|[,\n{{])\s*{re.escape(key)}\s*=\s*\"((?:\\.|[^\"\\])*)\"",
+        body,
+        re.M,
+    )
+    if not match:
+        return None
+    try:
+        return json.loads(f'"{match.group(1)}"')
+    except json.JSONDecodeError:
+        return match.group(1)
+
+
+def parse_claims_toml(text: str) -> dict:
+    """Parse claims.toml on Python < 3.11 without a third-party TOML library."""
+    matches = list(re.finditer(r"^\[claims\.([^\]]+)\]\s*$", text, re.M))
+    claims = {}
+    for index, match in enumerate(matches):
+        body = text[match.end():matches[index + 1].start() if index + 1 < len(matches) else len(text)]
+        claim = {
+            "text": parse_claim_string(body, "text") or "",
+            "status": parse_claim_string(body, "status") or "active",
+        }
+        evidence_block = re.search(r"^evidence\s*=\s*\[(.*?)^\]", body, re.M | re.S)
+        evidence = []
+        if evidence_block:
+            for entry in re.findall(r"\{([\s\S]*?)\}", evidence_block.group(1)):
+                file = parse_claim_string(entry, "file")
+                oid = parse_claim_string(entry, "oid")
+                if not file or not oid:
+                    continue
+                evidence.append({
+                    "file": file,
+                    "hint": parse_claim_string(entry, "hint"),
+                    "oid": oid,
+                })
+        claim["evidence"] = evidence
+        for key in (
+            "established",
+            "verified",
+            "retracted_at",
+            "retracted_reason",
+            "claim_oid",
+        ):
+            raw = re.search(rf"^{re.escape(key)}\s*=\s*(.+?)\s*$", body, re.M)
+            if raw:
+                value = raw.group(1)
+                claim[key] = parse_claim_string(body, key) if value.startswith('"') else value
+        claims[match.group(1)] = claim
+    return claims
+
+
+def load_claims_file(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    if tomllib is None:
+        return {"claims": parse_claims_toml(text)}
+    return tomllib.loads(text)
 
 
 def atomic_write(path: Path, content: str):
@@ -226,8 +298,7 @@ def load_context():
     root = find_wiki_root()
     repo = repo_of(root)
     claims_path = root / "wiki" / "claims.toml"
-    import tomllib
-    data = tomllib.loads(claims_path.read_text(encoding="utf-8"))
+    data = load_claims_file(claims_path)
     return root, repo, data, claims_path
 
 
@@ -324,8 +395,6 @@ def summarize(claims, findings, warns):
 
 
 def cmd_doctor(args):
-    import tomllib
-
     root, repo, data, _ = load_context()
     claims = data.get("claims", {})
     mode = ("staged" if args.staged else "git_status" if args.git_status
@@ -360,7 +429,7 @@ def cmd_doctor(args):
         findings = []
         for candidate in all_roots(repo):
             candidate_claims_path = candidate / "wiki" / "claims.toml"
-            candidate_data = tomllib.loads(candidate_claims_path.read_text(encoding="utf-8"))
+            candidate_data = load_claims_file(candidate_claims_path)
             candidate_claims = candidate_data.get("claims", {})
             current = collect_findings(repo, candidate_claims, source="index", staged=staged)
             if current:
@@ -377,7 +446,7 @@ def cmd_doctor(args):
         total_missing = 0
         for rr in all_roots(repo):
             print(f"--- root: {rr}")
-            d = tomllib.loads((rr / "wiki" / "claims.toml").read_text(encoding="utf-8"))
+            d = load_claims_file(rr / "wiki" / "claims.toml")
             cl = d.get("claims", {})
             fnd = collect_findings(repo, cl, source="worktree")
             warns = lint_wiki_docs(rr)
@@ -450,9 +519,26 @@ def cmd_claim_add(args, no_commit):
 def cmd_claim_verify(args, no_commit):
     root, repo, data, path = load_context()
     claims = data.get("claims", {})
-    targets = claims if args.all else {args.id: claims.get(args.id)}
-    if not args.all and targets.get(args.id) is None:
-        die(f"claim 不存在: {args.id}")
+    if args.changed or args.ids:
+        if args.changed:
+            plan = build_update_plan(root, repo, claims)
+            ids = [row["id"] for row in plan["claims"]]
+        else:
+            ids = [cid.strip() for cid in args.ids.split(",") if cid.strip()]
+        unknown = [cid for cid in ids if cid not in claims]
+        if unknown:
+            die(f"claim 不存在: {', '.join(unknown)}")
+        if not ids:
+            print("✓ 当前增量清单没有待核验 claim")
+            return
+        targets = {cid: claims[cid] for cid in ids}
+    elif args.all:
+        targets = claims
+    else:
+        target = claims.get(args.id)
+        if target is None:
+            die(f"claim 不存在: {args.id}")
+        targets = {args.id: target}
     missing = []
     for cid, c in targets.items():
         if c.get("status") == "retracted":
@@ -485,9 +571,18 @@ def cmd_claim_verify(args, no_commit):
             print(f"✓ {cid}: oid 已刷新")
         elif not args.all:
             print(f"✓ {cid}: 无变化，verified 已标记")
-    if changed or not args.all:
+    if changed or not args.all or args.changed or args.ids:
+        label = (
+            " --changed"
+            if args.changed
+            else f" --ids {args.ids}"
+            if args.ids
+            else " --all"
+            if args.all
+            else " " + str(args.id)
+        )
         save_and_commit(repo, root, path, claims,
-                         f"wiki(claim): verify{' --all' if args.all else ' ' + args.id}",
+                         f"wiki(claim): verify{label}",
                          no_commit)
 
 
@@ -543,12 +638,28 @@ def cmd_claim_retract(args, no_commit):
 
 # ---------------------------------------------------------------- update ---
 
-def cmd_update(args):
-    root, repo, data, _ = load_context()
-    claims = data.get("claims", {})
+def last_wiki_checkpoint(repo: str, rel_wiki: str):
+    """Return the last wiki commit that represents semantic work.
+
+    Session activity commits are append-only telemetry. Treating them as the
+    diff baseline would hide project commits made before SessionEnd, because
+    the activity commit is created on top of those project commits.
+    """
+    out = run_git(
+        ["log", "-50", "--format=%H%x00%s", "--", rel_wiki],
+        cwd=repo,
+        check=False,
+    ).stdout
+    for line in out.splitlines():
+        commit, _, subject = line.partition("\0")
+        if commit and subject != ACTIVITY_COMMIT_SUBJECT:
+            return commit
+    return ""
+
+
+def build_update_plan(root: Path, repo: str, claims: dict) -> dict:
     rel_wiki = rel_wiki_of(root)
-    ckpt = run_git(["log", "-1", "--format=%H", "--", rel_wiki],
-                   cwd=repo, check=False).stdout.strip()
+    ckpt = last_wiki_checkpoint(repo, rel_wiki)
     files = set()
     if ckpt:
         out = run_git(["diff", "--name-only", ckpt, "HEAD"], cwd=repo).stdout
@@ -562,24 +673,64 @@ def cmd_update(args):
         for ev in c.get("evidence", []):
             by_file.setdefault(ev["file"], []).append(cid)
     hits = sorted({cid for f in files for cid in by_file.get(f, [])})
+    # oid 检测只读取 claims 的 evidence，不遍历项目。即使逐步提交 claim
+    # 暂时移动了 checkpoint，也能找回仍未修复的 stale/missing 事实。
     findings = collect_findings(repo, claims, source="worktree")
     hits = sorted(set(hits) | {cid for _level, cid, _msg in findings})
-    if not hits:
-        print("✓ 自上次 checkpoint 以来没有触及任何 claim，无需修复")
-        return
-    print(f"自 checkpoint 起涉及 {len(hits)} 条 claim，逐条核验"
-          f"（重读源文件 → verify / update / retract 三选一）:\n")
+    claim_rows = []
     for cid in hits:
         c = claims[cid]
-        evs = ", ".join(e["file"] for e in c["evidence"])
         verdicts = []
-        for e in c["evidence"]:
-            if working_oid(repo, e["file"]) is None:
-                verdicts.append(f"MISSING {e['file']}")
-            elif working_oid(repo, e["file"]) != e["oid"]:
-                verdicts.append(f"stale   {e['file']}")
-        detail = "；".join(verdicts) if verdicts else "oid 无变化（提交历史变化）"
-        print(f"- {cid}: {c.get('text', '')}\n    evidence: {evs}\n    状态: {detail}")
+        evidence = []
+        for e in c.get("evidence", []):
+            actual = working_oid(repo, e["file"])
+            status = "missing" if actual is None else (
+                "stale" if actual != e["oid"] else "active"
+            )
+            evidence.append({"file": e["file"], "status": status})
+            if status != "active":
+                verdicts.append(status.upper() + " " + e["file"])
+        claim_rows.append({
+            "id": cid,
+            "text": c.get("text", ""),
+            "evidence": evidence,
+            "detail": "；".join(verdicts) or "oid 无变化（提交历史变化）",
+        })
+    return {
+        "checkpoint": ckpt or None,
+        "changed_files": sorted(files),
+        "claims": claim_rows,
+        "no_changes": not files and not claim_rows,
+        # Explicit update may review any touched evidence. Automatic SessionEnd
+        # only needs a model when an evidence oid is actually stale/missing;
+        # claims already verified at the current oid should not re-trigger it.
+        "needs_semantic_update": bool(findings),
+    }
+
+
+def cmd_update(args):
+    root, repo, data, _ = load_context()
+    claims = data.get("claims", {})
+    payload = build_update_plan(root, repo, claims)
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+        return
+    if not payload["claims"]:
+        if payload["changed_files"]:
+            print(
+                f"✓ 检测到 {len(payload['changed_files'])} 个项目文件变化，"
+                "但没有 evidence 命中任何 claim"
+            )
+            return
+        print("✓ 自上次 checkpoint 以来没有触及任何 claim，无需修复")
+        return
+    print(f"自 checkpoint 起涉及 {len(payload['claims'])} 条 claim，逐条核验"
+          f"（重读源文件 → verify / update / retract 三选一）:\n")
+    for row in payload["claims"]:
+        cid = row["id"]
+        c = claims[cid]
+        evs = ", ".join(e["file"] for e in c.get("evidence", []))
+        print(f"- {cid}: {c.get('text', '')}\n    evidence: {evs}\n    状态: {row['detail']}")
     print(f"\n完成后执行 python3 {Path(__file__).resolve()} checkpoint")
 
 
@@ -587,7 +738,8 @@ def cmd_update(args):
 
 def refresh_recent(root: Path, repo: str, rel_wiki: str):
     idx = root / "wiki" / "INDEX.md"
-    log = run_git(["log", "-8", "--format=- %h %ad %s", "--date=short", "--", rel_wiki],
+    log = run_git(["log", "-8", "--format=- %h %ad %s",
+                   "--date=format:%Y-%m-%d %H:%M:%S", "--", rel_wiki],
                   cwd=repo, check=False).stdout.strip()
     block = f"<!-- recent:start -->\n{log}\n<!-- recent:end -->"
     text = idx.read_text(encoding="utf-8") if idx.is_file() else ""
@@ -601,15 +753,13 @@ def refresh_recent(root: Path, repo: str, rel_wiki: str):
 
 
 def cmd_checkpoint(args, no_commit):
-    import tomllib
-
     root, repo, data, _ = load_context()
     roots = all_roots(repo) if root.resolve() == Path(repo).resolve() else [root]
     claims_by_root = {}
     findings = []
     for candidate in roots:
-        candidate_claims = tomllib.loads(
-            (candidate / "wiki" / "claims.toml").read_text(encoding="utf-8")
+        candidate_claims = load_claims_file(
+            candidate / "wiki" / "claims.toml"
         ).get("claims", {})
         claims_by_root[candidate] = candidate_claims
         current = collect_findings(repo, candidate_claims, source="worktree")
@@ -639,7 +789,7 @@ def cmd_checkpoint(args, no_commit):
         if hit_claims:
             print(f"⚠ 未 commit 的工作区改动涉及 {len(hit_claims)} 条 claims: "
                   f"{', '.join(hit_claims)}")
-            print("  （报告不代劳：请自行决定代码的提交时机）")
+            print("  （报告不代劳：请自行决定项目内容的提交时机）")
 
     for candidate in roots:
         refresh_recent(candidate, repo, rel_wiki_of(candidate))
@@ -655,19 +805,20 @@ def cmd_checkpoint(args, no_commit):
 
 INDEX_TPL = """# {name}
 
-> 一句话：TODO（做什么、给谁用、当前阶段）
-> 技术栈：{stack}
+> 项目摘要：TODO（做什么、给谁用、当前阶段）
+> 项目类型：{stack}
 
 ## 速查
 | 想知道 | 去哪 |
 |---|---|
-| 架构与模块 | overview/architecture.md |
-| 怎么写代码 | overview/conventions.md |
-| 常用命令 | overview/commands.md |
+| 项目全貌与结构 | overview/architecture.md |
+| 工作方式与约定 | overview/conventions.md |
+| 常用流程与命令 | overview/commands.md |
+| 环境、资源与交付 | overview/deployment.md |
 | 当前进行中的事 | state/current.md |
 | 历史决策 | overview/decisions/ |
 
-## 红线（违反会出 bug）
+## 红线（违反会损害结果或造成返工）
 1. TODO
 
 {module_map}
@@ -676,32 +827,77 @@ INDEX_TPL = """# {name}
 <!-- recent:end -->
 """
 
-ARCH_TPL = """# 架构
-TODO：模块划分、数据流、依赖关系。只写代码无法自述的全局认知。
+ARCH_TPL = """# 项目全貌与结构
 
-## 模块
+> 适用于软件、研究、写作、设计、运营等任意项目。
+
+## 目标与边界
+TODO：项目解决什么问题、服务谁、当前阶段，以及明确不做什么。
+
+## 当前内容
+TODO：主要组成部分、参与者、关键对象和它们之间的关系。
+TODO：关键工作流、信息流或交付流；有依赖时说明前后顺序。
+
+## 约束与例外
 TODO
 
-## 数据流
+## 来源与证据
 TODO
 """
 
-CONV_TPL = """# 约定
-TODO：命名、风格、目录语义、代码生成规则。
+CONV_TPL = """# 工作方式与约定
 
-## 禁忌红线
-TODO：绝不能做的事
+> 适用于任意项目类型。记录团队如何协作、如何判断质量，以及不可违反的规则。
+
+## 目标与边界
+TODO：这些约定保护什么结果，适用于哪些人或工作范围。
+
+## 当前内容
+TODO：真实的工作原则、协作方式、命名或格式规则、评审与确认流程。
+
+## 约束与例外
+TODO：红线、允许的例外、例外由谁确认。
+
+## 来源与证据
+TODO：约定出自哪些文档、会议、样例或系统配置。
 """
 
-DEPLOY_TPL = """# 部署与环境
+DEPLOY_TPL = """# 环境、资源与交付
+
+> 不限定软件部署。记录开展项目所需的环境、工具、资源，以及成果如何交付和维护。
 {deploy_hint}
-TODO：环境列表、部署流程、配置管理。
+## 目标与边界
+TODO：需要哪些环境、资源和交付条件，范围到哪里。
+
+## 当前内容
+TODO：环境与工具、账号或访问方式、素材与数据、发布或交付步骤。
+
+## 约束与例外
+TODO：安全、合规、权限、备份与回退要求，以及允许的例外。
+
+## 来源与证据
+TODO：配置、操作手册、平台页面或交付记录。
 """
 
 CURRENT_TPL = """# 当前状态
+
+## 现在
+- 阶段：TODO
 - 进行中：TODO
+
+## 阻塞与风险
 - 阻塞：无
-- 下一步：TODO
+- 风险：TODO
+
+## 下一步
+- TODO
+
+## 最近变化
+- TODO
+
+## 会话活动
+<!-- activity:start -->
+<!-- activity:end -->
 """
 
 LESSONS_TPL = """# 踩坑教训
@@ -714,6 +910,103 @@ ADR_TPL = """# 决策记录（ADR）
 """
 
 CLAIMS_TPL = CLAIMS_HEADER + "\n[claims]\n"
+
+
+def clean_activity(value: str, limit: int) -> str:
+    one_line = re.sub(r"\s+", " ", value or "").strip()
+    return one_line.replace("|", "\\|")[:limit]
+
+
+def write_activity(
+    root: Path,
+    repo: str,
+    input_text: str,
+    status_value: str,
+    summary_text: str,
+    no_commit: bool,
+) -> dict:
+    current = root / "wiki" / "state" / "current.md"
+    text = current.read_text(encoding="utf-8") if current.is_file() else CURRENT_TPL
+    match = re.search(
+        re.escape(ACTIVITY_START) + r"(.*?)" + re.escape(ACTIVITY_END),
+        text,
+        re.S,
+    )
+    existing = []
+    if match:
+        existing = [
+            line
+            for line in match.group(1).splitlines()
+            if line.strip().startswith("- ")
+        ]
+    stamp = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    status = {"success": "成功", "failed": "失败", "aborted": "中止"}[status_value]
+    request = clean_activity(input_text, 100)
+    summary = clean_activity(summary_text, 180)
+    activity = f"- {stamp} | {status} | {request}" + (f" | {summary}" if summary else "")
+    lines = (existing + [activity])[-20:]
+    block = (
+        ACTIVITY_START
+        + "\n"
+        + "\n".join(lines)
+        + ("\n" if lines else "")
+        + ACTIVITY_END
+    )
+    if match:
+        text = text[:match.start()] + block + text[match.end():]
+    else:
+        text = text.rstrip() + "\n\n## 会话活动\n" + block + "\n"
+    atomic_write(current, text)
+    current_rel = current.relative_to(Path(repo)).as_posix()
+    auto_commit(
+        repo,
+        current_rel,
+        ACTIVITY_COMMIT_SUBJECT,
+        allow=not no_commit,
+    )
+    return {
+        "at": stamp,
+        "status": status_value,
+        "input": request,
+        "summary": summary,
+    }
+
+
+def cmd_record(args, no_commit):
+    """Deterministically record a completed run in state/current.md."""
+    root = find_wiki_root()
+    repo = repo_of(root)
+    activity = write_activity(root, repo, args.input, args.status, args.summary, no_commit)
+    status = {"success": "成功", "failed": "失败", "aborted": "中止"}[args.status]
+    request = activity["input"]
+    print(f"✓ 已记录会话活动: {status} {request}")
+
+
+def cmd_session_end(args, no_commit):
+    """SessionEnd deterministic stage: plan first, then append activity.
+
+    The plan is computed before the activity commit so the activity commit
+    cannot hide project changes from the caller's incremental review.
+    """
+    root, repo, data, _ = load_context()
+    claims = data.get("claims", {})
+    plan = build_update_plan(root, repo, claims)
+    activity = write_activity(
+        root,
+        repo,
+        args.input,
+        args.status,
+        args.summary,
+        no_commit,
+    )
+    payload = {**plan, "activity": activity}
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False))
+        return
+    print(
+        f"✓ 会话活动已记录；变更文件 {len(plan['changed_files'])} 个，"
+        f"待核验 claim {len(plan['claims'])} 条"
+    )
 
 
 def detect_stack(repo: Path) -> str:
@@ -749,7 +1042,7 @@ def detect_stack(repo: Path) -> str:
             found.append("Rust")
     if (repo / "pom.xml").is_file():
         found.append("Java (Maven)")
-    return "、".join(found) if found else "TODO"
+    return "、".join(found) if found else "通用项目（未检测到技术清单）"
 
 
 def extract_commands(repo: Path) -> str:
@@ -910,10 +1203,10 @@ def install_hook(root: Path) -> str:
 
 AGENTS_BLOCK = """{mark_start}
 # Agent 指南（project-wiki）
-- 项目知识库在 wiki/INDEX.md，会话开始必读；改代码前先查对应模块 wiki
+- 项目知识库在 wiki/INDEX.md，会话开始必读；开始工作前先查对应项目 wiki
 - wiki 读写协议见 {skill_ref}/SKILL.md
 - 工具：python3 "{script}"（不要手改 wiki/claims.toml）
-- 模块地图见 wiki/INDEX.md
+- 项目地图见 wiki/INDEX.md
 {mark_end}
 """
 
@@ -946,7 +1239,7 @@ def update_agents_md(root: Path) -> str:
 
 MODULE_AGENTS_BLOCK = """{mark_start}
 # Agent 指南（project-wiki）
-- 本模块知识库在 wiki/INDEX.md，改代码前先查
+- 本部分知识库在 wiki/INDEX.md，开始工作前先查
 - 全局知识库与协议见仓库根 AGENTS.md
 {mark_end}
 """
@@ -979,10 +1272,10 @@ def gen_module_wiki(mod_root: Path, repo_root: Path):
         "wiki/INDEX.md": (
             f"# {mod_root.name}\n\n> 模块 wiki（上级全局: "
             f"{os.path.relpath(repo_root / 'wiki' / 'INDEX.md', mod_root)}）\n\n"
-            "## 模块速查\nTODO\n"
+            "## 项目速查\nTODO\n"
         ),
         "wiki/claims.toml": CLAIMS_TPL,
-        "wiki/overview/architecture.md": f"# {rel} 架构\nTODO\n",
+        "wiki/overview/architecture.md": f"# {rel} 项目结构与关系\nTODO\n",
         "wiki/state/current.md": CURRENT_TPL,
         "wiki/state/lessons/README.md": LESSONS_TPL,
     }
@@ -1012,7 +1305,7 @@ def cmd_init(args, no_commit):
             f"{('[AGENTS.md](../' + m + '/AGENTS.md)') if args.per_module else '未初始化'} |"
             for m in mods
         )
-        module_map = ("\n## 模块地图\n| 路径 | 职责 | 技术栈 | 模块 wiki |\n"
+        module_map = ("\n## 项目地图\n| 路径 | 职责 | 主要输入或产出 | 项目 wiki |\n"
                       "|---|---|---|---|\n" + rows + "\n")
 
     for rel, content in [
@@ -1020,7 +1313,11 @@ def cmd_init(args, no_commit):
         ("wiki/overview/architecture.md", ARCH_TPL),
         ("wiki/overview/conventions.md", CONV_TPL),
         ("wiki/overview/commands.md",
-         f"# 常用命令\n\n{extract_commands(root)}\n"),
+         "# 常用流程与命令\n\n"
+         "> 同时记录人工流程与可执行命令；没有命令的项目可以只写步骤。\n\n"
+         "## 工作流程\nTODO\n\n"
+         f"## 可执行入口\n{extract_commands(root)}\n\n"
+         "## 来源与证据\nTODO\n"),
         ("wiki/overview/deployment.md",
          DEPLOY_TPL.format(deploy_hint=detect_deploy(root))),
         ("wiki/overview/decisions/README.md", ADR_TPL),
@@ -1054,14 +1351,15 @@ def cmd_init(args, no_commit):
 
     print(f"\n✓ init 完成：新建 {len(created)} 项；"
           f"AGENTS.md: {ag}；pre-commit hook: {hk}")
-    print(f"  技术栈: {detect_stack(root)}")
+    print(f"  项目类型: {detect_stack(root)}")
     if mods:
         print(f"  monorepo 模块: {', '.join(mods)}")
     print(
         "\n—— 首会话引导（可整段粘贴给 agent）——\n"
         "请阅读 wiki/INDEX.md 与 wiki/overview/ 下的 TODO，完成以下冷启动：\n"
-        "1. 通读项目结构，填写 architecture.md 的模块划分与数据流（只写代码无法自述的）\n"
-        "2. 补全 INDEX.md 红线与 conventions.md\n"
+        "1. 了解项目内容与工作方式，填写 architecture.md、conventions.md、commands.md、"
+        "deployment.md（只写无法从材料直接看出、值得复用的信息）\n"
+        "2. 补全 INDEX.md 的项目摘要、项目地图与红线\n"
         f"3. 为核心机制建立首批 claims：python3 {Path(__file__).resolve()} "
         "claim add --id <slug> --text \"...\" --ev <文件>\n"
         "完成后执行 checkpoint。"
@@ -1109,7 +1407,7 @@ def main():
     ap.add_argument("--version", action="version",
                     version=f"project-wiki {__version__}")
     ap.add_argument("--no-commit", action="store_true",
-                    help="写操作不自动 commit（攒着和代码一起提交时用）")
+                    help="写操作不自动 commit（攒着和项目内容一起提交时用）")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("init", help="初始化 wiki/ 骨架 + AGENTS.md + hook")
@@ -1128,6 +1426,15 @@ def main():
     g = cv.add_mutually_exclusive_group(required=True)
     g.add_argument("--id")
     g.add_argument("--all", action="store_true")
+    g.add_argument(
+        "--changed",
+        action="store_true",
+        help="批量核验当前增量清单命中的 claims，一次刷新 oid",
+    )
+    g.add_argument(
+        "--ids",
+        help="逗号分隔的 claim id，一次核验并刷新 oid",
+    )
     cu = c.add_parser("update")
     cu.add_argument("--id", required=True)
     cu.add_argument("--text", required=True)
@@ -1148,6 +1455,21 @@ def main():
 
     p = sub.add_parser("update", help="漂移修复工作清单")
     p.add_argument("--plan", action="store_true")
+    p.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("record", help="把一次项目 run 确定性写入 state/current.md")
+    p.add_argument("--input", required=True)
+    p.add_argument("--status", choices=("success", "failed", "aborted"), required=True)
+    p.add_argument("--summary", default="")
+
+    p = sub.add_parser(
+        "session-end",
+        help="SessionEnd 确定性收尾：先产出增量清单，再记录会话活动",
+    )
+    p.add_argument("--input", required=True)
+    p.add_argument("--status", choices=("success", "failed", "aborted"), required=True)
+    p.add_argument("--summary", default="")
+    p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("checkpoint")
     p.add_argument("--force", action="store_true")
@@ -1162,8 +1484,8 @@ def main():
     if args.cmd == "setup-env":
         cmd_setup_env(args)
         return
-    if sys.version_info < (3, 11):
-        die("需要 Python >= 3.11（tomllib）")
+    if sys.version_info < (3, 9):
+        die("需要 Python >= 3.9")
 
     if args.cmd == "init":
         cmd_init(args, args.no_commit)
@@ -1177,6 +1499,10 @@ def main():
         cmd_doctor(args)
     elif args.cmd == "update":
         cmd_update(args)
+    elif args.cmd == "record":
+        cmd_record(args, args.no_commit)
+    elif args.cmd == "session-end":
+        cmd_session_end(args, args.no_commit)
     elif args.cmd == "checkpoint":
         cmd_checkpoint(args, args.no_commit)
 

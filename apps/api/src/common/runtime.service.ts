@@ -1306,6 +1306,14 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         }
     }
 
+    /** 后台维护队列：等待当前前台 run 释放后串行执行，不向用户返回 busy。 */
+    async runBackgroundExclusive<T>(operation: () => Promise<T>): Promise<T> {
+        while (this.running) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        return this.runExclusive(operation);
+    }
+
     async onApplicationShutdown(): Promise<void> {
         if (this.priceSyncTimer) clearInterval(this.priceSyncTimer);
         for (const broker of this.approvalBrokers.values()) broker.cancelAll();

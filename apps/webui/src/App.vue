@@ -95,6 +95,8 @@ const MIN_PANEL_W = 280;
 const MAX_PANEL_W = 960;
 const searchOpen = ref(false);
 const projectCollapsed = ref(new Set());
+/** 项目 Wiki 当前锁定的工作区；进入页面时同步为全局工作区。 */
+const wikiWorkspace = ref('');
 /** 用户中心当前 tab（返回后保持原位）。 */
 const userCenterTab = ref(DEFAULT_USER_CENTER_TAB);
 const selectedModel = ref(runSettings.model || '');
@@ -258,6 +260,9 @@ const headerTitle = computed(() => {
  * 仅当没有活跃会话（欢迎页 / Lab / Wiki）时才用已选工作区兜底。
  */
 const headerWorkspace = computed(() => {
+    if (ui.view === 'wiki') {
+        return wikiWorkspace.value || workspaceRoot.value || freeChatWorkspace.value;
+    }
     const conversation = activeConversation.value;
     if (conversation) {
         return conversation.workspace || freeChatWorkspace.value;
@@ -628,11 +633,17 @@ function backToChat() {
     ui.view = 'chat';
 }
 
-/** 项目「…」菜单打开的项目 wiki：锁定该项目工作区（缺省跟随当前会话工作区）。 */
-const wikiWorkspace = ref('');
-
-function openProjectWiki(project) {
-    wikiWorkspace.value = wikiWorkspaceFor(project?.path, headerWorkspace.value);
+/** 项目「…」菜单打开的项目 wiki：锁定并切换全局工作区。 */
+async function openProjectWiki(project) {
+    const target = wikiWorkspaceFor(project?.path, headerWorkspace.value);
+    wikiWorkspace.value = target;
+    if (target.length > 0 && target !== workspaceRoot.value) {
+        try {
+            await selectWorkspace(target);
+        } catch (error) {
+            ui.err = String(error);
+        }
+    }
     ui.view = 'wiki';
 }
 

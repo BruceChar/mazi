@@ -36,6 +36,7 @@ import { SystemController } from './system/system.controller.js';
 import { SystemService } from './system/system.service.js';
 import { UsersController } from './users/users.controller.js';
 import { UsersService } from './users/users.service.js';
+import { ProjectWikiMaintenanceService } from './wiki/maintenance.service.js';
 import { WikiController } from './wiki/wiki.controller.js';
 import { WorkspacesController } from './workspaces/workspaces.controller.js';
 
@@ -80,6 +81,7 @@ import { WorkspacesController } from './workspaces/workspaces.controller.js';
         LedgerService,
         QuestionsService,
         ExperimentsService,
+        ProjectWikiMaintenanceService,
         // SystemService 构造器接受可注入 options（默认走真实 git/fs）；缺省参数不适配 Nest DI，显式工厂装配。
         { provide: SystemService, useFactory: () => new SystemService() },
     ],

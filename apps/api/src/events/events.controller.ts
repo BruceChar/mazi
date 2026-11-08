@@ -28,8 +28,10 @@ export class EventsController {
     replay(
         @Param('id') sessionId: string,
         @Query('follow') follow?: string,
+        @Query('workspace') workspace?: string,
         @Res() reply?: FastifyReply,
     ): void {
+        if (workspace?.trim()) this.runtime.setWorkspaceRoot(workspace.trim());
         const bus = this.runtime.harness().eventBus as DefaultEventBus;
         if (follow !== '1') {
             const events: HarnessEvent[] = replayEvents(bus, sessionId);

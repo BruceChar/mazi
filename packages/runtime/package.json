@@ -11,6 +11,9 @@
       "default": "./dist/index.js"
     }
   },
+  "bin": {
+    "mazi-project-wiki": "./dist/wiki/project-wiki-cli.js"
+  },
   "files": [
     "dist",
     "builtin-skills",
