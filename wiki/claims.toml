@@ -214,3 +214,16 @@ evidence = [
 established = 2026-11-08
 verified = 2026-11-08
 supersedes = "project-wiki-incremental-preflight"
+
+[claims.project-wiki-fact-lifecycle]
+text = "Corrected or forgotten Project Wiki facts leave active context without losing audit history: runtime claim correction creates a replacement active claim and marks the old one retracted/corrected with superseded_by; explicit forgetting marks retracted/forgotten. Doctor, update planning and Context Packet injection exclude retracted claims, while Git retains their evidence and reasons."
+status = "active"
+evidence = [
+  { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "c2dbd6c632f99acf0a9e0ba3ba30084ff858980f" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "08cf2a1b20a13d3f320df68d192996f4e8cdcc24" },
+  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "33a711aa0d40cbedac2f8978855f96ecc6bf52a4" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "e52dbb8deb1f3cf3b5344a96ec37f3ba572e8d94" },
+  { file = "packages/runtime/test/project-wiki-runtime.test.ts", oid = "44ae9443dad87a8478ef5fbe4e877bd5938c72cd" },
+]
+established = 2026-11-08
+verified = 2026-11-08
