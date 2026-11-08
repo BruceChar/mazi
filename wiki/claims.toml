@@ -1,6 +1,5 @@
-# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
+# wiki/claims.toml — 只通过 runtime Project Wiki API 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
-
 
 [claims.wiki-ui-repository-view]
 text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
@@ -222,13 +221,17 @@ verified = 2026-11-08
 
 [claims.todo-source-of-truth]
 text = "Pending product work is tracked only in docs/TODO.md (user behavior tracing; Provider monitoring panel with default execute/verify/plan model roles and a radar chart comparing cost/performance/completion; template features; later Project Wiki enhancements), and README section 13 Roadmap restates the same items from a user perspective. Answering \"what is left to do\" therefore requires reading docs/TODO.md and cross-checking the README Roadmap; TODO hits inside source are Wiki skeleton templates and Agent prompt text, not a tech-debt list."
-status = "active"
+status = "retracted"
 evidence = [
   { file = "docs/TODO.md", oid = "4e467b5f4e00419dd01f47156a0ec9a4d0502ae7" },
   { file = "README.md", oid = "ee7e26971d0d460c962264331c1da515abae7635" },
 ]
 established = 2026-11-08
 verified = 2026-11-08
+retracted_at = 2026-11-08
+retracted_reason = "旧表述称 README §13 Roadmap 复述了同一批待办（含 Wiki 增强），与实际不符：README §13 未列用户行为追踪与 Wiki 后续，并把项目 Wiki 标为已实现；实际核对 docs/TODO.md 与 README §13 后修正。"
+retraction_kind = "corrected"
+superseded_by = "todo-source-of-truth-v2"
 
 [claims.todo-file-escaped-newlines]
 text = "docs/TODO.md contains a literal backslash-n sequence instead of real newlines from the \"项目 Wiki（后续）\" section onward, collapsing those items into a single line and breaking Markdown rendering; editing that file should convert the escapes back to real newlines first."
@@ -238,3 +241,15 @@ evidence = [
 ]
 established = 2026-11-08
 verified = 2026-11-08
+
+[claims.todo-source-of-truth-v2]
+text = "Pending product work is tracked only in docs/TODO.md: 用户行为追踪, Provider 监控面板 (default execute/verify/plan model roles plus a radar chart comparing cost/performance/completion), 模版功能, and 项目 Wiki（后续）. README section 13 Roadmap is only a partial user-facing restatement: it covers Provider 监控面板 and 模板功能, adds items absent from TODO.md (评估深化, 策略生态, 多Agent编排, 知识库, Agent监督), and marks 项目 Wiki as already implemented. 用户行为追踪 and the three Wiki follow-ups appear only in docs/TODO.md, so answering \"what is left to do\" means reading docs/TODO.md and cross-reading README section 13, never substituting a source-code grep for the checklist."
+status = "active"
+evidence = [
+  { file = "docs/TODO.md", oid = "4e467b5f4e00419dd01f47156a0ec9a4d0502ae7" },
+  { file = "README.md", oid = "ee7e26971d0d460c962264331c1da515abae7635" },
+  { file = "docs/项目wiki设计.md", oid = "7d53d7c81d72ec688a80bd8160943b48dd342fb9" },
+]
+established = 2026-11-08
+verified = 2026-11-08
+supersedes = "todo-source-of-truth"
