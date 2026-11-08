@@ -36,14 +36,14 @@ verified = 2026-11-08
 text = "ExecStream renders bare-code answers as one code block, hides the contract card and task block for direct-route answers, keeps completed settled steps expanded while live execution rows are expandable/collapsible (only the active streaming reasoning is one line), and places approval/authorization behavior rows inline in the gated tool Step."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/ExecStream.vue", oid = "de4f180b8f930e810bad04c0ad79d713b7b3caa2" },
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "12bea42e3895331a97d54c5058483dda18d0fc5d" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "1454c6b42dd10de6a3c3fa28dc6a734db7f18950" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
   { file = "apps/webui/src/scripts/behavior-placement.ts", oid = "8c500d77c8039b573e8d38aab6584e0398dacd11" },
   { file = "apps/webui/test/exec-tree.test.ts", oid = "8e1ce8b71b40f9d8f1a392c105a145c6fad91ccf" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.webui-trace-contract-behavior-panel]
 text = "The Trace panel shows contracts for the current run only when narrow (all runs when maximized) with contract entries collapsed by default, and renders paired approval/authorization details for a clicked behavior row."
@@ -60,10 +60,10 @@ verified = 2026-11-07
 text = "Opening a project wiki from the project menu switches the global workspace so the top bar shows that wiki project's path."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/App.vue", oid = "4c27a29ff2ef79918ba74236b3240c0b6e36c8a8" },
+  { file = "apps/webui/src/App.vue", oid = "3ea5c01644323d9fdab86b03f0d9b60300716b66" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.project-wiki-run-activity]
 text = "Each project SessionEnd enqueues a per-workspace background sync without blocking the foreground response; the deterministic session-end stage computes the incremental plan before recording activity, and a bounded semantic update is queued when evidence is stale or when the session trace shows high-value read-only exploration that should be captured for future sessions."
@@ -183,7 +183,7 @@ text = "Project Wiki is maintained by runtime-native ProjectWikiService: init, c
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "354cea2ba6b47f217d8633da08ab486aa93598bc" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "ba0e1eacdb3bde1d675041346bafdce229ed0278" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "4ef2be44a66bf7ffd7c1b32f872604a3153ca3e8" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "0cab0ac6736ddb3267a18712f6ee5bc8ead39f5f" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "e52dbb8deb1f3cf3b5344a96ec37f3ba572e8d94" },
 ]
