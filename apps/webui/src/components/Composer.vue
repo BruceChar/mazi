@@ -102,11 +102,6 @@ function voiceIcon() {
 const voiceStartedAt = ref(0);
 const voiceNow = ref(Date.now());
 let voiceTimer = null;
-const voiceCaptureText = computed(() => {
-    if (props.voiceState === 'requesting') return '正在准备麦克风…';
-    if (props.voiceState === 'finalizing') return '正在转写录音…';
-    return '正在录音';
-});
 const voiceElapsedSeconds = computed(() => {
     if (!voiceStartedAt.value) return 0;
     return Math.max(0, Math.floor((voiceNow.value - voiceStartedAt.value) / 1000));
@@ -228,6 +223,13 @@ function doExitWorkspace() {
                 </div>
                 <!-- 录音中：底部替换为虚线波形条，随电平和时间变化。 -->
                 <div v-if="voiceOn" class="voice-capture-row" role="status" aria-live="polite">
+                    <VoiceWaveform
+                        class="voice-capture-wave"
+                        :level="voiceLevel"
+                        :active="voiceState === 'armed'"
+                    />
+                    <span v-if="voiceState === 'finalizing'" class="voice-capture-text">正在转写…</span>
+                    <span class="voice-capture-timer">{{ voiceTimerLabel }}</span>
                     <button
                         type="button"
                         class="voice-stop-btn"
@@ -238,15 +240,6 @@ function doExitWorkspace() {
                     >
                         <LineIcon name="stop" size="16" />
                     </button>
-                    <VoiceWaveform
-                        class="voice-capture-wave"
-                        :level="voiceLevel"
-                        :active="voiceState === 'armed'"
-                    />
-                    <div class="voice-capture-meta">
-                        <span class="voice-capture-text">{{ voiceCaptureText }}</span>
-                        <span class="voice-capture-timer">{{ voiceTimerLabel }}</span>
-                    </div>
                 </div>
                 <div v-else class="input-footer">
                     <div class="input-footer-left">
@@ -468,11 +461,10 @@ function doExitWorkspace() {
     align-items: center;
     gap: 10px;
     margin: 2px 8px 8px;
-    padding: 6px 10px;
-    min-height: 40px;
-    border: 1px dashed var(--accent);
-    border-radius: 10px;
-    background: var(--accent-soft);
+    padding: 4px 6px;
+    min-height: 36px;
+    border: none;
+    background: transparent;
 }
 .voice-stop-btn {
     flex: none;
@@ -498,21 +490,18 @@ function doExitWorkspace() {
     flex: 1;
     min-width: 0;
 }
-.voice-capture-meta {
+.voice-capture-text {
     flex: none;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
+    font-size: 12px;
+    color: var(--fg-tertiary);
     white-space: nowrap;
 }
-.voice-capture-text {
-    font-size: 12px;
-    color: var(--fg-secondary);
-}
 .voice-capture-timer {
+    flex: none;
     font-size: 12px;
     color: var(--fg-tertiary);
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 /* Voice input */
 .voice-btn {
