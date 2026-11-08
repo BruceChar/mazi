@@ -109,6 +109,20 @@ export interface VoiceChunkRequest {
     end?: boolean;
 }
 
+/** 整段录音转写（DSH 方式）：上传完整 PCM16，停止后一次性返回文字。 */
+export interface VoiceTranscribeRequest {
+    /** PCM16LE / mono / 16kHz 的 base64（不含 WAV 头）。 */
+    audioBase64: string;
+    sampleRate?: number;
+    language?: string;
+}
+
+export interface VoiceTranscribeResponse {
+    text: string;
+    durationMs: number;
+    inferenceMs: number;
+}
+
 export interface VoiceChunkResponse {
     type: 'partial' | 'final' | 'error';
     /** partial 的累计假设版本；单调递增。 */

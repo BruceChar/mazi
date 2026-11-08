@@ -1,9 +1,15 @@
 /**
- * 本机分块 ASR HTTP 客户端（P0 传输：POST /api/voice/asr/chunk）。
+ * 本机语音 HTTP 客户端。
  *
- * - 顺序发送 + 背压（同一时刻只有一个 chunk 在途，队列超限丢最旧帧并提示）；
- * - partial 单调 revision；final 只回调一次；错误映射为 VoiceErrorInfo；
- * - 超时 / cancel 支持；API_BASE 与 `?api=` 兼容沿用 ../api.ts。
+ * 主路径（DSH 方式）：整段录音离线转写
+ *   `transcribePcm` / `transcribeAudio` → POST /api/voice/asr/transcribe
+ *   一次上传完整 PCM16，停止录音后调用，一次性返回整段文字（无 partial）。
+ *
+ * 兼容保留：`LocalAsrClient`（旧的流式 chunk 协议 POST /api/voice/asr/chunk）
+ * 已不再被控制器使用，仅保留导出以免破坏历史引用。
+ *
+ * 统一约定：超时 / cancel 支持；错误映射为 VoiceErrorInfo；API_BASE 与
+ * `?api=` 兼容沿用 ../api.ts。
  */
 import type {
     CreateVoiceSessionResponse,
@@ -12,12 +18,16 @@ import type {
     VoiceErrorCode,
     VoiceLimits,
     VoiceModelInfo,
+    VoiceTranscribeRequest,
+    VoiceTranscribeResponse,
 } from '@mazi/libs';
 import { API_BASE } from '../api.ts';
 import type { VoiceErrorInfo } from './types.ts';
 
 export const VOICE_HTTP_TIMEOUT_MS = 12_000;
 export const VOICE_FINAL_TIMEOUT_MS = 8_000;
+/** 整段离线转写：最长 5 分钟音频，本机推理 + 上传给足 120s。 */
+export const VOICE_TRANSCRIBE_TIMEOUT_MS = 120_000;
 
 /** HTTP 层错误：保留服务端 { error, code, retryable } 契约。 */
 export class VoiceHttpError extends Error {
@@ -142,6 +152,52 @@ export async function deleteVoiceModel(id: string): Promise<void> {
     });
 }
 
+/* ---------------------------- transcribe ------------------------------- */
+
+export interface VoiceTranscribeOptions {
+    sampleRate?: number;
+    language?: string;
+    timeoutMs?: number;
+    /** 取消进行中的转写（打字 / 切换会话 / destroy）。 */
+    signal?: AbortSignal;
+}
+
+/**
+ * 整段录音离线转写（DSH 方式）：POST /api/voice/asr/transcribe。
+ *
+ * 一次请求上传完整 PCM16LE / mono / 16kHz（base64，无 WAV 头），
+ * 停止录音后调用，返回整段文字；不是流式 partial。
+ */
+export async function transcribeAudio(
+    request: VoiceTranscribeRequest,
+    options: VoiceTranscribeOptions = {},
+): Promise<VoiceTranscribeResponse> {
+    return requestJson<VoiceTranscribeResponse>('/api/voice/asr/transcribe', {
+        method: 'POST',
+        body: request,
+        timeoutMs: options.timeoutMs ?? VOICE_TRANSCRIBE_TIMEOUT_MS,
+        ...(options.signal ? { signal: options.signal } : {}),
+    });
+}
+
+/** Int16 PCM → base64 → 转写。控制器停止录音后调用一次。 */
+export async function transcribePcm(
+    pcm: Int16Array,
+    options: VoiceTranscribeOptions = {},
+): Promise<VoiceTranscribeResponse> {
+    if (!pcm || pcm.length === 0) {
+        throw new VoiceHttpError('没有录到声音', { code: 'bad_request', retryable: true });
+    }
+    return transcribeAudio(
+        {
+            audioBase64: pcmToBase64(pcm),
+            sampleRate: options.sampleRate ?? 16_000,
+            ...(options.language ? { language: options.language } : {}),
+        },
+        options,
+    );
+}
+
 /* ------------------------------ session -------------------------------- */
 
 export interface LocalAsrClientOptions {
@@ -161,13 +217,24 @@ interface QueuedChunk {
     end: boolean;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
+/**
+ * Uint8Array → base64。
+ *
+ * 分块处理（每块 32KB）：5 分钟 PCM16 ≈ 9.6MB，一次性 `String.fromCharCode(...)`
+ * 会因参数过多爆栈；分段拼接是安全的。
+ */
+export function bytesToBase64(bytes: Uint8Array): string {
     let binary = '';
     const step = 0x8000;
     for (let i = 0; i < bytes.length; i += step) {
         binary += String.fromCharCode(...bytes.subarray(i, i + step));
     }
     return btoa(binary);
+}
+
+/** PCM16（Int16Array）→ base64（按字节视图编码，不复制样本）。 */
+export function pcmToBase64(pcm: Int16Array): string {
+    return bytesToBase64(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength));
 }
 
 function toBytes(pcm: Int16Array | Uint8Array): Uint8Array {

@@ -1,43 +1,36 @@
 /**
- * 语音输入控制器（本机识别 only）。
+ * 语音输入控制器（本机离线识别 only，DSH 方式：整段录音 → 一次性转写）。
  *
  * 交互（按用户要求收敛）：
- * - 点击麦克风开始录音；再次点击停止识别；
- * - 识别文字直接写入 Composer 输入框（partial 也实时写入），不显示独立识别列；
- * - 不自动发送；用户停止后自行点发送；
- * - 不启用浏览器 Web Speech，不使用云端识别；
- * - 本机模型由服务启动时自动安装（capabilities.install），安装中点击会提示等待。
+ * - 点击麦克风开始录音；再次点击停止；
+ * - 录音期间不显示 partial，也不写输入框；
+ * - 停止后把整段 PCM16 拼接，POST /api/voice/asr/transcribe 一次性转写；
+ * - 转写文字 append 到开始录音时已有的草稿后写入 Composer（setPrompt），不自动发送；
+ * - 打字 / 切换会话 / destroy 取消本次录音或转写，保留输入框当前内容；
+ * - 本机模型由服务启动时自动安装（capabilities.install），安装中点击会提示等待；
+ * - 达到 5 分钟上限自动停止并转写。
  */
-import { reactive } from 'vue';
+
 import type { VoiceCapabilities } from '@mazi/libs';
+import { reactive } from 'vue';
 import { AudioCapture, isCaptureSupported, mapCaptureError } from './capture.ts';
-import {
-    fetchVoiceCapabilities,
-    LocalAsrClient,
-    toVoiceErrorInfo,
-} from './local-asr.ts';
-import { appendTranscript, sanitizeTranscript } from './text.ts';
+import { fetchVoiceCapabilities, toVoiceErrorInfo, transcribePcm } from './local-asr.ts';
 import { voiceSettings } from './settings.ts';
+import { appendTranscript, sanitizeTranscript, shouldDiscardFinal } from './text.ts';
 import type { VoiceErrorInfo } from './types.ts';
 
-export type VoicePhase =
-    | 'off'
-    | 'requesting'
-    | 'armed'
-    | 'partial'
-    | 'finalizing'
-    | 'error';
+export type VoicePhase = 'off' | 'requesting' | 'armed' | 'finalizing' | 'error';
 
 export interface VoiceUiState {
     phase: VoicePhase;
     supported: boolean;
     insecureContext: boolean;
-    /** 本机引擎是否可用（模型 + sherpa 已就绪）。 */
+    /** 本机引擎是否可用（模型 + 推理进程已就绪）。 */
     modelInstalled: boolean;
     /** 服务是否正在自动安装模型。 */
     installRunning: boolean;
     engine: 'local' | 'none';
-    partial: string;
+    /** 当前麦克风电平 0..1（录音中的波形 / 诊断用）。 */
     level: number;
     error: string;
     notice: string;
@@ -49,6 +42,24 @@ export interface VoiceControllerOptions {
 }
 
 const CAPS_POLL_MS = 1500;
+/** 采集目标采样率（capture.ts 的 Worklet 会重采样到该值）。 */
+export const CAPTURE_SAMPLE_RATE = 16_000;
+/** 单次录音上限 5 分钟：更长音频后端不接受，达到后自动停止并转写。 */
+export const MAX_RECORD_MS = 5 * 60_000;
+const MAX_RECORD_SAMPLES = Math.round((CAPTURE_SAMPLE_RATE * MAX_RECORD_MS) / 1000);
+
+/** 把逐帧 PCM 复制品拼接成一整段（停止录音时调用一次）。 */
+export function concatPcm(chunks: readonly Int16Array[]): Int16Array {
+    let total = 0;
+    for (const chunk of chunks) total += chunk.length;
+    const merged = new Int16Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        merged.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return merged;
+}
 
 function createState(): VoiceUiState {
     return {
@@ -58,7 +69,6 @@ function createState(): VoiceUiState {
         modelInstalled: false,
         installRunning: false,
         engine: 'none',
-        partial: '',
         level: 0,
         error: '',
         notice: '',
@@ -71,14 +81,18 @@ export class VoiceController {
     private readonly options: VoiceControllerOptions;
     private prompt = '';
     private basePrompt = '';
-    private client: LocalAsrClient | null = null;
+    private capabilities: VoiceCapabilities | null = null;
     private capture: AudioCapture | null = null;
+    /** 逐帧拷贝的 PCM16（16kHz mono）；停止时拼接后清空。 */
+    private chunks: Int16Array[] = [];
+    private totalSamples = 0;
     private recording = false;
     private starting = false;
     private stopping = false;
     private disposed = false;
     private operationId = 0;
     private pendingStop: Promise<void> | null = null;
+    private transcribeAbort: AbortController | null = null;
     private capsPollTimer: ReturnType<typeof setTimeout> | null = null;
     private removeShortcut: (() => void) | null = null;
 
@@ -116,10 +130,11 @@ export class VoiceController {
         await this.refreshCapabilities();
     }
 
-    /** 切换会话：停止录音，不把旧会话文本带过去。 */
+    /** 切换会话：停止录音 / 转写，不把旧会话文本带过去。 */
     resetConversation(): void {
         this.cancelRecording();
         this.state.notice = '';
+        this.state.error = '';
     }
 
     /** 麦克风按钮：开始 / 停止。 */
@@ -141,51 +156,61 @@ export class VoiceController {
                 : '当前浏览器不支持麦克风采集。';
             return;
         }
-        const local = this.capabilities?.engines.local;
-        if (!local?.available) {
-            this.state.phase = 'error';
-            this.state.error = this.state.installRunning
-                ? '本机语音模型正在自动安装，请稍候再点麦克风。'
-                : '本机语音模型不可用，请检查服务日志或设置页。';
-            return;
-        }
 
-        const operation = ++this.operationId;
-        this.basePrompt = this.prompt;
-        this.state.partial = '';
+        // 先进入 requesting：能力刷新（安装刚完成时）与打开麦克风期间都不允许重复点击。
+        this.starting = true;
+        this.state.phase = 'requesting';
         this.state.error = '';
         this.state.notice = '';
-        this.state.phase = 'requesting';
+        this.state.level = 0;
         this.state.engine = 'local';
-        this.starting = true;
 
         try {
-            const client = new LocalAsrClient({
-                language: voiceSettings.language,
-                modelId: local.modelId,
-                onPartial: (text) => this.handlePartial(client, text),
-                onFinal: (text) => this.handleFinal(client, text),
-                onError: (error) => this.handleError(client, error),
-            });
-            this.client = client;
-            await client.start();
-            if (operation !== this.operationId || this.disposed) {
-                client.cancel();
+            // 能力可能因模型刚安装完成而刚变为可用：点击时重新确认一次。
+            let local = this.capabilities?.engines.local;
+            if (!local?.available) {
+                await this.refreshCapabilities();
+                if (this.disposed || !this.starting) return;
+                local = this.capabilities?.engines.local;
+            }
+            if (!local?.available) {
+                this.starting = false;
+                this.state.phase = 'error';
+                this.state.engine = 'none';
+                this.state.error = this.state.installRunning
+                    ? '本机语音模型正在自动安装，请稍候再点麦克风。'
+                    : '本机语音模型不可用，请检查服务日志或设置页。';
                 return;
             }
+
+            const operation = ++this.operationId;
+            this.basePrompt = this.prompt;
+            this.chunks = [];
+            this.totalSamples = 0;
 
             const capture = new AudioCapture();
             await capture.start({
                 deviceId: voiceSettings.inputDeviceId,
+                sampleRate: CAPTURE_SAMPLE_RATE,
                 onFrame: (frame) => {
+                    if (operation !== this.operationId) return;
+                    if (!this.recording && !this.starting) return;
+                    // 必须复制：Worklet 每帧复用/释放底层 buffer，只存引用会得到旧数据。
+                    const pcm = new Int16Array(frame.pcm);
+                    this.chunks.push(pcm);
+                    this.totalSamples += pcm.length;
                     this.state.level = frame.level;
-                    if (this.recording) this.client?.pushPcm(frame.pcm);
+                    if (this.totalSamples >= MAX_RECORD_SAMPLES) {
+                        this.state.notice = '已达到 5 分钟录音上限，正在转写…';
+                        void this.stopRecording();
+                    }
                 },
-                onError: (error) => this.fail(error),
+                onError: (error) => {
+                    if (operation === this.operationId) this.fail(error);
+                },
             });
-            if (operation !== this.operationId || this.disposed) {
+            if (operation !== this.operationId || this.disposed || !this.starting) {
                 capture.stop();
-                client.cancel();
                 return;
             }
             this.capture = capture;
@@ -193,9 +218,9 @@ export class VoiceController {
             this.starting = false;
             this.state.phase = 'armed';
         } catch (error) {
-            if (operation !== this.operationId || this.disposed) return;
+            if (this.disposed || !this.starting) return;
             this.starting = false;
-            this.cleanup();
+            this.stopCapture();
             this.fail(this.toVoiceError(error));
         }
     }
@@ -214,103 +239,124 @@ export class VoiceController {
             this.cancelRecording();
             return;
         }
-        if (!this.recording || !this.client) return;
+        if (!this.recording || this.stopping) return;
         this.stopping = true;
         this.recording = false;
         this.state.phase = 'finalizing';
-        this.capture?.stop();
-        this.capture = null;
-        const client = this.client;
+        this.state.level = 0;
+        this.stopCapture();
+
+        const operation = this.operationId;
+        const chunks = this.chunks;
+        this.chunks = [];
+        this.totalSamples = 0;
+
+        const merged = concatPcm(chunks);
+        const pcm =
+            merged.length > MAX_RECORD_SAMPLES ? merged.subarray(0, MAX_RECORD_SAMPLES) : merged;
+        if (pcm.length === 0) {
+            this.failWithMessage('没听清，请重试');
+            return;
+        }
+
+        const abort = new AbortController();
+        this.transcribeAbort = abort;
         try {
-            await client.end();
+            const result = await transcribePcm(pcm, {
+                sampleRate: CAPTURE_SAMPLE_RATE,
+                language: voiceSettings.language,
+                signal: abort.signal,
+            });
+            // 被取消（打字 / 切会话 / destroy）时丢弃结果，保留输入框内容。
+            if (operation !== this.operationId || this.disposed) return;
+            const text = sanitizeTranscript(result?.text);
+            if (!text || shouldDiscardFinal(text)) {
+                this.failWithMessage('没听清，请重试');
+                return;
+            }
+            this.applyTranscript(text);
+            this.finishSession();
+        } catch (error) {
+            if (operation !== this.operationId || this.disposed) return;
+            this.failWithMessage(this.toVoiceError(error).message || '语音转写失败，请重试');
         } finally {
-            if (this.client === client) this.finishSession(true);
+            if (this.transcribeAbort === abort) this.transcribeAbort = null;
         }
     }
 
-    /** 提交前调用：若正在录音/正在结束，先等 final 落定，再允许发送。 */
+    /** 提交前调用：若正在录音 / 转写，先等停止与转写完成，再允许发送。 */
     async onSubmit(): Promise<boolean> {
         if (this.pendingStop) await this.pendingStop;
-        if (this.recording || this.starting) {
-            await this.stopRecording();
-        }
+        else if (this.recording || this.starting) await this.stopRecording();
         return true;
     }
 
-    /** 用户开始打字：取消本次录音，让键盘输入接管。 */
+    /** 用户开始打字：取消本次录音 / 转写，让键盘输入接管。 */
     onUserInput(): void {
         if (this.isRecording) this.cancelRecording();
     }
 
-    private handlePartial(client: LocalAsrClient, text: string): void {
-        if (this.client !== client || this.stopping) return;
-        const clean = sanitizeTranscript(text);
-        this.state.partial = clean;
-        this.state.phase = clean ? 'partial' : 'armed';
-        if (clean) this.applyPrompt(clean);
+    private applyTranscript(text: string): void {
+        const next = appendTranscript(this.basePrompt, text);
+        this.prompt = next;
+        this.options.setPrompt(next);
     }
 
-    private handleFinal(client: LocalAsrClient, text: string): void {
-        if (this.client !== client) return;
-        const clean = sanitizeTranscript(text);
-        this.state.partial = clean;
-        if (clean) this.applyPrompt(clean);
-        this.finishSession(false);
-    }
-
-    private handleError(client: LocalAsrClient, error: VoiceErrorInfo): void {
-        if (this.client !== client) return;
-        this.fail(error);
-    }
-
-    private finishSession(usePartial: boolean): void {
-        if (usePartial) {
-            const partial = this.state.partial;
-            if (partial) this.applyPrompt(partial);
-        }
-        this.cleanup();
+    /** 正常结束：回到 off，保留输入框内容。 */
+    private finishSession(): void {
         this.recording = false;
         this.starting = false;
         this.stopping = false;
+        this.chunks = [];
+        this.totalSamples = 0;
         this.state.phase = 'off';
-        this.state.partial = '';
         this.state.level = 0;
         this.state.engine = 'none';
+        this.state.notice = '';
     }
 
-    private cancelRecording(): void {
-        this.operationId += 1;
-        this.cleanup();
+    /** 录音已停止但转写失败 / 没听清：显示错误行，输入框保持原样。 */
+    private failWithMessage(message: string): void {
         this.recording = false;
         this.starting = false;
         this.stopping = false;
-        this.state.phase = 'off';
-        this.state.partial = '';
+        this.stopCapture();
+        this.chunks = [];
+        this.totalSamples = 0;
+        this.state.phase = 'error';
+        this.state.error = message;
         this.state.level = 0;
         this.state.engine = 'none';
-    }
-
-    private cleanup(): void {
-        this.capture?.stop();
-        this.capture = null;
-        const client = this.client;
-        this.client = null;
-        client?.cancel();
-    }
-
-    private applyPrompt(partial: string): void {
-        const text = appendTranscript(this.basePrompt, partial);
-        this.prompt = text;
-        this.options.setPrompt(text);
+        this.state.notice = '';
     }
 
     private fail(error: VoiceErrorInfo): void {
         const message = error.message || '语音识别失败';
-        const partial = this.state.partial;
-        if (partial) this.applyPrompt(partial);
         this.cancelRecording();
         this.state.phase = 'error';
         this.state.error = message;
+    }
+
+    /** 取消本次录音 / 转写（不修改输入框）。 */
+    private cancelRecording(): void {
+        this.operationId += 1;
+        this.stopCapture();
+        this.transcribeAbort?.abort();
+        this.transcribeAbort = null;
+        this.chunks = [];
+        this.totalSamples = 0;
+        this.recording = false;
+        this.starting = false;
+        this.stopping = false;
+        this.state.phase = 'off';
+        this.state.level = 0;
+        this.state.engine = 'none';
+        this.state.notice = '';
+    }
+
+    private stopCapture(): void {
+        this.capture?.stop();
+        this.capture = null;
     }
 
     private toVoiceError(error: unknown): VoiceErrorInfo {
@@ -328,19 +374,20 @@ export class VoiceController {
         this.clearCapsPoll();
         try {
             const capabilities = await fetchVoiceCapabilities();
+            if (this.disposed) return;
             this.capabilities = capabilities;
             this.state.modelInstalled = Boolean(capabilities.engines.local.available);
             this.state.installRunning = capabilities.install?.status === 'running';
             if (this.state.installRunning) this.scheduleCapsPoll();
         } catch {
+            if (this.disposed) return;
             this.capabilities = null;
             this.state.modelInstalled = false;
             this.state.installRunning = false;
         }
     }
 
-    private capabilities: VoiceCapabilities | null = null;
-
+    /** 模型自动安装中：每 1.5s 拉一次 capabilities，供按钮可用性判断。 */
     private scheduleCapsPoll(): void {
         if (this.capsPollTimer !== null || this.disposed) return;
         this.capsPollTimer = setTimeout(() => {
@@ -371,7 +418,10 @@ export class VoiceController {
 /** 'Mod+Shift+M'（Mod = ⌘/Ctrl）。 */
 export function matchesVoiceShortcut(event: KeyboardEvent, shortcut: string): boolean {
     if (!shortcut) return false;
-    const parts = shortcut.split('+').map((part) => part.trim().toLowerCase()).filter(Boolean);
+    const parts = shortcut
+        .split('+')
+        .map((part) => part.trim().toLowerCase())
+        .filter(Boolean);
     const key = parts[parts.length - 1] ?? '';
     if (!key) return false;
     const wantsMeta = parts.includes('mod') || parts.includes('meta') || parts.includes('cmd');

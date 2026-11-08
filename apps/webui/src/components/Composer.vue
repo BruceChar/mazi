@@ -104,7 +104,7 @@ function voiceLabel() {
         case 'partial':
             return '正在识别 · 点击停止';
         case 'finalizing':
-            return '正在结束录音…';
+            return '正在转写录音…';
         case 'error':
             return '录音出错 · 点击重试';
         default:
