@@ -1,6 +1,5 @@
-# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
+# wiki/claims.toml — 只通过 runtime Project Wiki API 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
-
 
 [claims.wiki-ui-repository-view]
 text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
@@ -35,7 +34,7 @@ verified = 2026-11-08
 
 [claims.webui-exec-stream-rendering]
 text = "ExecStream renders bare-code answers as one code block, hides the contract card and task block for direct-route answers, keeps completed settled steps expanded while live execution rows are expandable/collapsible (only the active streaming reasoning is one line), and places approval/authorization behavior rows inline in the gated tool Step."
-status = "active"
+status = "retracted"
 evidence = [
   { file = "apps/webui/src/components/ExecStream.vue", oid = "3f6dba24ca334102c6b10ddb41dac77021513018" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "1454c6b42dd10de6a3c3fa28dc6a734db7f18950" },
@@ -45,6 +44,10 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-08
+retracted_at = 2026-11-09
+retracted_reason = "direct route must not hide harness execution facts; pure direct is now zero-execution and historical direct+steps remains visible"
+retraction_kind = "corrected"
+superseded_by = "webui-exec-stream-fact-projection-v2"
 
 [claims.webui-trace-contract-behavior-panel]
 text = "The Trace panel shows contracts for the current run only when narrow (all runs when maximized) with contract entries collapsed by default, and renders paired approval/authorization details for a clicked behavior row."
@@ -263,3 +266,17 @@ evidence = [
 ]
 established = 2026-11-08
 verified = 2026-11-08
+
+[claims.webui-exec-stream-fact-projection-v2]
+text = "ExecStream renders bare-code answers as one code block, collapses only true zero-execution direct answers (contract/task chrome hidden when route=direct has an answer and no started task/step), renders legacy direct-route goals with execution facts as the full contract/task/step tree, keeps completed settled steps expanded while live execution rows are expandable/collapsible (only the active streaming reasoning is one line), and places approval/authorization behavior rows inline in the gated tool Step."
+status = "active"
+evidence = [
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "bf87a599514730eebff1fc74e6368ee9e3074b3c" },
+  { file = "apps/webui/src/scripts/exec-tree.ts", oid = "05284bc7bcd5605b0198a2d2622cba1fbee5849e" },
+  { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
+  { file = "apps/webui/src/scripts/behavior-placement.ts", oid = "8c500d77c8039b573e8d38aab6584e0398dacd11" },
+  { file = "apps/webui/test/exec-tree.test.ts", oid = "7e805f3f7aaf0b5db8c785a43a925ba6813f8e9f" },
+]
+established = 2026-11-09
+verified = 2026-11-09
+supersedes = "webui-exec-stream-rendering"
