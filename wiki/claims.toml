@@ -69,7 +69,7 @@ verified = 2026-11-07
 text = "Each project SessionEnd enqueues a per-workspace background sync without blocking the foreground response; the deterministic session-end stage computes the incremental plan before recording activity, and a bounded semantic update is queued when evidence is stale or when the session trace shows high-value read-only exploration that should be captured for future sessions."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "f1536f30a1960daa64ce0284d57dd1450fee6f1a" },
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "0b552d49a40c20cba70d7e25f07b251ee585b1b0" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "30328e264d4756b7414412adfcf95ef63bb5cc2a" },
 ]
