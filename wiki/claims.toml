@@ -1,6 +1,5 @@
-# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
+# wiki/claims.toml — 只通过 runtime Project Wiki API 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
-
 
 [claims.wiki-ui-repository-view]
 text = "GET /api/wiki returns a repository-backed v2 document and claim view while preserving legacy fields."
@@ -78,7 +77,7 @@ verified = 2026-11-08
 
 [claims.project-wiki-maintenance-actions]
 text = "Wiki init and explicit update run as hidden background Agent goals with read tools plus restricted project_wiki script/write_doc tools. SessionEnd runs deterministic session-end and derives safe research files from the persisted Goal tool trace, excluding wiki/, user data, logs, caches and secrets; it starts one bounded semantic Agent when claims drift or high-value read-only exploration should be captured. A completed wiki(checkpoint) plus final answer marks maintenance successful even when an unrelated tool step failed, while keeping the failure visible in trace."
-status = "active"
+status = "retracted"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "0b552d49a40c20cba70d7e25f07b251ee585b1b0" },
   { file = "apps/api/src/sessions/sessions.service.ts", oid = "90d7c803d4a2e977973f087c9d566753dcbed3f2" },
@@ -89,6 +88,10 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-08
+retracted_at = 2026-11-08
+retracted_reason = "Project Wiki core migrated from wiki.py into runtime/wiki; maintenance is now runtime-native."
+retraction_kind = "corrected"
+superseded_by = "project-wiki-maintenance-actions-runtime"
 
 [claims.runtime-task-planning-triage-order]
 text = "HarnessRuntime awaits the in-flight async triage before generating a Task plan, forwards conversation history into the planner prompt, retries with a strict-split hint when a multi-artifact goal collapses into one task, and plan.created events carry task titles plus dependencies for auditing."
@@ -166,3 +169,16 @@ evidence = [
 ]
 established = 2026-11-08
 verified = 2026-11-08
+
+[claims.project-wiki-maintenance-actions-runtime]
+text = "Project Wiki is maintained by runtime-native ProjectWikiService: init, claims, oid verification, incremental plans, activity recording, checkpoint and fact correction/forgetting no longer execute wiki.py. The API maintenance service orchestrates hidden Goal work, Harness injects active facts while excluding retracted/corrected facts, and the Wiki panel exposes trace and forgotten/corrected claim state."
+status = "active"
+evidence = [
+  { file = "apps/api/src/wiki/maintenance.service.ts", oid = "354cea2ba6b47f217d8633da08ab486aa93598bc" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "ba0e1eacdb3bde1d675041346bafdce229ed0278" },
+  { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "08cf2a1b20a13d3f320df68d192996f4e8cdcc24" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "e52dbb8deb1f3cf3b5344a96ec37f3ba572e8d94" },
+]
+established = 2026-11-08
+verified = 2026-11-08
+supersedes = "project-wiki-maintenance-actions"
