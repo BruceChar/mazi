@@ -2,14 +2,15 @@
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
 
 [claims.wiki-ui-repository-view]
-text = "GET /api/wiki returns a repository-backed v2 document and claim view while preserving legacy fields."
+text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "e8bb54fb610de58083cc167659cc38de6dd71bcc" },
-  { file = "apps/api/src/wiki/repository.ts", oid = "b8bf7e197e1f7afc98337a504bdd76fb4d065f0e" },
+  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "33a711aa0d40cbedac2f8978855f96ecc6bf52a4" },
+  { file = "apps/api/src/wiki/repository.ts", oid = "73e120a4cc1fd3b9c4fce34dd56cb4c56adbbe3c" },
+  { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "c2dbd6c632f99acf0a9e0ba3ba30084ff858980f" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-08
 
 [claims.wiki-ui-three-pane]
 text = "The project wiki UI projects v2 repository documents into a document navigation, Markdown body, and status/claims evidence layout, collapsing to a vertical flow on narrow screens."
