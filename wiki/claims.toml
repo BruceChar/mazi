@@ -253,3 +253,15 @@ evidence = [
 established = 2026-11-08
 verified = 2026-11-08
 supersedes = "todo-source-of-truth"
+
+[claims.project-wiki-followups-location]
+text = "The remaining Project Wiki work is only the three product-level follow-ups in docs/TODO.md 项目 Wiki（后续）, restated in docs/项目wiki设计.md section 17 后续可选: wiring a model summary provider (wiki.summaryModel / createLlmSummarizer), a graph-wiki style plugin (graph sidecar plus new tool surface), and cross-project search / wiki history rollback. docs/runtime/AHF_PROJECT_WIKI.md section 14 演进路线 additionally lists 按需 items (SessionStart/SessionEnd hook, wiki_checkpoint tool, init --per-module, claim_oid) that are optional evolution notes, not a separate backlog. So scoping wiki work requires reading docs/TODO.md plus the v2 design doc section 17; the README Roadmap cannot be used for that."
+status = "active"
+evidence = [
+  { file = "docs/TODO.md", oid = "4e467b5f4e00419dd01f47156a0ec9a4d0502ae7" },
+  { file = "docs/项目wiki设计.md", oid = "7d53d7c81d72ec688a80bd8160943b48dd342fb9" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "cd6dafc5cc2e305800c82ebadd16ef5b65a45962" },
+  { file = "README.md", oid = "ee7e26971d0d460c962264331c1da515abae7635" },
+]
+established = 2026-11-08
+verified = 2026-11-08
