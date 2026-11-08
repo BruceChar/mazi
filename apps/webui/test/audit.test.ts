@@ -445,6 +445,18 @@ describe('audit buildAuditView', () => {
         const view = buildAuditView({ snapshot, stepId: 's1' });
         expect(view.kind).toBe('step');
         expect(view.title).toContain('S#1');
+        expect(view.anchor).toEqual({
+            scope: 'step',
+            loc: 'R#1·T#1·S#1',
+            rootGoalId: 'root',
+            goalId: 'g1',
+            taskId: 't1',
+            stepId: 's1',
+            startedAt: 1,
+            endedAt: 201,
+            status: 'succeeded',
+            taskStatus: 'succeeded',
+        });
         expect(view.diff).toBeNull();
         expect(view.rows).toHaveLength(0);
         expect(view.diffContent).toContain('NI');
@@ -473,6 +485,12 @@ describe('audit buildAuditView', () => {
         ];
         const conversation = buildAuditView({ runs });
         expect(conversation.kind).toBe('conversation');
+        expect(conversation.anchor).toMatchObject({
+            scope: 'run',
+            loc: 'R#1–R#2',
+            startedAt: 1,
+            endedAt: 203,
+        });
         expect(conversation.rows.map((r) => r.lineIndex)).toEqual([1, 2, 3]);
         expect(conversation.rows.map((r) => r.runIndex)).toEqual([1, 1, 2]);
         // T# restarts at 1 for each run (Session), not accumulated.
@@ -495,6 +513,13 @@ describe('audit buildAuditView', () => {
 
         const step = buildAuditView({ runs, stepId: 'b1' });
         expect(step.kind).toBe('step');
+        expect(step.anchor).toMatchObject({
+            scope: 'step',
+            loc: 'R#2·T#1·S#1',
+            rootGoalId: 'r2',
+            taskId: 't2',
+            stepId: 'b1',
+        });
         expect(step.diff).toEqual({ delta: 300, from: 1200, to: 1500 });
     });
 
@@ -520,6 +545,14 @@ describe('audit buildAuditView', () => {
 
         // Context 面板逐工具行：行内含完整工具行与输出（单击展开用）
         const task = buildAuditView({ snapshot: snapshotOf([toolStep]), taskId: 't1' });
+        expect(task.anchor).toMatchObject({
+            scope: 'task',
+            loc: 'R#1·T#1',
+            rootGoalId: 'root',
+            goalId: 'g1',
+            taskId: 't1',
+            stepId: '',
+        });
         const toolRow = task.rows.find((row) => row.stepId === 'tc1');
         expect(toolRow?.toolLine).toBe('~/.mazi ls -la');
         expect(toolRow?.toolOutput).toBe('total 0');

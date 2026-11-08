@@ -157,7 +157,8 @@
   只显示时间（`HH:MM:SS.mmm`）；Task 无 Step 时不显示占位提示。
 - **会话与审计分层**：消息区不展示 triage 路线、直答标签、契约卡、契约条款/验收徽标或计划版本 chip；
   这些执行前承诺与审计元数据统一在右侧 Trace 面板查看。消息区只保留对话内容和按计划顺序串行出现的
-  Task → Step 执行流。
+  Task → Step 执行流。Trace 选中 Step 后必须保留审计锚点（R/T/S 定位、rootGoalId、goalId、
+  taskId、stepId、起止时间与状态），确保任何契约、验收、用量和上下文事实都能回到发生它的具体 Step。
 - **执行前阶段反馈（2026-11-09 修订）**：提交后、首个 Step 落库前，runtime 还有两段内部模型工作——
   契约 triage（`parseIntent`，上限 10s）与任务规划（`generateTaskPlan`，上限 10s）。Goal、Plan、Task、
   Step 属于同一条同步串行状态机：创建请求先返回以显示用户输入，执行入口必须等待 triage 落库，再生成计划，

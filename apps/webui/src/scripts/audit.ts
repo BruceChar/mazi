@@ -255,6 +255,21 @@ export interface AuditTaskRow {
     stepCount: number;
 }
 
+/** Trace 审计锚点：把明细事实固定到 Trace 坐标，防止界面重构丢失定位。 */
+export interface AuditAnchor {
+    scope: 'step' | 'task' | 'run';
+    /** 展示坐标：R#n / R#n·T#n / R#n·T#n·S#n。 */
+    loc: string;
+    rootGoalId: string;
+    goalId: string;
+    taskId: string;
+    stepId: string;
+    startedAt: number | null;
+    endedAt: number | null;
+    status: string;
+    taskStatus: string;
+}
+
 /** 行为详情里的审批发起锚点（harness 记录的用户所见审批请求）。 */
 export interface AuditBehaviorApproval {
     /** 触发审批的工具调用 id（授权行只在这一层与执行轨迹相连）。 */
@@ -301,6 +316,8 @@ export interface AuditBehaviorView {
 export interface AuditView {
     kind: 'step' | 'task' | 'conversation' | 'none';
     stale: boolean;
+    /** 保留审计发生位置的坐标与原始 ID；会话汇总为 run 级锚点。 */
+    anchor: AuditAnchor;
     title: string;
     subtitle: string;
     /** 主状态：step 视图为步骤状态，task 视图为任务状态，其余为空。 */
@@ -1432,6 +1449,18 @@ function noneView(stale: boolean): AuditView {
     return {
         kind: 'none',
         stale,
+        anchor: {
+            scope: 'run',
+            loc: '',
+            rootGoalId: '',
+            goalId: '',
+            taskId: '',
+            stepId: '',
+            startedAt: null,
+            endedAt: null,
+            status: '',
+            taskStatus: '',
+        },
         title: stale ? '目标已失效' : '未选择',
         subtitle: stale ? '请重新选择 Step 或 Task' : '点击对话流中的 Step 或 Task 查看审计',
         behavior: null,
@@ -1552,6 +1581,18 @@ export function buildAuditView(input: AuditInput): AuditView {
         return {
             kind: 'step',
             stale: false,
+            anchor: {
+                scope: 'step',
+                loc: `R#${selected.runIndex}·T#${selected.taskIndex}·S#${selected.index}`,
+                rootGoalId: runRootGoalIdOf(runs, selected.runIndex, selected.rootGoalId),
+                goalId: selected.goalId,
+                taskId: selected.taskId,
+                stepId: selected.stepId,
+                startedAt: selected.startedAt || null,
+                endedAt: selected.endedAt,
+                status: selected.status,
+                taskStatus: selected.taskStatus,
+            },
             rootGoalId: runRootGoalIdOf(runs, selected.runIndex, selected.rootGoalId),
             behavior,
             title: `R#${selected.runIndex}·T#${selected.taskIndex}·S#${selected.index} · ${kindLabel(selected.kind)}${toolSuffix}`,
@@ -1591,6 +1632,20 @@ export function buildAuditView(input: AuditInput): AuditView {
         return {
             kind: 'task',
             stale: false,
+            anchor: {
+                scope: 'task',
+                loc: `R#${runIndex}·T#${index}`,
+                rootGoalId: taskRows[0]
+                    ? runRootGoalIdOf(runs, taskRows[0].runIndex, taskRows[0].rootGoalId)
+                    : '',
+                goalId: taskRows[0]?.goalId ?? '',
+                taskId,
+                stepId: '',
+                startedAt: taskRows[0]?.taskStartedAt ?? span.startedAt,
+                endedAt: taskRows[0]?.taskEndedAt ?? span.endedAt,
+                status: '',
+                taskStatus: taskMeta?.status ?? taskRows[0]?.taskStatus ?? '',
+            },
             rootGoalId: taskRows[0]
                 ? runRootGoalIdOf(runs, taskRows[0].runIndex, taskRows[0].rootGoalId)
                 : '',
@@ -1625,6 +1680,23 @@ export function buildAuditView(input: AuditInput): AuditView {
     const contracts = runs.flatMap((run) => contractTraceOf(run.snapshot?.goals, run.rootGoalId));
     return {
         kind: 'conversation',
+        anchor: {
+            scope: 'run',
+            loc: runCount === 1 ? 'R#1' : `R#1–R#${runCount}`,
+            rootGoalId:
+                input.behaviorTs !== undefined && input.behaviorRootGoalId
+                    ? input.behaviorRootGoalId
+                    : runCount === 1
+                      ? (runs[0]?.rootGoalId ?? '')
+                      : '',
+            goalId: '',
+            taskId: '',
+            stepId: '',
+            startedAt: span.startedAt,
+            endedAt: span.endedAt,
+            status: '',
+            taskStatus: '',
+        },
         contracts,
         stale: false,
         // 选中行为时用其所属 run 收窄窄栏契约区；纯会话汇总保持「当前 run」由展示层决定。

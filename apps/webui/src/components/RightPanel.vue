@@ -848,6 +848,29 @@ watch(
                     </button>
                 </div>
 
+                <!-- 审计锚点：契约 / 验收 / 用量 / 工具事实都必须能回到发生它的 Trace 坐标 -->
+                <section v-if="audit.anchor.loc" class="audit-section audit-anchor">
+                    <div class="audit-section-title">
+                        <span>审计锚点</span>
+                        <span class="audit-pct">{{ audit.anchor.scope }}</span>
+                    </div>
+                    <div class="audit-row"><span class="audit-key">坐标</span><span class="audit-val audit-mono">{{ audit.anchor.loc }}</span></div>
+                    <div v-if="audit.anchor.rootGoalId" class="audit-row"><span class="audit-key">rootGoalId</span><span class="audit-val audit-mono">{{ audit.anchor.rootGoalId }}</span></div>
+                    <div v-if="audit.anchor.goalId" class="audit-row"><span class="audit-key">goalId</span><span class="audit-val audit-mono">{{ audit.anchor.goalId }}</span></div>
+                    <div v-if="audit.anchor.taskId" class="audit-row"><span class="audit-key">taskId</span><span class="audit-val audit-mono">{{ audit.anchor.taskId }}</span></div>
+                    <div v-if="audit.anchor.stepId" class="audit-row"><span class="audit-key">stepId</span><span class="audit-val audit-mono">{{ audit.anchor.stepId }}</span></div>
+                    <div v-if="audit.anchor.startedAt" class="audit-row"><span class="audit-key">开始</span><span class="audit-val">{{ fmtPrecise(audit.anchor.startedAt) }}</span></div>
+                    <div v-if="audit.anchor.endedAt" class="audit-row"><span class="audit-key">结束</span><span class="audit-val">{{ fmtPrecise(audit.anchor.endedAt) }}</span></div>
+                    <div v-if="audit.anchor.status || audit.anchor.taskStatus" class="audit-row">
+                        <span class="audit-key">状态</span>
+                        <span class="audit-val">
+                            <template v-if="audit.anchor.status">step: {{ audit.anchor.status }}</template>
+                            <template v-if="audit.anchor.status && audit.anchor.taskStatus"> · </template>
+                            <template v-if="audit.anchor.taskStatus">task: {{ audit.anchor.taskStatus }}</template>
+                        </span>
+                    </div>
+                </section>
+
                 <!-- Trace 列表：时间线 / Context 两种视图，单击选中、双击定位 -->
                 <section v-if="maximized" class="audit-section trace-list">
                     <div class="audit-section-title">
