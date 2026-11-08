@@ -68,6 +68,55 @@ import {
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ApiError } from './api-error.js';
 import Logger from './log.js';
+import { normalizeWorkspacePath } from './workspace-path.js';
+
+/** workspaces.json 的项目条目（历史数据可能带尾斜杠重复）。 */
+interface WorkspaceProjectEntry {
+    title: string;
+    path: string;
+    sessionIds?: string[];
+}
+
+/**
+ * 归一化 + 去重项目列表：
+ * - path 按 {@link normalizeWorkspacePath} 归一化，同一目录只保留首次出现的条目；
+ * - 保留首次出现顺序与 title；首次 title 为空时用后续重复条目的非空 title 补齐；
+ * - sessionIds 合并去重（重复条目可能分别携带不同会话）。
+ * 未识别的条目（非对象 / 缺 path）直接丢弃。
+ */
+function normalizeWorkspaceProjects(projects: readonly unknown[]): WorkspaceProjectEntry[] {
+    const entries: WorkspaceProjectEntry[] = [];
+    const indexByPath = new Map<string, number>();
+    for (const raw of projects) {
+        if (raw === null || typeof raw !== 'object') continue;
+        const record = raw as Record<string, unknown>;
+        if (typeof record.path !== 'string') continue;
+        const path = normalizeWorkspacePath(record.path);
+        if (path.length === 0) continue;
+        const title = typeof record.title === 'string' ? record.title : '';
+        const sessionIds = Array.isArray(record.sessionIds)
+            ? record.sessionIds.filter((id): id is string => typeof id === 'string')
+            : undefined;
+        const existingIndex = indexByPath.get(path);
+        if (existingIndex === undefined) {
+            // 保留原始字段（向前兼容未来的可选字段），只覆盖归一化后的 path/title。
+            const entry = { ...record, title, path } as WorkspaceProjectEntry;
+            if (sessionIds !== undefined) entry.sessionIds = sessionIds;
+            else delete entry.sessionIds;
+            indexByPath.set(path, entries.length);
+            entries.push(entry);
+            continue;
+        }
+        const existing = entries[existingIndex] as WorkspaceProjectEntry;
+        if (existing.title.trim().length === 0 && title.trim().length > 0) {
+            existing.title = title;
+        }
+        if (sessionIds !== undefined) {
+            existing.sessionIds = [...new Set([...(existing.sessionIds ?? []), ...sessionIds])];
+        }
+    }
+    return entries;
+}
 
 /** ProviderModelInfo → providers.json models 条目。 */
 function modelEntryOf(info: ProviderModelInfo): Record<string, unknown> {
@@ -347,7 +396,8 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         // 随心聊默认工作区：workspaces.json 配置优先，缺省 $MAZI_HOME/workspace（避免落在进程 cwd 如 apps/api）。
         this.readWorkspacesState();
         this.freeChatWorkspaceValue =
-            this.workspacesState.freeChatWorkspace?.trim() || join(this.paths.home, 'workspace');
+            normalizeWorkspacePath(this.workspacesState.freeChatWorkspace ?? '') ||
+            join(this.paths.home, 'workspace');
         mkdirSync(this.freeChatWorkspaceValue, { recursive: true });
         // 启动即做一次在线校准：官网价目（可能内含权威模型清单）→ 按需端点模型发现。
         void this.syncModelsAndPricing('boot').catch((error) =>
@@ -801,18 +851,44 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return join(this.paths.home, 'workspaces.json');
     }
 
-    private readWorkspacesState(): { title: string; path: string; sessionIds?: string[] }[] {
+    /**
+     * 读 workspaces.json（权威）→ 归一化路径 + 去重 → 回写迁移。
+     * 历史数据可能把同一目录以「/x/」「/x」两种形式各存一条，auto-migration 只在
+     * 内容确实变化时回写一次，之后走原样快速路径。
+     */
+    private readWorkspacesState(): WorkspaceProjectEntry[] {
+        let parsed: { projects?: unknown; freeChatWorkspace?: unknown };
         try {
-            const parsed = JSON.parse(readFileSync(this.workspacesFile, 'utf8')) as {
-                projects?: { title: string; path: string; sessionIds?: string[] }[];
-                freeChatWorkspace?: string;
-            };
-            this.workspacesState.projects = parsed.projects ?? [];
-            if (typeof parsed.freeChatWorkspace === 'string') {
-                this.workspacesState.freeChatWorkspace = parsed.freeChatWorkspace;
+            const raw: unknown = JSON.parse(readFileSync(this.workspacesFile, 'utf8'));
+            if (raw === null || typeof raw !== 'object') {
+                throw new Error('workspaces.json is not an object');
             }
+            parsed = raw as { projects?: unknown; freeChatWorkspace?: unknown };
         } catch {
             this.workspacesState.projects = [];
+            return this.workspacesState.projects;
+        }
+        const rawProjects = Array.isArray(parsed.projects) ? parsed.projects : [];
+        const projects = normalizeWorkspaceProjects(rawProjects);
+        const rawFreeChat =
+            typeof parsed.freeChatWorkspace === 'string' ? parsed.freeChatWorkspace : undefined;
+        const freeChatWorkspace =
+            rawFreeChat !== undefined && normalizeWorkspacePath(rawFreeChat).length > 0
+                ? normalizeWorkspacePath(rawFreeChat)
+                : undefined;
+        this.workspacesState = {
+            projects,
+            ...(freeChatWorkspace !== undefined ? { freeChatWorkspace } : {}),
+        };
+        // 仅在实际发生变化时回写（legacy 数据一次性迁移；稳定后不再写盘）。
+        const changed =
+            JSON.stringify(projects) !== JSON.stringify(rawProjects) ||
+            freeChatWorkspace !== rawFreeChat;
+        if (changed) {
+            this.writeWorkspacesState();
+            this.logger.log(
+                `workspaces.json migrated: projects=${String(rawProjects.length)}→${String(projects.length)}`,
+            );
         }
         return this.workspacesState.projects;
     }
@@ -823,19 +899,20 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     }
 
     setWorkspaceRoot(root?: string): void {
-        if (!root) {
+        if (!root?.trim()) {
             this.workspaceRoot = undefined;
             this.logger.log('setWorkspaceRoot → (none)');
             return;
         }
-        const resolved = join(root);
+        const resolved = normalizeWorkspacePath(root);
         if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
             throw new ApiError(400, '工作区路径不存在或不是目录');
         }
         this.workspaceRoot = resolved;
         this.logger.log(`setWorkspaceRoot → ${resolved}`);
+        // readWorkspacesState 已归一化+去重（并把 legacy 数据回写），此处按归一化路径判重。
         const projects = this.readWorkspacesState();
-        if (!projects.some((project) => project.path === resolved)) {
+        if (!projects.some((project) => normalizeWorkspacePath(project.path) === resolved)) {
             projects.push({ title: basename(resolved), path: resolved });
             this.writeWorkspacesState();
         }
@@ -843,6 +920,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
 
     /** 对外项目列表：仅 title/path，Session 归属由 Conversation 字段承担 */
     projects(): { title: string; path: string }[] {
+        // readWorkspacesState 会把 legacy 的带尾斜杠路径归一化并按目录去重。
         return this.readWorkspacesState().map(({ title, path }) => ({ title, path }));
     }
 
@@ -850,8 +928,9 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         if (!title.trim()) {
             throw new ApiError(400, '缺少 title');
         }
+        const target = normalizeWorkspacePath(path);
         const projects = this.readWorkspacesState();
-        const project = projects.find((item) => item.path === path);
+        const project = projects.find((item) => normalizeWorkspacePath(item.path) === target);
         if (!project) {
             throw new ApiError(404, 'project not found');
         }
@@ -861,12 +940,15 @@ export class ApiRuntimeService implements OnApplicationShutdown {
 
     /** 删除工作区项目配置（仅 workspaces.json；对话记录由调用方另行解除归属） */
     removeProjectConfig(path: string): void {
+        const target = normalizeWorkspacePath(path);
         const projects = this.readWorkspacesState();
-        const project = projects.find((item) => item.path === path);
+        const project = projects.find((item) => normalizeWorkspacePath(item.path) === target);
         if (!project) {
             throw new ApiError(404, 'project not found');
         }
-        this.workspacesState.projects = projects.filter((item) => item.path !== path);
+        this.workspacesState.projects = projects.filter(
+            (item) => normalizeWorkspacePath(item.path) !== target,
+        );
         this.writeWorkspacesState();
     }
 
@@ -881,7 +963,9 @@ export class ApiRuntimeService implements OnApplicationShutdown {
 
     /** 设置随心聊默认工作区（缺失则创建）；持久化并重建运行时。 */
     setFreeChatWorkspace(path?: string): string {
-        const next = (path ?? '').trim() || join(this.paths.home, 'workspace');
+        const next =
+            normalizeWorkspacePath((path ?? '').trim()) ||
+            normalizeWorkspacePath(join(this.paths.home, 'workspace'));
         mkdirSync(next, { recursive: true });
         this.freeChatWorkspaceValue = next;
         this.readWorkspacesState();

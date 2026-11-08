@@ -7,9 +7,38 @@ import { Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import Logger from '../common/log.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
+import { looksLikeWorkspacePath, normalizeWorkspacePath } from '../common/workspace-path.js';
 
 interface ConversationsFile {
     conversations: Conversation[];
+}
+
+/**
+ * 归一化单条 Conversation 的工作区归属（历史数据可能带尾斜杠）：
+ * - workspace 一律归一化为无尾斜杠路径，保证与 workspaces.json 的 project.path 精确相等；
+ * - projectId 仅当以绝对路径形式出现时才归一化；正常 hash 形式保持不变。
+ * 返回是否发生了修改（用于一次性回写迁移）。
+ */
+function normalizeConversationWorkspace(conversation: Conversation): boolean {
+    let changed = false;
+    if (typeof conversation.workspace === 'string' && conversation.workspace.trim().length > 0) {
+        const normalized = normalizeWorkspacePath(conversation.workspace);
+        if (normalized !== conversation.workspace) {
+            conversation.workspace = normalized;
+            changed = true;
+        }
+    }
+    if (
+        typeof conversation.projectId === 'string' &&
+        looksLikeWorkspacePath(conversation.projectId)
+    ) {
+        const normalized = normalizeWorkspacePath(conversation.projectId);
+        if (normalized !== conversation.projectId) {
+            conversation.projectId = normalized;
+            changed = true;
+        }
+    }
+    return changed;
 }
 
 /** recordNewSession / appendSession 入参（一次 Goal 会话的引用信息） */
@@ -40,11 +69,25 @@ export class ConversationsService {
     }
 
     private read(): void {
+        let parsed: ConversationsFile;
         try {
-            const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as ConversationsFile;
-            this.state.conversations = parsed.conversations ?? [];
+            parsed = JSON.parse(readFileSync(this.file, 'utf8')) as ConversationsFile;
         } catch {
-            this.state.conversations = [];
+            this.state = { conversations: [] };
+            return;
+        }
+        const conversations = Array.isArray(parsed.conversations) ? parsed.conversations : [];
+        // 一次性迁移：legacy workspace/projectId 的带尾斜杠形态归一化后回写，
+        // 保证 WebUI 的 `workspace === project.path` 精确分组不再分裂。
+        let changed = false;
+        for (const conversation of conversations) {
+            if (conversation === null || typeof conversation !== 'object') continue;
+            if (normalizeConversationWorkspace(conversation)) changed = true;
+        }
+        this.state.conversations = conversations;
+        if (changed) {
+            this.write();
+            this.logger.log('conversations.json migrated: workspace paths normalized');
         }
     }
 
@@ -57,13 +100,22 @@ export class ConversationsService {
         this.read();
         const conversationId = input.conversationId ?? ulid();
         const now = Date.now();
+        // 写入即归一化：目录选择器可能传带尾斜杠的路径，避免再产生重复项目分组。
+        const workspace =
+            input.workspace !== undefined && input.workspace.trim().length > 0
+                ? normalizeWorkspacePath(input.workspace)
+                : undefined;
+        const projectId =
+            input.projectId !== undefined && looksLikeWorkspacePath(input.projectId)
+                ? normalizeWorkspacePath(input.projectId)
+                : input.projectId;
         this.state.conversations.push({
             conversationId,
             title: input.input.slice(0, 80),
             userId: input.userId,
             runs: [{ rootGoalId: input.rootGoalId, input: input.input, createdAt: now }],
-            workspace: input.workspace,
-            projectId: input.projectId,
+            workspace,
+            projectId,
             createdAt: now,
             updatedAt: now,
         });
@@ -215,14 +267,24 @@ export class ConversationsService {
     /** 删除工作区项目后：解除该项目下 Conversation 的归属（记录保留，回到普通会话区） */
     detachWorkspace(workspace: string): void {
         this.read();
+        // 兼容调用方传入带/不带尾斜杠两种形式；read() 已归一化存量值，
+        // 这里再按归一化比较一次（projectId 为路径形态的 legacy 数据也能解除）。
+        const target = normalizeWorkspacePath(workspace);
         let detached = 0;
         for (const conversation of this.state.conversations) {
-            if (conversation.workspace === workspace) {
-                delete conversation.workspace;
-                delete conversation.projectId;
-                conversation.updatedAt = Date.now();
-                detached++;
-            }
+            const workspaceMatches =
+                typeof conversation.workspace === 'string' &&
+                normalizeWorkspacePath(conversation.workspace) === target;
+            const projectIdMatches =
+                conversation.workspace === undefined &&
+                typeof conversation.projectId === 'string' &&
+                looksLikeWorkspacePath(conversation.projectId) &&
+                normalizeWorkspacePath(conversation.projectId) === target;
+            if (!workspaceMatches && !projectIdMatches) continue;
+            delete conversation.workspace;
+            delete conversation.projectId;
+            conversation.updatedAt = Date.now();
+            detached++;
         }
         if (detached > 0) {
             this.write();
