@@ -28,12 +28,12 @@
 
 ## 最近更新
 <!-- recent:start -->
+- ef7b869 2026-11-08 14:00:24 wiki(run): record session activity
+- 6422910 2026-11-08 14:00:16 wiki(claim): verify --ids project-wiki-run-activity
+- 40c445c 2026-11-08 14:00:12 wiki(claim): update project-wiki-incremental-preflight
+- 8c3977f 2026-11-08 14:00:07 wiki(claim): update project-wiki-maintenance-actions
+- 426d418 2026-11-08 13:55:47 wiki(checkpoint): sync state & index
 - 745822b 2026-11-08 13:55:43 wiki(run): record session activity
 - 155ee3f 2026-11-08 13:55:22 wiki(claim): verify --ids wiki-ui-current-status-facts-trace
 - 83361c0 2026-11-08 13:55:19 wiki(claim): update project-wiki-incremental-preflight
-- 71ad65e 2026-11-08 13:55:15 wiki(claim): update project-wiki-maintenance-actions
-- a644fc9 2026-11-08 13:55:11 wiki(claim): update project-wiki-run-activity
-- 9d31af1 2026-11-08 00:01:04 wiki(checkpoint): sync state & index
-- 2ae7b7e 2026-11-08 00:00:56 wiki(run): record session activity
-- 832f54a 2026-11-08 00:00:16 wiki(claim): verify --ids wiki-init-domain-neutral-template,project-wiki-run-activity,project-wiki-maintenance-actions,project-wiki-incremental-preflight
 <!-- recent:end -->
