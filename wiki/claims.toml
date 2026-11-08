@@ -51,8 +51,8 @@ retracted_reason = "direct route must not hide harness execution facts; pure dir
 text = "The Trace panel shows contracts for the current run only when narrow (all runs when maximized) with contract entries collapsed by default, and renders paired approval/authorization details for a clicked behavior row."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "299020da9edf88071a306487b8945d815d17835c" },
-  { file = "apps/webui/src/scripts/audit.ts", oid = "734a2ec31258786fbec91f8b89f5b25c7df8e54a" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "c8a0cda59998077d034998aebb7b779770cd81c7" },
+  { file = "apps/webui/src/scripts/audit.ts", oid = "ff739856c33827b540fc2cef848e619e390e1bfb" },
   { file = "apps/webui/src/scripts/contract-view.ts", oid = "8e72c74c28c65a1fc1ac0f65165f7620483bf190" },
 ]
 established = 2026-11-07
