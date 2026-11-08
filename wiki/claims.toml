@@ -1,5 +1,6 @@
-# wiki/claims.toml — 只通过 runtime Project Wiki API 修改，禁止手改
+# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
+
 
 [claims.wiki-ui-repository-view]
 text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
@@ -46,8 +47,6 @@ established = 2026-11-07
 verified = 2026-11-08
 retracted_at = 2026-11-09
 retracted_reason = "direct route must not hide harness execution facts; pure direct is now zero-execution and historical direct+steps remains visible"
-retraction_kind = "corrected"
-superseded_by = "webui-exec-stream-fact-projection-v2"
 
 [claims.webui-trace-contract-behavior-panel]
 text = "The Trace panel shows contracts for the current run only when narrow (all runs when maximized) with contract entries collapsed by default, and renders paired approval/authorization details for a clicked behavior row."
@@ -125,11 +124,11 @@ verified = 2026-11-07
 text = "shell.run runs under bash pipefail, downstream SIGPIPE (exit 141) is treated as success, and mutating CLI tools (sd) return an error when the target file did not change, so swallowed command failures surface as tool errors and can trigger replan."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/harness/tool-executor.ts", oid = "34976a7de97906be9e805511da9280d780a786b1" },
+  { file = "packages/runtime/src/harness/tool-executor.ts", oid = "633f098dbd3de9704051d78000e44a02d7474547" },
   { file = "packages/runtime/test/tool-executor.test.ts", oid = "4bea4a9b4eca6af782f168a045c0bb487b0c0f7b" },
 ]
 established = 2026-11-07
-verified = 2026-11-08
+verified = 2026-11-09
 
 [claims.wiki-ui-current-status-facts-trace]
 text = "The Project Wiki UI shows complete state/current content, exact-second timestamps, expandable evidence facts, forgotten versus corrected claim state, and a live background maintenance trace with model stream, tool arguments/results and inline approvals."
@@ -279,4 +278,3 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-09
-supersedes = "webui-exec-stream-rendering"
