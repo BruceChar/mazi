@@ -178,6 +178,7 @@ interface AgentRole {
 
 - **P0 完成**（`3b7f8b7`）：内容区 `max-width: 840px`、`padding` 用 `clamp()`；`.setting-item` 窄屏改为上下排布；输入框改为弹性宽度；侧栏导航补充 `focus-visible` 与窄屏压缩。
 - **P0 宽屏返工**：去掉 `max-width` 上限，`≥1100px` 时设置卡片用多列布局（`columns: 520px 3`）铺满内容区；Agent 面板在 `≥1080px` 时改为「左侧二级导航 + 右侧内容」双栏，窄屏回退横向 chip。根因是 `style/layout.css` 里还有一条全局 `.settings-page { max-width: 720px }`，组件内必须显式写 `max-width: none` 覆盖。
+- **P0 字号档位**：设置页标题 `clamp(20px, 2.4vw, 26px)`、分组标题/条目名 14px、说明 13px、控件 13px；Agent 面板角色名 14px、描述 12px、徽标/角色 id 11px、表单 label 12px、输入控件 13px、系统提示 12–13px。层级关系不变，只在原来 10–13px 的基础上整体上调一档。
 - **P1 UI 部分完成**：Agent 板块拆为「概览 / 角色 / 系统提示 / 模板」四个二级分区；角色卡栅格（`repeat(auto-fill, minmax(240px, 1fr))`）；角色新建/编辑面板，新增**默认模型**选择（留空即跟随会话默认模型）；`AgentRole` 增可选 `description`，新增 `PUT /api/agent/roles/:id`（局部覆盖、未传字段保持原值）。
 - **P2/P3 未开始**：Composer Agent chip、会话级钉版、`@agent` 消息级覆盖（用户明确「Agent 选择配置留后」）。
 

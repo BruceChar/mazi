@@ -492,7 +492,7 @@ async function removePack(id) {
     border-radius: 999px;
     background: var(--bg-panel);
     color: var(--fg-secondary);
-    font-size: 12px;
+    font-size: 13px;
     cursor: pointer;
     white-space: nowrap;
 }
@@ -548,7 +548,7 @@ async function removePack(id) {
     background: var(--bg-hover);
 }
 .agent-modes strong {
-    font-size: 12px;
+    font-size: 13px;
 }
 .agent-modes span,
 .agent-hint,
@@ -556,7 +556,7 @@ async function removePack(id) {
 .agent-item code,
 .agent-item p {
     color: var(--fg-tertiary);
-    font-size: 10px;
+    font-size: 12px;
 }
 .agent-hint {
     margin: 8px 0 0;
@@ -564,7 +564,7 @@ async function removePack(id) {
 }
 .agent-message {
     margin: 0;
-    font-size: 12px;
+    font-size: 13px;
 }
 .agent-message.error {
     color: var(--error);
@@ -587,15 +587,15 @@ async function removePack(id) {
 }
 .agent-section-head h3 {
     margin: 0;
-    font-size: 13px;
+    font-size: 15px;
 }
 .agent-ghost {
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-panel);
     color: var(--fg-secondary);
-    padding: 4px 10px;
-    font-size: 11px;
+    padding: 5px 11px;
+    font-size: 12px;
     cursor: pointer;
 }
 .agent-ghost:hover {
@@ -626,18 +626,18 @@ async function removePack(id) {
     gap: 6px;
 }
 .agent-role-head strong {
-    font-size: 13px;
+    font-size: 14px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .agent-role-id {
     color: var(--fg-tertiary);
-    font-size: 10px;
+    font-size: 11px;
 }
 .agent-role-desc {
     margin: 2px 0 0;
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.45;
     color: var(--fg-secondary);
     display: -webkit-box;
@@ -652,10 +652,10 @@ async function removePack(id) {
     margin-top: 2px;
 }
 .agent-badge {
-    padding: 1px 6px;
+    padding: 2px 7px;
     border: 1px solid var(--border-soft);
     border-radius: 999px;
-    font-size: 10px;
+    font-size: 11px;
     color: var(--fg-secondary);
     max-width: 100%;
     overflow: hidden;
@@ -685,8 +685,8 @@ async function removePack(id) {
     border-radius: var(--radius-sm);
     background: var(--bg-panel);
     color: var(--fg-secondary);
-    padding: 4px 8px;
-    font-size: 11px;
+    padding: 5px 10px;
+    font-size: 12px;
     cursor: pointer;
 }
 .agent-role-actions button:hover {
@@ -719,7 +719,7 @@ async function removePack(id) {
     flex-direction: column;
     gap: 3px;
     min-width: 0;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--fg-secondary);
 }
 .agent-form .span-2 {
@@ -735,9 +735,9 @@ async function removePack(id) {
     border-radius: var(--radius-sm);
     background: var(--bg);
     color: var(--fg);
-    padding: 6px 8px;
+    padding: 7px 9px;
     font: inherit;
-    font-size: 11px;
+    font-size: 13px;
     resize: vertical;
 }
 .agent-form textarea {
@@ -790,18 +790,18 @@ async function removePack(id) {
     align-items: center;
     gap: 8px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 13px;
 }
 .agent-prompt summary code {
     color: var(--fg-tertiary);
-    font-size: 10px;
+    font-size: 11px;
 }
 .agent-prompt-badge {
     margin-left: auto;
-    padding: 1px 6px;
+    padding: 2px 7px;
     border-radius: 999px;
     border: 1px solid var(--border);
-    font-size: 10px;
+    font-size: 11px;
 }
 .agent-prompt-badge.configured {
     color: var(--ok);
@@ -820,8 +820,8 @@ async function removePack(id) {
     color: var(--fg);
     padding: 8px;
     font: inherit;
-    font-size: 11px;
-    line-height: 1.5;
+    font-size: 12px;
+    line-height: 1.55;
     resize: vertical;
 }
 .agent-prompt-actions {
@@ -835,8 +835,8 @@ async function removePack(id) {
     border-radius: var(--radius-sm);
     background: var(--bg-panel);
     color: var(--fg-secondary);
-    padding: 4px 8px;
-    font-size: 11px;
+    padding: 5px 10px;
+    font-size: 12px;
     cursor: pointer;
 }
 .agent-prompt-actions .primary {

@@ -649,13 +649,13 @@ watch(
     box-sizing: border-box;
 }
 .settings-title {
-    font-size: clamp(18px, 2.2vw, 22px);
+    font-size: clamp(20px, 2.4vw, 26px);
     font-weight: 600;
     margin: 0 0 6px;
     color: var(--fg);
 }
 .settings-subtitle {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--fg-secondary);
     margin: 0 0 20px;
 }
@@ -667,7 +667,7 @@ watch(
     background: var(--bg-panel);
 }
 .settings-group-title {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--fg);
     margin-bottom: 8px;
@@ -689,18 +689,18 @@ watch(
     min-width: 0;
 }
 .setting-name {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--fg);
 }
 .setting-desc {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--fg-secondary);
     margin-top: 2px;
     overflow-wrap: anywhere;
 }
 .setting-select {
-    padding: 5px 10px;
+    padding: 6px 10px;
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--bg-panel);
@@ -709,7 +709,7 @@ watch(
     cursor: pointer;
 }
 .setting-sync {
-    padding: 5px 12px;
+    padding: 6px 12px;
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--bg-panel);
@@ -738,7 +738,7 @@ watch(
 .setting-input {
     width: 120px;
     min-width: 0;
-    padding: 5px 10px;
+    padding: 6px 10px;
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--bg-panel);
@@ -764,7 +764,7 @@ watch(
     min-height: 220px;
     resize: vertical;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.5;
     white-space: pre;
     box-sizing: border-box;
@@ -776,7 +776,7 @@ watch(
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--fg-tertiary);
 }
 .auth-doc-row {
@@ -804,7 +804,7 @@ watch(
     color: #22c55e;
 }
 .setting-badge {
-    font-size: 11px;
+    font-size: 12px;
     padding: 2px 8px;
     border-radius: 10px;
     font-weight: 500;
@@ -827,7 +827,7 @@ watch(
     align-items: center;
     gap: 6px;
     margin-top: 4px;
-    font-size: 12px;
+    font-size: 13px;
 }
 .model-id {
     color: var(--fg);
@@ -837,8 +837,8 @@ watch(
     color: var(--fg-secondary);
     background: var(--bg-hover);
     border-radius: 4px;
-    padding: 1px 6px;
-    font-size: 11px;
+    padding: 2px 7px;
+    font-size: 12px;
     font-family: ui-monospace, monospace;
 }
 .vendor-head {
@@ -873,7 +873,7 @@ watch(
     flex: 1;
 }
 .provider-apikey-label {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--fg-secondary);
     flex-shrink: 0;
 }
@@ -884,7 +884,7 @@ watch(
     margin-top: 4px;
 }
 .price-badge {
-    font-size: 11px;
+    font-size: 12px;
     font-family: ui-monospace, monospace;
     border-radius: 4px;
     padding: 2px 7px;
