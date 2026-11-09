@@ -1,11 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { api } from '../api.js';
+import { loadSkillOptions, skillOptions } from '../scripts/store.ts';
 import {
     buildRolePayload,
     emptyRoleForm,
     roleModelLabel,
     roleModelOptions,
+    roleSkillLabel,
     roleSummary,
     roleToForm,
     validateRolePayload,
@@ -70,6 +72,7 @@ async function load() {
             api('/api/agent/roles'),
             api('/api/agent/verifier'),
             api('/api/agent/prompts'),
+            loadSkillOptions(),
         ]);
         packs.value = packData.packs ?? [];
         roles.value = roleData.roles ?? [];
@@ -292,6 +295,12 @@ async function removePack(id) {
                         <span class="agent-badge model">模型 · {{ roleModelLabel(cfg, role.modelId) }}</span>
                         <span class="agent-badge">{{ role.defaultCeiling || 'inherit' }}</span>
                         <span class="agent-badge">{{ (role.tools || []).length }} 工具</span>
+                        <span
+                            class="agent-badge"
+                            :class="{ soft: !(role.skillIds || []).length }"
+                        >
+                            {{ roleSkillLabel(role) }}
+                        </span>
                         <span v-if="role.memoryPolicy === 'isolated'" class="agent-badge">独立记忆</span>
                     </div>
                     <div class="agent-role-actions">
@@ -367,6 +376,26 @@ async function removePack(id) {
                         允许工具（逗号分隔）
                         <input v-model="roleForm.tools" placeholder="fs.read, rg, sd" />
                     </label>
+                    <div class="span-2 agent-skill-field">
+                        <span class="agent-skill-label">挂载技能（可多选；空选=跟随全局挂载）</span>
+                        <div v-if="skillOptions.length" class="agent-skill-list">
+                            <label
+                                v-for="skill in skillOptions"
+                                :key="skill.id"
+                                class="agent-skill-item"
+                                :title="skill.id"
+                            >
+                                <input v-model="roleForm.skillIds" type="checkbox" :value="skill.id" />
+                                <span class="agent-skill-name">{{ skill.name }}</span>
+                                <span class="agent-skill-tag">
+                                    {{ skill.mounted ? '已挂载' : skill.scope }}
+                                </span>
+                            </label>
+                        </div>
+                        <div v-else class="agent-hint">
+                            未发现 Skill（设置 → Skills 可新建）；空选即跟随全局挂载。
+                        </div>
+                    </div>
                     <label class="span-2">
                         角色系统提示（留空则使用「系统提示」分区里对应配置）
                         <textarea v-model="roleForm.systemPrompt" rows="3"></textarea>
@@ -698,6 +727,59 @@ async function removePack(id) {
     border-color: var(--error);
     color: var(--error);
 }
+/* 技能多选：复用 AB 实验室的 checkbox 列表形态，窄屏单列 */
+.agent-skill-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+.agent-skill-label {
+    font-size: 12px;
+    color: var(--fg-secondary);
+}
+.agent-skill-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 4px;
+    max-height: 220px;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+.agent-form .agent-skill-item {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 5px 8px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    font-size: 12px;
+    color: var(--fg-secondary);
+    cursor: pointer;
+}
+.agent-form .agent-skill-item input {
+    width: auto;
+    margin: 0;
+    padding: 0;
+    flex: none;
+}
+.agent-skill-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.agent-skill-tag {
+    margin-left: auto;
+    flex: none;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+}
+
 /* 编辑面板：默认收起，进入新建/编辑时展开 */
 .agent-editor {
     display: none;

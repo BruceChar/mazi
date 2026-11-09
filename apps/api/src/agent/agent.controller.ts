@@ -171,6 +171,7 @@ export class AgentController {
                 : {}),
             ...(typeof body.modelId === 'string' ? { modelId: body.modelId } : {}),
             ...(strings(body.tools) !== undefined ? { tools: strings(body.tools) } : {}),
+            ...(strings(body.skillIds) !== undefined ? { skillIds: strings(body.skillIds) } : {}),
             ...(typeof body.systemPrompt === 'string' ? { systemPrompt: body.systemPrompt } : {}),
             ...(typeof body.defaultCeiling === 'string'
                 ? { defaultCeiling: body.defaultCeiling as AgentRole['defaultCeiling'] }
@@ -196,6 +197,7 @@ export class AgentController {
                 : {}),
             ...(typeof body.modelId === 'string' ? { modelId: body.modelId.trim() } : {}),
             ...(strings(body.tools) !== undefined ? { tools: strings(body.tools) } : {}),
+            ...(strings(body.skillIds) !== undefined ? { skillIds: strings(body.skillIds) } : {}),
             ...(typeof body.systemPrompt === 'string' ? { systemPrompt: body.systemPrompt } : {}),
             ...(typeof body.defaultCeiling === 'string'
                 ? { defaultCeiling: body.defaultCeiling as AgentRole['defaultCeiling'] }

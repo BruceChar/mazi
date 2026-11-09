@@ -150,13 +150,25 @@ interface AgentRole {
 3. 显式选择只影响会话，不污染全局配置；
 4. 角色数量控制在 5–8 个、description 写得动作化，Auto 命中率最高——角色质量比选择器复杂度更重要。
 
+### 3.7 Agent 技能挂载
+
+角色除了「用什么模型、能碰哪些工具」，还需要「带哪些技能」。约定：
+
+- `AgentRole.skillIds?: readonly string[]` 是**该 Agent 的默认技能集**，只对这个角色生效，不改变全局挂载（`$MAZI_HOME/skills.json`）。
+- 解析顺序：**运行级显式 `skillIds`（实验/恢复） > 角色技能 ∪ 全局挂载 > 全局挂载**。后两者取并集去重、按 id 排序，技能只做加法，不改变工具面与权限。
+- 角色未配置 `skillIds`（或空数组）时行为与现状完全一致：沿用全局挂载。
+- 委派时角色技能随子 Goal 一起下发（`createGoalSession({ skillIds })`），因此子 Agent 的技能边界独立可解释。
+- 设置页：角色编辑面板新增「技能」多选（数据来自 `GET /api/capabilities`，只读取已发现技能，不改变挂载状态）；角色卡展示「技能 N」，空选即「跟随全局挂载」。
+
+边界：技能是提示与流程资产，不授予新工具；角色的 `defaultCeiling` 仍是唯一权限收窄点。
+
 ## 4. API 变更
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/agent/roles` | 返回扩展字段 + `builtin/enabled/usageCount` |
-| POST | `/api/agent/roles` | 创建（严格校验） |
-| PUT | `/api/agent/roles/:id` | 更新（局部 patch） |
+| POST | `/api/agent/roles` | 创建（严格校验；含可选 `skillIds`） |
+| PUT | `/api/agent/roles/:id` | 更新（局部 patch；含可选 `skillIds`） |
 | PATCH | `/api/agent/roles/:id/enabled` | 启停 |
 | DELETE | `/api/agent/roles/:id` | 内置角色 409；被引用则提示改用停用 |
 | POST | `/api/agent/roles/:id/duplicate` | 复制为新角色 |
@@ -180,6 +192,7 @@ interface AgentRole {
 - **P0 宽屏返工**：去掉 `max-width` 上限，`≥1100px` 时设置卡片用多列布局（`columns: 520px 3`）铺满内容区；Agent 面板在 `≥1080px` 时改为「左侧二级导航 + 右侧内容」双栏，窄屏回退横向 chip。根因是 `style/layout.css` 里还有一条全局 `.settings-page { max-width: 720px }`，组件内必须显式写 `max-width: none` 覆盖。
 - **P0 字号档位**：设置页标题 `clamp(20px, 2.4vw, 26px)`、分组标题/条目名 14px、说明 13px、控件 13px；Agent 面板角色名 14px、描述 12px、徽标/角色 id 11px、表单 label 12px、输入控件 13px、系统提示 12–13px。层级关系不变，只在原来 10–13px 的基础上整体上调一档。
 - **P1 UI 部分完成**：Agent 板块拆为「概览 / 角色 / 系统提示 / 模板」四个二级分区；角色卡栅格（`repeat(auto-fill, minmax(240px, 1fr))`）；角色新建/编辑面板，新增**默认模型**选择（留空即跟随会话默认模型）；`AgentRole` 增可选 `description`，新增 `PUT /api/agent/roles/:id`（局部覆盖、未传字段保持原值）。
+- **P1 角色技能挂载**：`AgentRole` 增可选 `skillIds`；POST/PUT 接受该字段；委派时子 Goal 获得「角色技能 ∪ 全局挂载」；设置页角色编辑面板新增技能多选，角色卡展示「技能 N」。
 - **P2/P3 未开始**：Composer Agent chip、会话级钉版、`@agent` 消息级覆盖（用户明确「Agent 选择配置留后」）。
 
 ## 6. 验收标准

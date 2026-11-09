@@ -7,6 +7,8 @@ export interface AgentRole {
     description?: string;
     modelId?: string;
     tools?: readonly string[];
+    /** 该 Agent 默认挂载的技能（与全局挂载取并集；空/未设=跟随全局）。 */
+    skillIds?: readonly string[];
     systemPrompt?: string;
     defaultCeiling?: PermissionLevel;
     memoryPolicy?: 'inherit' | 'isolated';

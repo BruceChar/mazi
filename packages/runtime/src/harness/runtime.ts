@@ -22,6 +22,7 @@ import {
     defaultAgentRoles,
     MemoryAgentRoleStore,
     MemoryDelegationStore,
+    resolveRoleSkillIds,
     SqliteAgentRoleStore,
     SqliteDelegationStore,
     SuperAgent,
@@ -1742,6 +1743,10 @@ export class HarnessRuntime {
                         },
                     }),
                 );
+                const roleSkillIds = resolveRoleSkillIds(
+                    this.skillProvider?.mounted() ?? [],
+                    context.role.skillIds,
+                );
                 const child = await this.createGoalSession(context.proposal.statement, {
                     ...(projectId !== undefined ? { projectId } : {}),
                     ...(userId !== undefined ? { userId } : {}),
@@ -1755,6 +1760,7 @@ export class HarnessRuntime {
                     ...(context.role.tools !== undefined
                         ? { allowedTools: context.role.tools }
                         : {}),
+                    ...(roleSkillIds !== undefined ? { skillIds: roleSkillIds } : {}),
                     ...(context.budget?.maxSteps !== undefined
                         ? { maxSteps: context.budget.maxSteps }
                         : {}),

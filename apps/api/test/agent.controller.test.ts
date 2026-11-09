@@ -81,6 +81,7 @@ describe('agent controller', () => {
             description: '跑测试与回归',
             modelId: 'deepseek-v4',
             tools: ['fs.read', 'shell.run'],
+            skillIds: ['project-wiki'],
             defaultCeiling: 'workspace-write',
         });
         expect(registered.role).toMatchObject({
@@ -88,6 +89,7 @@ describe('agent controller', () => {
             description: '跑测试与回归',
             modelId: 'deepseek-v4',
             memoryPolicy: 'inherit',
+            skillIds: ['project-wiki'],
         });
         expect(controller.removeRole('tester')).toEqual({ ok: true, removed: true });
         expect(await controller.delegations('missing')).toEqual({ edges: [] });
@@ -106,6 +108,7 @@ describe('agent controller', () => {
         const updated = controller.updateRole('doc-writer', {
             label: '文档 Agent v2',
             modelId: 'deepseek-mini',
+            skillIds: ['doc-writer'],
         });
         expect(updated.role).toMatchObject({
             roleId: 'doc-writer',
@@ -114,6 +117,7 @@ describe('agent controller', () => {
             modelId: 'deepseek-mini',
             tools: ['fs.read'],
             defaultCeiling: 'read-only',
+            skillIds: ['doc-writer'],
         });
         const found = controller.roles().roles.find((role) => role.roleId === 'doc-writer');
         expect(found?.label).toBe('文档 Agent v2');

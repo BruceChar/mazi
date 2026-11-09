@@ -4,6 +4,7 @@ import {
     emptyRoleForm,
     roleModelLabel,
     roleModelOptions,
+    roleSkillLabel,
     roleSummary,
     roleToForm,
     validateRolePayload,
@@ -90,6 +91,25 @@ describe('agent-roles（角色表单纯函数）', () => {
         );
     });
 
+    it('技能归一化：去空白、去重排序；空选不下发（跟随全局挂载）', () => {
+        const payload = buildRolePayload({
+            ...emptyRoleForm(),
+            roleId: 'doc',
+            label: '文档 Agent',
+            skillIds: [' b ', 'a', 'a', ''],
+        });
+        expect(payload.skillIds).toEqual(['a', 'b']);
+        expect(buildRolePayload({ ...emptyRoleForm(), roleId: 'doc', label: '文档' }).skillIds).toBe(
+            undefined,
+        );
+    });
+
+    it('技能徽标：未挂载显示跟随全局，挂载后显示数量', () => {
+        expect(roleSkillLabel({})).toBe('跟随全局挂载');
+        expect(roleSkillLabel({ skillIds: [] })).toBe('跟随全局挂载');
+        expect(roleSkillLabel({ skillIds: ['a', 'b'] })).toBe('技能 2');
+    });
+
     it('已存在角色可回读为草稿（工具用逗号连接）', () => {
         const form = roleToForm({
             roleId: 'coding',
@@ -97,9 +117,11 @@ describe('agent-roles（角色表单纯函数）', () => {
             modelId: 'deepseek-v4',
             tools: ['fs.read', 'rg'],
             memoryPolicy: 'isolated',
+            skillIds: ['project-wiki'],
         });
         expect(form.tools).toBe('fs.read, rg');
         expect(form.memoryPolicy).toBe('isolated');
         expect(form.modelId).toBe('deepseek-v4');
+        expect(form.skillIds).toEqual(['project-wiki']);
     });
 });

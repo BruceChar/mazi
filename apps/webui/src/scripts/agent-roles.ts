@@ -11,6 +11,7 @@ export interface RoleFormState {
     defaultCeiling: string;
     memoryPolicy: string;
     systemPrompt: string;
+    skillIds: string[];
 }
 
 export interface RolePayload {
@@ -22,6 +23,7 @@ export interface RolePayload {
     defaultCeiling?: string;
     memoryPolicy?: 'inherit' | 'isolated';
     systemPrompt?: string;
+    skillIds?: string[];
 }
 
 export interface ProviderModel {
@@ -41,6 +43,7 @@ export interface RoleLike {
     defaultCeiling?: string;
     tools?: readonly string[];
     description?: string;
+    skillIds?: readonly string[];
 }
 
 /** 新建角色的初始草稿：权限默认 read-only，模型留空表示跟随会话默认。 */
@@ -54,6 +57,7 @@ export function emptyRoleForm(): RoleFormState {
         defaultCeiling: 'read-only',
         memoryPolicy: 'inherit',
         systemPrompt: '',
+        skillIds: [],
     };
 }
 
@@ -67,6 +71,7 @@ export function roleToForm(role: {
     defaultCeiling?: string;
     memoryPolicy?: string;
     systemPrompt?: string;
+    skillIds?: readonly string[];
 }): RoleFormState {
     return {
         roleId: role.roleId,
@@ -77,7 +82,13 @@ export function roleToForm(role: {
         defaultCeiling: role.defaultCeiling ?? 'read-only',
         memoryPolicy: role.memoryPolicy === 'isolated' ? 'isolated' : 'inherit',
         systemPrompt: role.systemPrompt ?? '',
+        skillIds: normalizeSkillIds(role.skillIds ?? []),
     };
+}
+
+/** 技能 id 归一化：去空白、去重、排序，保证载荷稳定。 */
+export function normalizeSkillIds(items: readonly string[]): string[] {
+    return [...new Set(items.map((item) => item.trim()).filter(Boolean))].sort();
 }
 
 /** 提交前归一化：去空白、工具逗号拆分、可选字段空值不下发。 */
@@ -86,6 +97,7 @@ export function buildRolePayload(form: RoleFormState): RolePayload {
         .split(',')
         .map((item) => item.trim())
         .filter(Boolean);
+    const skillIds = normalizeSkillIds(form.skillIds ?? []);
     return {
         roleId: form.roleId.trim(),
         label: form.label.trim(),
@@ -95,6 +107,7 @@ export function buildRolePayload(form: RoleFormState): RolePayload {
         ...(form.defaultCeiling ? { defaultCeiling: form.defaultCeiling } : {}),
         memoryPolicy: form.memoryPolicy === 'isolated' ? 'isolated' : 'inherit',
         ...(form.systemPrompt.trim() ? { systemPrompt: form.systemPrompt.trim() } : {}),
+        ...(skillIds.length > 0 ? { skillIds } : {}),
     };
 }
 
@@ -136,6 +149,12 @@ export function roleModelLabel(cfg: { providers?: ProviderGroup[] } | null, mode
         if (model) return model.modelVersion || model.name || model.id;
     }
     return modelId;
+}
+
+/** 卡片技能徽标：未挂载时明确「跟随全局」，避免看起来像漏配。 */
+export function roleSkillLabel(role: RoleLike): string {
+    const count = normalizeSkillIds(role.skillIds ?? []).length;
+    return count === 0 ? '跟随全局挂载' : `技能 ${count}`;
 }
 
 /** 卡片一行说明：优先 description，缺失时回退到权限与工具摘要。 */
