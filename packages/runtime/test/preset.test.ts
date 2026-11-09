@@ -18,4 +18,10 @@ describe('BUILTIN_TOOL_PRESET（CLI 工具预设）', () => {
         expect(sd?.command?.bin).toBe('sd');
         expect(sd?.irreversible).toBe(true);
     });
+
+    it('xh 固定忽略非 TTY stdin，避免等待 EOF 或降级为空 POST', () => {
+        const xh = BUILTIN_TOOL_PRESET.find((t) => t.name === 'xh');
+        expect(xh?.command?.bin).toBe('xh');
+        expect(xh?.command?.args).toContain('--ignore-stdin');
+    });
 });

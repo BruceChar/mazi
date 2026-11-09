@@ -183,7 +183,13 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
         },
         minPermission: 'draft',
         sideEffects: ['net'],
-        command: { bin: 'xh', args: ['{method?}', '{url}'], installPackage: 'xh' },
+        command: {
+            bin: 'xh',
+            // execFile keeps stdin open; xh otherwise waits for EOF and can turn GET into
+            // an empty POST in non-TTY processes. This tool has no stdin body input.
+            args: ['--ignore-stdin', '{method?}', '{url}'],
+            installPackage: 'xh',
+        },
     },
     {
         name: 'sd',
