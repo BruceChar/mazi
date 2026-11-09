@@ -70,7 +70,7 @@ import {
     type PlannedTask,
     type PlanTool,
 } from '../gts/plan-graph.js';
-import { createLlmReplanPlanner, type ReplanPlanner } from '../gts/replan.js';
+import type { ReplanPlanner } from '../gts/replan.js';
 import {
     allocateTaskBudgets,
     createLlmTaskPlanner,
@@ -1035,35 +1035,9 @@ export class HarnessRuntime {
         if (flags !== undefined && Object.keys(flags.values).length > 0) {
             this.emitFlagEvent(rootGoalId, goalId, flags.values, flags.trace);
         }
-        // 失败后的连续处理：未显式注入 replan planner 时，项目会话默认用当前模型做一次
-        // 有界 Replan（只补剩余工作）；这样验收失败不再直接中断整个 Goal。
-        const replanModel = model ?? this.triageModel();
-        const replanPlanner =
-            this.replanPlanner ??
-            (taskPlanning && replanModel !== undefined
-                ? createLlmReplanPlanner(async (prompt) => {
-                      const round = await withTriageTimeout(
-                          this.roundRunner.requestRound(
-                              rootGoalId,
-                              {
-                                  model: replanModel,
-                                  messages: [
-                                      {
-                                          role: 'user',
-                                          content: [{ type: 'text', text: prompt }],
-                                      },
-                                  ],
-                                  systemPrompt: this.agentPrompt('replan'),
-                                  tools: [],
-                              },
-                              reasoningLevel,
-                          ),
-                          TRIAGE_TIMEOUT_MS,
-                      );
-                      if (round === undefined) throw new Error('Replan Planner 超时');
-                      return round.text;
-                  })
-                : undefined);
+        // 普通会话保持计划稳定：失败不自动改写 Task 图。Replan 只能由宿主显式注入，
+        // 用于实验或需要人工确认恢复策略的高级路径。
+        const replanPlanner = this.replanPlanner;
         const verificationByTask = new Map<string, VerificationReport>();
         const controller = new AbortController();
         this.running.set(rootGoalId, controller);

@@ -270,7 +270,7 @@ function readEvents(dir: string, rootGoalId: string): Array<{ type: string; payl
         .map((line) => JSON.parse(line) as { type: string; payload?: unknown });
 }
 
-describe('HarnessRuntime × 验收失败与默认 replan', () => {
+describe('HarnessRuntime × 验收失败与显式 Replan', () => {
     it('契约机械条款失败时 Goal 不再记为成功（goal.ended=failed）', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'mazi-accept-fail-'));
         dirs.push(dir);
@@ -301,8 +301,8 @@ describe('HarnessRuntime × 验收失败与默认 replan', () => {
         }
     });
 
-    it('验收失败后默认 LLM replan 继续执行（plan.revised），最终仍失败则终止', async () => {
-        const dir = mkdtempSync(join(tmpdir(), 'mazi-replan-continue-'));
+    it('验收失败默认冻结当前计划并结束，不自动 Replan', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-plan-stable-'));
         dirs.push(dir);
         const runtime = new HarnessRuntime(runtimeConfig(dir), {
             llmProviders: {
@@ -332,44 +332,10 @@ describe('HarnessRuntime × 验收失败与默认 replan', () => {
             const result = await runtime.executeGoalTree(created.rootGoalId);
             const events = readEvents(dir, created.rootGoalId);
             const revised = events.filter((event) => event.type === 'plan.revised');
-            expect(revised.length).toBeGreaterThanOrEqual(1);
-            // plan.revised 契约：planVersion + 修订后的完整 Task 列表（UI 可直接渲染新计划树）。
-            const payloads = revised.map(
-                (event) =>
-                    event.payload as
-                        | {
-                              revision?: number;
-                              planVersion?: number;
-                              diff?: unknown;
-                              reason?: string;
-                              evidence?: unknown;
-                              digest?: string;
-                              tasks?: Array<{
-                                  taskId?: string;
-                                  title?: string;
-                                  dependsOn?: string[];
-                                  planVersion?: number;
-                                  status?: string;
-                              }>;
-                          }
-                        | undefined,
-            );
-            expect(payloads[0]?.revision).toBe(1);
-            // 初始计划 = 1，第一次 Replan = 2，第二次 = 3（PlanRevision.revision + 1）。
-            expect(payloads.map((payload) => payload?.planVersion)).toEqual([2, 3]);
-            const firstRevised = payloads[0];
-            expect(firstRevised?.tasks).toHaveLength(1);
-            expect(firstRevised?.tasks?.[0]).toMatchObject({
-                title: '重新实现 DFS 第 1 次',
-                dependsOn: [],
-                planVersion: 2,
-                status: 'pending',
-            });
-            expect(typeof firstRevised?.tasks?.[0]?.taskId).toBe('string');
-            expect(firstRevised?.reason).toContain('verifier:');
+            expect(revised).toHaveLength(0);
             expect(result.ok).toBe(false);
-            // 至少发生一次 replan，且该轮已执行（失败 Task 被替换，故 tasks 只留最后一轮）。
-            expect((result.planRevisions?.length ?? 0)).toBeGreaterThanOrEqual(1);
+            expect(result.planRevisions).toBeUndefined();
+            expect(result.tasks.map((outcome) => outcome.task.title)).toEqual(['执行方案 A']);
         } finally {
             await runtime.close();
         }
@@ -398,6 +364,13 @@ describe('HarnessRuntime × 验收失败与默认 replan', () => {
             workspaceRoot: dir,
             taskPlanner: async () => SINGLE_TASK,
         });
+        runtime.setReplanPlanner(async () => [
+            {
+                key: 'retry',
+                title: '使用现有工具重试',
+                requiredTools: ['fs.glob'],
+            },
+        ]);
         try {
             const created = await runtime.createGoalSession('实现dfs', {
                 parseIntent: true,

@@ -35,7 +35,10 @@ P1 当前边界：PromptPack 当前状态与删除状态持久化在 `mazi.db`�
 
 ## P2 基础版（2026-11-02）
 
-- **动态 Replan**：Verifier/Executor 失败后由可注入 `ReplanPlanner` 提出新 DAG；harness 保留已完成 Task，校验冻结契约、权限、预算、依赖和重复计划，限制最大 Replan 次数并记录 `plan.revised` / `replan.rejected` 与计划 diff。
+- **动态 Replan（显式启用）**：普通会话默认保持初始计划；实验或自定义宿主显式注入 `ReplanPlanner`
+  后，Verifier/Executor 失败才由它提出新 DAG。harness 保留已完成 Task，校验冻结契约、权限、预算、
+  依赖和重复计划，限制最大 Replan 次数并记录 `plan.revised` / `replan.rejected` 与计划 diff；
+  `aborted`、`budget-exceeded`、`max-steps`、`timeout` 不得触发 Replan。
 - **多 Agent 角色**：内置 planner/executor/reviewer/researcher，可配置模型、工具、系统提示和权限上限。
 - **委托治理**：SQLite delegation edge、父权限/预算单调递减、未知角色与预算溢出拒绝、最大委托深度。
 - **并行与 handoff**：`delegate` 工具可一次提交多个子 Agent，并行执行独立子 Goal，结果沿工具 observation 回传；角色级工具、模型、Prompt 和预算在子会话生效。

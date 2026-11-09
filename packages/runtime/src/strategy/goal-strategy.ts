@@ -91,7 +91,7 @@ export interface GoalRunDeps {
     /** Independent verifier; absence keeps mechanical acceptance for lightweight callers. */
     verifier?: TaskVerifier;
     onVerification?: (report: VerificationReport, outcome: TaskOutcome) => void;
-    /** Bounded dynamic replanning after verifier/executor failure. */
+    /** Host-injected bounded replanning; normal product sessions keep the initial plan stable. */
     replan?: ReplanOption;
     onReplan?: (
         revision?: PlanRevision,
@@ -296,7 +296,10 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         }
         await deps.store.saveTask(outcome.task);
         outcomes.push(outcome);
-        const shouldReplan = !outcome.ok || verificationReport?.state === 'failed';
+        const replanIneligible = new Set(['aborted', 'budget-exceeded', 'max-steps', 'timeout']);
+        const shouldReplan =
+            !replanIneligible.has(outcome.reason) &&
+            (!outcome.ok || verificationReport?.state === 'failed');
         if (shouldReplan) {
             const maxReplans = deps.replan?.maxReplans ?? 2;
             if (deps.replan === undefined || planRevisions.length >= maxReplans) break;

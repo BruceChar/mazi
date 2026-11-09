@@ -181,6 +181,7 @@ describe('goal-strategy（C3d：Goal 顺序驱动，扁平模型）', () => {
         a.contract.budget = { maxCostUsd: 0.01 };
         await store.saveGoal(a);
         let rounds = 0;
+        let replanCalls = 0;
         const result = await runGoalTree(
             {
                 store,
@@ -215,10 +216,18 @@ describe('goal-strategy（C3d：Goal 顺序驱动，扁平模型）', () => {
                         },
                     };
                 },
+                replan: {
+                    planner: async () => {
+                        replanCalls += 1;
+                        return [{ key: 'retry', title: '不应出现' }];
+                    },
+                },
             },
             [a],
         );
         expect(rounds).toBe(1);
+        expect(replanCalls).toBe(0);
+        expect(result.planRevisions).toBeUndefined();
         expect(result.tasks[0]?.reason).toBe('budget-exceeded');
     });
 
@@ -385,6 +394,34 @@ describe('goal-strategy（C3d：Goal 顺序驱动，扁平模型）', () => {
             '用现有工具补救',
             '汇总',
         ]);
+    });
+
+    it('用户停止产生的 aborted Task 不得触发 Replan', async () => {
+        const store = new MemoryGoalStore();
+        const target = goal(ulid());
+        await store.saveGoal(target);
+        const controller = new AbortController();
+        controller.abort();
+        let replanCalls = 0;
+
+        const result = await runGoalTree(
+            {
+                store,
+                requestRound: async () => okRound,
+                signal: controller.signal,
+                replan: {
+                    planner: async () => {
+                        replanCalls += 1;
+                        return [{ key: 'retry', title: '不应出现' }];
+                    },
+                },
+            },
+            [target],
+        );
+
+        expect(replanCalls).toBe(0);
+        expect(result.tasks[0]?.reason).toBe('aborted');
+        expect(result.planRevisions).toBeUndefined();
     });
 
     it('resume 对尚未生成 Task 的 active Goal 补建计划而不是空跑', async () => {

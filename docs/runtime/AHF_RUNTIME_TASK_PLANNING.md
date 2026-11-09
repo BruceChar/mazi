@@ -28,7 +28,7 @@ executeGoalTree
   ├─ plan.created（计划先落定）
   ├─ executing
   ├─ runGoalTree：同步串行、拓扑序逐 Task 执行；Task 之间注入前置结果
-  └─ 每 Task：executeTask → verifier（机械 + 可选语义 judge）→ 失败时 replan（受限次数）
+  └─ 每 Task：executeTask → verifier（机械 + 可选语义 judge）→ 失败即冻结当前计划并结束
 ```
 
 **不变量**：Goal → triage → Plan → Task → Step 是一条同步串行状态机；规划只能基于已落库的契约，
@@ -83,9 +83,12 @@ triage 完成前不得生成计划，计划图校验通过后必须先把当前�
 - Task 验收范围来自规划时的 `Task.acceptance.conditions`（规划前置契约完整后即包含全部条款）。
 - **验收失败不再算运行成功**：Task 机械验收 `passed=false` 时 Task 置 `failed`，
   `GoalRunResult.ok` / `goal.ended` / `Goal.status` 一并记为失败（aborted 仍保持可恢复）。
-- **默认连续处理（replan）**：项目会话未显式注入 replan planner 时，失败会触发一次有界 LLM Replan
-  （`createLlmReplanPlanner`，最多 `maxReplans` 次）：只补失败 Task 的补救工作，保留已完成 Task，然后继续执行；
-  Replan 被拒绝或次数用尽才终止。失败分类账同时记录验收失败。
+- **默认计划稳定（2026-11-10 修订）**：普通会话的 Task 失败、验收失败或用户停止后**不自动 Replan**。
+  当前计划与后续 Task 保持原顺序，失败 Task 保留失败事实，Goal 明确终止；替代方案应在当前 Task 内重试
+  或由用户重新发起，不能因为一次工具/验收失败就自动增删计划节点。
+- **显式 Replan 仅限宿主注入**：实验或自定义宿主可调用 `setReplanPlanner` 或直接注入 `ReplanOption`；
+  Replan 不修改冻结 GoalContract，只允许在明确启用时补失败 Task 的补救工作。`aborted`、
+  `budget-exceeded` 等终止原因不得触发 Replan。
 - Replan Planner 的输入必须包含当前权限下实际可用的工具名与最低权限，并明确禁止
   `requiredTools` 引用未列出的工具。否则模型可能生成 `fs.glob` 等不存在的工具名，使本可恢复的
   补救计划在机械校验阶段整体被拒绝。
@@ -116,7 +119,9 @@ triage 完成前不得生成计划，计划图校验通过后必须先把当前�
   其余 Task 仍可由 timeline/GoalStore 读取。
 - `packages/runtime/test/replan.test.ts`：Replan prompt 暴露当前可用工具并限制 `requiredTools` 来源。
 - `packages/runtime/test/task-planning-runtime.test.ts`：未注册 `requiredTools` 被自动移除，
-  `plan.revised.payload.warnings` 可在事件回放中审计。
+  `plan.revised.payload.warnings` 可在事件回放中审计；普通会话验收失败保持原计划、不自动 Replan。
+- `packages/runtime/test/goal-strategy.test.ts` 另覆盖 `aborted`、`budget-exceeded` 等不可恢复终止
+  原因不得触发 Replan。
 - `apps/webui/test/exec-tree.test.ts`：只有“direct 且无执行事实”才隐藏契约/Task 树。
 - `apps/api/test/sessions.service.test.ts`：无 deliberation Step 的直答可回填 Conversation 历史。
 
