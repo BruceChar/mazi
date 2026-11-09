@@ -32,8 +32,12 @@ executeGoalTree
 ```
 
 **不变量**：Goal → triage → Plan → Task → Step 是一条同步串行状态机；规划只能基于已落库的契约，
-triage 完成前不得生成计划，计划落定并发出 `plan.created` 前不得进入 `executing`。创建接口先返回只为
-显示用户输入，不会让规划或执行另起异步主线。
+triage 完成前不得生成计划，计划图校验通过后必须先把当前计划中的**全部 Task** 写入 GoalStore，
+再发出 `plan.created` 并进入 `executing`。创建接口先返回只为显示用户输入，不会让规划或执行另起异步主线。
+
+> 2026-11-10 修复：此前只有真正开始执行的 Task 才落库，失败/中止后的 timeline 与刷新页面只能看到
+> 已执行子集。run `01M70FY584NWYJ3YX5B8C001RV` 的 `plan.created` 有 4 个 Task，但快照只剩第一个失败
+> Task。初始计划落库是刷新、恢复与审计一致性的前提，不能用 `plan.created` 事件替代持久事实。
 
 ### 2.1 直答零执行不变量（2026-11-09 修订）
 
@@ -82,6 +86,9 @@ triage 完成前不得生成计划，计划落定并发出 `plan.created` 前不
 - **默认连续处理（replan）**：项目会话未显式注入 replan planner 时，失败会触发一次有界 LLM Replan
   （`createLlmReplanPlanner`，最多 `maxReplans` 次）：只补失败 Task 的补救工作，保留已完成 Task，然后继续执行；
   Replan 被拒绝或次数用尽才终止。失败分类账同时记录验收失败。
+- Replan Planner 的输入必须包含当前权限下实际可用的工具名与最低权限，并明确禁止
+  `requiredTools` 引用未列出的工具。否则模型可能生成 `fs.glob` 等不存在的工具名，使本可恢复的
+  补救计划在机械校验阶段整体被拒绝。
 - **计划代际（planVersion）与 replan 卫生（2026-11-08 修订）**：
   - 计划版本：初始计划 `planVersion=1`；第 N 次 Replan（`PlanRevision.revision=N`）产出的
     revision 内全部 Task `planVersion=N+1`。UI 据此只渲染当前计划，历史尝试保留在 Trace。
@@ -101,6 +108,9 @@ triage 完成前不得生成计划，计划落定并发出 `plan.created` 前不
 - `packages/runtime/test/tool-executor.test.ts`：pipefail、sd no-op 检测。
 - `packages/runtime/test/contract-negotiation.test.ts` / `acceptance.test.ts` / `verifier.test.ts`：结构化 check 与机械判定。
 - `packages/runtime/test/task-planner-runtime.test.ts`：runtime 注入 history 后 planner 输入正确。
+- `packages/runtime/test/goal-strategy.test.ts`：初始计划全部 Task 在执行前落库，首个 Task 失败后
+  其余 Task 仍可由 timeline/GoalStore 读取。
+- `packages/runtime/test/replan.test.ts`：Replan prompt 暴露当前可用工具并限制 `requiredTools` 来源。
 - `apps/webui/test/exec-tree.test.ts`：只有“direct 且无执行事实”才隐藏契约/Task 树。
 - `apps/api/test/sessions.service.test.ts`：无 deliberation Step 的直答可回填 Conversation 历史。
 

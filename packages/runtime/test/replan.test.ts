@@ -5,6 +5,7 @@ import {
     createLlmReplanPlanner,
     createPlanRevision,
 } from '../src/gts/replan.js';
+import type { PlanTool } from '../src/gts/plan-graph.js';
 
 function goal(): Goal {
   return {
@@ -180,6 +181,10 @@ describe('createPlanRevision', () => {
 
 describe('replan planner prompt / factory', () => {
   it('prompt 包含失败原因、已完成 Task 与剩余预算', () => {
+    const availableTools: PlanTool[] = [
+      { name: 'fs.read', minPermission: 'read-only' },
+      { name: 'rg', minPermission: 'read-only' },
+    ];
     const prompt = buildReplanPlannerPrompt({
       goal: goal(),
       revision: 0,
@@ -211,6 +216,7 @@ describe('replan planner prompt / factory', () => {
       failureReason: 'failed',
       evidence: ['tool failed: exit code 1'],
       remainingBudget: { maxCostUsd: 5 },
+      availableTools,
     });
     expect(prompt).toContain('Replan Planner');
     expect(prompt).toContain('失败任务');
@@ -222,6 +228,8 @@ describe('replan planner prompt / factory', () => {
     expect(prompt).toContain('汇总结果');
     expect(prompt).toContain('必须保留，不要重复规划');
     expect(prompt).toContain('边界必须清晰、互不重叠');
+    expect(prompt).toContain('可用工具：fs.read(read-only), rg(read-only)');
+    expect(prompt).toContain('只能使用上述可用工具');
   });
 
   it('LLM replan 输出合法 JSON 时解析为 PlannedTask[]，非法时返回 undefined', async () => {

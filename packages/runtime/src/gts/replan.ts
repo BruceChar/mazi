@@ -24,6 +24,8 @@ export interface ReplanRequest {
     failureCategory?: VerificationFailureCategory;
     evidence: readonly string[];
     remainingBudget: BudgetAllocation;
+    /** 本轮实际暴露给执行面的工具；Replan 只能从该集合选择 requiredTools。 */
+    availableTools?: readonly PlanTool[];
 }
 
 export type ReplanPlanner = (request: ReplanRequest) => Promise<readonly PlannedTask[] | undefined>;
@@ -54,18 +56,22 @@ export function buildReplanPlannerPrompt(request: ReplanRequest): string {
         .slice(0, 6)
         .map((item) => `- ${item.slice(0, 600)}`)
         .join('\n');
+    const availableTools = (request.availableTools ?? [])
+        .map((tool) => `${tool.name}(${tool.minPermission})`)
+        .join(', ');
     return [
         '你是 Replan Planner。上一个 Task 未通过验收，请只规划**失败 Task 的补救工作**，不要重排整个计划。',
         `Task 数量 1-${DEFAULT_MAX_REPLAN_TASKS}；已完成并保留的 Task 不要重复。`,
         '原计划中尚未执行、仍然有效的 Task 必须保留，不要重复规划；新 Task 不得与已完成或这些剩余 Task 重复，边界必须清晰、互不重叠。',
         '根据失败原因与证据修正做法；可以拆成多个可独立验收的 Task，用 dependsOn 表达顺序。',
         '每个 Task 必须是一个完整工作单元，动作导向 title，可独立验收。',
-        'requiredTools 可省略；dependsOn 只能引用本次输出中更早的 key。',
+        'requiredTools 可省略，且只能使用上述可用工具；dependsOn 只能引用本次输出中更早的 key。',
         '严格输出 JSON，不输出 markdown：',
         '{"tasks":[{"key":"fix","title":"修复失败原因","dependsOn":[],"requiredTools":[]}]}',
         '',
         `目标：${request.goal.statement}`,
         `Goal 成功条件：${conditions || '（无额外条件）'}`,
+        `可用工具：${availableTools || '（无）'}`,
         `已完成 Task：\n${completed}`,
         `原计划中尚未执行、仍然有效的 Task（必须保留，不要重复规划）：\n${remaining}`,
         `失败 Task：${request.failedTask.title}`,

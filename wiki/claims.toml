@@ -1,5 +1,6 @@
-# wiki/claims.toml — 只通过 runtime Project Wiki API 修改，禁止手改
+# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
+
 
 [claims.wiki-ui-repository-view]
 text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
@@ -159,12 +160,12 @@ retracted_reason = "Incremental Project Wiki behavior is now implemented in runt
 text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass; verification failures mark the task and goal failed and trigger a bounded default LLM replan that sequences the remaining work, while aborted tasks stay resumable."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "7313f22d6fea27ceece92543300ece3f4a176186" },
-  { file = "packages/runtime/src/gts/replan.ts", oid = "8ba51582a108d6f7fcc0b55bf117464c60654dc0" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "de245a7ab0768f11fe33f0466d9eac27d23c59a7" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "b9008785106b574bcc3b2c8bf30c51b5bb2b1eeb" },
+  { file = "packages/runtime/src/gts/replan.ts", oid = "43703e402ae3ed55de344f79e40bc5e450cb4d43" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "c9a08bcc1956a45c23aee285fec92656176d898b" },
 ]
 established = 2026-11-07
-verified = 2026-11-09
+verified = 2026-11-10
 
 [claims.project-context-lifecycle-runtime]
 text = "Project Context Lifecycle is a runtime-owned subsystem: it assembles task-scoped context packets at SessionStart, anchors long-session compaction in persisted facts and evidence, and asynchronously finalizes SessionEnd with deterministic diff/oid/research preflight plus optional bounded semantic distillation and checkpoint validation."
@@ -298,17 +299,18 @@ established = 2026-11-09
 verified = 2026-11-09
 
 [claims.runtime-goal-plan-execution-serial-v2]
-text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, plan.created carries task titles plus dependencies, and the executing phase is emitted only after the plan is recorded and before the first Step starts."
+text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "7313f22d6fea27ceece92543300ece3f4a176186" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "b9008785106b574bcc3b2c8bf30c51b5bb2b1eeb" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "e9ae72dbcc1e4bf2d4090e691d4bdcd4f2823d54" },
   { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "de245a7ab0768f11fe33f0466d9eac27d23c59a7" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "c9a08bcc1956a45c23aee285fec92656176d898b" },
 ]
 established = 2026-11-09
-verified = 2026-11-09
+verified = 2026-11-10
+claim_oid = "2de794a3595e29e9"
 
 [claims.webui-trace-audit-anchor]
 text = "The right-side Trace panel preserves an explicit audit anchor for the selected scope: Step anchors include R/T/S coordinates plus rootGoalId, goalId, taskId, stepId, timestamps and step/task status; Task and run scopes retain their corresponding IDs and timing. Contract, acceptance, context, token, cost and tool facts therefore remain attributable to the exact audited Step even though the conversation surface omits that audit metadata."

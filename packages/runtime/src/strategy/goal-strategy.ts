@@ -190,6 +190,12 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
         tasks = planned.tasks;
         planDigest = planned.graph?.digest;
     }
+    // 计划校验通过即把当前计划的全部 Task 落库。执行器只会在真正开始时更新自己的
+    // Task；若失败/中止发生在后续 Task 前，提前落库保证 timeline、刷新与恢复仍能
+    // 看到完整计划，而不是只剩已执行子集。
+    for (const task of tasks) {
+        await deps.store.saveTask(task);
+    }
     deps.onPlan?.(tasks.length, planDigest, undefined, tasks);
     const goalById = new Map(executable.map((goal) => [goal.goalId, goal]));
     let queue = topologicalTaskOrder(tasks);
@@ -317,6 +323,9 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                     : {}),
                 evidence: failure.evidence,
                 remainingBudget: goal.budget,
+                ...(deps.replan.availableTools !== undefined
+                    ? { availableTools: deps.replan.availableTools }
+                    : {}),
             };
             try {
                 const proposal = await deps.replan.planner(request);

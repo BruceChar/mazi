@@ -291,6 +291,51 @@ describe('goal-strategy（C3d：Goal 顺序驱动，扁平模型）', () => {
         expect(rejected.rejected?.join('\n')).toContain('权限超过 Goal 上限');
     });
 
+    it('初始计划的全部 Task 在执行前落库，首个 Task 失败后剩余计划仍可读取', async () => {
+        const store = new MemoryGoalStore();
+        const target = goal(ulid());
+        await store.saveGoal(target);
+        const condition = target.contract.successConditions[0]!.id;
+        let plannedTaskIds: string[] = [];
+
+        const result = await runGoalTree(
+            {
+                store,
+                requestRound: async () => {
+                    throw new Error('provider unavailable');
+                },
+                planProposal: [
+                    {
+                        key: 'inspect',
+                        title: '检查',
+                        acceptanceConditionIds: [condition],
+                    },
+                    {
+                        key: 'review',
+                        title: '审查',
+                        dependsOn: ['inspect'],
+                        acceptanceConditionIds: [condition],
+                    },
+                    {
+                        key: 'summarize',
+                        title: '汇总',
+                        dependsOn: ['review'],
+                        acceptanceConditionIds: [condition],
+                    },
+                ],
+                onPlan: (_taskCount, _digest, _rejected, tasks) => {
+                    plannedTaskIds = (tasks ?? []).map((task) => task.taskId);
+                },
+            },
+            [target],
+        );
+
+        const stored = await store.listTasks(target.goalId);
+        expect(result.ok).toBe(false);
+        expect(stored.map((task) => task.taskId)).toEqual(plannedTaskIds);
+        expect(stored.map((task) => task.status)).toEqual(['failed', 'pending', 'pending']);
+    });
+
     it('resume 对尚未生成 Task 的 active Goal 补建计划而不是空跑', async () => {
         const store = new MemoryGoalStore();
         const a = goal(ulid());
