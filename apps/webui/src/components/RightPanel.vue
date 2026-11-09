@@ -412,12 +412,9 @@ const analyzeInput = ref('');
 const analyzeModel = ref('');
 const analyzeTarget = ref(null);
 const analyzeBusy = ref(false);
-const copiedToc = ref(false);
-const tocMenuOpen = ref(false);
 const feedbackDrafts = ref({});
-let copiedTimer = null;
 
-/** 步骤明细只含单一 Task 时，该 Task 才是可 Copy/Analyze 的 TOC 目标。 */
+/** 步骤明细只含单一 Task 时，该 Task 才是可 Analyze 的 TOC 目标。 */
 const tocTarget = computed(() => {
     const rows = props.audit?.rows || [];
     if (rows.length === 0) return null;
@@ -430,14 +427,6 @@ const tocTarget = computed(() => {
         rootGoalId: rows[0].rootGoalId || props.current || '',
     };
 });
-
-function toggleTocMenu() {
-    tocMenuOpen.value = !tocMenuOpen.value;
-}
-function copyFromMenu(target) {
-    tocMenuOpen.value = false;
-    void copyToc(target);
-}
 
 function openAnalyze(target) {
     if (!target) return;
@@ -469,20 +458,6 @@ async function runAnalyze() {
     } catch (error) {
         ui.err = String(error);
         analyzeBusy.value = false;
-    }
-}
-async function copyToc(target) {
-    const rootGoalId = target?.rootGoalId || props.current;
-    if (!target || !rootGoalId) return;
-    try {
-        await copyThinkingChain(rootGoalId, target.taskId);
-        copiedToc.value = true;
-        if (copiedTimer) clearTimeout(copiedTimer);
-        copiedTimer = setTimeout(() => {
-            copiedToc.value = false;
-        }, 1500);
-    } catch (error) {
-        ui.err = String(error);
     }
 }
 function feedbackDraft(analyzeId) {
@@ -821,36 +796,21 @@ watch(
                         class="audit-head-start"
                         :title="'执行开始时间：' + fmtPrecise(audit.startedAt)"
                     >{{ fmtPrecise(audit.startedAt) }}</div>
-                    <span v-if="tocTarget" class="toc-actions">
-                        <button
-                            class="toc-analyze-btn"
-                            title="分析这条思维链"
-                            @click.stop="openAnalyze(tocTarget)"
-                        >
-                            <LineIcon name="lightbulb" size="14" />
-                            <span>分析</span>
-                        </button>
-                        <span class="toc-menu">
-                            <button
-                                class="toc-menu-trigger"
-                                :class="{ copied: copiedToc }"
-                                title="更多：复制思维链"
-                                @click.stop="toggleTocMenu()"
-                            >
-                                <LineIcon name="more" size="16" />
-                            </button>
-                            <span v-if="tocMenuOpen" class="toc-menu-pop">
-                                <button @click.stop="copyFromMenu(tocTarget)">{{ copiedToc ? 'Copied' : 'Copy' }}</button>
-                            </span>
-                        </span>
-                    </span>
                     <button
-                        class="audit-info-btn"
+                        v-if="tocTarget"
+                        class="audit-icon-btn analyze"
+                        title="分析这条思维链"
+                        @click.stop="openAnalyze(tocTarget)"
+                    >
+                        <LineIcon name="lightbulb" size="16" />
+                    </button>
+                    <button
+                        class="audit-icon-btn"
                         :class="{ on: audit.kind === 'conversation' }"
                         title="会话汇总（清空 Step/Task 选择）"
                         @click="emit('select-conversation')"
                     >
-                        <LineIcon name="info" size="14" />
+                        <LineIcon name="info" size="16" />
                     </button>
                 </div>
 
@@ -2217,23 +2177,39 @@ watch(
     font-family: ui-monospace, monospace;
     white-space: nowrap;
 }
-.audit-info-btn {
+/* ---------- Audit 头部图标按钮：分析 / 会话汇总同一尺寸与样式 ---------- */
+.audit-icon-btn {
     display: inline-grid;
     place-items: center;
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--fg-tertiary);
-    cursor: pointer;
     flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg-secondary);
+    cursor: pointer;
 }
-.audit-info-btn:hover,
-.audit-info-btn.on {
-    background: var(--bg-hover);
+.audit-icon-btn:hover,
+.audit-icon-btn.on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
     color: var(--accent);
+}
+.audit-icon-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+/* 分析是 Task 上的主动作：同尺寸、同形状，只靠强调色区分。 */
+.audit-icon-btn.analyze {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+.audit-icon-btn.analyze:hover {
+    background: var(--accent);
+    color: var(--bg);
 }
 
 .audit-title {
@@ -2656,93 +2632,6 @@ watch(
 .diff-toggle:hover {
     color: var(--accent);
     border-color: var(--accent);
-}
-
-/* ---------- TOC actions（步骤明细块右上角）：分析为主入口，⋯ 收纳次要动作 ---------- */
-.toc-actions {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: 8px;
-    vertical-align: middle;
-}
-/* 分析是高频动作：给带文字的强调按钮，避免只靠低对比度小图标。 */
-.toc-analyze-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 24px;
-    padding: 0 9px;
-    border: 1px solid var(--accent);
-    border-radius: var(--radius-sm);
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1;
-    cursor: pointer;
-}
-.toc-analyze-btn:hover {
-    background: var(--accent);
-    color: var(--bg);
-}
-.toc-analyze-btn:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
-}
-.toc-menu {
-    position: relative;
-    display: inline-flex;
-    vertical-align: middle;
-}
-.toc-menu-trigger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--fg-secondary);
-    padding: 0;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-}
-.toc-menu-trigger:hover {
-    color: var(--accent);
-    border-color: var(--accent);
-    background: var(--accent-soft);
-}
-.toc-menu-trigger.copied {
-    color: var(--accent);
-}
-/* 点击展开、点击项才关闭：不依赖 hover，避免移动鼠标时菜单消失 */
-.toc-menu-pop {
-    position: absolute;
-    right: 0;
-    top: 100%;
-    margin-top: 4px;
-    z-index: 30;
-    display: inline-flex;
-    gap: 4px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-}
-.toc-menu-pop button {
-    border: 0;
-    background: transparent;
-    color: var(--fg);
-    font-size: 11px;
-    padding: 3px 8px;
-    cursor: pointer;
-    border-radius: 3px;
-}
-.toc-menu-pop button:hover {
-    background: var(--accent-soft);
-    color: var(--accent);
 }
 
 /* ---------- Analyze 弹窗 ---------- */
