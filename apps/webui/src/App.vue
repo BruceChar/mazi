@@ -748,7 +748,7 @@ async function createAndRunGoal({ statement, permissionCeiling, maxCostUsd, maxS
 
 async function submitPrompt() {
     const text = prompt.value.trim();
-    if (!text || busy.value) {
+    if (!text) {
         return;
     }
     prompt.value = '';

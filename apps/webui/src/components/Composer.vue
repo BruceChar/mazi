@@ -4,6 +4,7 @@ import LineIcon from '../assets/LineIcon.vue';
 import VoiceWaveform from './VoiceWaveform.vue';
 import { shouldSubmitOnEnter } from '../scripts/composer-keys.ts';
 import { PERMISSION_META } from '../scripts/goal-contract.ts';
+import { queueSendVisible } from '../scripts/run-control.ts';
 
 const props = defineProps({
     modelValue: { type: String, default: '' },
@@ -93,6 +94,9 @@ function onInput(e) {
 const VOICE_ACTIVE_PHASES = ['requesting', 'armed', 'partial', 'finalizing'];
 const voiceOn = computed(() => VOICE_ACTIVE_PHASES.includes(props.voiceState));
 const voiceErrored = computed(() => props.voiceState === 'error');
+const queueSend = computed(() =>
+    queueSendVisible({ busy: props.busy, hasDraft: props.modelValue.trim().length > 0 }),
+);
 
 function voiceIcon() {
     return 'mic';
@@ -389,7 +393,20 @@ function doExitWorkspace() {
                         <button v-if="busy" class="send stop" title="停止" @click="emit('stop')">
                             <LineIcon name="stop" size="14" />
                         </button>
-                        <button v-else class="send" title="发送" @click="emit('submit')">
+                        <button
+                            v-if="queueSend"
+                            class="send queue"
+                            title="加入执行队列"
+                            @click="emit('submit')"
+                        >
+                            <LineIcon name="arrowUp" size="16" />
+                        </button>
+                        <button
+                            v-else-if="!busy"
+                            class="send"
+                            title="发送"
+                            @click="emit('submit')"
+                        >
                             <LineIcon name="arrowUp" size="16" />
                         </button>
                     </div>

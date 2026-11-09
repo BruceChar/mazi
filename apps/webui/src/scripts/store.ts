@@ -231,6 +231,18 @@ export async function setSessionPermission(value: string): Promise<void> {
 }
 export const projects = ref<Project[]>([]);
 export const busy = ref<boolean>(false);
+let pendingBusyOperations = 0;
+
+function beginBusy(): void {
+    pendingBusyOperations += 1;
+    busy.value = true;
+}
+
+function endBusy(): void {
+    pendingBusyOperations = Math.max(0, pendingBusyOperations - 1);
+    busy.value = pendingBusyOperations > 0;
+}
+
 /** Currently open Goal run (rootGoalId). */
 export const current = ref<string | null>(null);
 /** 正在执行的 run（停止按钮的作用对象）；执行结束后清空。 */
@@ -1098,7 +1110,7 @@ export async function createRun({
     if (!text) return null;
     // 乐观回显：用户消息先落到 UI（真实 run 由 loadConversations 换进来）
     pendingInput.value = text;
-    busy.value = true;
+    beginBusy();
     ui.err = null;
     try {
         const body: Record<string, unknown> = {
@@ -1140,7 +1152,7 @@ export async function createRun({
         return null;
     } finally {
         if (pendingInput.value === text) pendingInput.value = '';
-        busy.value = false;
+        endBusy();
     }
 }
 
@@ -1161,7 +1173,7 @@ function cacheRunOutcome(rootGoalId: string, result: Record<string, unknown>): v
 /** Execute a Goal run (POST /api/sessions/:id/run) and cache its task summary. */
 export async function executeRun(rootGoalId: string): Promise<void> {
     if (!rootGoalId) return;
-    busy.value = true;
+    beginBusy();
     activeRunId.value = rootGoalId;
     ui.err = null;
     try {
@@ -1177,7 +1189,7 @@ export async function executeRun(rootGoalId: string): Promise<void> {
         ui.err = String(error);
     } finally {
         if (activeRunId.value === rootGoalId) activeRunId.value = null;
-        busy.value = false;
+        endBusy();
     }
 }
 
@@ -1201,7 +1213,7 @@ export async function negotiateRun(
 ): Promise<void> {
     // 空答复是合法的「已知悉 / 无问题可答」：只做确认落库，不新增条款
     if (!rootGoalId) return;
-    busy.value = true;
+    beginBusy();
     ui.err = null;
     try {
         await api(`/api/sessions/${encodeURIComponent(rootGoalId)}/negotiate`, {
@@ -1215,7 +1227,7 @@ export async function negotiateRun(
         ui.err = String(error);
         throw error;
     } finally {
-        busy.value = false;
+        endBusy();
     }
 }
 
@@ -1227,7 +1239,7 @@ export interface ResumeRunOptions {
 /** 恢复被停止的 run：复用 aborted Task，从已落库 Step 重放后继续执行。 */
 export async function resumeRun(rootGoalId: string, options: ResumeRunOptions = {}): Promise<void> {
     if (!rootGoalId) return;
-    busy.value = true;
+    beginBusy();
     activeRunId.value = rootGoalId;
     ui.err = null;
     try {
@@ -1247,7 +1259,7 @@ export async function resumeRun(rootGoalId: string, options: ResumeRunOptions = 
         ui.err = String(error);
     } finally {
         if (activeRunId.value === rootGoalId) activeRunId.value = null;
-        busy.value = false;
+        endBusy();
     }
 }
 

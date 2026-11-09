@@ -120,6 +120,7 @@ export class SessionsService {
         const sessionConversationId = conversationId ?? ulid();
         // 普通会话按全局 Feature 开关运行（实验台改用运行期 override 走 ExperimentRunner）。
         const featureOptions = await this.featureRunOptions(reasoningLevel);
+        const chatMode = workspace === undefined && projectId === undefined;
         const promptFragment = featureOptions.promptFragment ?? '';
         const created = await this.runtime.harness().createGoalSession(input, {
             userId,
@@ -128,8 +129,8 @@ export class SessionsService {
             ...(permissionCeiling ? { permissionCeiling } : {}),
             ...(maxSteps !== undefined ? { maxSteps } : {}),
             ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
-            parseIntent: true,
-            taskPlanning: true,
+            parseIntent: !chatMode,
+            taskPlanning: !chatMode,
             ...(history.length > 0 ? { history } : {}),
             ...(planProposal !== undefined ? { planProposal } : {}),
             ...(promptPackIds !== undefined ? { promptPackIds } : {}),

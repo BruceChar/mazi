@@ -72,6 +72,7 @@ import {
 import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { ApiError } from './api-error.js';
 import Logger from './log.js';
+import { SerialRunQueue } from './serial-run-queue.js';
 import { normalizeWorkspacePath } from './workspace-path.js';
 
 /** workspaces.json 的项目条目（历史数据可能带尾斜杠重复）。 */
@@ -354,7 +355,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     private experimentRunning = false;
     private catalogInstance: CatalogService | undefined;
     private catalogOpening: Promise<CatalogService> | undefined;
-    private running = false;
+    private readonly runQueue = new SerialRunQueue();
     private workspaceRoot?: string;
     /** 随心聊（未选项目）默认工作区；可经设置修改，持久化在 workspaces.json。 */
     private freeChatWorkspaceValue: string;
@@ -436,11 +437,11 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 .map(([vendor]) => vendor),
         );
         const models = await this.syncProviderModelsOnline();
-        if (models.changed && !this.running) {
+        if (models.changed && !this.isRunning) {
             this.reloadConfig();
         }
         for (const warning of models.warnings) this.logger.warn(`model sync: ${warning}`);
-        if (trigger === 'periodic' && models.changed && !this.running) {
+        if (trigger === 'periodic' && models.changed && !this.isRunning) {
             await this.restartRuntimes();
             this.logger.log('periodic model/price sync: config + runtimes refreshed');
         }
@@ -547,7 +548,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     async syncConfig(): Promise<ReturnType<typeof configOverview>> {
         await this.syncProviderModelsOnline();
         this.reloadConfig();
-        if (!this.running) {
+        if (!this.isRunning) {
             await this.restartRuntimes();
         }
         return this.overview();
@@ -574,7 +575,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
     async restart(): Promise<ReturnType<typeof configOverview> & { restarted: number }> {
         await this.syncProviderModelsOnline();
         this.reloadConfig();
-        const { restarted } = this.running ? { restarted: 0 } : await this.restartRuntimes();
+        const { restarted } = this.isRunning ? { restarted: 0 } : await this.restartRuntimes();
         return { ...this.overview(), restarted };
     }
 
@@ -605,7 +606,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
 
     /** 是否正有会话在执行（串行锁状态） */
     get isRunning(): boolean {
-        return this.running;
+        return this.runQueue.isRunning;
     }
 
     /**
@@ -975,7 +976,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         this.readWorkspacesState();
         this.workspacesState.freeChatWorkspace = next;
         this.writeWorkspacesState();
-        if (!this.running) void this.restartRuntimes();
+        if (!this.isRunning) void this.restartRuntimes();
         this.logger.log(`setFreeChatWorkspace → ${next}`);
         return next;
     }
@@ -1049,7 +1050,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         if (id.length === 0) return;
         this.secrets = saveProviderApiKey(id, apiKey, this.paths.home);
         this.reloadConfig();
-        if (!this.running) await this.restartRuntimes();
+        if (!this.isRunning) await this.restartRuntimes();
         this.logger.log(`setApiKey[${id}] → ${apiKey.trim().length > 0 ? '(set)' : '(cleared)'}`);
     }
 
@@ -1248,7 +1249,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
                 JSON.stringify({ providers: file.providers }, null, 2),
             );
             this.reloadConfig();
-            if (!this.running) await this.restartRuntimes();
+            if (!this.isRunning) await this.restartRuntimes();
             this.logger.log(
                 `syncOfficialPricing[${vendor}]: updated ${parsed.models.length} model tiers from ${url}`,
             );
@@ -1408,29 +1409,19 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         return this.importCatalog(service, 'operator');
     }
 
-    /** 与旧实现一致的进程内串行锁：已有会话执行时 → 409 */
+    /** 前台 Goal 执行按到达顺序排队，前一个结束后串行执行下一个。 */
     async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
-        if (this.running) {
-            throw new ApiError(409, '已有会话在运行，请稍候');
-        }
-        this.running = true;
-        try {
-            return await operation();
-        } finally {
-            this.running = false;
-        }
+        return this.runQueue.run(operation);
     }
 
-    /** 后台维护队列：等待当前前台 run 释放后串行执行，不向用户返回 busy。 */
+    /** 后台维护任务与前台任务共用 FIFO 队列。 */
     async runBackgroundExclusive<T>(operation: () => Promise<T>): Promise<T> {
-        while (this.running) {
-            await new Promise((resolve) => setTimeout(resolve, 250));
-        }
         return this.runExclusive(operation);
     }
 
     async onApplicationShutdown(): Promise<void> {
         if (this.priceSyncTimer) clearInterval(this.priceSyncTimer);
+        this.runQueue.close(new Error('服务停止，排队任务未执行'));
         for (const broker of this.approvalBrokers.values()) broker.cancelAll();
         this.approvalBrokers.clear();
         for (const runtime of this.experimentRuntimes.values()) await runtime.close();

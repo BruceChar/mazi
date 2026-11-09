@@ -10,6 +10,11 @@ export function composerPrimaryAction(state: { busy: boolean }): ComposerPrimary
     return state.busy ? 'stop' : 'send';
 }
 
+/** 执行中保留停止按钮，同时允许带草稿的消息加入队列。 */
+export function queueSendVisible(state: { busy: boolean; hasDraft: boolean }): boolean {
+    return state.busy && state.hasDraft;
+}
+
 /** 是否展示「继续」入口：空闲且当前 run 可恢复。 */
 export function showResume(state: { busy: boolean; resumable: boolean }): boolean {
     return !state.busy && state.resumable;
