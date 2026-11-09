@@ -18,7 +18,7 @@ import {
     planViewOf,
 } from '../scripts/plan-view.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
-import { copyThinkingChain, current, runPlans, ui } from '../scripts/store.ts';
+import { current, runPlans } from '../scripts/store.ts';
 
 const props = defineProps({
     runDetail: { type: Object, default: null },
@@ -41,27 +41,6 @@ function selectBehavior(behavior) {
     const rootGoalId = props.runDetail?.rootGoalId;
     if (!rootGoalId) return;
     emit('select-behavior', { rootGoalId, ts: behavior.at });
-}
-
-/* ---- 快捷入口：复制该 Task 的 thinking 链（TOC）到剪贴板 ---- */
-const copiedTaskId = ref('');
-let copiedTimer = null;
-async function copyThinking(taskId) {
-    // live 模式下 runDetail 可能还没刷新出来；执行中的当前 run 用 store.current 兜底。
-    const rootGoalId =
-        props.runDetail?.rootGoalId || (props.busy && current.value ? current.value : '');
-    if (!rootGoalId || !taskId) return;
-    try {
-        await copyThinkingChain(rootGoalId, taskId);
-        copiedTaskId.value = taskId;
-        if (copiedTimer) clearTimeout(copiedTimer);
-        copiedTimer = setTimeout(() => {
-            copiedTaskId.value = '';
-            copiedTimer = null;
-        }, 2000);
-    } catch (error) {
-        ui.err = String(error);
-    }
 }
 
 /* ---- Time formatting ---- */
@@ -499,20 +478,9 @@ const liveGroups = computed(() =>
                 ></span>
                 <span class="exec-task-tag">T#{{ gIdx + 1 }}</span>
                 <span class="exec-task-title">{{ group.task.title }}</span>
-                <span v-if="group.task.statusLabel" class="exec-task-status" :class="group.task.tone">
-                    {{ group.task.statusLabel }}
-                </span>
                 <span v-if="group.entries.length > 0" class="exec-task-count">
                     {{ group.entries.length }} steps
                 </span>
-                <button
-                    class="exec-task-copy"
-                    :class="{ copied: copiedTaskId === group.task.taskId }"
-                    title="Copy TOC"
-                    @click.stop="copyThinking(group.task.taskId)"
-                >
-                    <LineIcon name="copy" size="12" />
-                </button>
             </div>
             <div
                 v-if="!group.task || !collapsedTasks.has(group.task.taskId)"
@@ -652,22 +620,9 @@ const liveGroups = computed(() =>
                         ></span>
                         <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
                         <span class="exec-task-title">{{ task.title }}</span>
-                        <span
-                            v-if="task.statusLabel"
-                            class="exec-task-status"
-                            :class="task.statusTone"
-                        >{{ task.statusLabel }}</span>
                         <span v-if="task.steps.length > 0" class="exec-task-count">
                             {{ task.steps.length }} steps
                         </span>
-                        <button
-                            class="exec-task-copy"
-                            :class="{ copied: copiedTaskId === task.taskId }"
-                            title="Copy TOC"
-                            @click.stop="copyThinking(task.taskId)"
-                        >
-                            <LineIcon name="copy" size="12" />
-                        </button>
                     </div>
                     <div v-if="!collapsedTasks.has(task.taskId)" class="exec-task-body">
                         <div
@@ -906,34 +861,6 @@ const liveGroups = computed(() =>
     font-size: 11px;
     color: var(--fg-tertiary);
     flex-shrink: 0;
-}
-.exec-task-copy {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    border: 0;
-    background: transparent;
-    color: var(--fg-tertiary);
-    padding: 2px;
-    border-radius: 3px;
-    cursor: pointer;
-    /* 默认隐藏，Task 头 hover 时才显式，避免常驻占位。 */
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.12s ease;
-}
-.exec-task-head:hover .exec-task-copy,
-.exec-task-copy:focus-visible,
-.exec-task-copy.copied {
-    opacity: 1;
-    visibility: visible;
-}
-.exec-task-copy:hover {
-    color: var(--fg);
-    background: var(--accent-soft);
-}
-.exec-task-copy.copied {
-    color: var(--accent);
 }
 /* Full date/time, shown once per task so steps can stay time-of-day only. */
 .exec-task-time {
@@ -1525,33 +1452,6 @@ const liveGroups = computed(() =>
     display: flex;
     flex-direction: column;
     padding-left: 0;
-}
-/* Task 状态徽标：待执行 / 执行中 / 成功 / 失败 / 已中止 / 跳过 */
-.exec-task-status {
-    flex-shrink: 0;
-    font-size: 10px;
-    font-family: ui-monospace, monospace;
-    border-radius: 3px;
-    padding: 0 4px;
-    border: 1px solid var(--border);
-    color: var(--fg-tertiary);
-}
-.exec-task-status.pending {
-    color: var(--fg-tertiary);
-}
-.exec-task-status.running,
-.exec-task-status.ok {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-.exec-task-status.fail {
-    border-color: var(--warn);
-    color: var(--warn);
-}
-.exec-task-status.aborted,
-.exec-task-status.skipped {
-    border-color: var(--warn);
-    color: var(--fg-tertiary);
 }
 /* 0 step 的待执行 Task：不渲染成空档，但也不喧宾夺主 */
 .exec-task-wait {

@@ -438,10 +438,7 @@ function copyFromMenu(target) {
     tocMenuOpen.value = false;
     void copyToc(target);
 }
-function analyzeFromMenu(target) {
-    tocMenuOpen.value = false;
-    openAnalyze(target);
-}
+
 function openAnalyze(target) {
     if (!target) return;
     analyzeTarget.value = target;
@@ -824,18 +821,27 @@ watch(
                         class="audit-head-start"
                         :title="'执行开始时间：' + fmtPrecise(audit.startedAt)"
                     >{{ fmtPrecise(audit.startedAt) }}</div>
-                    <span v-if="tocTarget" class="toc-menu">
+                    <span v-if="tocTarget" class="toc-actions">
                         <button
-                            class="toc-menu-trigger"
-                            :class="{ copied: copiedToc }"
-                            title="TOC"
-                            @click.stop="toggleTocMenu()"
+                            class="toc-analyze-btn"
+                            title="分析这条思维链"
+                            @click.stop="openAnalyze(tocTarget)"
                         >
-                            <LineIcon name="more" size="14" />
+                            <LineIcon name="lightbulb" size="14" />
+                            <span>分析</span>
                         </button>
-                        <span v-if="tocMenuOpen" class="toc-menu-pop">
-                            <button @click.stop="copyFromMenu(tocTarget)">{{ copiedToc ? 'Copied' : 'Copy' }}</button>
-                            <button @click.stop="analyzeFromMenu(tocTarget)">Analyze</button>
+                        <span class="toc-menu">
+                            <button
+                                class="toc-menu-trigger"
+                                :class="{ copied: copiedToc }"
+                                title="更多：复制思维链"
+                                @click.stop="toggleTocMenu()"
+                            >
+                                <LineIcon name="more" size="16" />
+                            </button>
+                            <span v-if="tocMenuOpen" class="toc-menu-pop">
+                                <button @click.stop="copyFromMenu(tocTarget)">{{ copiedToc ? 'Copied' : 'Copy' }}</button>
+                            </span>
                         </span>
                     </span>
                     <button
@@ -2652,25 +2658,59 @@ watch(
     border-color: var(--accent);
 }
 
-/* ---------- TOC dot menu（步骤明细块右上角） ---------- */
+/* ---------- TOC actions（步骤明细块右上角）：分析为主入口，⋯ 收纳次要动作 ---------- */
+.toc-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+/* 分析是高频动作：给带文字的强调按钮，避免只靠低对比度小图标。 */
+.toc-analyze-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 9px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+}
+.toc-analyze-btn:hover {
+    background: var(--accent);
+    color: var(--bg);
+}
+.toc-analyze-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
 .toc-menu {
     position: relative;
     display: inline-flex;
-    margin-left: 6px;
     vertical-align: middle;
 }
 .toc-menu-trigger {
     display: inline-flex;
     align-items: center;
-    border: 0;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--border);
     background: transparent;
-    color: var(--fg-tertiary);
-    padding: 2px;
-    border-radius: 3px;
+    color: var(--fg-secondary);
+    padding: 0;
+    border-radius: var(--radius-sm);
     cursor: pointer;
 }
 .toc-menu-trigger:hover {
     color: var(--accent);
+    border-color: var(--accent);
     background: var(--accent-soft);
 }
 .toc-menu-trigger.copied {
