@@ -41,6 +41,7 @@ ToolConfig.command (CliCommandSpec) → runCliTool → execFile(bin, argv, { cwd
 | `argDefaults` | rg 的 `path='.'` | 不传目录时补 `.`，否则 rg 在读 stdin（非 TTY）下阻塞或空退出 |
 | `globFlag` | fd 的 `--glob` | pattern 含 `* ? [` **且不是合法 regex** 时前置该 flag；`.*\.md$` 这类合法 regex 保持 regex 语义 |
 | `expectMutation` | sd | 退出 0 但目标文件未变化 → `ok:false`（`no change: pattern did not match`） |
+| stdin 隔离 | xh | 固定传 `--ignore-stdin`。`runCliTool` 的 stdin 是未关闭 pipe；xh 检测到非 TTY 会等待 stdin EOF，并可能把请求降级成空 POST，导致外部 API 返回 4xx 或一直挂到工具超时 |
 | 命令分类 | shell.run | `readonly` / `network` / `unknown` / `dangerous` 四类决定审批粒度（见 `core/authz/command.ts`） |
 
 ## 5. 输出体量与截断
@@ -54,6 +55,7 @@ ToolConfig.command (CliCommandSpec) → runCliTool → execFile(bin, argv, { cwd
 
 - `runCliTool` 用 `execFile(bin)`，**继承 API 进程的 PATH**；`shell.run` 继承登录 shell 的 PATH。两者可能不同。
 - 系统自带命令（`grep` / `curl` / `sed`）在 `/usr/bin`，任何 PATH 下可用；Homebrew 工具（`rg` / `fd` / `xh`）只在 `/opt/homebrew/bin` 可用。
+- `xh` 额外固定加 `--ignore-stdin`：结构化工具没有 stdin 请求体输入，不能让 httpie 风格的非 TTY stdin 探测改变 HTTP 方法或阻塞请求。
 - 因此 API 启动期调用 `ensureExecutablePath()`：把平台上常见但缺失的目录（macOS 的 `/opt/homebrew/bin`、`/usr/local/bin`、`~/.local/bin`、`~/.cargo/bin`）追加到 `PATH` 末尾。追加而非前置，避免遮蔽系统同名命令。
 - 仍解析不到时：`ENOENT` → `detectPackageManager()`（macOS 只认 brew）→ 自动安装并重试一次。**包管理器本身不在 PATH 时安装必然失败**，错误文本会明确指出 `No package manager found`，这是 PATH 配置问题，不是工具问题。
 
@@ -72,5 +74,6 @@ ToolConfig.command (CliCommandSpec) → runCliTool → execFile(bin, argv, { cwd
 - `maxOutputChars` 生效并带截断标记；
 - fd glob 自动加 `--glob`，合法 regex 不加，非法 regex 报真错误；
 - sd 无改动检测。
+- xh 在未提供 method 时对本地 HTTP 服务发出 GET；不会因未关闭 stdin 阻塞或改为 POST。
 
 `packages/runtime/test/path-env.test.ts`：PATH 兜底只补缺失且存在的目录，不重复、不改顺序、不遮蔽已有目录。
