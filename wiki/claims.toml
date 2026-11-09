@@ -63,10 +63,10 @@ verified = 2026-11-09
 text = "Opening a project wiki from the project menu switches the global workspace so the top bar shows that wiki project's path."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/App.vue", oid = "f53f5a6499b4abd768ad389debaba9fef940e3ef" },
+  { file = "apps/webui/src/App.vue", oid = "e0f4a78eb0da51eb8d849c49ce456f10860bf102" },
 ]
 established = 2026-11-07
-verified = 2026-11-08
+verified = 2026-11-09
 
 [claims.project-wiki-run-activity]
 text = "Each project SessionEnd enqueues a per-workspace background sync without blocking the foreground response; the deterministic session-end stage computes the incremental plan before recording activity, and a bounded semantic update is queued when evidence is stale or when the session trace shows high-value read-only exploration that should be captured for future sessions."
@@ -251,7 +251,7 @@ status = "active"
 evidence = [
   { file = "docs/TODO.md", oid = "4e467b5f4e00419dd01f47156a0ec9a4d0502ae7" },
   { file = "README.md", oid = "ee7e26971d0d460c962264331c1da515abae7635" },
-  { file = "docs/项目wiki设计.md", oid = "386bc747e86c8b76440353d17bdbdca004820117" },
+  { file = "docs/项目wiki设计.md", oid = "9e83a981bbc843f8d9e26e3a715f95387a7ced92" },
 ]
 established = 2026-11-08
 verified = 2026-11-09
@@ -261,7 +261,7 @@ text = "The remaining Project Wiki work is only the three product-level follow-u
 status = "active"
 evidence = [
   { file = "docs/TODO.md", oid = "4e467b5f4e00419dd01f47156a0ec9a4d0502ae7" },
-  { file = "docs/项目wiki设计.md", oid = "386bc747e86c8b76440353d17bdbdca004820117" },
+  { file = "docs/项目wiki设计.md", oid = "9e83a981bbc843f8d9e26e3a715f95387a7ced92" },
   { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "cd6dafc5cc2e305800c82ebadd16ef5b65a45962" },
   { file = "README.md", oid = "ee7e26971d0d460c962264331c1da515abae7635" },
 ]
