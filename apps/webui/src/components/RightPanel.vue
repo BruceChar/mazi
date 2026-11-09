@@ -1254,11 +1254,33 @@ watch(
                     <!-- 任务状态（会话汇总：每个 Task 的当前状态） -->
                     <section v-if="audit.tasks.length" class="audit-section audit-span">
                         <div class="audit-section-title">任务状态（{{ audit.tasks.length }}）</div>
-                        <div v-for="task in audit.tasks" :key="task.taskId" class="audit-task-row">
-                            <span class="audit-step-loc">R#{{ task.runIndex }}·T#{{ task.taskIndex }}</span>
-                            <span class="audit-task-title">{{ task.title || 'Task' }}</span>
-                            <span class="audit-status" :class="statusClass(task.status)">{{ task.status }}</span>
-                            <span class="audit-task-steps">{{ task.stepCount }} steps</span>
+                        <div v-for="task in audit.tasks" :key="task.taskId" class="audit-task-block">
+                            <div class="audit-task-row">
+                                <span class="audit-step-loc">R#{{ task.runIndex }}·T#{{ task.taskIndex }}</span>
+                                <span class="audit-task-title">{{ task.title || 'Task' }}</span>
+                                <span class="audit-status" :class="statusClass(task.status)">{{ task.status }}</span>
+                                <span class="audit-task-steps">{{ task.stepCount }} steps</span>
+                            </div>
+                            <div
+                                v-if="audit.kind === 'task' && task.taskId === audit.anchor.taskId && audit.rows.length"
+                                class="audit-task-step-list"
+                            >
+                                <button
+                                    v-for="row in audit.rows"
+                                    :key="row.stepId"
+                                    type="button"
+                                    class="audit-task-step-row"
+                                    :class="{ selected: row.stepId === audit.anchor.stepId }"
+                                    title="单击查看 Step 审计 · 双击定位回消息区"
+                                    @click="emit('select-step', { stepId: row.stepId, taskId: row.taskId })"
+                                    @dblclick="emit('locate-step', { stepId: row.stepId, taskId: row.taskId })"
+                                >
+                                    <span class="audit-step-loc">S#{{ row.index }}</span>
+                                    <span class="audit-task-step-kind">{{ row.toolName || row.kind }}</span>
+                                    <span class="audit-status" :class="statusClass(row.status)">{{ row.status }}</span>
+                                    <span class="audit-task-step-duration">{{ formatDuration(row.durationMs) || '—' }}</span>
+                                </button>
+                            </div>
                         </div>
                     </section>
 
@@ -2476,6 +2498,11 @@ watch(
     color: var(--fg-secondary);
     border-radius: 4px;
 }
+.audit-task-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
 .audit-task-row:hover {
     background: var(--bg-hover);
 }
@@ -2490,6 +2517,47 @@ watch(
     flex-shrink: 0;
     color: var(--fg-tertiary);
     font-family: ui-monospace, monospace;
+}
+.audit-task-step-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin: 0 0 5px 20px;
+    padding-left: 8px;
+    border-left: 1px solid var(--border);
+}
+.audit-task-step-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 3px 5px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-secondary);
+    text-align: left;
+    cursor: pointer;
+}
+.audit-task-step-row:hover,
+.audit-task-step-row.selected {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+.audit-task-step-kind {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+}
+.audit-task-step-duration {
+    flex-shrink: 0;
+    color: var(--fg-tertiary);
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
 }
 .audit-text {
     margin: 0;

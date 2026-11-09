@@ -963,6 +963,23 @@ describe('audit 状态展示（task/step）', () => {
         expect(view.rows.every((row) => row.taskStatus === 'aborted')).toBe(true);
     });
 
+    it('task 视图保留该 Task 的全部 Step，供 Trace 底部任务状态展开', () => {
+        const snapshot = snapshotOf([
+            stepView('s1', 'deliberation', 1, stepUsage()),
+            { ...stepView('s2', 'invocation', 2, null), toolName: 'xh', status: 'succeeded' },
+            { ...stepView('s3', 'deliberation', 3, stepUsage()), status: 'failed' },
+        ]);
+        const view = buildAuditView({ snapshot, taskId: 't1' });
+
+        expect(view.kind).toBe('task');
+        expect(view.tasks[0]?.stepCount).toBe(3);
+        expect(view.rows.map((row) => [row.index, row.kind, row.status])).toEqual([
+            [1, 'deliberation', 'succeeded'],
+            [2, 'invocation', 'succeeded'],
+            [3, 'deliberation', 'failed'],
+        ]);
+    });
+
     it('step 视图暴露步骤状态与所属任务状态', () => {
         const snapshot = snapshotOf([
             { ...stepView('s1', 'invocation', 1, null), status: 'pending', endedAt: undefined },
