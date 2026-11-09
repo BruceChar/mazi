@@ -166,6 +166,9 @@ export class AgentController {
         const role: AgentRole = {
             roleId,
             label,
+            ...(typeof body.description === 'string' && body.description.trim()
+                ? { description: body.description.trim() }
+                : {}),
             ...(typeof body.modelId === 'string' ? { modelId: body.modelId } : {}),
             ...(strings(body.tools) !== undefined ? { tools: strings(body.tools) } : {}),
             ...(typeof body.systemPrompt === 'string' ? { systemPrompt: body.systemPrompt } : {}),
@@ -173,6 +176,33 @@ export class AgentController {
                 ? { defaultCeiling: body.defaultCeiling as AgentRole['defaultCeiling'] }
                 : {}),
             memoryPolicy: body.memoryPolicy === 'isolated' ? 'isolated' : 'inherit',
+        };
+        this.runtime.harness().registerAgentRole(role);
+        return { role };
+    }
+
+    /** 更新角色：只覆盖请求里出现的字段，未传字段保持原值。 */
+    @Put('roles/:id')
+    updateRole(@Param('id') roleId: string, @Body() body: Record<string, unknown>) {
+        const current = this.runtime.harness().agentRoles().find((item) => item.roleId === roleId);
+        if (current === undefined) throw new ApiError(404, 'Agent role 不存在');
+        const label = typeof body.label === 'string' ? body.label.trim() : current.label;
+        if (!label) throw new ApiError(400, 'label 必填');
+        const role: AgentRole = {
+            ...current,
+            label,
+            ...(typeof body.description === 'string'
+                ? { description: body.description.trim() }
+                : {}),
+            ...(typeof body.modelId === 'string' ? { modelId: body.modelId.trim() } : {}),
+            ...(strings(body.tools) !== undefined ? { tools: strings(body.tools) } : {}),
+            ...(typeof body.systemPrompt === 'string' ? { systemPrompt: body.systemPrompt } : {}),
+            ...(typeof body.defaultCeiling === 'string'
+                ? { defaultCeiling: body.defaultCeiling as AgentRole['defaultCeiling'] }
+                : {}),
+            ...(typeof body.memoryPolicy === 'string'
+                ? { memoryPolicy: body.memoryPolicy === 'isolated' ? 'isolated' : 'inherit' }
+                : {}),
         };
         this.runtime.harness().registerAgentRole(role);
         return { role };

@@ -174,6 +174,12 @@ interface AgentRole {
 
 每期顺序：设计补充 → 测试先行 → 实现 → 全量 `pnpm build/test` → commit → push。
 
+### 实施记录
+
+- **P0 完成**（`3b7f8b7`）：内容区 `max-width: 840px`、`padding` 用 `clamp()`；`.setting-item` 窄屏改为上下排布；输入框改为弹性宽度；侧栏导航补充 `focus-visible` 与窄屏压缩。
+- **P1 UI 部分完成**：Agent 板块拆为「概览 / 角色 / 系统提示 / 模板」四个二级分区；角色卡栅格（`repeat(auto-fill, minmax(240px, 1fr))`）；角色新建/编辑面板，新增**默认模型**选择（留空即跟随会话默认模型）；`AgentRole` 增可选 `description`，新增 `PUT /api/agent/roles/:id`（局部覆盖、未传字段保持原值）。
+- **P2/P3 未开始**：Composer Agent chip、会话级钉版、`@agent` 消息级覆盖（用户明确「Agent 选择配置留后」）。
+
 ## 6. 验收标准
 
 - 1280 / 1024 / 768 / 414 四档宽度下设置页无横向滚动、无控件溢出，Agent 四个分区分层清晰。

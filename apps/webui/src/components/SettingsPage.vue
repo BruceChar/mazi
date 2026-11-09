@@ -587,7 +587,8 @@ watch(
 
         <template v-else-if="activeTab === 'agent'">
             <h1 class="settings-title">Agent</h1>
-            <AgentSettingsPanel />
+            <p class="settings-subtitle">运行期能力只读说明、可创建的角色与各 Agent 的系统提示。</p>
+            <AgentSettingsPanel :cfg="cfg" :selected-model="selectedModel" />
         </template>
 
         <!-- Voice：仅语音输入（ASR），不做 TTS -->

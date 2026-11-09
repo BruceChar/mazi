@@ -3,6 +3,8 @@ import type { BudgetAllocation, PermissionLevel, ULID } from '@mazi/core';
 export interface AgentRole {
     roleId: string;
     label: string;
+    /** 面向用户的能力说明，同时作为 SuperAgent 自动路由的匹配依据。 */
+    description?: string;
     modelId?: string;
     tools?: readonly string[];
     systemPrompt?: string;

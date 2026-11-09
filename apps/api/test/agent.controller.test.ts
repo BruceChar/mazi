@@ -78,14 +78,50 @@ describe('agent controller', () => {
         const registered = controller.registerRole({
             roleId: 'tester',
             label: '测试 Agent',
+            description: '跑测试与回归',
+            modelId: 'deepseek-v4',
             tools: ['fs.read', 'shell.run'],
             defaultCeiling: 'workspace-write',
         });
         expect(registered.role).toMatchObject({
             roleId: 'tester',
+            description: '跑测试与回归',
+            modelId: 'deepseek-v4',
             memoryPolicy: 'inherit',
         });
         expect(controller.removeRole('tester')).toEqual({ ok: true, removed: true });
         expect(await controller.delegations('missing')).toEqual({ edges: [] });
+    });
+
+    it('updates a role in place and keeps unspecified fields', () => {
+        const controller = setup();
+        controller.registerRole({
+            roleId: 'doc-writer',
+            label: '文档 Agent',
+            description: '写文档',
+            modelId: 'deepseek-v4',
+            tools: ['fs.read'],
+            defaultCeiling: 'read-only',
+        });
+        const updated = controller.updateRole('doc-writer', {
+            label: '文档 Agent v2',
+            modelId: 'deepseek-mini',
+        });
+        expect(updated.role).toMatchObject({
+            roleId: 'doc-writer',
+            label: '文档 Agent v2',
+            description: '写文档',
+            modelId: 'deepseek-mini',
+            tools: ['fs.read'],
+            defaultCeiling: 'read-only',
+        });
+        const found = controller.roles().roles.find((role) => role.roleId === 'doc-writer');
+        expect(found?.label).toBe('文档 Agent v2');
+        expect(found?.modelId).toBe('deepseek-mini');
+    });
+
+    it('rejects updating an unknown role', () => {
+        const controller = setup();
+        expect(() => controller.updateRole('missing', { label: 'x' })).toThrow('Agent role 不存在');
     });
 });
