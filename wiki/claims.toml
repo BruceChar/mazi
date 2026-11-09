@@ -290,14 +290,14 @@ status = "active"
 evidence = [
   { file = "apps/webui/src/components/ExecStream.vue", oid = "a1269a94615012f623f95cbaeaf2221df6796b2e" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "a60bef7a7c5b6b76a8cdf94672be6bb4027328de" },
-  { file = "apps/webui/src/scripts/plan-view.ts", oid = "52a86bc82ea31d1d8abd5d9b44588f60b2fe68b0" },
+  { file = "apps/webui/src/scripts/plan-view.ts", oid = "97139f47e90d34b8181fa732cf7e03897a523255" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
   { file = "apps/webui/src/scripts/behavior-placement.ts", oid = "8c500d77c8039b573e8d38aab6584e0398dacd11" },
   { file = "apps/webui/test/exec-tree.test.ts", oid = "6bca79412f1cef6608e9b5ef56bcc619df607007" },
-  { file = "apps/webui/test/plan-view.test.ts", oid = "df7ff262a195583e8d451b1a0a6e50b606d54be1" },
+  { file = "apps/webui/test/plan-view.test.ts", oid = "c96a1109c989a33ffbc692379f6b16410ea2ce4e" },
 ]
 established = 2026-11-09
-verified = 2026-11-09
+verified = 2026-11-10
 
 [claims.runtime-goal-plan-execution-serial-v2]
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
@@ -320,7 +320,7 @@ evidence = [
   { file = "apps/webui/src/scripts/audit.ts", oid = "ff739856c33827b540fc2cef848e619e390e1bfb" },
   { file = "apps/webui/src/components/RightPanel.vue", oid = "75a57c08289bfac34f9f672e0ab3bd935a14ba2e" },
   { file = "apps/webui/test/audit.test.ts", oid = "e34b955fe34f7413cc87fb579ffc7cb21714fac1" },
-  { file = "docs/webui.md", oid = "90ff763296dc4e1fa27e391b46a124e012126d05" },
+  { file = "docs/webui.md", oid = "56f2a927309713fb5c6eff3363eaf85d175857c4" },
   { file = "docs/web/观测看板设计.md", oid = "41a3b944b04a1e0bec5d07470edb0211b0d32496" },
 ]
 established = 2026-11-09
