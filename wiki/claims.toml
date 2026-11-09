@@ -63,7 +63,7 @@ verified = 2026-11-10
 text = "Opening a project wiki from the project menu switches the global workspace so the top bar shows that wiki project's path."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/App.vue", oid = "2560cdec6b20305b88753bdf01a4cea55b97cb10" },
+  { file = "apps/webui/src/App.vue", oid = "6b56fb768694185e9fce9f46f51456882a62b4a7" },
 ]
 established = 2026-11-07
 verified = 2026-11-10
@@ -198,7 +198,7 @@ text = "Each project SessionEnd enqueues a per-workspace runtime sync without bl
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
-  { file = "apps/api/src/sessions/sessions.service.ts", oid = "6de2581a8123e10e1c48a01c77693bbfe4dd3134" },
+  { file = "apps/api/src/sessions/sessions.service.ts", oid = "aa39a525115218ca31feb63263a763cd0267ba55" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
 ]
 established = 2026-11-08
