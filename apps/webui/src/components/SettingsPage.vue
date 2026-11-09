@@ -637,12 +637,15 @@ watch(
 <style scoped>
 .settings-page {
     flex: 1;
-    padding: 32px 48px;
+    min-width: 0;
+    width: 100%;
+    max-width: 840px;
+    padding: clamp(16px, 3.2vw, 32px) clamp(16px, 4vw, 48px);
     overflow-y: auto;
-    max-width: 720px;
+    box-sizing: border-box;
 }
 .settings-title {
-    font-size: 22px;
+    font-size: clamp(18px, 2.2vw, 22px);
     font-weight: 600;
     margin: 0 0 6px;
     color: var(--fg);
@@ -669,6 +672,7 @@ watch(
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     padding: 12px 0;
     border-bottom: 1px solid var(--border-soft);
     gap: 16px;
@@ -677,7 +681,7 @@ watch(
     border-bottom: none;
 }
 .setting-info {
-    flex: 1;
+    flex: 1 1 260px;
     min-width: 0;
 }
 .setting-name {
@@ -689,7 +693,7 @@ watch(
     font-size: 12px;
     color: var(--fg-secondary);
     margin-top: 2px;
-    word-break: break-all;
+    overflow-wrap: anywhere;
 }
 .setting-select {
     padding: 5px 10px;
@@ -723,10 +727,13 @@ watch(
 .setting-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
+    min-width: 0;
 }
 .setting-input {
     width: 120px;
+    min-width: 0;
     padding: 5px 10px;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -736,8 +743,9 @@ watch(
 }
 /* 价目源 / API Key：加长输入框；超长文本截断，hover（title）显示完整信息。 */
 .setting-input.wide {
-    width: 300px;
-    max-width: 48vw;
+    flex: 1 1 220px;
+    width: min(300px, 100%);
+    max-width: 100%;
     min-width: 0;
     text-overflow: ellipsis;
 }
@@ -886,5 +894,41 @@ watch(
     color: #d97706;
     background: rgba(217, 119, 6, 0.1);
     border-color: rgba(217, 119, 6, 0.3);
+}
+
+/* 窄屏：设置项由横排改为上下排布，控件占满可用宽度 */
+@media (max-width: 720px) {
+    .setting-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+    .setting-actions {
+        width: 100%;
+    }
+    .setting-input.wide {
+        flex: 1 1 auto;
+        width: 100%;
+    }
+    .settings-group {
+        padding: 12px;
+    }
+    .provider-apikey {
+        flex-wrap: wrap;
+    }
+    .provider-apikey .setting-input {
+        flex: 1 1 160px;
+    }
+}
+@media (max-width: 520px) {
+    .settings-page {
+        padding: 16px 12px;
+    }
+    .setting-actions > .setting-sync {
+        flex: 1 1 96px;
+    }
+    .setting-input {
+        width: 100%;
+    }
 }
 </style>

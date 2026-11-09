@@ -60,7 +60,8 @@ const emit = defineEmits(['update:activeTab', 'back']);
     text-align: left;
     width: 100%;
 }
-.settings-nav-item:hover {
+.settings-nav-item:hover,
+.settings-nav-item:focus-visible {
     background: var(--bg-hover);
     color: var(--fg);
 }
@@ -90,5 +91,15 @@ const emit = defineEmits(['update:activeTab', 'back']);
 .settings-back-btn:hover {
     background: var(--bg-hover);
     color: var(--fg);
+}
+/* 窄屏抽屉：压缩内边距，保证 10 个分类一屏可见 */
+@media (max-width: 720px) {
+    .settings-nav {
+        padding: 8px 6px;
+    }
+    .settings-nav-item {
+        padding: 9px 10px;
+        font-size: 12px;
+    }
 }
 </style>
