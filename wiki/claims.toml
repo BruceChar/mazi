@@ -1,5 +1,6 @@
-# wiki/claims.toml — 只通过 runtime Project Wiki API 修改，禁止手改
+# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
+
 
 [claims.wiki-ui-repository-view]
 text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
@@ -108,8 +109,6 @@ established = 2026-11-07
 verified = 2026-11-09
 retracted_at = 2026-11-09
 retracted_reason = "Goal and Task planning are serial phases; executing must not be emitted before plan.created."
-retraction_kind = "corrected"
-superseded_by = "runtime-goal-plan-execution-serial-v2"
 
 [claims.contract-mechanical-checks-v2]
 text = "Goal contracts support deterministic checks final-answer/no-failed-steps/file-exists/file-contains/git-has-commit/command-output-contains; triage can emit structured checks and the verifier evaluates them through an injected ConditionEnvironment."
@@ -183,7 +182,7 @@ text = "Project Wiki is maintained by runtime-native ProjectWikiService: init, c
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "f59da54118a39e080156815f19fdec9d682ec5a5" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "bf0d534e96295b68f3e02e92011eae537fc661c9" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "41cfd732a0447b23c711f06c74a07d2e633e29ae" },
 ]
@@ -283,8 +282,6 @@ established = 2026-11-09
 verified = 2026-11-09
 retracted_at = 2026-11-09
 retracted_reason = "The message surface no longer duplicates contract, route, acceptance or plan metadata; those belong in Trace, and Task/Step rendering follows the serial plan order."
-retraction_kind = "corrected"
-superseded_by = "webui-exec-stream-conversation-surface-v3"
 
 [claims.webui-exec-stream-conversation-surface-v3]
 text = "ExecStream renders bare-code answers as one code block; zero-execution direct answers are ordinary assistant Markdown without direct/route/contract chrome; the conversation renders Task-to-Step execution in synchronous plan order while contract, acceptance and plan metadata stay in the right Trace panel; completed settled steps remain expanded while live rows are expandable/collapsible (only active streaming reasoning is one line), and approval/authorization behavior rows stay inline with the gated tool Step."
@@ -300,7 +297,6 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-09
-supersedes = "webui-exec-stream-fact-projection-v2"
 
 [claims.runtime-goal-plan-execution-serial-v2]
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, plan.created carries task titles plus dependencies, and the executing phase is emitted only after the plan is recorded and before the first Step starts."
@@ -308,13 +304,12 @@ status = "active"
 evidence = [
   { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "7313f22d6fea27ceece92543300ece3f4a176186" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "f59da54118a39e080156815f19fdec9d682ec5a5" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "bf0d534e96295b68f3e02e92011eae537fc661c9" },
   { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
   { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "de245a7ab0768f11fe33f0466d9eac27d23c59a7" },
 ]
 established = 2026-11-09
 verified = 2026-11-09
-supersedes = "runtime-task-planning-triage-order"
 
 [claims.webui-trace-audit-anchor]
 text = "The right-side Trace panel preserves an explicit audit anchor for the selected scope: Step anchors include R/T/S coordinates plus rootGoalId, goalId, taskId, stepId, timestamps and step/task status; Task and run scopes retain their corresponding IDs and timing. Contract, acceptance, context, token, cost and tool facts therefore remain attributable to the exact audited Step even though the conversation surface omits that audit metadata."

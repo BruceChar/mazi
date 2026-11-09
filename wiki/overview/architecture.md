@@ -81,3 +81,20 @@ Goal（意图/委托）→ Task（可独立验收的子目标）→ Step（think
   - 仅 `docs/TODO.md` 有：用户行为追踪、项目 Wiki 三项后续；
   - README 已将项目 Wiki 标记为「✅ 已实现」，不要把 Roadmap 当 Wiki 待办来源。
 - 源码与 `wiki/` 中的 `TODO` 命中多为 Wiki 骨架模板文本与 Agent prompt 文案，**不能用源码 grep TODO 代替待办清单**。
+
+### 产品清单之外的进行中/待排期工作
+
+回答「还有哪些没做」时，除 `docs/TODO.md` 还要查下面四份文档；它们各自维护不同类型的未完成项：
+
+| 文档 | 内容 | 交付状态 |
+|---|---|---|
+| `docs/runtime/AHF_RUNTIME_MEMORY_IMPLEMENTATION_TASKS.md` | 45 个 `MEM-*` 任务：P0 安全底座、P1 抽取/人格/认知画像、P2 检索与遗忘、`MEM-EVAL-*` 评测 | 文档自述「待排期」，实现侧无对应代码 |
+| `docs/core/AHF_CORE_AUTHORIZATION_V4.md` | 权限系统 v4：两模式、来源链/目标链、硬闸、沙箱三件套、疲劳指标 | 文档自述「设计待评审，未实现」；实现仍是 v2/v3 语义 |
+| `docs/runtime/AGENT_P0_P3_IMPLEMENTATION_PLAN.md` | P3-A MCP Adapter / P3-B RL-ready Trajectory / P3-C 奖励与数据集评估 | 文档自述「P3 尚未开始」 |
+| `docs/runtime/AHF_PROJECT_CONTEXT_LIFECYCLE.md` §18 | 7 项待决策（行区间 evidence、多分支 checkpoint、packet rerank、……） | 未决 |
+
+### 清单勾选状态不可全信
+
+部分文档正文已宣告完成，但条目仍留 `[ ]`：`docs/P2-provider-switch.md` 第 40–46 行、
+`docs/C3-goal-migration.md` 第 34–35 行。判断这些项时应以正文结论与提交号为准，
+不要把它们计为待办。此外 `docs/TODO.md` 末尾存在字面 `\n` 而非真实换行，编辑前先修正。
