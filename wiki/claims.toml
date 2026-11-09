@@ -322,3 +322,13 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-09
+
+[claims.authz-ceiling-auto-boundary]
+text = "The human permission ceiling (text/read-only/draft/approved/autonomous) is an auto boundary, not a visibility filter: grantForPermissionLevel puts every standard capability into the grant and marks those at or below the selected level auto while the rest become gated, so an out-of-level tool stays visible and its invocation raises human approval instead of disappearing. Only ceiling text empties the tool surface, and forbidden is reserved for the hard floor. Reading the ceiling as a filter misjudges why a tool appears but refuses to run."
+status = "active"
+evidence = [
+  { file = "packages/runtime/src/tool-gateway/permission.ts", oid = "3147d12890a25aa6717212ba90d15e0d1a6b37d3" },
+  { file = "packages/core/src/authz/permissions.ts", oid = "d3c01b44a7945bca9919567651640271e29c6211" },
+]
+established = 2026-11-09
+verified = 2026-11-09
