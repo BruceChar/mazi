@@ -4,8 +4,10 @@ import LineIcon from '../assets/LineIcon.vue';
 import ApprovalPrompt from './ApprovalPrompt.vue';
 import ExecStream from './ExecStream.vue';
 import Composer from './Composer.vue';
+import TaskBoardCard from './TaskBoardCard.vue';
 import { VoiceController } from '../voice/controller.ts';
 import { formatCost, formatTokens } from '../scripts/audit.ts';
+import { planViewOf, taskBoardVisible } from '../scripts/plan-view.ts';
 import { runPlans } from '../scripts/store.ts';
 
 const props = defineProps({
@@ -217,6 +219,47 @@ function scrollToRun(rootGoalId) {
     activeRailId.value = rootGoalId;
 }
 
+/* ---------- 多 Task 任务卡（输入框上方固定条 / 会话末尾汇总） ---------- */
+/** 任务卡跟随当前 run；空闲后跟随最后一个 run（刚完成的会话）。 */
+const taskBoardRunId = computed(() => {
+    if (props.current) return props.current;
+    const last = props.runs[props.runs.length - 1];
+    return last?.rootGoalId || '';
+});
+/** 执行中使用计划事件（状态实时），结束后的汇总以落库快照为准（状态已收敛）。 */
+const taskBoardPlan = computed(() => {
+    const runId = taskBoardRunId.value;
+    if (!runId) return null;
+    const snapshot = props.runDetails[runId] || null;
+    const hasSnapshotTasks = Boolean(
+        snapshot?.goals?.some((goal) => (goal?.tasks?.length ?? 0) > 0),
+    );
+    const plan = props.busy || !hasSnapshotTasks ? runPlans[runId] : null;
+    return planViewOf({
+        plan,
+        snapshot,
+        liveSteps: props.liveSteps[runId] || [],
+    });
+});
+const taskBoardTasks = computed(() => taskBoardPlan.value?.tasks ?? []);
+const showTaskStrip = computed(
+    () => props.busy && taskBoardVisible(taskBoardTasks.value.length),
+);
+const showTaskSummary = computed(
+    () =>
+        !props.busy &&
+        props.runs.length > 0 &&
+        taskBoardVisible(taskBoardTasks.value.length),
+);
+
+/** 点击任务卡：滚动到 Goal→Task 树对应 Task，并同步审计选中高亮。 */
+function locateTask(taskId) {
+    if (!taskId) return;
+    const target = chatScroll.value?.querySelector(`[data-task-id="${taskId}"]`);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    emit('select-task', taskId);
+}
+
 /** New run or run switch: always follow to the latest output. */
 watch(
     () => [props.runs.length, props.current, props.pendingInput],
@@ -346,6 +389,14 @@ onBeforeUnmount(() => {
                             <div class="msg-bubble">{{ pendingInput }}</div>
                         </div>
                     </div>
+                    <!-- 会话结束后：多 Task 清单附在流末尾，不再占用输入框上方 -->
+                    <TaskBoardCard
+                        v-if="showTaskSummary"
+                        mode="summary"
+                        :tasks="taskBoardTasks"
+                        :active-task-id="selectedTaskId"
+                        @locate="locateTask"
+                    />
                 </div>
             </div>
 
@@ -377,6 +428,15 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
+
+        <!-- 执行中：多 Task 清单固定在输入框上方，点击可定位到 Goal→Task 树 -->
+        <TaskBoardCard
+            v-if="showTaskStrip"
+            mode="strip"
+            :tasks="taskBoardTasks"
+            :active-task-id="selectedTaskId"
+            @locate="locateTask"
+        />
 
         <div class="composer-dock">
             <ApprovalPrompt

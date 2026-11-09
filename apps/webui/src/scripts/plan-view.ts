@@ -141,6 +141,13 @@ export function planVersionLabel(planVersion: number | null | undefined): string
     return version === null ? '' : `计划 v${version}`;
 }
 
+/** 任务卡只在多 Task 计划出现：单 Task 已有 Goal→Task 树本身标识，不再重复。 */
+export const TASK_BOARD_MIN_TASKS = 2;
+
+export function taskBoardVisible(taskCount: number | null | undefined): boolean {
+    return Number.isFinite(taskCount) && Number(taskCount) >= TASK_BOARD_MIN_TASKS;
+}
+
 /** `已修订 N 次`；未修订时为空串（调用方按需 v-if）。 */
 export function planRevisionLabel(revisions: number | null | undefined): string {
     const count = finiteVersion(revisions);

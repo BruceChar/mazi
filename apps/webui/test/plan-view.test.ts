@@ -11,6 +11,7 @@ import {
     planVersionOf,
     planViewOf,
     supersededAttemptCount,
+    taskBoardVisible,
 } from '../src/scripts/plan-view.ts';
 
 /** 计划 Task 构造器：默认标题可预测，便于断言。 */
@@ -302,5 +303,20 @@ describe('plan-view 已替换计划尝试计数', () => {
         expect(
             supersededAttemptCount({ ...baseView, supersededCount: 0 }, []),
         ).toBe(0);
+    });
+});
+
+
+describe('任务卡展示阈值（多 Task 才在输入框上方固定展示）', () => {
+    it('两个及以上 Task 才展示，单 Task / 空计划不展示', () => {
+        expect(taskBoardVisible(2)).toBe(true);
+        expect(taskBoardVisible(3)).toBe(true);
+        expect(taskBoardVisible(1)).toBe(false);
+        expect(taskBoardVisible(0)).toBe(false);
+    });
+
+    it('非法计数按不展示处理', () => {
+        expect(taskBoardVisible(null)).toBe(false);
+        expect(taskBoardVisible(Number.NaN)).toBe(false);
     });
 });
