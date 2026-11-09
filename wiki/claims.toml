@@ -63,7 +63,7 @@ verified = 2026-11-10
 text = "Opening a project wiki from the project menu switches the global workspace so the top bar shows that wiki project's path."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/App.vue", oid = "c74cf09ef9068a1f25cd8a4f75652bd29788478a" },
+  { file = "apps/webui/src/App.vue", oid = "346f00950319544e407fcda3b302113b56a10b19" },
 ]
 established = 2026-11-07
 verified = 2026-11-10
@@ -291,7 +291,7 @@ retracted_reason = "The message surface no longer duplicates contract, route, ac
 text = "ExecStream renders bare-code answers as one code block; zero-execution direct answers are ordinary assistant Markdown without direct/route/contract chrome; the conversation renders Task-to-Step execution in plan order while contract, acceptance and plan metadata stay in the right Trace panel. TaskBoard shows only the highest planVersion, but the settled Goal tree retains superseded Tasks that started, contain Steps or reached failed/aborted/timeout and shows their recorded Step sequence before the current plan, with plan-version and terminal-status badges. Completed settled steps remain expanded while live rows are expandable/collapsible, and approval/authorization behavior rows stay inline with the gated tool Step."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/ExecStream.vue", oid = "5ccc25cf18374e27a2d334b62dabed76e75e5913" },
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "00b3cf613db0a2bc71da86f8a702c89288d6362a" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "a60bef7a7c5b6b76a8cdf94672be6bb4027328de" },
   { file = "apps/webui/src/scripts/plan-view.ts", oid = "7a084a51a5bb31ea590ab3630b8bb39723b7ed3f" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
@@ -301,7 +301,7 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-10
-claim_oid = "53b158aea98ca7da"
+claim_oid = "d5791b9065e7604f"
 
 [claims.runtime-goal-plan-execution-serial-v2]
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
