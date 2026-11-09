@@ -343,3 +343,14 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-09
+
+[claims.authz-approval-scope-dual-vocabulary]
+text = "Two ApprovalScope vocabularies coexist: the enforcement type in packages/core/src/authz/gateway-types.ts is 'once' | 'session' | 'workspace' and is what approvalTargetOf, ALL_SCOPES in command.ts and the ApprovalStore actually use, while permissions.ts adds a fourth 'generation' value that only the observability vocabulary consumes. Adding a new scope therefore requires editing gateway-types.ts (enforcement), command.ts ALL_SCOPES and the ApprovalStore, not just permissions.ts."
+status = "active"
+evidence = [
+  { file = "packages/core/src/authz/gateway-types.ts", oid = "4b2c77d2e433fbce12c314fa65f22d5d06fd7128" },
+  { file = "packages/core/src/authz/permissions.ts", oid = "d3c01b44a7945bca9919567651640271e29c6211" },
+  { file = "packages/core/src/authz/command.ts", oid = "452e90b1910daac67f68dabec4d63f809592393c" },
+]
+established = 2026-11-09
+verified = 2026-11-09
