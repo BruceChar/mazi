@@ -144,7 +144,7 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         ]);
     });
 
-    it('createSession 透传 goal.reasoningLevel 到 createGoalSession', async () => {
+    it('随心聊使用通用 Agent 提示、triage 与工具面', async () => {
         const captured: Array<Record<string, unknown>> = [];
         const conversations = {
             runs: () => [],
@@ -172,10 +172,10 @@ describe('SessionsService.conversationHistory（Conversation 共享上下文组�
         });
         expect(captured[0]?.reasoningLevel).toBe('high');
         expect(captured[0]?.modelId).toBe('deepseek-v4-pro');
-        expect(captured[0]?.parseIntent).toBe(false);
-        expect(captured[0]?.taskPlanning).toBe(false);
-        expect(captured[0]?.allowedTools).toEqual([]);
-        expect(String(captured[0]?.promptFragment)).toContain('随心聊模式');
+        expect(captured[0]?.parseIntent).toBe(true);
+        expect(captured[0]?.taskPlanning).toBe(true);
+        expect(captured[0]).not.toHaveProperty('allowedTools');
+        expect(captured[0]).not.toHaveProperty('promptFragment');
         // No client hint → the backend resolves the scoped effective permission.
         expect(captured[0]?.permissionCeiling).toBe('workspace-write');
     });
