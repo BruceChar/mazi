@@ -3,6 +3,7 @@ import {
     completeExecution,
     enqueueExecution,
     isExecutionQueued,
+    showExecutionQueueCard,
 } from '../src/scripts/execution-queue.ts';
 
 const first = {
@@ -22,6 +23,17 @@ const third = {
 };
 
 describe('执行队列投影', () => {
+    it('只有多个任务时才展示执行队列卡', () => {
+        expect(showExecutionQueueCard([])).toBe(false);
+        expect(showExecutionQueueCard([{ ...first, status: 'running' }])).toBe(false);
+        expect(
+            showExecutionQueueCard([
+                { ...first, status: 'running' },
+                { ...second, status: 'queued' },
+            ]),
+        ).toBe(true);
+    });
+
     it('首个任务执行，后续任务按到达顺序排队', () => {
         const firstQueue = enqueueExecution([], first);
         const secondQueue = enqueueExecution(firstQueue, second);

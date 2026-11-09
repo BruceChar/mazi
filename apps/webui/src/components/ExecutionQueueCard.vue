@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import { showExecutionQueueCard } from '../scripts/execution-queue.ts';
 
 const props = defineProps({
     items: { type: Array, default: () => [] },
@@ -14,6 +15,7 @@ const runningCount = computed(
 const queuedCount = computed(
     () => props.items.filter((item) => item.status === 'queued').length,
 );
+const visible = computed(() => showExecutionQueueCard(props.items));
 
 function select(item) {
     if (item.status === 'running') emit('select', item.rootGoalId);
@@ -21,7 +23,7 @@ function select(item) {
 </script>
 
 <template>
-    <aside v-if="items.length" class="execution-queue" aria-label="执行任务队列">
+    <aside v-if="visible" class="execution-queue" aria-label="执行任务队列">
         <header class="execution-queue-head">
             <LineIcon name="play" size="12" />
             <span class="execution-queue-title">执行任务</span>

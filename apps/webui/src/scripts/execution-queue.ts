@@ -58,3 +58,8 @@ export function isExecutionQueued(
 ): boolean {
     return queue.some((item) => item.rootGoalId === rootGoalId && item.status === 'queued');
 }
+
+/** 单 run 直接进入会话窗口；只有出现排队关系时才展示执行队列卡。 */
+export function showExecutionQueueCard(queue: readonly ExecutionQueueItem[]): boolean {
+    return queue.length > 1;
+}
