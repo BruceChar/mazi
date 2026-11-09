@@ -1,6 +1,6 @@
 # 架构
 
-> 事实来源：`README.md`（架构总览、分层依赖、仓库结构）、`docs/C3-goal-migration.md`（Goal 坐标系迁移收口）、`packages/runtime/src/prompts/agent-prompts.ts`。
+> 事实来源：`README.md`（架构总览、分层依赖、仓库结构）、`docs/C3-goal-migration.md`（Goal 坐标系迁移收口）、`packages/runtime/src/prompts/agent-prompts.ts`、各包 `package.json` / `tsconfig.json`。
 
 ## 分层与依赖方向
 
@@ -16,6 +16,20 @@ packages/libs      跨端共享类型（Goal 树投影等）
 
 依赖方向单向向下：**契约层不依赖实现，实现不依赖界面**。改代码时先判断落点：
 契约/类型进 `core`，厂商适配进 `provider`，编排与治理进 `runtime`，界面只消费 API 与共享类型。
+
+### 依赖边（以 package.json 为准，非约定）
+
+| 包 | workspace 依赖 | 说明 |
+|---|---|---|
+| `@mazi/core` | 无（`dependencies: {}`） | 契约层无任何运行时依赖 |
+| `@mazi/libs` | 无 | 纯类型 |
+| `@mazi/provider` | `core`（+ `@earendil-works/pi-ai`） | 厂商适配只向下依赖契约 |
+| `@mazi/runtime` | `core`、`libs`、`provider`（+ `js-tiktoken`） | 同时 `files` 含 `builtin-skills`、`tasks`，并有 `bin: mazi-project-wiki` |
+| `@mazi/api` | `core`、`libs`、`runtime` | 依赖 graph 见 `apps/api/tsconfig.json` references（core、runtime） |
+| `@mazi/webui` | **仅 `libs`** | UI 不 import core/runtime——“界面只消费 API 与共享类型”由 manifest 强制，而非靠自觉 |
+
+因此：给 webui 引入 `@mazi/core` 会破坏红线 5 的结构前提；`@mazi/runtime` 的 `files` 里带 `builtin-skills/`
+意味着 Project Wiki 的技能脚本随 runtime 包发布，改 Wiki 模板要同时考虑打包产物。
 
 ## 模块职责
 

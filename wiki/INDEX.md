@@ -34,12 +34,12 @@
 
 ## 最近更新
 <!-- recent:start -->
-- b410cd0 2026-11-10 00:29:51 wiki(checkpoint): sync state & index
-- 869a441 2026-11-10 00:29:32 wiki(claim): verify project-wiki-maintenance-actions-runtime,runtime-goal-plan-execution-serial-v2
-- 316e044 2026-11-10 00:24:42 wiki(claim): verify --ids webui-exec-stream-conversation-surface-v3,webui-trace-audit-anchor
-- ba700ac 2026-11-10 00:21:25 fix(runtime): recover from invalid replan tools and surface failures
-- 1c18fb4 2026-11-10 00:14:31 fix(runtime): persist full task plan and expose replan tools
-- a590974 2026-11-09 23:51:25 wiki(run): record session activity
-- 9239ab1 2026-11-09 23:51:16 wiki(claim): add authz-sandbox-egress-seams-unwired
-- 210a7de 2026-11-09 23:51:16 wiki(claim): add authz-approval-scope-dual-vocabulary
+- 26c94cc 2026-11-10 00:38:13 wiki(checkpoint): sync state & index
+- 2174dc4 2026-11-10 00:37:55 wiki(claim): add monorepo-toolchain-scope-caveats
+- 49f92e8 2026-11-10 00:37:48 wiki(claim): add monorepo-test-and-typecheck-pipeline
+- 2835f5f 2026-11-10 00:37:47 wiki(claim): add monorepo-workspace-dependency-graph
+- dd38652 2026-11-10 00:36:57 wiki(run): record session activity
+- a4449be 2026-11-10 00:30:35 wiki(run): record session activity
+- 1c3ee86 2026-11-10 00:29:56 wiki(run): record session activity
+- d8b4597 2026-11-10 00:29:51 wiki(checkpoint): sync state & index
 <!-- recent:end -->
