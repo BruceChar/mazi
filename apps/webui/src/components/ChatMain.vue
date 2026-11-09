@@ -222,7 +222,8 @@ function scrollToRun(rootGoalId) {
 /* ---------- 多 Task 任务卡（输入框上方固定条 / 会话末尾汇总） ---------- */
 /** 任务卡跟随当前 run；空闲后跟随最后一个 run（刚完成的会话）。 */
 const taskBoardRunId = computed(() => {
-    if (props.current) return props.current;
+    const runIds = new Set(props.runs.map((run) => run.rootGoalId));
+    if (props.current && runIds.has(props.current)) return props.current;
     const last = props.runs[props.runs.length - 1];
     return last?.rootGoalId || '';
 });
