@@ -27,8 +27,8 @@ const verifier = ref(null);
 const loading = ref(false);
 const error = ref('');
 const notice = ref('');
-/** Agent 板块二级分区：概览 / 角色 / 系统提示 / 模板。 */
-const tab = ref('overview');
+/** Agent 板块二级分区：角色 / 系统提示 / 模板 / 概览。默认落在角色，模型配置直接可见。 */
+const tab = ref('roles');
 const roleForm = ref(emptyRoleForm());
 /** 正在编辑的角色 id；空串表示新建。 */
 const editingRoleId = ref('');
@@ -216,10 +216,10 @@ async function removePack(id) {
         <div class="agent-tabs" role="tablist">
             <button
                 v-for="item in [
-                    { id: 'overview', label: '概览' },
                     { id: 'roles', label: `角色 ${roles.length}` },
                     { id: 'prompts', label: `系统提示 ${prompts.length}` },
                     { id: 'packs', label: `模板 ${packs.length}` },
+                    { id: 'overview', label: '概览' },
                 ]"
                 :key="item.id"
                 type="button"
@@ -233,6 +233,7 @@ async function removePack(id) {
             </button>
         </div>
 
+        <div class="agent-main">
         <p v-if="error" class="agent-message error">{{ error }}</p>
         <p v-if="notice" class="agent-message ok">{{ notice }}</p>
 
@@ -288,7 +289,7 @@ async function removePack(id) {
                     <code class="agent-role-id">{{ role.roleId }}</code>
                     <p class="agent-role-desc">{{ roleSummary(role) }}</p>
                     <div class="agent-role-badges">
-                        <span class="agent-badge">{{ roleModelLabel(cfg, role.modelId) }}</span>
+                        <span class="agent-badge model">模型 · {{ roleModelLabel(cfg, role.modelId) }}</span>
                         <span class="agent-badge">{{ role.defaultCeiling || 'inherit' }}</span>
                         <span class="agent-badge">{{ (role.tools || []).length }} 工具</span>
                         <span v-if="role.memoryPolicy === 'isolated'" class="agent-badge">独立记忆</span>
@@ -324,7 +325,7 @@ async function removePack(id) {
                     </label>
                     <label class="span-2">
                         默认模型
-                        <select v-model="roleForm.modelId">
+                        <select v-if="modelOptions.length" v-model="roleForm.modelId">
                             <option value="">跟随会话默认（{{ defaultModelLabel }}）</option>
                             <optgroup
                                 v-for="group in modelGroups"
@@ -340,6 +341,11 @@ async function removePack(id) {
                                 </option>
                             </optgroup>
                         </select>
+                        <input
+                            v-else
+                            v-model="roleForm.modelId"
+                            placeholder="未发现模型目录，可直接填模型 id（留空跟随会话默认）"
+                        />
                     </label>
                     <label>
                         权限档
@@ -454,6 +460,7 @@ async function removePack(id) {
                 <button class="primary" type="button" @click="savePack">保存模板</button>
             </div>
         </section>
+        </div>
     </div>
 </template>
 
@@ -462,6 +469,13 @@ async function removePack(id) {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    min-width: 0;
+}
+.agent-main {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
 }
 /* 二级分区：窄屏横向滚动，不换行挤压 */
 .agent-tabs {
@@ -492,6 +506,31 @@ async function removePack(id) {
     border-color: var(--accent);
     color: var(--accent);
     font-weight: 500;
+}
+/* 宽屏：左侧二级导航 + 右侧内容，把横向空间用起来 */
+@media (min-width: 1080px) {
+    .agent-settings {
+        display: grid;
+        grid-template-columns: 184px minmax(0, 1fr);
+        gap: 18px;
+        align-items: start;
+    }
+    .agent-tabs {
+        position: sticky;
+        top: 8px;
+        flex-direction: column;
+        overflow: visible;
+        padding: 6px;
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-md);
+        background: var(--bg-panel);
+    }
+    .agent-tab {
+        width: 100%;
+        text-align: left;
+        border-radius: var(--radius-sm);
+        border-color: transparent;
+    }
 }
 .agent-modes {
     display: grid;
@@ -626,6 +665,11 @@ async function removePack(id) {
 .agent-badge.soft {
     color: var(--fg-tertiary);
     background: var(--bg-hover);
+}
+.agent-badge.model {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    background: var(--accent-soft);
 }
 .agent-role-actions {
     display: flex;

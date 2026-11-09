@@ -245,6 +245,7 @@ watch(
 
 <template>
     <div class="settings-page">
+        <div class="settings-body">
         <!-- General -->
         <template v-if="activeTab === 'general'">
             <h1 class="settings-title">General</h1>
@@ -632,6 +633,7 @@ watch(
                 </div>
             </div>
         </template>
+        </div>
     </div>
 </template>
 
@@ -640,8 +642,9 @@ watch(
     flex: 1;
     min-width: 0;
     width: 100%;
-    max-width: 840px;
-    padding: clamp(16px, 3.2vw, 32px) clamp(16px, 4vw, 48px);
+    /* 覆盖 layout.css 里的全局 .settings-page{max-width:720px}：宽屏要铺满 */
+    max-width: none;
+    padding: clamp(16px, 3.2vw, 36px) clamp(16px, 4vw, 56px);
     overflow-y: auto;
     box-sizing: border-box;
 }
@@ -895,6 +898,28 @@ watch(
     color: #d97706;
     background: rgba(217, 119, 6, 0.1);
     border-color: rgba(217, 119, 6, 0.3);
+}
+
+/* 宽屏：卡片按列宽自动分栏（类似瀑布流），避免内容挤在中间一条竖栏 */
+@media (min-width: 1100px) {
+    .settings-body {
+        columns: 520px 3;
+        column-gap: 20px;
+    }
+    .settings-title,
+    .settings-subtitle {
+        column-span: all;
+        -webkit-column-span: all;
+    }
+    .settings-group,
+    .setting-empty {
+        break-inside: avoid;
+    }
+    /* Agent 面板需要横向展开（内部自带左右分栏），不参与卡片分列 */
+    .agent-settings {
+        column-span: all;
+        -webkit-column-span: all;
+    }
 }
 
 /* 窄屏：设置项由横排改为上下排布，控件占满可用宽度 */
