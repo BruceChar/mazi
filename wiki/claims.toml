@@ -379,3 +379,18 @@ evidence = [
 established = 2026-11-10
 verified = 2026-11-10
 claim_oid = "221703826ad8d358"
+
+[claims.monorepo-workspace-dependency-graph]
+text = "Workspace dependency graph is visible in the package manifests and matches the layered rule: @mazi/core and @mazi/libs declare no workspace dependencies, @mazi/provider depends only on core (plus pi-ai), @mazi/runtime on core+libs+provider, @mazi/api on core+libs+runtime, and @mazi/webui on @mazi/libs only — the UI never imports core or runtime, so「界面只消费 API 与共享类型」is enforced by the manifests rather than convention. @mazi/runtime also ships bin mazi-project-wiki plus builtin-skills/ and tasks/ in its published files, so Project Wiki assets travel with the runtime package."
+status = "active"
+evidence = [
+  { file = "package.json", oid = "b84bbc151ed39053462677402ebaf9055c4e568f" },
+  { file = "packages/core/package.json", oid = "33458879da6963362c2b1dc0d375044cb9bf58dc" },
+  { file = "packages/libs/package.json", oid = "a3a1685b66430a82769de9dc1f69e7d8d91326ed" },
+  { file = "packages/provider/package.json", oid = "7080f9f4ff4de73334c03e816476a7b292a14f02" },
+  { file = "packages/runtime/package.json", oid = "cf0817c2ec58924c83c79a1079f95add3837ec4e" },
+  { file = "apps/api/package.json", oid = "c4bef36adbebaeeb24986233cd576b9370a6467f" },
+  { file = "apps/webui/package.json", oid = "60866e95772b26ed00b0fc9b6f21092a8c775e7f" },
+]
+established = 2026-11-10
+verified = 2026-11-10
