@@ -374,5 +374,44 @@ describe('HarnessRuntime × 验收失败与默认 replan', () => {
             await runtime.close();
         }
     });
+
+    it('Replan 自动移除未注册 requiredTools，并在 plan.revised 事件中记录警告', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-replan-tool-warning-'));
+        dirs.push(dir);
+        const runtime = new HarnessRuntime(runtimeConfig(dir), {
+            llmProviders: {
+                fake: scriptedProvider({
+                    triage: MULTI_ARTIFACT_TRIAGE,
+                    replan: () =>
+                        JSON.stringify({
+                            tasks: [
+                                {
+                                    key: 'retry',
+                                    title: '使用现有工具重试',
+                                    dependsOn: [],
+                                    requiredTools: ['fs.glob'],
+                                },
+                            ],
+                        }),
+                }),
+            },
+            workspaceRoot: dir,
+            taskPlanner: async () => SINGLE_TASK,
+        });
+        try {
+            const created = await runtime.createGoalSession('实现dfs', {
+                parseIntent: true,
+                taskPlanning: true,
+            });
+            await runtime.executeGoalTree(created.rootGoalId);
+            const revised = readEvents(dir, created.rootGoalId).find(
+                (event) => event.type === 'plan.revised',
+            );
+            const payload = revised?.payload as { warnings?: string[] } | undefined;
+            expect(payload?.warnings?.join('\n')).toContain('未注册工具 fs.glob');
+        } finally {
+            await runtime.close();
+        }
+    });
 });
 

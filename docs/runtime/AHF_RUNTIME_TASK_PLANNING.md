@@ -89,6 +89,10 @@ triage 完成前不得生成计划，计划图校验通过后必须先把当前�
 - Replan Planner 的输入必须包含当前权限下实际可用的工具名与最低权限，并明确禁止
   `requiredTools` 引用未列出的工具。否则模型可能生成 `fs.glob` 等不存在的工具名，使本可恢复的
   补救计划在机械校验阶段整体被拒绝。
+- `requiredTools` 是执行前能力提示，不是授权声明。Replan 编译时若发现未注册的工具名，应移除该
+  无效提示并记录 `PlanRevision.warnings` / `plan.revised.payload.warnings`，然后继续使用实际可用
+  工具执行；未知工具名本身不得终止任务。权限、预算、依赖环、冻结契约被修改等安全或一致性错误
+  仍然 fail-closed。
 - **计划代际（planVersion）与 replan 卫生（2026-11-08 修订）**：
   - 计划版本：初始计划 `planVersion=1`；第 N 次 Replan（`PlanRevision.revision=N`）产出的
     revision 内全部 Task `planVersion=N+1`。UI 据此只渲染当前计划，历史尝试保留在 Trace。
@@ -111,6 +115,8 @@ triage 完成前不得生成计划，计划图校验通过后必须先把当前�
 - `packages/runtime/test/goal-strategy.test.ts`：初始计划全部 Task 在执行前落库，首个 Task 失败后
   其余 Task 仍可由 timeline/GoalStore 读取。
 - `packages/runtime/test/replan.test.ts`：Replan prompt 暴露当前可用工具并限制 `requiredTools` 来源。
+- `packages/runtime/test/task-planning-runtime.test.ts`：未注册 `requiredTools` 被自动移除，
+  `plan.revised.payload.warnings` 可在事件回放中审计。
 - `apps/webui/test/exec-tree.test.ts`：只有“direct 且无执行事实”才隐藏契约/Task 树。
 - `apps/api/test/sessions.service.test.ts`：无 deliberation Step 的直答可回填 Conversation 历史。
 

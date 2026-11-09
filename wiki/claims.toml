@@ -52,21 +52,21 @@ retracted_reason = "direct route must not hide harness execution facts; pure dir
 text = "The Trace panel shows contracts for the current run only when narrow (all runs when maximized) with contract entries collapsed by default, and renders paired approval/authorization details for a clicked behavior row."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "38ddf10ebe402d803b225ca365be1765c676db70" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "75a57c08289bfac34f9f672e0ab3bd935a14ba2e" },
   { file = "apps/webui/src/scripts/audit.ts", oid = "ff739856c33827b540fc2cef848e619e390e1bfb" },
   { file = "apps/webui/src/scripts/contract-view.ts", oid = "8e72c74c28c65a1fc1ac0f65165f7620483bf190" },
 ]
 established = 2026-11-07
-verified = 2026-11-09
+verified = 2026-11-10
 
 [claims.wiki-entry-syncs-workspace]
 text = "Opening a project wiki from the project menu switches the global workspace so the top bar shows that wiki project's path."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/App.vue", oid = "e0f4a78eb0da51eb8d849c49ce456f10860bf102" },
+  { file = "apps/webui/src/App.vue", oid = "2560cdec6b20305b88753bdf01a4cea55b97cb10" },
 ]
 established = 2026-11-07
-verified = 2026-11-09
+verified = 2026-11-10
 
 [claims.project-wiki-run-activity]
 text = "Each project SessionEnd enqueues a per-workspace background sync without blocking the foreground response; the deterministic session-end stage computes the incremental plan before recording activity, and a bounded semantic update is queued when evidence is stale or when the session trace shows high-value read-only exploration that should be captured for future sessions."
@@ -157,15 +157,16 @@ retracted_at = 2026-11-08
 retracted_reason = "Incremental Project Wiki behavior is now implemented in runtime/wiki rather than wiki.py."
 
 [claims.runtime-acceptance-failure-replan]
-text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass; verification failures mark the task and goal failed and trigger a bounded default LLM replan that sequences the remaining work, while aborted tasks stay resumable."
+text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass; verification failures mark the task and goal failed and trigger a bounded default LLM replan that sequences the remaining work, while aborted tasks stay resumable. Replan removes unregistered requiredTools with auditable warnings and continues using available tools; permission, budget, dependency and frozen-contract violations remain fail-closed."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "b9008785106b574bcc3b2c8bf30c51b5bb2b1eeb" },
-  { file = "packages/runtime/src/gts/replan.ts", oid = "43703e402ae3ed55de344f79e40bc5e450cb4d43" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "c9a08bcc1956a45c23aee285fec92656176d898b" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "5233506564422e62848c29595d19c29bbbe0adb7" },
+  { file = "packages/runtime/src/gts/replan.ts", oid = "1a040f04372c287a28fa086b78074a14ead17047" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "31e5b11c919c5f7b8e0b71a9a2d59e24a946ed06" },
 ]
 established = 2026-11-07
 verified = 2026-11-10
+claim_oid = "44ae290f5b07f8e0"
 
 [claims.project-context-lifecycle-runtime]
 text = "Project Context Lifecycle is a runtime-owned subsystem: it assembles task-scoped context packets at SessionStart, anchors long-session compaction in persisted facts and evidence, and asynchronously finalizes SessionEnd with deterministic diff/oid/research preflight plus optional bounded semantic distillation and checkpoint validation."
@@ -182,12 +183,12 @@ text = "Project Wiki is maintained by runtime-native ProjectWikiService: init, c
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "e9ae72dbcc1e4bf2d4090e691d4bdcd4f2823d54" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "a4426cbc8870ea31eb500c084592e83c55506d78" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "9fecf46632055876a20bc3d4e015860f86043b95" },
 ]
 established = 2026-11-08
-verified = 2026-11-09
+verified = 2026-11-10
 
 [claims.project-wiki-run-activity-runtime]
 text = "Each project SessionEnd enqueues a per-workspace runtime sync without blocking the foreground response; ProjectWikiService computes the incremental plan before recording activity, and bounded semantic update runs when evidence drifts or high-value read-only exploration should become durable Project Wiki knowledge."
@@ -302,28 +303,28 @@ verified = 2026-11-09
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "b9008785106b574bcc3b2c8bf30c51b5bb2b1eeb" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "5233506564422e62848c29595d19c29bbbe0adb7" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "e9ae72dbcc1e4bf2d4090e691d4bdcd4f2823d54" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "a4426cbc8870ea31eb500c084592e83c55506d78" },
   { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "c9a08bcc1956a45c23aee285fec92656176d898b" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "31e5b11c919c5f7b8e0b71a9a2d59e24a946ed06" },
 ]
 established = 2026-11-09
 verified = 2026-11-10
-claim_oid = "2de794a3595e29e9"
+claim_oid = "fef88c0ff54cdd21"
 
 [claims.webui-trace-audit-anchor]
 text = "The right-side Trace panel preserves an explicit audit anchor for the selected scope: Step anchors include R/T/S coordinates plus rootGoalId, goalId, taskId, stepId, timestamps and step/task status; Task and run scopes retain their corresponding IDs and timing. Contract, acceptance, context, token, cost and tool facts therefore remain attributable to the exact audited Step even though the conversation surface omits that audit metadata."
 status = "active"
 evidence = [
   { file = "apps/webui/src/scripts/audit.ts", oid = "ff739856c33827b540fc2cef848e619e390e1bfb" },
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "38ddf10ebe402d803b225ca365be1765c676db70" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "75a57c08289bfac34f9f672e0ab3bd935a14ba2e" },
   { file = "apps/webui/test/audit.test.ts", oid = "e34b955fe34f7413cc87fb579ffc7cb21714fac1" },
   { file = "docs/webui.md", oid = "90ff763296dc4e1fa27e391b46a124e012126d05" },
-  { file = "docs/web/观测看板设计.md", oid = "8cda9e2076c72cd2baf00cf35662749104250756" },
+  { file = "docs/web/观测看板设计.md", oid = "41a3b944b04a1e0bec5d07470edb0211b0d32496" },
 ]
 established = 2026-11-09
-verified = 2026-11-09
+verified = 2026-11-10
 
 [claims.authz-ceiling-auto-boundary]
 text = "The human permission ceiling (text/read-only/draft/approved/autonomous) is an auto boundary, not a visibility filter: grantForPermissionLevel puts every standard capability into the grant and marks those at or below the selected level auto while the rest become gated, so an out-of-level tool stays visible and its invocation raises human approval instead of disappearing. Only ceiling text empties the tool surface, and forbidden is reserved for the hard floor. Reading the ceiling as a filter misjudges why a tool appears but refuses to run."
@@ -366,3 +367,16 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-09
+
+[claims.webui-trace-run-failure-summary]
+text = "The Trace panel shows a current-run failure summary that combines goal.ended status and error, persisted failure-ledger rows, replan.rejected reasons, failed Task acceptance details and plan.revised warnings for automatically discarded unknown requiredTools; successful runs render no failure block."
+status = "active"
+evidence = [
+  { file = "docs/web/观测看板设计.md", oid = "41a3b944b04a1e0bec5d07470edb0211b0d32496" },
+  { file = "apps/webui/src/scripts/run-failure.ts", oid = "52df1e943e3f6cbb486d76f13d5db8b044c82a5f" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "75a57c08289bfac34f9f672e0ab3bd935a14ba2e" },
+  { file = "apps/webui/test/run-failure.test.ts", oid = "48900d42f5b468699ff31ab1d21e126bdb4f8974" },
+]
+established = 2026-11-10
+verified = 2026-11-10
+claim_oid = "221703826ad8d358"

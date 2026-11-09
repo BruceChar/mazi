@@ -33,6 +33,7 @@ import {
     contractsForRun,
 } from '../scripts/contract-view.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
+import { buildRunFailureView } from '../scripts/run-failure.ts';
 import { buildTraceBoard, filterTraceRuns } from '../scripts/trace.ts';
 import {
     analyzeToc,
@@ -160,9 +161,15 @@ async function loadFailures() {
 watch(
     () => props.activeTab,
     (tab) => {
-        if (tab === 'log') void loadFailures();
+        if (tab === 'log' || tab === 'trace') void loadFailures();
     },
     { immediate: true },
+);
+watch(
+    () => props.rootOutcome,
+    () => {
+        if (props.activeTab === 'log' || props.activeTab === 'trace') void loadFailures();
+    },
 );
 
 
@@ -290,6 +297,14 @@ const traceItems = computed(() => {
 });
 /* ---- 契约区（Trace 面板）：Goal + 验证约束 + 协商轨迹 ---- */
 const traceContracts = computed(() => props.trace?.contracts ?? props.audit?.contracts ?? []);
+const traceFailure = computed(() =>
+    buildRunFailureView({
+        rootGoalId: props.current,
+        events: props.events,
+        failures: failures.value,
+        contracts: traceContracts.value,
+    }),
+);
 /**
  * 窄栏只展示「当前会话」的契约：当前选中 Step/Task 所属 run（新视图带 rootGoalId），
  * 无选中时回退当前打开的 run；最大化时保留全部 run 的对照（issue 3）。
@@ -679,6 +694,24 @@ watch(
                         <span class="trace-kpi-value">{{ formatDuration(traceSummary.durationMs) || '—' }}</span>
                         <span class="trace-kpi-sub">{{ traceThroughput != null ? toFixed1(traceThroughput) + ' tok/s' : 'trace' }}</span>
                     </div>
+                </section>
+
+                <section
+                    v-if="traceFailure"
+                    class="audit-section trace-failure"
+                    :class="traceFailure.status"
+                >
+                    <div class="audit-section-title">
+                        <span>{{ traceFailure.status === 'warning' ? '计划自动修正' : '运行失败原因' }}</span>
+                        <span class="audit-pct">{{ traceFailure.status }}</span>
+                    </div>
+                    <p class="trace-failure-summary">{{ traceFailure.summary }}</p>
+                    <ul v-if="traceFailure.causes.length > 1" class="trace-failure-list">
+                        <li v-for="cause in traceFailure.causes.slice(1)" :key="cause">{{ cause }}</li>
+                    </ul>
+                    <ul v-if="traceFailure.warnings.length > 0" class="trace-failure-list warning">
+                        <li v-for="warning in traceFailure.warnings" :key="warning">{{ warning }}</li>
+                    </ul>
                 </section>
 
                 <!-- 契约区：执行前承诺（goal / 条款 / 上限 / 风险）+ 验收判定 + 协商轨迹 -->
@@ -1919,6 +1952,37 @@ watch(
     white-space: nowrap;
     font-size: 10px;
     color: var(--fg-tertiary);
+}
+.trace-failure {
+    border-color: color-mix(in srgb, var(--error) 35%, var(--border));
+    background: color-mix(in srgb, var(--error) 5%, var(--bg-panel));
+}
+.trace-failure.warning {
+    border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+    background: color-mix(in srgb, var(--warn) 7%, var(--bg-panel));
+}
+.trace-failure-summary {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--fg);
+    overflow-wrap: anywhere;
+}
+.trace-failure-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 7px 0 0;
+    padding-left: 16px;
+    color: var(--fg-secondary);
+    font-size: 11px;
+    line-height: 1.45;
+}
+.trace-failure-list li {
+    overflow-wrap: anywhere;
+}
+.trace-failure-list.warning {
+    color: var(--warn);
 }
 .trace-toolbar {
     display: flex;

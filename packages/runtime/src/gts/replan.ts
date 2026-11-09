@@ -110,12 +110,15 @@ export interface PlanRevision {
     digest: string;
     reason: string;
     evidence: string[];
+    /** 自动修正但未阻止执行的计划问题（例如忽略未注册 requiredTools）。 */
+    warnings?: readonly string[];
     createdAt: number;
 }
 
 export interface ReplanResult {
     revision?: PlanRevision;
     rejected?: string[];
+    warnings?: string[];
 }
 
 function contractHash(goal: Goal): string {
@@ -141,6 +144,27 @@ function sumCost(tasks: readonly Task[]): number {
     return tasks.reduce((sum, task) => sum + (task.budget?.maxCostUsd ?? 0), 0);
 }
 
+function normalizeRequiredTools(
+    proposals: readonly PlannedTask[],
+    availableTools?: readonly PlanTool[],
+): { proposals: PlannedTask[]; warnings: string[] } {
+    if (availableTools === undefined) return { proposals: [...proposals], warnings: [] };
+    const available = new Set(availableTools.map((tool) => tool.name));
+    const warnings: string[] = [];
+    const normalized = proposals.map((proposal) => {
+        const unknown = (proposal.requiredTools ?? []).filter((name) => !available.has(name));
+        if (unknown.length === 0) return proposal;
+        warnings.push(
+            `Task ${proposal.key} 请求未注册工具 ${unknown.join(', ')}，已忽略并使用可用工具继续执行`,
+        );
+        return {
+            ...proposal,
+            requiredTools: (proposal.requiredTools ?? []).filter((name) => available.has(name)),
+        };
+    });
+    return { proposals: normalized, warnings };
+}
+
 export async function createPlanRevision(input: {
     request: ReplanRequest;
     proposal: readonly PlannedTask[];
@@ -154,11 +178,12 @@ export async function createPlanRevision(input: {
     const carriedRemaining = input.request.remainingTasks.filter(
         (task) => task.taskId !== failedTaskId,
     );
+    const normalized = normalizeRequiredTools(input.proposal, input.availableTools);
     // 计划版本：初始计划 = 1；第 N 次 Replan（PlanRevision.revision = N）产出 planVersion = N + 1。
     const planVersion = input.request.revision + 2;
     const compiled = compileTaskPlan({
         goals: [input.request.goal],
-        proposals: input.proposal,
+        proposals: normalized.proposals,
         ...(input.availableTools !== undefined ? { availableTools: input.availableTools } : {}),
         planVersion,
     });
@@ -192,7 +217,12 @@ export async function createPlanRevision(input: {
     );
     const digest = taskDigest(nextTasks);
     if (input.priorDigests?.includes(digest) === true) rejected.push('Replan 产生重复计划');
-    if (rejected.length > 0) return { rejected: [...new Set(rejected)] };
+    if (rejected.length > 0) {
+        return {
+            rejected: [...new Set(rejected)],
+            ...(normalized.warnings.length > 0 ? { warnings: normalized.warnings } : {}),
+        };
+    }
     const newIds = new Set(compiled.tasks.map((task) => task.taskId));
     return {
         revision: {
@@ -211,8 +241,10 @@ export async function createPlanRevision(input: {
             digest,
             reason: `verifier:${input.request.failureReason}`,
             evidence: [...input.request.evidence],
+            ...(normalized.warnings.length > 0 ? { warnings: normalized.warnings } : {}),
             createdAt: (input.now ?? Date.now)(),
         },
+        ...(normalized.warnings.length > 0 ? { warnings: normalized.warnings } : {}),
     };
 }
 

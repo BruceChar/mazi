@@ -1139,7 +1139,7 @@ export class HarnessRuntime {
                             }),
                         );
                     },
-                    onReplan: (revision, rejected) => {
+                    onReplan: (revision, rejected, warnings) => {
                         this.bus.emit(
                             newHarnessEvent({
                                 type: revision !== undefined ? 'plan.revised' : 'replan.rejected',
@@ -1158,6 +1158,9 @@ export class HarnessRuntime {
                                               reason: revision.reason,
                                               evidence: revision.evidence,
                                               digest: revision.digest,
+                                              ...(revision.warnings !== undefined
+                                                  ? { warnings: revision.warnings }
+                                                  : {}),
                                               // 修订后的完整 Task 列表：UI 无需再等 timeline 刷新即可渲染新计划。
                                               tasks: revision.tasks.map((task) => ({
                                                   taskId: task.taskId,
@@ -1168,7 +1171,12 @@ export class HarnessRuntime {
                                                   status: task.status,
                                               })),
                                           }
-                                        : { rejected },
+                                        : {
+                                              rejected,
+                                              ...(warnings !== undefined && warnings.length > 0
+                                                  ? { warnings }
+                                                  : {}),
+                                          },
                             }),
                         );
                     },

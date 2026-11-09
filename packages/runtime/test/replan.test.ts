@@ -133,6 +133,43 @@ describe('createPlanRevision', () => {
     expect(result.revision?.tasks.filter((task) => task.title === '汇总结果')).toHaveLength(1);
   });
 
+  it('忽略未注册的 requiredTools 并记录警告，而不是拒绝整个补救计划', async () => {
+    const availableTools: PlanTool[] = [
+      { name: 'fs.read', minPermission: 'read-only' },
+    ];
+    const result = await createPlanRevision({
+      request: {
+        goal: goal(),
+        revision: 0,
+        completedTasks: [],
+        failedTask: {
+          taskId: 'failed',
+          goalId: 'g1',
+          title: '失败任务',
+          acceptance: { conditions: ['c1'] },
+          status: 'failed',
+        },
+        remainingTasks: [],
+        failureReason: 'failed',
+        evidence: [],
+        remainingBudget: { maxCostUsd: 10 },
+        availableTools,
+      },
+      proposal: [
+        {
+          key: 'retry',
+          title: '改用现有工具重试',
+          acceptanceConditionIds: ['c1'],
+          requiredTools: ['fs.glob', 'fs.read'],
+        },
+      ],
+      availableTools,
+    });
+
+    expect(result.revision?.tasks[0]?.requiredTools).toEqual(['fs.read']);
+    expect(result.revision?.warnings?.join('\n')).toContain('未注册工具 fs.glob');
+  });
+
   it('rejects repeated plans, budget overflow and permission escalation', async () => {
     const base = {
       goal: goal(),

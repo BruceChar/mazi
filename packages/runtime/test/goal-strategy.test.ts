@@ -336,6 +336,57 @@ describe('goal-strategy（C3d：Goal 顺序驱动，扁平模型）', () => {
         expect(stored.map((task) => task.status)).toEqual(['failed', 'pending', 'pending']);
     });
 
+    it('Replan 的未注册 requiredTools 只产生警告，任务继续使用可用工具执行', async () => {
+        const store = new MemoryGoalStore();
+        const target = goal(ulid());
+        await store.saveGoal(target);
+        const condition = target.contract.successConditions[0]!.id;
+        let round = 0;
+
+        const result = await runGoalTree(
+            {
+                store,
+                requestRound: async () => {
+                    round += 1;
+                    if (round === 1) throw new Error('initial attempt failed');
+                    return okRound;
+                },
+                planProposal: [
+                    {
+                        key: 'inspect',
+                        title: '检查',
+                        acceptanceConditionIds: [condition],
+                    },
+                    {
+                        key: 'summarize',
+                        title: '汇总',
+                        dependsOn: ['inspect'],
+                        acceptanceConditionIds: [condition],
+                    },
+                ],
+                replan: {
+                    availableTools: [{ name: 'fs.read', minPermission: 'read-only' }],
+                    planner: async () => [
+                        {
+                            key: 'recover',
+                            title: '用现有工具补救',
+                            acceptanceConditionIds: [condition],
+                            requiredTools: ['fs.glob'],
+                        },
+                    ],
+                },
+            },
+            [target],
+        );
+
+        expect(result.ok).toBe(true);
+        expect(result.planRevisions?.[0]?.warnings?.join('\n')).toContain('fs.glob');
+        expect(result.tasks.map((outcome) => outcome.task.title)).toEqual([
+            '用现有工具补救',
+            '汇总',
+        ]);
+    });
+
     it('resume 对尚未生成 Task 的 active Goal 补建计划而不是空跑', async () => {
         const store = new MemoryGoalStore();
         const a = goal(ulid());

@@ -93,7 +93,11 @@ export interface GoalRunDeps {
     onVerification?: (report: VerificationReport, outcome: TaskOutcome) => void;
     /** Bounded dynamic replanning after verifier/executor failure. */
     replan?: ReplanOption;
-    onReplan?: (revision?: PlanRevision, rejected?: readonly string[]) => void;
+    onReplan?: (
+        revision?: PlanRevision,
+        rejected?: readonly string[],
+        warnings?: readonly string[],
+    ) => void;
     /** 恢复模式：复用未终结 Task 并从已落库 Step 重放上下文。 */
     resume?: boolean;
     /** 轮次上限覆盖（缺省读 goal.contract.terminationPolicy.maxSteps）。 */
@@ -330,7 +334,7 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
             try {
                 const proposal = await deps.replan.planner(request);
                 if (proposal === undefined) {
-                    deps.onReplan?.(undefined, ['ReplanPlanner 未返回计划']);
+                    deps.onReplan?.(undefined, ['ReplanPlanner 未返回计划'], []);
                     break;
                 }
                 const revised = await createPlanRevision({
@@ -345,7 +349,11 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                     ],
                 });
                 if (revised.revision === undefined) {
-                    deps.onReplan?.(undefined, revised.rejected ?? ['Replan 被拒绝']);
+                    deps.onReplan?.(
+                        undefined,
+                        revised.rejected ?? ['Replan 被拒绝'],
+                        revised.warnings ?? [],
+                    );
                     break;
                 }
                 outcomes.pop();
@@ -368,14 +376,16 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
                     await deps.store.saveTask(nextTask);
                 }
                 planRevisions.push(revised.revision);
-                deps.onReplan?.(revised.revision);
+                deps.onReplan?.(revised.revision, undefined, revised.warnings ?? []);
                 queue = topologicalTaskOrder(tasks);
                 cursor = 0;
                 continue;
             } catch (error) {
-                deps.onReplan?.(undefined, [
-                    error instanceof Error ? error.message : String(error),
-                ]);
+                deps.onReplan?.(
+                    undefined,
+                    [error instanceof Error ? error.message : String(error)],
+                    [],
+                );
                 break;
             }
         }
