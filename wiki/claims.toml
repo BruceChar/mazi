@@ -52,7 +52,7 @@ retracted_reason = "direct route must not hide harness execution facts; pure dir
 text = "The Trace panel shows contracts for the current run only when narrow (all runs when maximized) with contract entries collapsed by default, and renders paired approval/authorization details for a clicked behavior row."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "c8a0cda59998077d034998aebb7b779770cd81c7" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "3cc321b8ce48a9257360c6bc5e3d8c3b029a81e5" },
   { file = "apps/webui/src/scripts/audit.ts", oid = "ff739856c33827b540fc2cef848e619e390e1bfb" },
   { file = "apps/webui/src/scripts/contract-view.ts", oid = "8e72c74c28c65a1fc1ac0f65165f7620483bf190" },
 ]
@@ -287,7 +287,7 @@ retracted_reason = "The message surface no longer duplicates contract, route, ac
 text = "ExecStream renders bare-code answers as one code block; zero-execution direct answers are ordinary assistant Markdown without direct/route/contract chrome; the conversation renders Task-to-Step execution in synchronous plan order while contract, acceptance and plan metadata stay in the right Trace panel; completed settled steps remain expanded while live rows are expandable/collapsible (only active streaming reasoning is one line), and approval/authorization behavior rows stay inline with the gated tool Step."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/ExecStream.vue", oid = "e4767086bae25408178fd18a445ece29352867bb" },
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "a1269a94615012f623f95cbaeaf2221df6796b2e" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "a60bef7a7c5b6b76a8cdf94672be6bb4027328de" },
   { file = "apps/webui/src/scripts/plan-view.ts", oid = "52a86bc82ea31d1d8abd5d9b44588f60b2fe68b0" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
@@ -316,7 +316,7 @@ text = "The right-side Trace panel preserves an explicit audit anchor for the se
 status = "active"
 evidence = [
   { file = "apps/webui/src/scripts/audit.ts", oid = "ff739856c33827b540fc2cef848e619e390e1bfb" },
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "c8a0cda59998077d034998aebb7b779770cd81c7" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "3cc321b8ce48a9257360c6bc5e3d8c3b029a81e5" },
   { file = "apps/webui/test/audit.test.ts", oid = "e34b955fe34f7413cc87fb579ffc7cb21714fac1" },
   { file = "docs/webui.md", oid = "90ff763296dc4e1fa27e391b46a124e012126d05" },
   { file = "docs/web/观测看板设计.md", oid = "8cda9e2076c72cd2baf00cf35662749104250756" },
