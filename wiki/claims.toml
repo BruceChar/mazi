@@ -410,3 +410,14 @@ evidence = [
 ]
 established = 2026-11-10
 verified = 2026-11-10
+
+[claims.monorepo-toolchain-scope-caveats]
+text = "Two toolchain facts mislead if read from a single file: the root package.json engines says node >=24.0.0 while README §9 and the project convention require Node.js >= 26 (engines is stale, so an install on Node 24 succeeds but is unsupported); and biome.json scopes `files.includes` to `**/src/**/*.{ts,tsx}` only, so `pnpm lint` does not check tests/, scripts/, or root config files — a green lint does not mean tests and build scripts are formatted or linted."
+status = "active"
+evidence = [
+  { file = "package.json", oid = "b84bbc151ed39053462677402ebaf9055c4e568f" },
+  { file = "README.md", oid = "ee7e26971d0d460c962264331c1da515abae7635" },
+  { file = "biome.json", oid = "92e043f37e65327971c0359a59e6465cc3b16a17" },
+]
+established = 2026-11-10
+verified = 2026-11-10
