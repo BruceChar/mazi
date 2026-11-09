@@ -354,3 +354,13 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-09
+
+[claims.authz-sandbox-egress-seams-unwired]
+text = "authz/sandbox.ts defines fail-closed seams requireSandbox/requireEgressProxy (SANDBOX_UNAVAILABLE / EGRESS_BLOCKED) but nothing in the runtime calls them: RuntimeToolGateway registers every tool with trust 'confined' and derives policy only from labels, ledger and taint. Sandbox and egress-proxy are therefore declared contracts rather than enforced execution paths, so a gated approval does not imply the operation actually runs inside a sandbox."
+status = "active"
+evidence = [
+  { file = "packages/core/src/authz/sandbox.ts", oid = "04ad7b57f5c325d75956115795b6db69c7b9cbed" },
+  { file = "packages/runtime/src/tool-gateway/permission.ts", oid = "3147d12890a25aa6717212ba90d15e0d1a6b37d3" },
+]
+established = 2026-11-09
+verified = 2026-11-09
