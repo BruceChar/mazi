@@ -118,7 +118,13 @@ interface AgentRole {
         > 内置 GENERAL
 ```
 
-角色内 `systemPrompt` 显式设置时优先于 `prompts.<roleId>`；两者都缺省时用主执行面基础提示，保证任何角色都能跑。
+Agent 自身的提示不再以「角色存全文」为唯一依据，而是按 `PromptRef` 引用解析（见 3.8）：
+
+```
+inline 覆盖 > config[key] > system 默认[key] > 未命中（沿用主执行面基础提示）
+```
+
+未配置任何提示的角色行为不变：只使用主执行面基础提示。
 
 ### 3.4 审计与可解释性
 
@@ -162,6 +168,168 @@ interface AgentRole {
 
 边界：技能是提示与流程资产，不授予新工具；角色的 `defaultCeiling` 仍是唯一权限收窄点。
 
+### 3.8 Prompt 目录与引用（Agent 的提示来源统一）
+
+**结论：Prompt 条目是唯一文本来源，Agent（角色与内联 Agent）只持有 `PromptRef` 引用；`PromptRef` 在每次委派 / 每轮调用前解析，配置改动对下一次调用生效，运行中的会话保持钉版。**
+
+#### 现状问题
+
+- 提示库是**固定 id 白名单**（`main / default / coding / planner / executor / reviewer / researcher / intent / replan / iteration-analysis`），配置只能覆盖这 10 个键，不能新增。
+- `AgentRole.systemPrompt` 存的是**全文**：内置角色在 Runtime 构造时把 `prompts.<roleId>` 解析成文本并固化，自定义角色在 SQLite 里存整段文本。改提示库不会影响已存在的角色，副本越多漂移越大。
+- 同一个 Planner 有两套身份：流水线内联调用的 `prompts.planner`，和委派角色 `planner` 的 `systemPrompt`。两者名字相同但来源、能力边界、生命周期都不共享。
+- 角色面板只有自由文本框，无法「从系统或配置提示列表中选择」。
+
+#### 目标模型
+
+**Prompt 条目（PromptEntry）是唯一文本来源，Agent 只持有引用，不持有文本。**
+
+```ts
+interface PromptEntry {
+    key: string;                     // 稳定引用键：[a-z][a-z0-9-]{1,47}
+    label: string;
+    description?: string;
+    scope: 'builtin' | 'custom';     // builtin 随代码发布；custom 存在 settings.json
+    body: string;                    // 生效文本（builtin 默认或 custom 文本）
+    defaultBody?: string;            // builtin 的出厂文本，用于「恢复默认」
+    version: number;                 // custom 每次保存 +1；builtin 随应用版本
+    readonly: boolean;               // builtin 不可删除，只能被覆盖
+}
+```
+
+规则：
+
+- `builtin` 条目即现有的 10 个系统提示 id，不可删除，可被同 key 的 custom 文本覆盖（与今天 `prompts` 语义一致）。
+- `custom` 条目由用户在「系统提示」分区新建，key 不得与 builtin 冲突（冲突视为覆盖，不新建）。
+- `settings.json` 的 `prompts` 从「固定 id 的类型」放宽为 `Record<string, string>`；旧文件天然兼容，空字符串仍视为未配置。
+
+#### PromptRef
+
+```ts
+type PromptRef =
+    | { kind: 'system'; key: string }   // 指向 builtin 条目（可被配置覆盖）
+    | { kind: 'config'; key: string }   // 指向 custom 条目
+    | { kind: 'inline'; text: string }; // 角色自带全文（兼容旧 systemPrompt）
+```
+
+`AgentRole` 新增 `promptRef?: PromptRef`，`systemPrompt` 保留为兼容字段：
+
+- 有 `systemPrompt` 且无 `promptRef` → 归一化为 `{ kind: 'inline', text: systemPrompt }`；
+- 两者都没有 → 无提示片段，沿用主执行面基础提示（与现状一致）；
+- 两者都有 → 以 `promptRef` 为准，`systemPrompt` 仅作展示兜底，保存时清空（避免双来源）。
+
+内置 6 个委派角色一律改为 `{ kind: 'system', key: roleId }`，不再固化文本。这样改 `prompts.planner` 后，`planner` 角色下一次委派即生效，无需编辑角色。
+
+#### 解析与拼装
+
+```ts
+resolvePromptRef(ref, prompts) => { text, source: 'inline'|'config'|'system', key }
+```
+
+- 委派角色：`inline` > `config[key]`（非空） > `system[key]`（builtin 默认或覆盖） > 空（不追加）。
+- 内联 Agent（intent / planner / replan / iteration-analysis）：不允许空，解析不到配置就回落到内置默认；仍保持 `agentPrompt(id)` 的单轮调用形态。
+- 拼装位置不变：解析结果作为 `promptFragment` 追加在基础提示之后（append 语义）。本阶段不引入 replace 语义，避免 Planner 的 JSON 输出契约与主提示冲突的处理复杂度。
+- 解析时机：**每次委派 / 每轮内联调用前**解析引用；会话启动时把 `PromptRef + 解析结果摘要`记入审计，运行中的会话不因中途改配置而漂移。
+
+#### 审计
+
+新增事件 `agent.prompt.resolved`：
+
+```json
+{
+  "agentId": "planner",
+  "ref": { "kind": "system", "key": "planner" },
+  "source": "system",
+  "version": 3,
+  "scope": "builtin",
+  "sessionId": "s_..."
+}
+```
+
+只在会话开始与每次委派各记一条，不逐轮刷屏；运行详情展示「提示来源：系统 planner / 配置 code-review-v2 / 自定义」。
+
+#### 设置页
+
+- 角色编辑面板「系统提示」改为三段式：
+  1. 来源：`系统默认（<key>）` / `配置提示（<key>）` / `自定义`；
+  2. 选中后显示只读预览（生效文本）；
+  3. 「另存为自定义」把当前文本复制为 inline，允许继续编辑。
+- 「系统提示」分区从「10 个固定项」扩展为**提示目录**：builtin 与 custom 同列展示，标注 `内置 / 已覆盖 / 自定义`、版本、被哪些角色引用；支持新建 custom、编辑、恢复默认、删除（被引用时 409 并列出角色）。
+- 角色卡增加提示来源徽标：`提示 · 系统 planner` / `提示 · 配置 xxx` / `提示 · 自定义`。
+
+#### 边界
+
+- 提示引用**不携带能力**：工具、技能、权限仍由角色的 `tools / skillIds / defaultCeiling` 决定。
+- 引用存在性在保存时校验（未知 key → 400），避免运行期静默回落；删除被引用条目 → 409。
+- 不做提示继承链、不做跨角色共享提示变量、不做消息级提示覆盖。
+
+### 3.9 运行期组织：以 AgentSpec 为单元
+
+#### 两类 Agent，必须分开
+
+| | 内联 Agent（internal） | 委派 Agent（delegatable） |
+|---|---|---|
+| 代表 | `main / intent / planner / replan / iteration-analysis` | `default / coding / planner / executor / reviewer / researcher` + 用户新建 |
+| 调用形态 | 单轮 LLM 请求，`tools: []` | `createGoalSession` 生成独立子 Goal |
+| 是否进 Goal 树 | 否 | 是，受 `DelegationEdge` 约束 |
+| 上下文 | prompt + 当次输入（triage 另带会话历史） | statement + session context + 自己的提示片段 |
+| 预算/权限 | 不占任务预算，不改权限 | 继承/收窄 ceiling，分配 budget |
+| 输出 | 结构化文本（路由结论 / 计划 JSON） | `summary` + 事件回传父 Goal |
+| 可被用户选择 | 否（不出现在会话 Agent 选择器） | 是（P2 起） |
+
+`planner` 与 `coding` 同时出现在两列：同一个 spec 具备两种用法——既作为内联提示槽，又可作为委派角色；只有委派用法吃 `modelId / tools / skillIds / ceiling`。
+
+内联 Agent 是「流水线函数」，不是协作者节点；把 `intent / replan / iteration-analysis` 做成可委派角色会让路由与补计划变成递归任务，成本与不确定性都会不可控。
+
+#### AgentSpec 单一事实源
+
+```ts
+interface AgentSpec {
+    id: string;
+    label: string;
+    description?: string;
+    promptRef: PromptRef;
+    modelId?: string;
+    tools?: readonly string[];
+    skillIds?: readonly string[];
+    defaultCeiling?: PermissionLevel;
+    memoryPolicy: 'inherit' | 'isolated';
+    // internal=仅内联调用；delegatable=可委派；both=两种用法共用一份定义
+    visibility: 'internal' | 'delegatable' | 'both';
+    builtin: boolean;
+}
+```
+
+- `AgentRole` 收敛为 AgentSpec 的持久化投影，`visibility` 固定 `delegatable`；`AgentSpecRegistry` 同时注册内部与委派两类，`planner / coding` 注册为 `both`。
+- Runtime 的每个提示注入点改为 `resolveAgentSpec(id)`：`intent / planner / replan / iteration-analysis` 也在注册表里，PromptRef 与委派角色同源，不再有两套 id。
+- 委派链路使用 spec 的 `modelId / tools / skillIds / ceiling`，与今天角色字段一致；内部 spec 忽略这些字段（始终单轮、无工具）。
+- 兼容：仍接受 `AgentRole` 形状的输入；`visibility` 缺省按 `delegatable`；内置 spec 的可见性由注册表给出（`main / intent / replan / iteration-analysis` = internal，`planner / coding` = both，其余 = delegatable）。
+
+#### 多 Agent 协作的组织
+
+```
+root Goal（主执行面，base prompt + session context）
+  ├─ SuperAgent 路由提案（rule / model）
+  ├─ DelegationEdge → 子 Goal(roleId=coding)     → summary
+  ├─ DelegationEdge → 子 Goal(roleId=researcher) → summary
+  └─ summary 汇总回 root
+内联：intent(triage) / planner / replan / iteration-analysis —— 不产生 Goal
+```
+
+- **单向拓扑**：只允许父 → 子委派，子不能反向读取父的完整对话；跨 Agent 共享信息走 blackboard 与 session context，而不是复制 transcript。
+- **提示隔离**：每个子 Goal 只拿「基础提示 + 自己的 promptFragment + 自己的技能目录」。一个 Agent 改提示不会污染其他 Agent，也不会改变父的上下文。
+- **能力隔离**：spec 的 `tools / skillIds / ceiling` 在创建子会话时冻结，子 Agent 运行期间不可提权；`DelegationEdge` 记录 `roleId / ceiling / budget` 作为审计事实。
+- **结果契约**：父只消费子 Goal 的 `summary`、验证状态与事件，不重放子过程；子失败以 `DelegationChildResult.error` 回传，由父决定重试（replan）或放弃。
+- **扩展**：并行委派、复核链、辩论都只是「多条 DelegationEdge + 父汇总」，不需要新的提示加载机制；新增编排模式先加 spec 与边，不加新 prompt 通道。
+
+#### 解析生命周期
+
+| 时点 | 行为 |
+|---|---|
+| Runtime 启动 | 构造 AgentSpecRegistry：builtin spec + 持久化角色合并 |
+| 保存提示/角色 | 写 settings.json / SQLite → `restartRuntimes()`，新会话按新配置装配 |
+| 会话开始 | 解析一次并记 `agent.prompt.resolved`，会话内提示钉版 |
+| 每次委派 | 按 spec 的 PromptRef 重新解析（引用而非快照），配置改动对下一次委派生生效 |
+
 ## 4. API 变更
 
 | 方法 | 路径 | 说明 |
@@ -174,6 +342,10 @@ interface AgentRole {
 | POST | `/api/agent/roles/:id/duplicate` | 复制为新角色 |
 | GET/POST | `/api/conversations/:id/agent` | 读写会话级 Agent |
 | — | `POST /api/sessions` | 新增可选 `agentId` |
+| GET | `/api/agent/prompts` | 提示目录：builtin + custom，含 `scope/version/referencedBy` |
+| PUT | `/api/agent/prompts/:key` | upsert：builtin 写覆盖，custom 新建/更新 |
+| DELETE | `/api/agent/prompts/:key` | builtin 恢复默认；custom 删除，被引用 409 |
+| — | `POST/PUT /api/agent/roles` | 新增可选 `promptRef`；与 `systemPrompt` 互斥归一化 |
 
 ## 5. 分期实施（每期最小改动、独立 commit + push）
 
@@ -181,6 +353,8 @@ interface AgentRole {
 |---|---|---|
 | **P0** | 设置页自适应 | 断点、`clamp()`、栅格、抽屉；不动数据模型 |
 | **P1** | Agent 板块分区 + 角色字段/CRUD | 二级 tab；扩展 `AgentRole`；PUT/PATCH/复制/校验；角色卡片 |
+| **P1.5** | PromptRef 统一（3.8 / 3.9） | `prompts` 键放宽；`PromptEntry` + `PromptRef`；内置角色改引用；解析链与 `agent.prompt.resolved`；角色面板提示来源选择 |
+| **P1.6** | 提示目录管理 | custom 条目 CRUD、引用计数、删除 409、恢复默认；提示来源徽标 |
 | **P2** | Composer Agent chip + 会话钉版 | `agentId` 贯穿 conversation/session/runtime；权限收窄；`agent.selected` 事件 |
 | **P3** | `@agent` 消息级覆盖 + 可解释性 | 输入解析、消息标注、运行详情展示路由理由 |
 
@@ -204,10 +378,16 @@ interface AgentRole {
 - 选择 Agent 后：会话切换/刷新保持；下一条消息生效；权限不足时不可选并有明确提示。
 - `@agent` 只影响单条消息，chip 与会话设置不变。
 - 事件流可查到 `agent.selected` 的 roleId 与 source。
+- 修改 `prompts.planner` 后，`planner` 角色下一次委派即使用新文本；未编辑过的角色无需迁移。
+- 自定义角色可选「系统 / 配置 / 自定义」三类提示来源，保存后卡片与运行详情显示来源一致。
+- 引用不存在的提示 key 在保存阶段 400；删除被引用条目 409 并列出角色。
+- 内联 Agent 仍为单轮、无工具调用；委派链路不因提示改造新增 Goal 层级。
 
 ## 7. 风险与边界
 
-- 角色 `systemPrompt` 与 `prompts.<id>` 双来源易混淆 → 统一：角色只存 `promptId + 可选覆盖`，UI 明确标注来源。
+- 角色 `systemPrompt` 与 `prompts.<id>` 双来源易混淆 → 统一为 `PromptRef`（3.8）；`systemPrompt` 仅作旧数据兼容，保存时归一化。
+- 提示引用指向的 custom 条目被删除 → 保存时校验 + 删除 409，避免运行期静默回落。
+- append 语义下，系统提示与主执行面提示可能语气冲突 → 本阶段只允许 append，选择系统条目时在预览里提示「将追加在基础提示之后」。
 - 角色过多导致 Auto 路由准确率下降 → 列表按 category 分组，超 8 个给出提示。
 - 旧数据兼容：`AgentRole` 新增字段全部可选；缺 `description` 的内置角色补默认文案。
 - 权限边界不变：角色只可收窄，不可放大 `permissionCeiling`。
