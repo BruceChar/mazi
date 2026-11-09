@@ -394,3 +394,19 @@ evidence = [
 ]
 established = 2026-11-10
 verified = 2026-11-10
+
+[claims.monorepo-test-and-typecheck-pipeline]
+text = "Test execution does not go through Turborepo: turbo.json defines test as dependsOn build with empty outputs, but the root `test` script runs a single root-level `vitest run --passWithNoTests` under one vitest.config.ts whose only settings are testTimeout/hookTimeout=15s (raised because project-wiki cases spawn git and python subprocesses and would flake at the 5s default under ~198 parallel workers). Type-checking is the real per-package gate: composite `tsc -b` project references in packages (runtime → core/libs/provider, provider → core, api → core+runtime) and `vue-tsc --noEmit` for apps/webui, which compiles with noEmit and allowImportingTsExtensions."
+status = "active"
+evidence = [
+  { file = "turbo.json", oid = "b35e80f49631b5001ba414f718931ba909d5bce3" },
+  { file = "vitest.config.ts", oid = "5df3faceb247f76eb607404db5c9fe60d719b1b6" },
+  { file = "package.json", oid = "b84bbc151ed39053462677402ebaf9055c4e568f" },
+  { file = "packages/runtime/tsconfig.json", oid = "bb4cdf5191c0659fcecb3660263b21ede0300b12" },
+  { file = "packages/provider/tsconfig.json", oid = "dfc23ae4ba92e88c2cf68a7683549ba7ed71d4a1" },
+  { file = "apps/api/tsconfig.json", oid = "060575e0425d9a95098f1ce8aa6b4e8a332e2223" },
+  { file = "apps/webui/tsconfig.json", oid = "236c4c0b07e25a690185fd006cb5a6e3b489331a" },
+  { file = "apps/webui/package.json", oid = "60866e95772b26ed00b0fc9b6f21092a8c775e7f" },
+]
+established = 2026-11-10
+verified = 2026-11-10
