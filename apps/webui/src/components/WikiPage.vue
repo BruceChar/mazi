@@ -595,7 +595,7 @@ watch(selectedPath, (path) => {
                 <span>待核验</span>
             </button>
             <div class="wiki-kpi-wide">
-                <strong>{{ projectType }}</strong>
+                <strong :title="projectType">{{ projectType }}</strong>
                 <span>项目类型</span>
             </div>
             <div>
@@ -1006,7 +1006,10 @@ watch(selectedPath, (path) => {
     background: var(--bg-hover);
 }
 .wiki-kpis strong {
+    /* 左对齐的 flex 子项默认按 max-content 撑开，超长「项目类型」会溢出卡片；限制宽度后才生效省略号。 */
+    width: 100%;
     min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
