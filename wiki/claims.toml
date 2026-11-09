@@ -136,12 +136,12 @@ verified = 2026-11-09
 text = "The Project Wiki UI shows complete state/current content, exact-second timestamps, expandable evidence facts, forgotten versus corrected claim state, and a live background maintenance trace with model stream, tool arguments/results and inline approvals."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "41cfd732a0447b23c711f06c74a07d2e633e29ae" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "9fecf46632055876a20bc3d4e015860f86043b95" },
   { file = "apps/webui/src/scripts/wiki.ts", oid = "d9f0870c1a93384e3a9627168276e1fd4862bbb7" },
   { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "cd6dafc5cc2e305800c82ebadd16ef5b65a45962" },
 ]
 established = 2026-11-07
-verified = 2026-11-08
+verified = 2026-11-09
 
 [claims.project-wiki-incremental-preflight]
 text = "Wiki init returns without launching an Agent when existing claims or a non-TODO index prove initialization. Cold init uses a bounded 24-step Agent and explicit read limits so it starts writing before exploring the whole project. Update and SessionEnd obtain a structured diff/status plan plus evidence-oid findings; SessionEnd additionally extracts safe files actually read by the completed session trace and starts bounded semantic capture even without a git diff. Explicit updates read only changed files, automatic capture reads only filtered research files, and true claims can be batch-verified with claim verify --ids."
@@ -184,7 +184,7 @@ evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "e9ae72dbcc1e4bf2d4090e691d4bdcd4f2823d54" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "41cfd732a0447b23c711f06c74a07d2e633e29ae" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "9fecf46632055876a20bc3d4e015860f86043b95" },
 ]
 established = 2026-11-08
 verified = 2026-11-09
