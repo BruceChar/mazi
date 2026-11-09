@@ -72,3 +72,14 @@ export function saveViewState(state: PersistedViewState): void {
 export function viewStateStorageKey(): string {
     return VIEW_STATE_KEY;
 }
+
+/**
+ * 主会话窗口左上角的视图 tab 是否可见：
+ * 项目会话（有工作区）显示「会话 / 项目 Wiki」两个 tab；Wiki 页常驻，
+ * 便于从 Wiki 一键切回对话。无工作区的随心聊不显示 Wiki 入口。
+ */
+export function workspaceTabsVisible(view: AppView, conversationWorkspace: string): boolean {
+    if (view === 'wiki') return true;
+    if (view !== 'chat') return false;
+    return conversationWorkspace.trim().length > 0;
+}

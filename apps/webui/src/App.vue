@@ -21,7 +21,7 @@ import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run
 import { SETTINGS_TABS } from './scripts/settings-tabs.ts';
 import { DEFAULT_USER_CENTER_TAB, userCenterTabOf } from './scripts/user-center.ts';
 import { wikiWorkspaceFor } from './scripts/wiki.ts';
-import { readViewState, saveViewState } from './scripts/view-state.ts';
+import { readViewState, saveViewState, workspaceTabsVisible } from './scripts/view-state.ts';
 import { buildAuditView } from './scripts/audit.ts';
 import { pendingNegotiationOf } from './scripts/contract-view.ts';
 import { API_BASE } from './api.js';
@@ -273,6 +273,11 @@ const headerWorkspace = computed(() => {
     return workspaceRoot.value || freeChatWorkspace.value;
 });
 const runs = computed(() => activeConversation.value?.runs || []);
+
+/** 主会话窗口左上角的视图 tab：项目会话 / Wiki 页显示，其它整页视图隐藏。 */
+const showWorkspaceTabs = computed(() =>
+    workspaceTabsVisible(ui.view, activeConversation.value?.workspace || ''),
+);
 
 
 /** Lazy-load timeline for every run in the active conversation */
@@ -657,6 +662,11 @@ async function openWikiWorkspace(target) {
     ui.view = 'wiki';
 }
 
+/** 主会话窗口的「项目 Wiki」tab：用当前会话工作区打开 wiki。 */
+async function openWorkspaceWikiTab() {
+    await openWikiWorkspace(headerWorkspace.value);
+}
+
 /** 用户中心内按 Esc 一键返回对话。 */
 function onKeydown(event) {
     if (event.key !== 'Escape') return;
@@ -1018,6 +1028,21 @@ onBeforeUnmount(() => {
         </aside>
 
         <main class="workspace">
+            <!-- 主会话窗口左上角：会话 / 项目 Wiki 双 tab（项目会话与 Wiki 页可见） -->
+            <nav v-if="showWorkspaceTabs" class="main-tabs" aria-label="主视图切换">
+                <button
+                    type="button"
+                    class="main-tab"
+                    :class="{ on: ui.view === 'chat' }"
+                    @click="backToChat"
+                >会话</button>
+                <button
+                    type="button"
+                    class="main-tab"
+                    :class="{ on: ui.view === 'wiki' }"
+                    @click="openWorkspaceWikiTab"
+                >项目 Wiki</button>
+            </nav>
             <template v-if="ui.view === 'chat'">
                 <div v-if="ui.err && conversations.length" class="error-banner">{{ ui.err }}</div>
                 <ChatMain

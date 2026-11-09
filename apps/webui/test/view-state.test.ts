@@ -3,6 +3,7 @@ import {
     parseViewState,
     serializeViewState,
     viewStateStorageKey,
+    workspaceTabsVisible,
 } from '../src/scripts/view-state.ts';
 
 describe('页面位置持久化（刷新后停留在当前页面）', () => {
@@ -44,5 +45,24 @@ describe('页面位置持久化（刷新后停留在当前页面）', () => {
 
     it('存储键是 sessionStorage 的 tab 级键（不跨 tab 串页）', () => {
         expect(viewStateStorageKey()).toBe('mazi.web.view-state');
+    });
+});
+
+describe('主会话窗口视图 tab（会话 / 项目 Wiki）', () => {
+    it('项目会话显示 tab，随心聊（无工作区）不显示', () => {
+        expect(workspaceTabsVisible('chat', '/Users/bruce/nodejs/mazi')).toBe(true);
+        expect(workspaceTabsVisible('chat', '')).toBe(false);
+        expect(workspaceTabsVisible('chat', '   ')).toBe(false);
+    });
+
+    it('Wiki 页常驻 tab，便于切回对话', () => {
+        expect(workspaceTabsVisible('wiki', '')).toBe(true);
+    });
+
+    it('其它整页视图不显示主会话 tab', () => {
+        expect(workspaceTabsVisible('user-center', '/Users/bruce/nodejs/mazi')).toBe(false);
+        expect(workspaceTabsVisible('system-settings', '/Users/bruce/nodejs/mazi')).toBe(false);
+        expect(workspaceTabsVisible('evals', '/Users/bruce/nodejs/mazi')).toBe(false);
+        expect(workspaceTabsVisible('lab', '/Users/bruce/nodejs/mazi')).toBe(false);
     });
 });

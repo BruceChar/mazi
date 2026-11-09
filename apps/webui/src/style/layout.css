@@ -564,6 +564,34 @@
     background: var(--bg);
 }
 
+/* 主会话窗口左上角的视图 tab：会话 / 项目 Wiki */
+.main-tabs {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    flex-shrink: 0;
+    padding: 0 24px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border-soft);
+}
+.main-tabs button {
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--fg-secondary);
+    font-size: 12px;
+    line-height: 1;
+    padding: 9px 10px 7px;
+    cursor: pointer;
+}
+.main-tabs button:hover {
+    color: var(--fg);
+}
+.main-tabs button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
 .main-tabs button.on {
     color: var(--accent);
     border-bottom-color: var(--accent);
