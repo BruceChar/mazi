@@ -322,9 +322,9 @@ text = "The right-side Trace panel preserves an explicit audit anchor for the se
 status = "active"
 evidence = [
   { file = "apps/webui/src/scripts/audit.ts", oid = "ff739856c33827b540fc2cef848e619e390e1bfb" },
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "09ab8da2564a82ddb8c2bee916978ac3bd773bb2" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "f9c731c7a9a3e8d25987209764411e25f5c67db7" },
   { file = "apps/webui/test/audit.test.ts", oid = "f6e7e0603f404a84a48c598715e592f50cf8b5d1" },
-  { file = "docs/webui.md", oid = "215f1535c5e879b49d03ba08da03eaef490d9fc3" },
+  { file = "docs/webui.md", oid = "ac2fe644a9147a4ef83c0ad8a3f184bc34d8e014" },
   { file = "docs/web/观测看板设计.md", oid = "41a3b944b04a1e0bec5d07470edb0211b0d32496" },
 ]
 established = 2026-11-09
