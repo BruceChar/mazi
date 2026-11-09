@@ -19,6 +19,7 @@ import {
     type DelegationEdge,
     type DelegationProposal,
     type DelegationStore,
+    defaultAgentRoles,
     MemoryAgentRoleStore,
     MemoryDelegationStore,
     SqliteAgentRoleStore,
@@ -103,10 +104,14 @@ import { exportMemoryBundle, importMemoryBundle, type MemoryBundle } from '../me
 import { BehaviorRecorder } from '../observability/behavior-recorder.js';
 import { maziHome, maziPaths } from '../paths.js';
 import {
+    type AgentPromptId,
     MemoryPromptPackStore,
     type PromptPack,
     PromptPackRegistry,
     type PromptRiskLevel,
+    type PromptTaskKind,
+    resolveAgentPrompt,
+    resolveBaseAgentPrompt,
     SqlitePromptPackStore,
 } from '../prompts/index.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
@@ -115,8 +120,6 @@ import { RoundExecutor } from '../provider/index.js';
 import { type QuestionClassifier, QuestionLabeler } from '../question/labeler.js';
 import { loadQuestionTaxonomy, type QuestionTaxonomy } from '../question/taxonomy.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
-import { GENERAL_PROMPT } from '../templates/prompts/general.prompt.js';
-import { GOAL_PARSER_PROMPT } from '../templates/prompts/goal-parser.prompt.js';
 import { configureTokenizer } from '../token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
 import { permissionForTool, RuntimeToolGateway } from '../tool-gateway/permission.js';
@@ -134,8 +137,6 @@ import { conversationMessages, type FeedbackInput, type RunOptions } from './con
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
-
-const DEFAULT_AGENT_SYSTEM_PROMPT = GENERAL_PROMPT;
 
 /** 取值兜底：非有限数 → 0（花费回填的 token 字段）。 */
 function numberOf(value: unknown): number {
@@ -310,7 +311,7 @@ export class HarnessRuntime {
             environment: createConditionEnvironment(() => this.workspaceRoot),
         });
         this.delegationRoles = new AgentRoleRegistry(
-            undefined,
+            defaultAgentRoles(config.agentPrompts),
             config.dbPath !== undefined
                 ? new SqliteAgentRoleStore(config.dbPath)
                 : new MemoryAgentRoleStore(),
@@ -401,6 +402,7 @@ export class HarnessRuntime {
             requestRound: (rootGoalId, ctx, reasoningLevel) =>
                 this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel),
             resolveModelChoice: (modelId) => this.resolver.resolveModelChoice(modelId),
+            systemPrompt: this.agentPrompt('iteration-analysis'),
         });
         this.iterationStore = new SqliteIterationStore(config.dbPath ?? ':memory:');
         this.iterationTrackerImpl = new IterationTracker({ store: this.iterationStore });
@@ -762,7 +764,7 @@ export class HarnessRuntime {
                         { role: 'user', content: [{ type: 'text', text: statement }] },
                     ],
                     systemPrompt:
-                        GOAL_PARSER_PROMPT +
+                        this.agentPrompt('intent') +
                         (this.sessionContextFragment(opts.workspaceRoot ?? this.workspaceRoot) ??
                             ''),
                     tools: [],
@@ -1050,6 +1052,7 @@ export class HarnessRuntime {
                                           content: [{ type: 'text', text: prompt }],
                                       },
                                   ],
+                                  systemPrompt: this.agentPrompt('replan'),
                                   tools: [],
                               },
                               reasoningLevel,
@@ -1080,6 +1083,7 @@ export class HarnessRuntime {
                             projectWikiFragment,
                             blackboardFragment,
                             promptPackFragment,
+                            this.codingPromptFragment(decision.taskKind),
                         ),
                     ),
                     tools: exec.tools,
@@ -1826,7 +1830,7 @@ export class HarnessRuntime {
         skillIds?: readonly string[],
         promptFragment?: string,
     ): string {
-        const base = this.config.systemPrompt ?? DEFAULT_AGENT_SYSTEM_PROMPT;
+        const base = this.baseAgentPrompt();
         const context = { rootGoalId, goalId };
         const entries =
             skillIds === undefined
@@ -1854,6 +1858,26 @@ export class HarnessRuntime {
             parts.push(promptFragment.trim());
         }
         return parts.join('\n\n');
+    }
+
+    /**
+     * 某 Agent 生效的系统提示：settings.json prompts 配置优先，内置默认兜底。
+     * 每轮调用前重新解析，保证「保存后新会话生效」。
+     */
+    private agentPrompt(id: AgentPromptId): string {
+        return resolveAgentPrompt(id, this.config.agentPrompts);
+    }
+
+    /** 编码类任务追加编码 Agent 提示：只对 SuperAgent 判定的 coding/debug 任务生效。 */
+    private codingPromptFragment(taskKind: PromptTaskKind): string | undefined {
+        if (taskKind !== 'coding' && taskKind !== 'debug') return undefined;
+        const prompt = this.agentPrompt('coding').trim();
+        return prompt.length > 0 ? prompt : undefined;
+    }
+
+    /** 主执行面基础提示：宿主显式注入 > prompts.main > prompts.default > 内置 GENERAL。 */
+    private baseAgentPrompt(): string {
+        return this.config.systemPrompt ?? resolveBaseAgentPrompt(this.config.agentPrompts);
     }
 
     /** 项目会话的稳定上下文：所有 triage / plan / ReAct 共享，不写进用户消息。 */
@@ -1914,6 +1938,7 @@ export class HarnessRuntime {
                                 messages: [
                                     { role: 'user', content: [{ type: 'text', text: prompt }] },
                                 ],
+                                systemPrompt: this.agentPrompt('planner'),
                                 tools: [],
                             },
                             reasoningLevel,
@@ -2312,6 +2337,7 @@ function combinePromptFragments(
     projectWikiFragment: string | undefined,
     blackboardFragment: string | undefined,
     promptPackFragment: string | undefined,
+    agentPromptFragment?: string,
 ): string | undefined {
     const parts = [
         featureFragment?.trim() ?? '',
@@ -2319,6 +2345,7 @@ function combinePromptFragments(
         projectWikiFragment?.trim() ?? '',
         blackboardFragment?.trim() ?? '',
         promptPackFragment?.trim() ?? '',
+        agentPromptFragment?.trim() ?? '',
     ].filter((part) => part.length > 0);
     return parts.length > 0 ? parts.join('\n\n') : undefined;
 }

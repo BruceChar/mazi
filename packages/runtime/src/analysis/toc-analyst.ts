@@ -35,6 +35,8 @@ export interface TocAnalystDeps {
     ) => Promise<RoundResult>;
     /** 解析模型选择（缺省用运行时默认）。 */
     resolveModelChoice: (modelId?: string) => TocModelRef | undefined;
+    /** 分析 Agent 的系统提示（配置优先，缺省用内置 TOC_ANALYZE_PROMPT）。 */
+    systemPrompt?: string;
     now?: () => number;
 }
 
@@ -66,6 +68,7 @@ export class TocAnalyst {
     private readonly snapshotOf: TocAnalystDeps['snapshotOf'];
     private readonly requestRound: TocAnalystDeps['requestRound'];
     private readonly resolveModelChoice: TocAnalystDeps['resolveModelChoice'];
+    private readonly systemPrompt: string;
     private readonly now: () => number;
 
     constructor(deps: TocAnalystDeps) {
@@ -73,6 +76,8 @@ export class TocAnalyst {
         this.snapshotOf = deps.snapshotOf;
         this.requestRound = deps.requestRound;
         this.resolveModelChoice = deps.resolveModelChoice;
+        const configured = deps.systemPrompt?.trim() ?? '';
+        this.systemPrompt = configured.length > 0 ? configured : TOC_ANALYZE_PROMPT;
         this.now = deps.now ?? Date.now;
     }
 
@@ -101,7 +106,7 @@ export class TocAnalyst {
                         content: [{ type: 'text', text: buildAnalyzePrompt(toc, input.userInput) }],
                     },
                 ],
-                systemPrompt: TOC_ANALYZE_PROMPT,
+                systemPrompt: this.systemPrompt,
                 tools: [],
                 baseMessageCount: 0,
             });

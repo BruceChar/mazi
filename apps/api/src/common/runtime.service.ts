@@ -14,6 +14,8 @@ import type {
     VendorPricingSource,
 } from '@mazi/runtime';
 import {
+    type AgentPromptOverrides,
+    type AgentPromptView,
     ApprovalBroker,
     type ApprovalSettlement,
     AUTH_COMMAND_POLICY_SCHEMA,
@@ -37,6 +39,8 @@ import {
     FileSkillMountStore,
     HarnessRuntime,
     htmlToText,
+    isAgentPromptId,
+    listAgentPromptViews,
     loadCommandPolicy,
     loadRuntimeConfig,
     loadRuntimeSettings,
@@ -1286,6 +1290,33 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         await this.restartRuntimes();
         this.logger.log(`setPermissionCeiling → ${value}`);
         return value;
+    }
+
+    /**
+     * Settings → Agent：各 Agent 的系统提示视图（settings.json prompts 配置优先，内置默认兜底）。
+     */
+    agentPromptViews(): AgentPromptView[] {
+        return listAgentPromptViews(this.config.agentPrompts);
+    }
+
+    /**
+     * Settings → Agent：保存某 Agent 的系统提示；空文本 = 恢复内置默认。
+     * 写入 settings.json 并重建运行时，新会话按新提示装配（运行中的会话保持钉版）。
+     */
+    async setAgentPrompt(promptId: string, systemPrompt: string): Promise<AgentPromptView> {
+        if (!isAgentPromptId(promptId)) throw new ApiError(400, `未知 Agent 提示：${promptId}`);
+        const text = systemPrompt.trim();
+        const patch: AgentPromptOverrides = { [promptId]: text };
+        saveRuntimeSettings({ prompts: patch }, this.paths.home);
+        const next: AgentPromptOverrides = { ...(this.config.agentPrompts ?? {}) };
+        if (text.length === 0) delete next[promptId];
+        else next[promptId] = text;
+        this.config = { ...this.config, agentPrompts: next };
+        await this.restartRuntimes();
+        this.logger.log(`setAgentPrompt[${promptId}] → ${text.length > 0 ? '(set)' : '(default)'}`);
+        const view = listAgentPromptViews(next).find((item) => item.id === promptId);
+        if (view === undefined) throw new ApiError(500, 'Agent 提示视图缺失');
+        return view;
     }
 
     /**

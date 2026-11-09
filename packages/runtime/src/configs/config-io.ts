@@ -4,6 +4,7 @@ import type { ProviderOverview, ProviderPricingView } from '@mazi/libs';
 import { builtinModelsFor } from '@mazi/provider';
 import type { ProviderConfig, RuntimeConfig, ToolConfig } from '../config.js';
 import { ensureMaziDirs, maziPaths } from '../paths.js';
+import { type AgentPromptOverrides, isAgentPromptId } from '../prompts/agent-prompts.js';
 import type { WikiRuntimeOptions } from '../wiki/index.js';
 
 /**
@@ -42,6 +43,11 @@ export interface RuntimeSettingsFile {
     };
     /** 项目 wiki 开关与参数（见 docs/项目wiki设计.md §12）。 */
     wiki?: WikiRuntimeOptions;
+    /**
+     * Agent 系统提示覆盖：id → 提示全文。配置优先于代码内置默认，
+     * 空白值等价于未配置（恢复默认）。
+     */
+    prompts?: AgentPromptOverrides;
 }
 
 /**
@@ -66,6 +72,7 @@ export interface FileRuntimeConfig {
     tools: ToolConfig[];
     goal?: RuntimeSettingsFile['goal'];
     wiki?: RuntimeSettingsFile['wiki'];
+    agentPrompts?: AgentPromptOverrides;
 }
 
 function readJson(file: string): unknown {
@@ -93,6 +100,9 @@ export function loadRuntimeConfig(configDir?: string): FileRuntimeConfig {
         tools: toolsJson?.tools ?? [],
         ...(settingsJson?.goal ? { goal: settingsJson.goal } : {}),
         ...(settingsJson?.wiki ? { wiki: settingsJson.wiki } : {}),
+        ...(settingsJson?.prompts !== undefined
+            ? { agentPrompts: normalizeAgentPrompts(settingsJson.prompts) }
+            : {}),
     };
 }
 
@@ -101,6 +111,37 @@ export function loadRuntimeSettings(configDir?: string): RuntimeSettingsFile {
     const home = configDir && configDir.length > 0 ? configDir : undefined;
     const paths = home ? maziPaths(home) : ensureMaziDirs();
     return (readJson(paths.settingsFile) as RuntimeSettingsFile | undefined) ?? {};
+}
+
+/** 过滤非法 id / 非字符串 / 空白值，得到可用的提示覆盖表。 */
+function normalizeAgentPrompts(input: unknown): AgentPromptOverrides {
+    const result: AgentPromptOverrides = {};
+    if (input === null || typeof input !== 'object') return result;
+    for (const [id, value] of Object.entries(input as Record<string, unknown>)) {
+        if (!isAgentPromptId(id) || typeof value !== 'string') continue;
+        const text = value.trim();
+        if (text.length === 0) continue;
+        result[id] = text;
+    }
+    return result;
+}
+
+/** 增量合并提示覆盖：收到空白值即删除该 id（恢复默认）。 */
+function mergeAgentPrompts(
+    current: AgentPromptOverrides | undefined,
+    incoming: AgentPromptOverrides | undefined,
+): AgentPromptOverrides {
+    const next = normalizeAgentPrompts(current);
+    for (const [id, value] of Object.entries(incoming ?? {})) {
+        if (!isAgentPromptId(id)) continue;
+        const text = typeof value === 'string' ? value.trim() : '';
+        if (text.length === 0) {
+            delete next[id];
+            continue;
+        }
+        next[id] = text;
+    }
+    return next;
 }
 
 /** 写入 settings.json（与既有内容合并；goal 与 permissions 各自浅合并）。 */
@@ -113,6 +154,9 @@ export function saveRuntimeSettings(settings: RuntimeSettingsFile, configDir?: s
         ...(settings.goal ? { goal: { ...current.goal, ...settings.goal } } : {}),
         ...(settings.permissions
             ? { permissions: { ...current.permissions, ...settings.permissions } }
+            : {}),
+        ...(settings.prompts
+            ? { prompts: mergeAgentPrompts(current.prompts, settings.prompts) }
             : {}),
         ...(settings.pricing
             ? {

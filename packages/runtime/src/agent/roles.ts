@@ -1,40 +1,65 @@
+import { type AgentPromptOverrides, resolveAgentPrompt } from '../prompts/agent-prompts.js';
 import type { AgentRole } from './delegation-types.js';
 import type { AgentRoleStore, PersistedAgentRole } from './role-store.js';
 
-export const DEFAULT_AGENT_ROLES: readonly AgentRole[] = [
-    {
-        roleId: 'planner',
-        label: '规划 Agent',
-        tools: ['fs.read', 'rg', 'fd'],
-        systemPrompt: '你负责把目标拆成可验证的 Task，不直接执行高风险动作。',
-        defaultCeiling: 'read-only',
-        memoryPolicy: 'inherit',
-    },
-    {
-        roleId: 'executor',
-        label: '执行 Agent',
-        tools: ['fs.read', 'rg', 'sd', 'shell.run', 'git'],
-        systemPrompt: '你负责执行已分配的 Task，并报告真实工具结果和验证状态。',
-        defaultCeiling: 'workspace-write',
-        memoryPolicy: 'inherit',
-    },
-    {
-        roleId: 'reviewer',
-        label: '审查 Agent',
-        tools: ['fs.read', 'rg', 'git'],
-        systemPrompt: '你独立审查结果，优先报告缺陷、风险和未验证项，不修改实现。',
-        defaultCeiling: 'read-only',
-        memoryPolicy: 'inherit',
-    },
-    {
-        roleId: 'researcher',
-        label: '研究 Agent',
-        tools: ['fs.read', 'rg', 'fd', 'xh'],
-        systemPrompt: '你负责调查和证据归纳，区分事实、来源和推断。',
-        defaultCeiling: 'draft',
-        memoryPolicy: 'inherit',
-    },
-];
+/**
+ * 内置委派角色。系统提示统一取自 Agent 提示注册表（prompts.<roleId>），
+ * config 覆盖优先、内置默认兜底。
+ */
+export function defaultAgentRoles(overrides?: AgentPromptOverrides): AgentRole[] {
+    return [
+        {
+            roleId: 'default',
+            label: '默认 Agent',
+            tools: ['fs.read', 'rg', 'fd'],
+            systemPrompt: resolveAgentPrompt('default', overrides),
+            defaultCeiling: 'read-only',
+            memoryPolicy: 'inherit',
+        },
+        {
+            roleId: 'coding',
+            label: '编码 Agent',
+            tools: ['fs.read', 'rg', 'sd', 'shell.run', 'git'],
+            systemPrompt: resolveAgentPrompt('coding', overrides),
+            defaultCeiling: 'workspace-write',
+            memoryPolicy: 'inherit',
+        },
+        {
+            roleId: 'planner',
+            label: '规划 Agent',
+            tools: ['fs.read', 'rg', 'fd'],
+            systemPrompt: resolveAgentPrompt('planner', overrides),
+            defaultCeiling: 'read-only',
+            memoryPolicy: 'inherit',
+        },
+        {
+            roleId: 'executor',
+            label: '执行 Agent',
+            tools: ['fs.read', 'rg', 'sd', 'shell.run', 'git'],
+            systemPrompt: resolveAgentPrompt('executor', overrides),
+            defaultCeiling: 'workspace-write',
+            memoryPolicy: 'inherit',
+        },
+        {
+            roleId: 'reviewer',
+            label: '审查 Agent',
+            tools: ['fs.read', 'rg', 'git'],
+            systemPrompt: resolveAgentPrompt('reviewer', overrides),
+            defaultCeiling: 'read-only',
+            memoryPolicy: 'inherit',
+        },
+        {
+            roleId: 'researcher',
+            label: '研究 Agent',
+            tools: ['fs.read', 'rg', 'fd', 'xh'],
+            systemPrompt: resolveAgentPrompt('researcher', overrides),
+            defaultCeiling: 'draft',
+            memoryPolicy: 'inherit',
+        },
+    ];
+}
+
+export const DEFAULT_AGENT_ROLES: readonly AgentRole[] = defaultAgentRoles();
 
 export class AgentRoleRegistry {
     private readonly roles = new Map<string, PersistedAgentRole>();

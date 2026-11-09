@@ -4,6 +4,9 @@ import { api } from '../api.js';
 
 const packs = ref([]);
 const roles = ref([]);
+const prompts = ref([]);
+/** 每个 Agent 的编辑草稿；初始为实际生效文本（未配置时即内置默认）。 */
+const promptDrafts = ref({});
 const verifier = ref(null);
 const loading = ref(false);
 const error = ref('');
@@ -33,18 +36,51 @@ async function load() {
     loading.value = true;
     error.value = '';
     try {
-        const [packData, roleData, verifierData] = await Promise.all([
+        const [packData, roleData, verifierData, promptData] = await Promise.all([
             api('/api/agent/prompt-packs'),
             api('/api/agent/roles'),
             api('/api/agent/verifier'),
+            api('/api/agent/prompts'),
         ]);
         packs.value = packData.packs ?? [];
         roles.value = roleData.roles ?? [];
         verifier.value = verifierData;
+        prompts.value = promptData.prompts ?? [];
+        promptDrafts.value = Object.fromEntries(
+            prompts.value.map((prompt) => [prompt.id, prompt.effectivePrompt]),
+        );
     } catch (err) {
         error.value = String(err);
     } finally {
         loading.value = false;
+    }
+}
+
+async function savePrompt(id) {
+    error.value = '';
+    notice.value = '';
+    try {
+        await api(`/api/agent/prompts/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ systemPrompt: promptDrafts.value[id] ?? '' }),
+        });
+        notice.value = '系统提示已保存；新会话按新提示装配，运行中的会话保持原提示。';
+        await load();
+    } catch (err) {
+        error.value = String(err);
+    }
+}
+
+async function resetPrompt(id) {
+    error.value = '';
+    notice.value = '';
+    try {
+        await api(`/api/agent/prompts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        notice.value = '已恢复内置默认提示；新会话生效。';
+        await load();
+    } catch (err) {
+        error.value = String(err);
     }
 }
 
@@ -153,6 +189,43 @@ async function removeRole(id) {
         </p>
         <p v-if="error" class="agent-message error">{{ error }}</p>
         <p v-if="notice" class="agent-message ok">{{ notice }}</p>
+
+        <section class="agent-section">
+            <div class="agent-section-head">
+                <h3>SystemPrompt 配置</h3>
+                <span>{{ prompts.length }} 个 Agent</span>
+            </div>
+            <p class="agent-hint">
+                配置优先于代码默认；保存后<strong>新会话</strong>按新提示装配，运行中的会话保持创建时的提示。
+            </p>
+            <div class="agent-item-list">
+                <details v-for="prompt in prompts" :key="prompt.id" class="agent-prompt">
+                    <summary>
+                        <span>{{ prompt.label }}</span>
+                        <code>{{ prompt.id }}</code>
+                        <span
+                            class="agent-prompt-badge"
+                            :class="prompt.source === 'config' ? 'configured' : 'default'"
+                        >
+                            {{ prompt.source === 'config' ? '已配置' : '默认' }}
+                        </span>
+                    </summary>
+                    <p class="agent-hint">{{ prompt.description }}</p>
+                    <textarea
+                        v-model="promptDrafts[prompt.id]"
+                        rows="6"
+                        spellcheck="false"
+                        placeholder="留空保存即恢复内置默认"
+                    ></textarea>
+                    <div class="agent-prompt-actions">
+                        <button type="button" @click="resetPrompt(prompt.id)">恢复默认</button>
+                        <button class="primary" type="button" @click="savePrompt(prompt.id)">
+                            保存
+                        </button>
+                    </div>
+                </details>
+            </div>
+        </section>
 
         <section class="agent-section">
             <div class="agent-section-head">
@@ -356,6 +429,71 @@ async function removeRole(id) {
 }
 .agent-form .primary {
     justify-self: end;
+    background: var(--accent);
+    color: #fff;
+    border-color: transparent;
+}
+.agent-prompt {
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    padding: 8px;
+}
+.agent-prompt summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.agent-prompt summary code {
+    color: var(--fg-tertiary);
+    font-size: 10px;
+}
+.agent-prompt-badge {
+    margin-left: auto;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    font-size: 10px;
+}
+.agent-prompt-badge.configured {
+    color: var(--ok);
+    border-color: var(--ok);
+}
+.agent-prompt-badge.default {
+    color: var(--fg-tertiary);
+}
+.agent-prompt textarea {
+    box-sizing: border-box;
+    width: 100%;
+    margin-top: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--fg);
+    padding: 8px;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.5;
+    resize: vertical;
+}
+.agent-prompt-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 6px;
+}
+.agent-prompt-actions button {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-panel);
+    color: var(--fg-secondary);
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+}
+.agent-prompt-actions .primary {
     background: var(--accent);
     color: #fff;
     border-color: transparent;

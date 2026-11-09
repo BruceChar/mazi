@@ -1,4 +1,5 @@
 import type { PermissionLevel, SideEffectScope } from '@mazi/core';
+import type { AgentPromptOverrides } from './prompts/agent-prompts.js';
 import type { PricingSchedule } from './provider/index.js';
 import type { WikiRuntimeOptions } from './wiki/index.js';
 
@@ -117,6 +118,11 @@ export interface RuntimeConfig {
         allowedTools?: string[];
     };
     systemPrompt?: string;
+    /**
+     * 各 Agent 的系统提示覆盖（settings.json 的 prompts 段；config 优先于内置默认）。
+     * 空白/缺省 → 使用代码内置默认；保存后新会话生效。
+     */
+    agentPrompts?: AgentPromptOverrides;
     /** 命令分类规则文件路径；缺省 <MAZI_HOME>/config/auth/commands.json（MAZI_AUTH_CONFIG_DIR 可覆盖）。 */
     authCommandPolicyFile?: string;
     /** 模型上下文窗口（token），runtime 上下文计量与利用率用 */

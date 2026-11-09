@@ -1,11 +1,12 @@
 import 'reflect-metadata';
 import {
+    type AgentPromptView,
     type AgentRole,
     type PromptPack,
     type PromptRiskLevel,
     type PromptTaskKind,
 } from '@mazi/runtime';
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
 import { ApiError } from '../common/api-error.js';
 import { ApiRuntimeService } from '../common/runtime.service.js';
 
@@ -183,6 +184,29 @@ export class AgentController {
             throw new ApiError(404, 'Agent role 不存在');
         }
         return { ok: true, removed: true };
+    }
+
+    @Get('prompts')
+    prompts(): { prompts: AgentPromptView[] } {
+        return { prompts: this.runtime.agentPromptViews() };
+    }
+
+    /** 保存某 Agent 的系统提示（空字符串 = 恢复默认）；下一次新建会话生效。 */
+    @Put('prompts/:id')
+    async savePrompt(
+        @Param('id') id: string,
+        @Body() body: Record<string, unknown>,
+    ): Promise<{ prompt: AgentPromptView }> {
+        if (typeof body?.systemPrompt !== 'string') {
+            throw new ApiError(400, 'systemPrompt 必须是字符串');
+        }
+        return { prompt: await this.runtime.setAgentPrompt(id, body.systemPrompt) };
+    }
+
+    /** 恢复某 Agent 的内置默认提示。 */
+    @Delete('prompts/:id')
+    async resetPrompt(@Param('id') id: string): Promise<{ ok: true; prompt: AgentPromptView }> {
+        return { ok: true, prompt: await this.runtime.setAgentPrompt(id, '') };
     }
 
     @Get('sessions/:id/delegations')
