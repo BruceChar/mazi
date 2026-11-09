@@ -28,6 +28,12 @@ import {
     applyStepStarted as applyLiveStepStarted,
     type LiveStep,
 } from './arm-live.js';
+import {
+    completeExecution,
+    type ExecutionQueueItem,
+    enqueueExecution,
+    isExecutionQueued,
+} from './execution-queue.js';
 import type { ExperimentSummaryView, ExperimentView } from './experiments.js';
 import type { PlanTaskLike, RunPlan } from './plan-view.ts';
 import { isAbortedReason, snapshotResumable } from './run-control.js';
@@ -247,6 +253,8 @@ function endBusy(): void {
 export const current = ref<string | null>(null);
 /** 正在执行的 run（停止按钮的作用对象）；执行结束后清空。 */
 export const activeRunId = ref<string | null>(null);
+/** 当前前台执行中的 run 与等待执行的 FIFO run。 */
+export const executionQueue = ref<ExecutionQueueItem[]>([]);
 export const currentConversation = ref<string | null>(null);
 // 切换会话 → 重新解析该会话的权限（会话覆盖 → 工作区覆盖 → 系统默认），
 // 因此一个会话/项目的设置不会串到其他会话/项目。
@@ -257,6 +265,10 @@ export const detail = ref<GoalTreeSnapshot | null>(null);
 export const runDetails = reactive<Record<string, GoalTreeSnapshot | null>>({});
 /** In-memory run outcomes (POST /run task summary; never persisted). */
 export const runOutcomes = reactive<Record<string, RunOutcome>>({});
+
+export function isRunQueued(rootGoalId: string): boolean {
+    return isExecutionQueued(executionQueue.value, rootGoalId);
+}
 
 /**
  * 当前 run 是否可恢复：空闲且最近一次执行被用户停止（内存摘要），
@@ -1072,12 +1084,14 @@ export async function openRun(rootGoalId: string): Promise<void> {
 
 /** Open a conversation (selects its latest run by default). */
 export async function openConversation(conversationId: string): Promise<void> {
+    const conversation = conversations.value.find((item) => item.conversationId === conversationId);
+    const latest = latestRun(conversation);
+    // 排队 run 只在执行队列卡展示；点击其会话不能抢走当前 run 的 SSE。
+    if (latest && isRunQueued(latest.rootGoalId)) return;
     currentConversation.value = conversationId;
     refreshSessionPermission();
-    const conversation = conversations.value.find((item) => item.conversationId === conversationId);
-    const run = latestRun(conversation);
-    if (run) {
-        await openRun(run.rootGoalId);
+    if (latest) {
+        await openRun(latest.rootGoalId);
     } else {
         current.value = null;
         detail.value = null;
@@ -1108,8 +1122,9 @@ export async function createRun({
 }: CreateRunOptions): Promise<string | null> {
     const text = String(input ?? '').trim();
     if (!text) return null;
+    const shouldQueue = exec && busy.value;
     // 乐观回显：用户消息先落到 UI（真实 run 由 loadConversations 换进来）
-    pendingInput.value = text;
+    if (!shouldQueue) pendingInput.value = text;
     beginBusy();
     ui.err = null;
     try {
@@ -1135,16 +1150,26 @@ export async function createRun({
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(body),
         });
-        if (created.conversationId) {
+        if (created.conversationId && !shouldQueue) {
             currentConversation.value = created.conversationId;
             refreshSessionPermission();
+        }
+        if (exec) {
+            executionQueue.value = enqueueExecution(executionQueue.value, {
+                rootGoalId: created.sessionId,
+                conversationId: created.conversationId ?? conversationId ?? '',
+                input: text,
+            });
         }
         await loadConversations();
         // 真实 run 已在会话里，乐观占位退场
         if (pendingInput.value === text) pendingInput.value = '';
-        await openRun(created.sessionId);
+        if (!shouldQueue) await openRun(created.sessionId);
         if (exec) {
-            await executeRun(created.sessionId);
+            await executeRun(created.sessionId, {
+                input: text,
+                conversationId: created.conversationId ?? conversationId ?? '',
+            });
         }
         return created.sessionId;
     } catch (error) {
@@ -1171,10 +1196,22 @@ function cacheRunOutcome(rootGoalId: string, result: Record<string, unknown>): v
 }
 
 /** Execute a Goal run (POST /api/sessions/:id/run) and cache its task summary. */
-export async function executeRun(rootGoalId: string): Promise<void> {
+export async function executeRun(
+    rootGoalId: string,
+    entry: { input?: string; conversationId?: string } = {},
+): Promise<void> {
     if (!rootGoalId) return;
+    if (!executionQueue.value.some((item) => item.rootGoalId === rootGoalId)) {
+        executionQueue.value = enqueueExecution(executionQueue.value, {
+            rootGoalId,
+            conversationId: entry.conversationId ?? '',
+            input: entry.input ?? '',
+        });
+    }
+    if (executionQueue.value[0]?.rootGoalId === rootGoalId) {
+        activeRunId.value = rootGoalId;
+    }
     beginBusy();
-    activeRunId.value = rootGoalId;
     ui.err = null;
     try {
         const result = await api(`/api/sessions/${rootGoalId}/run`, {
@@ -1188,7 +1225,15 @@ export async function executeRun(rootGoalId: string): Promise<void> {
     } catch (error) {
         ui.err = String(error);
     } finally {
-        if (activeRunId.value === rootGoalId) activeRunId.value = null;
+        const completed = completeExecution(executionQueue.value, rootGoalId);
+        executionQueue.value = completed.queue;
+        activeRunId.value = completed.queue[0]?.rootGoalId ?? null;
+        if (completed.next !== undefined) {
+            if (completed.next.conversationId) {
+                currentConversation.value = completed.next.conversationId;
+            }
+            await openRun(completed.next.rootGoalId);
+        }
         endBusy();
     }
 }

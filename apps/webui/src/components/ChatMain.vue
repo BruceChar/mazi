@@ -4,6 +4,7 @@ import LineIcon from '../assets/LineIcon.vue';
 import ApprovalPrompt from './ApprovalPrompt.vue';
 import ExecStream from './ExecStream.vue';
 import Composer from './Composer.vue';
+import ExecutionQueueCard from './ExecutionQueueCard.vue';
 import TaskBoardCard from './TaskBoardCard.vue';
 import { VoiceController } from '../voice/controller.ts';
 import { formatCost, formatTokens } from '../scripts/audit.ts';
@@ -15,6 +16,8 @@ const props = defineProps({
     workspaceRoot: { type: String, default: '' },
     workspaceDisplayName: { type: String, default: '' },
     runs: { type: Array, default: () => [] },
+    /** 当前执行与排队 run 的 FIFO 投影（不进入消息流）。 */
+    executionQueue: { type: Array, default: () => [] },
     runDetails: { type: Object, default: () => ({}) },
     current: { type: String, default: '' },
     busy: { type: Boolean, default: false },
@@ -64,6 +67,7 @@ const emit = defineEmits([
     'select-task',
     'select-behavior',
     'respond-approval',
+    'select-execution',
 ]);
 
 /* ---------- 语音输入控制器（docs/web/语音输入设计.md） ---------- */
@@ -430,7 +434,12 @@ onBeforeUnmount(() => {
 
         <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
 
-        <!-- 执行中：多 Task 清单固定在输入框上方，点击可定位到 Goal→Task 树 -->
+        <!-- 输入框上方：执行队列与当前计划任务清单 -->
+        <ExecutionQueueCard
+            :items="executionQueue"
+            :active-run-id="current"
+            @select="emit('select-execution', $event)"
+        />
         <TaskBoardCard
             v-if="showTaskStrip"
             mode="strip"

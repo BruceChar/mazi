@@ -20,8 +20,23 @@ vi.mock('vue', () => ({
     watch: () => () => {},
 }));
 
-const { busy, createRun, pendingInput } = await import('../src/scripts/store.ts');
+const {
+    busy,
+    createRun,
+    current,
+    currentConversation,
+    executionQueue,
+    pendingInput,
+} = await import('../src/scripts/store.ts');
 const { api } = await import('../src/api.js');
+
+async function waitFor(condition: () => boolean): Promise<void> {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (condition()) return;
+        await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    throw new Error('condition not met');
+}
 
 describe('乐观回显（pendingInput）', () => {
     it('创建请求还没返回，用户输入已经可见；真实 run 进入会话后清空', async () => {
@@ -80,5 +95,54 @@ describe('乐观回显（pendingInput）', () => {
         releases.get('second')?.();
         await second;
         expect(busy.value).toBe(false);
+    });
+
+    it('第二个 run 只进入执行队列，不切换当前 run 或订阅', async () => {
+        const runResolvers = new Map<string, () => void>();
+        vi.mocked(api).mockImplementation(async (path: string, init?: RequestInit) => {
+            if (path === '/api/sessions') {
+                const body = JSON.parse(String(init?.body ?? '{}')) as { input?: string };
+                const name = body.input ?? '';
+                return {
+                    sessionId: `s-${name}`,
+                    conversationId: 'c-shared',
+                    state: 'active',
+                };
+            }
+            if (path.endsWith('/run')) {
+                const name = path.includes('s-first') ? 'first' : 'second';
+                await new Promise<void>((resolve) => {
+                    runResolvers.set(name, resolve);
+                });
+                return { ok: true, tasks: [] };
+            }
+            if (path.includes('/timeline')) {
+                return { rootGoalId: '', goals: [], taskCount: 0, stepCount: 0 };
+            }
+            return [];
+        });
+
+        const first = createRun({ input: 'first', exec: true });
+        await waitFor(() => current.value === 's-first' && runResolvers.has('first'));
+
+        const second = createRun({ input: 'second', exec: true });
+        await waitFor(
+            () =>
+                executionQueue.value.length === 2 &&
+                executionQueue.value[1]?.status === 'queued',
+        );
+        expect(current.value).toBe('s-first');
+        expect(currentConversation.value).toBe('c-shared');
+
+        runResolvers.get('first')?.();
+        await waitFor(
+            () =>
+                current.value === 's-second' &&
+                executionQueue.value[0]?.rootGoalId === 's-second',
+        );
+
+        runResolvers.get('second')?.();
+        await Promise.all([first, second]);
+        expect(executionQueue.value).toEqual([]);
     });
 });

@@ -39,6 +39,7 @@ import {
     currentResumable,
     deleteConversationById,
     detail,
+    executionQueue,
     runDetails,
     loadRunDetail,
     events,
@@ -71,6 +72,7 @@ import {
     selectedBehavior,
     selectedStepId,
     selectedTaskId,
+    isRunQueued,
     refreshPricing,
     sendFeedback,
     sessionPermission,
@@ -273,6 +275,10 @@ const headerWorkspace = computed(() => {
     return workspaceRoot.value || freeChatWorkspace.value;
 });
 const runs = computed(() => activeConversation.value?.runs || []);
+/** 排队中的 run 只在执行队列卡展示，进入运行后才加入聊天消息流。 */
+const visibleRuns = computed(() =>
+    runs.value.filter((run) => !isRunQueued(run.rootGoalId)),
+);
 
 /** 主会话窗口左上角的视图 tab：项目会话 / Wiki 页显示，其它整页视图隐藏。 */
 const showWorkspaceTabs = computed(() =>
@@ -311,7 +317,7 @@ const rootOutcome = computed(() => (current.value ? runOutcomes[current.value] :
  */
 /** 当前 Conversation 的全部 run（按时间顺序）+ 快照。 */
 const conversationRuns = computed(() =>
-    runs.value.map((run) => ({
+    visibleRuns.value.map((run) => ({
         rootGoalId: run.rootGoalId,
         input: run.input || '',
         snapshot: runDetails[run.rootGoalId] ?? null,
@@ -322,7 +328,7 @@ const auditSnapshot = computed(() =>
 );
 /** Trace 列表 Run 头标题：会话内 run 顺序（1-based）+ 用户输入摘要。 */
 const traceRuns = computed(() =>
-    runs.value.map((run, index) => ({ runIndex: index + 1, input: run.input || '' })),
+    visibleRuns.value.map((run, index) => ({ runIndex: index + 1, input: run.input || '' })),
 );
 const auditLiveSteps = computed(() => (current.value ? liveSteps[current.value] || [] : []));
 
@@ -787,6 +793,13 @@ async function resumePrompt() {
     });
 }
 
+async function selectExecution(rootGoalId) {
+    const item = executionQueue.value.find((entry) => entry.rootGoalId === rootGoalId);
+    if (!item || item.status !== 'running') return;
+    if (item.conversationId) currentConversation.value = item.conversationId;
+    await openRun(rootGoalId);
+}
+
 function openRenameConversation(conversation) {
     promptDialog.value = {
         open: true,
@@ -1049,7 +1062,8 @@ onBeforeUnmount(() => {
                     :active-conversation="activeConversation"
                     :workspace-display-name="workspaceDisplayName"
                     :workspace-root="workspaceRoot"
-                    :runs="runs"
+                    :runs="visibleRuns"
+                    :execution-queue="executionQueue"
                     :run-details="runDetails"
                     :current="current"
                     :busy="busy"
@@ -1082,6 +1096,7 @@ onBeforeUnmount(() => {
                     @submit="submitPrompt"
                     @stop="stopPrompt"
                     @resume="resumePrompt"
+                    @select-execution="selectExecution"
                     @switch-project="switchProject"
                     @open-system-picker="openSystemPicker"
                     @exit-workspace="exitWorkspace"
