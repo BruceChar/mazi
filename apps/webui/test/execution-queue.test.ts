@@ -3,6 +3,7 @@ import {
     completeExecution,
     enqueueExecution,
     isExecutionQueued,
+    queuedExecutionItems,
     showExecutionQueueCard,
 } from '../src/scripts/execution-queue.ts';
 
@@ -32,6 +33,13 @@ describe('执行队列投影', () => {
                 { ...second, status: 'queued' },
             ]),
         ).toBe(true);
+    });
+
+    it('队列卡只投影 queued 项，不重复展示当前 running 任务', () => {
+        const queue = enqueueExecution(enqueueExecution([], first), second);
+        expect(queuedExecutionItems(queue)).toEqual([
+            expect.objectContaining({ rootGoalId: 'run-2', status: 'queued' }),
+        ]);
     });
 
     it('首个任务执行，后续任务按到达顺序排队', () => {

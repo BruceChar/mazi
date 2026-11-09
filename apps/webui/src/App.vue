@@ -793,13 +793,6 @@ async function resumePrompt() {
     });
 }
 
-async function selectExecution(rootGoalId) {
-    const item = executionQueue.value.find((entry) => entry.rootGoalId === rootGoalId);
-    if (!item || item.status !== 'running') return;
-    if (item.conversationId) currentConversation.value = item.conversationId;
-    await openRun(rootGoalId);
-}
-
 function openRenameConversation(conversation) {
     promptDialog.value = {
         open: true,
@@ -1096,7 +1089,6 @@ onBeforeUnmount(() => {
                     @submit="submitPrompt"
                     @stop="stopPrompt"
                     @resume="resumePrompt"
-                    @select-execution="selectExecution"
                     @switch-project="switchProject"
                     @open-system-picker="openSystemPicker"
                     @exit-workspace="exitWorkspace"

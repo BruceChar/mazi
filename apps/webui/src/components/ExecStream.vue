@@ -30,8 +30,6 @@ const props = defineProps({
     /** Audit selection highlight (store.selectedStepId / selectedTaskId). */
     selectedStepId: { type: String, default: '' },
     selectedTaskId: { type: String, default: '' },
-    /** 随心聊：只展示对话输出，不展示 GoalContract。 */
-    chatMode: { type: Boolean, default: false },
 });
 /** Open the right-side audit panel for the clicked Step/Task/Behavior. */
 const emit = defineEmits(['select-step', 'select-task', 'select-behavior']);
@@ -442,9 +440,8 @@ const latestPlan = computed(() => (liveRunId.value ? runPlans[liveRunId.value] :
 const planView = computed(() =>
     planViewOf({ plan: latestPlan.value, snapshot: props.runDetail, liveSteps: props.liveSteps }),
 );
-/** 实时步骤按当前计划分组；计划未知时是一个 task=null 的扁平回退组（保持旧行为）。
- *  随心聊（chatMode）与 settled 树一致：不展示 Task 层级，只保留扁平步骤列表。 */
-const showPlanTree = computed(() => !props.chatMode && planView.value.tasks.length > 0);
+/** 实时步骤按当前计划分组；计划未知时是一个 task=null 的扁平回退组（保持旧行为）。 */
+const showPlanTree = computed(() => planView.value.tasks.length > 0);
 const liveGroups = computed(() =>
     groupLiveStepsByTask(
         livePlaced.value.steps,
@@ -606,7 +603,6 @@ const liveGroups = computed(() =>
                 </div>
                 <div v-for="(task, tIdx) in goal.tasks" :key="task.taskId" class="exec-task">
                     <div
-                        v-if="!chatMode"
                         class="exec-task-head"
                         :data-task-id="task.taskId"
                         :class="{ selected: task.taskId === selectedTaskId }"
@@ -637,7 +633,6 @@ const liveGroups = computed(() =>
                             :class="[`exec-${row.kind}`, { error: row.status === 'error' || row.status === 'failed' }]"
                         >
                             <div
-                                v-if="!chatMode"
                                 class="exec-step-head"
                                 :data-step-id="row.stepId"
                                 :class="{ selected: row.stepId === selectedStepId }"

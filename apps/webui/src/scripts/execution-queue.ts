@@ -59,7 +59,12 @@ export function isExecutionQueued(
     return queue.some((item) => item.rootGoalId === rootGoalId && item.status === 'queued');
 }
 
-/** 单 run 直接进入会话窗口；只有出现排队关系时才展示执行队列卡。 */
+/** 队列卡只展示等待执行的 run；当前 running run 已在会话窗口展示。 */
+export function queuedExecutionItems(queue: readonly ExecutionQueueItem[]): ExecutionQueueItem[] {
+    return queue.filter((item) => item.status === 'queued');
+}
+
+/** 没有 queued run 时不展示执行队列卡。 */
 export function showExecutionQueueCard(queue: readonly ExecutionQueueItem[]): boolean {
-    return queue.length > 1;
+    return queuedExecutionItems(queue).length > 0;
 }

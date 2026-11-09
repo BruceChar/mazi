@@ -67,7 +67,6 @@ const emit = defineEmits([
     'select-task',
     'select-behavior',
     'respond-approval',
-    'select-execution',
 ]);
 
 /* ---------- 语音输入控制器（docs/web/语音输入设计.md） ---------- */
@@ -357,7 +356,6 @@ onBeforeUnmount(() => {
                                 :live-steps="liveSteps[run.rootGoalId] || []"
                                 :selected-step-id="run.rootGoalId === current ? selectedStepId : ''"
                                 :selected-task-id="run.rootGoalId === current ? selectedTaskId : ''"
-                                :chat-mode="!activeConversation?.workspace"
                                 @select-step="emit('select-step', $event)"
                                 @select-task="emit('select-task', $event)"
                                 @select-behavior="emit('select-behavior', $event)"
@@ -435,11 +433,7 @@ onBeforeUnmount(() => {
         <div v-if="feedbackSent" class="ok-banner">反馈已记录</div>
 
         <!-- 输入框上方：执行队列与当前计划任务清单 -->
-        <ExecutionQueueCard
-            :items="executionQueue"
-            :active-run-id="current"
-            @select="emit('select-execution', $event)"
-        />
+        <ExecutionQueueCard :items="executionQueue" />
         <TaskBoardCard
             v-if="showTaskStrip"
             mode="strip"
