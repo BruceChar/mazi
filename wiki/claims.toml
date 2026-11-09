@@ -198,11 +198,11 @@ text = "Each project SessionEnd enqueues a per-workspace runtime sync without bl
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
-  { file = "apps/api/src/sessions/sessions.service.ts", oid = "346f58b235284b8218dad63adf174c305a6a8c8c" },
+  { file = "apps/api/src/sessions/sessions.service.ts", oid = "6de2581a8123e10e1c48a01c77693bbfe4dd3134" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
 ]
 established = 2026-11-08
-verified = 2026-11-09
+verified = 2026-11-10
 
 [claims.project-wiki-incremental-preflight-runtime]
 text = "ProjectWikiService returns immediately from init when existing claims or a non-TODO index prove initialization. It builds update plans from semantic checkpoint diffs, worktree status and all evidence oids; SessionEnd additionally extracts safe files read by the session so no-diff exploration can be distilled. Explicit updates read only changed files and context capture reads only filtered research files."
