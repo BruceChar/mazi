@@ -21,6 +21,8 @@ export interface PlanTaskLike {
     planVersion?: number;
     /** 落库状态（事件 plan.revised / timeline 快照提供；plan.created 缺省）。 */
     status?: string;
+    /** 历史 Task 的启动时间，用于执行树中按真实发生顺序排列。 */
+    startedAt?: number;
     /** timeline 快照里的步骤（仅用于步数兜底）。 */
     steps?: readonly unknown[];
 }
@@ -181,6 +183,38 @@ export function latestPlanTasks(tasks: readonly PlanTaskLike[] | null | undefine
     const version = planVersionOf(list);
     if (version === null) return list;
     return list.filter((task) => finiteVersion(task.planVersion) === version);
+}
+
+/**
+ * 主会话执行树的 Task 列表：当前计划保持原顺序；被后续 Replan 淘汰但已经启动、
+ * 有 Step 或进入终态的历史 Task 仍按真实开始时间前置展示。TaskBoard 继续使用
+ * latestPlanTasks，只显示当前计划，避免把审计历史误当成待执行工作。
+ */
+export function executionPlanTasks(
+    tasks: readonly PlanTaskLike[] | null | undefined,
+): PlanTaskLike[] {
+    const list = asTasks(tasks);
+    const current = latestPlanTasks(list);
+    if (planVersionOf(list) === null) return current;
+    const currentIds = new Set(current.map((task) => task.taskId));
+    const terminal = new Set(['succeeded', 'failed', 'blocked', 'aborted', 'timeout']);
+    const historical = list
+        .map((task, index) => ({ task, index }))
+        .filter(({ task }) => {
+            if (currentIds.has(task.taskId)) return false;
+            return (
+                typeof task.startedAt === 'number' ||
+                (task.steps?.length ?? 0) > 0 ||
+                terminal.has(String(task.status ?? ''))
+            );
+        })
+        .sort(
+            (left, right) =>
+                (left.task.startedAt ?? 0) - (right.task.startedAt ?? 0) ||
+                left.index - right.index,
+        )
+        .map(({ task }) => task);
+    return [...historical, ...current];
 }
 
 /** 计划修订次数：版本 - 1（版本 1 / 无版本 = 0）。 */

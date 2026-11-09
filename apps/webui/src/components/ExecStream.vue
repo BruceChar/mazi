@@ -11,8 +11,8 @@ import {
     toggleCollapsedKey,
 } from '../scripts/exec-tree.ts';
 import {
+    executionPlanTasks,
     groupLiveStepsByTask,
-    latestPlanTasks,
     planTaskStatusLabel,
     planTaskStatusTone,
     planViewOf,
@@ -240,9 +240,9 @@ function buildExecTree(detailObj) {
             /** 纯直答跳过 0 steps 占位任务；旧数据有执行事实时照常展示。 */
             tasks: directAnswerOnly
                 ? []
-                // 只展示当前计划（最高 planVersion）：被 replan 替换的旧计划尝试不进树，
-                // 完整审计仍保留在 Trace 面板。
-                : latestPlanTasks(goal.tasks || []).map((task) => {
+                // 当前计划按原顺序展示；被 replan 替换但已启动/有 Step/进入终态的
+                // 历史 Task 仍需保留其真实执行序列，不能从 Goal 树中消失。
+                : executionPlanTasks(goal.tasks || []).map((task) => {
                       const startedAt = taskStartedAt(task);
                       const rows = taskStepRows(task, lastAnswerId);
                       // Place behavior rows (approval / authorization / feedback) on
@@ -262,6 +262,7 @@ function buildExecTree(detailObj) {
                           taskId: task.taskId,
                           title: task.title,
                           status: task.status,
+                          planVersion: task.planVersion,
                           statusLabel: planTaskStatusLabel(task.status),
                           statusTone: planTaskStatusTone(task.status),
                           time: startedAt ? fmtDateTime(startedAt) : '',
@@ -620,6 +621,10 @@ const liveGroups = computed(() =>
                         ></span>
                         <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
                         <span class="exec-task-title">{{ task.title }}</span>
+                        <span v-if="task.planVersion" class="exec-task-plan">v{{ task.planVersion }}</span>
+                        <span class="exec-task-status" :class="task.statusTone">
+                            {{ task.statusLabel }}
+                        </span>
                         <span v-if="task.steps.length > 0" class="exec-task-count">
                             {{ task.steps.length }} steps
                         </span>
@@ -861,6 +866,30 @@ const liveGroups = computed(() =>
     font-size: 11px;
     color: var(--fg-tertiary);
     flex-shrink: 0;
+}
+.exec-task-plan,
+.exec-task-status {
+    flex-shrink: 0;
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    line-height: 15px;
+    color: var(--fg-tertiary);
+}
+.exec-task-status.ok {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.exec-task-status.fail {
+    border-color: var(--error);
+    color: var(--error);
+}
+.exec-task-status.aborted,
+.exec-task-status.skipped {
+    border-color: var(--warn);
+    color: var(--warn);
 }
 /* Full date/time, shown once per task so steps can stay time-of-day only. */
 .exec-task-time {

@@ -179,6 +179,9 @@
   标题行显示完成进度（`已完成/总数`），可折叠成一行（折叠时保留当前 Task 名称与状态），展开即完整清单。
   点击任一 Task 滚动定位到 Goal→Task 树中对应 Task，并同步 Trace 选中。run 结束后卡片从输入框上方撤下，
   转为会话流末尾的纵向任务清单（同一份计划投影；结束后状态以落库快照为准），同样可折叠。
+  任务卡只展示当前计划版本；主会话的执行树还必须保留被后续 Replan 替换、但已经启动或进入
+  failed/aborted 的历史 Task，以及这些 Task 已落库的 Step 序列。不能因为出现更高 planVersion
+  就把真实执行事实从 Goal 树中过滤掉。
   单 Task 不展示任务卡，Task 头本身已承担标识。
   计划投影见 `apps/webui/src/scripts/plan-view.ts`（`taskBoardVisible`），组件为 `TaskBoardCard.vue`。
 

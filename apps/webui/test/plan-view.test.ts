@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    executionPlanTasks,
     groupLiveStepsByTask,
     latestPlanTasks,
     planRevisionLabel,
@@ -52,6 +53,28 @@ describe('plan-view 计划版本', () => {
         // 返回新数组，展示层不会反向改动快照数据。
         expect(filtered).not.toBe(tasks);
         expect(latestPlanTasks(null)).toEqual([]);
+    });
+
+    it('执行树保留已启动/失败/中止的历史 Task，并排在当前计划之前', () => {
+        const tasks = [
+            task('cur-1', { planVersion: 3 }),
+            task('old-aborted', { planVersion: 2, status: 'aborted', startedAt: 2 }),
+            task('old-pending', { planVersion: 1, status: 'pending' }),
+            task('old-failed', {
+                planVersion: 1,
+                status: 'failed',
+                startedAt: 1,
+                steps: [{ stepId: 's1' }],
+            }),
+            task('cur-2', { planVersion: 3 }),
+        ];
+
+        expect(executionPlanTasks(tasks).map((item) => item.taskId)).toEqual([
+            'old-failed',
+            'old-aborted',
+            'cur-1',
+            'cur-2',
+        ]);
     });
 
     it('修订次数 = 版本 - 1（初始计划 v1 不算修订）', () => {
