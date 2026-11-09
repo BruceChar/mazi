@@ -1,6 +1,5 @@
-# wiki/claims.toml — 只通过 wiki.py claim 修改，禁止手改
+# wiki/claims.toml — 只通过 runtime Project Wiki API 修改，禁止手改
 # status 落盘仅 active|retracted；stale/missing 由 doctor 运行时推导
-
 
 [claims.wiki-ui-repository-view]
 text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
