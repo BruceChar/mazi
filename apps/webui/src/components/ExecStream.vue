@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import { formatTokens } from '../scripts/audit.ts';
 import { placeBehaviors } from '../scripts/behavior-placement.ts';
@@ -448,6 +448,49 @@ const liveGroups = computed(() =>
         showPlanTree.value ? planView.value.tasks : [],
     ),
 );
+
+/** Step 定位前置条件：目标 Goal/Task 必须展开，否则 DOM 中没有 data-step-id。 */
+function expandStepContext(stepId) {
+    const locatedTask =
+        tree.value
+            .flatMap((goal) => goal.tasks.map((task) => ({ goal, task })))
+            .find(({ task }) => task.steps.some((row) => row.stepId === stepId))?.task ??
+        null;
+    if (locatedTask) {
+        const goal = tree.value.find((entry) =>
+            entry.tasks.some((task) => task.taskId === locatedTask.taskId),
+        );
+        if (goal && collapsedGoals.value.has(goal.goalId)) {
+            const next = new Set(collapsedGoals.value);
+            next.delete(goal.goalId);
+            collapsedGoals.value = next;
+        }
+        if (collapsedTasks.value.has(locatedTask.taskId)) {
+            const next = new Set(collapsedTasks.value);
+            next.delete(locatedTask.taskId);
+            collapsedTasks.value = next;
+        }
+    }
+    const liveTaskId = props.liveSteps.find((step) => step.stepId === stepId)?.taskId;
+    if (liveTaskId && collapsedTasks.value.has(liveTaskId)) {
+        const next = new Set(collapsedTasks.value);
+        next.delete(liveTaskId);
+        collapsedTasks.value = next;
+    }
+}
+
+watch(
+    () => props.selectedStepId,
+    async (stepId) => {
+        if (!stepId) return;
+        expandStepContext(stepId);
+        await nextTick();
+        const target = document.querySelector(`[data-step-id="${stepId}"]`);
+        if (target instanceof HTMLElement) {
+            target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+    },
+);
 </script>
 
 <template>
@@ -493,6 +536,7 @@ const liveGroups = computed(() =>
                     @click="emit('select-step', { stepId: entry.step.stepId, taskId: entry.step.taskId })"
                 >
                     <div
+                        :data-step-id="entry.step.stepId"
                         class="exec-step-head"
                         title="单击查看审计 · 双击折叠/展开"
                         @dblclick="toggleLiveStep(entry)"

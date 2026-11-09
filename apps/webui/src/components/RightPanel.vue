@@ -85,6 +85,15 @@ const emit = defineEmits([
     'select-conversation',
 ]);
 
+/** Task/Step 视图共用的当前 Task Step 列表；选中 Step 后仍保留，保证双击定位可完成。 */
+const selectedTaskSteps = computed(() => {
+    const taskId = props.audit?.anchor?.taskId;
+    if (!taskId) return [];
+    if (props.audit?.kind === 'task') return props.audit.rows || [];
+    const traceRows = props.trace?.rows || [];
+    return traceRows.filter((row) => row.taskId === taskId);
+});
+
 function fmtClock(ts) {
     if (!ts) return '';
     const d = new Date(ts);
@@ -1262,11 +1271,11 @@ watch(
                                 <span class="audit-task-steps">{{ task.stepCount }} steps</span>
                             </div>
                             <div
-                                v-if="audit.kind === 'task' && task.taskId === audit.anchor.taskId && audit.rows.length"
+                                v-if="task.taskId === audit.anchor.taskId && selectedTaskSteps.length"
                                 class="audit-task-step-list"
                             >
                                 <button
-                                    v-for="row in audit.rows"
+                                    v-for="row in selectedTaskSteps"
                                     :key="row.stepId"
                                     type="button"
                                     class="audit-task-step-row"
@@ -2531,13 +2540,15 @@ watch(
     align-items: center;
     gap: 6px;
     width: 100%;
-    padding: 3px 5px;
+    padding: 2px 5px;
     border: 0;
     border-radius: 4px;
     background: transparent;
     color: var(--fg-secondary);
     text-align: left;
     cursor: pointer;
+    font-size: 10px;
+    line-height: 16px;
 }
 .audit-task-step-row:hover,
 .audit-task-step-row.selected {
@@ -2552,6 +2563,17 @@ watch(
     white-space: nowrap;
     font-family: ui-monospace, monospace;
     font-size: 10px;
+}
+.audit-task-step-row .audit-step-loc {
+    padding: 0 3px;
+    font-size: 9px;
+    font-weight: 600;
+}
+.audit-task-step-row .audit-status {
+    margin-left: 0;
+    padding: 0 4px;
+    font-size: 9px;
+    line-height: 14px;
 }
 .audit-task-step-duration {
     flex-shrink: 0;
