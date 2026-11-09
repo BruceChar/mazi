@@ -1310,7 +1310,7 @@ watch(
                             >{{ f.label }}</button>
                         </div>
                         <div v-if="!visibleTocs.length" class="audit-muted">
-                            {{ iterationsLoading ? 'Loading…' : '暂无思维链 —— 在 Trace 面板选中 Task → ⋯ → Analyze' }}
+                            {{ iterationsLoading ? 'Loading…' : '暂无思维链 —— 在 Trace 面板选中 Task 后点「分析」' }}
                         </div>
                         <button
                             v-for="row in visibleTocs"
