@@ -8,6 +8,11 @@ import SkillsPanel from './SkillsPanel.vue';
 import AgentSettingsPanel from './AgentSettingsPanel.vue';
 import VoiceSettingsSection from './VoiceSettingsSection.vue';
 
+/** 宽屏多列只用于「由多个独立卡片组成」的分区；单面板分区铺满整宽。 */
+const columnLayout = computed(() =>
+    ['general', 'voice', 'storage'].includes(props.activeTab),
+);
+
 /** Update one run-default field and persist it. */
 function updateRun(key, value) {
     saveRunSettings({ [key]: value });
@@ -245,7 +250,7 @@ watch(
 
 <template>
     <div class="settings-page">
-        <div class="settings-body">
+        <div class="settings-body" :class="{ 'is-columns': columnLayout }">
         <!-- General -->
         <template v-if="activeTab === 'general'">
             <h1 class="settings-title">General</h1>
@@ -902,7 +907,8 @@ watch(
 
 /* 宽屏：卡片按列宽自动分栏（类似瀑布流），避免内容挤在中间一条竖栏 */
 @media (min-width: 1100px) {
-    .settings-body {
+    /* 只有多个独立卡片的分区才分列；单面板分区保持整宽（否则会被挤进一列）。 */
+    .settings-body.is-columns {
         columns: 520px 3;
         column-gap: 20px;
     }
