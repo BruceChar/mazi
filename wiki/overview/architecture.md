@@ -1,6 +1,6 @@
 # 架构
 
-> 事实来源：`README.md`（架构总览、分层依赖、仓库结构）、`docs/C3-goal-migration.md`（Goal 坐标系迁移收口）。
+> 事实来源：`README.md`（架构总览、分层依赖、仓库结构）、`docs/C3-goal-migration.md`（Goal 坐标系迁移收口）、`packages/runtime/src/prompts/agent-prompts.ts`。
 
 ## 分层与依赖方向
 
@@ -49,6 +49,28 @@ Goal（意图/委托）→ Task（可独立验收的子目标）→ Step（think
 - 长任务：Session 运行落 Goal 树；Task 验收由机械 checks（final-answer / file-exists / git-has-commit 等）判定，
   失败标记 Task/Goal 失败并触发有界 replan。
 - 项目知识：SessionEnd → API 后台队列 → runtime ProjectWikiService 计算增量计划 → 隐藏 Goal 维护 `wiki/`。
+
+## Agent 提示注册表与配置覆盖
+
+内置提示与配置覆盖的唯一事实源是 `packages/runtime/src/prompts/agent-prompts.ts`：
+
+- `AGENT_PROMPT_IDS` 固定为 `main / default / coding / planner / executor / reviewer / researcher / intent / replan / iteration-analysis`；
+- 解析优先级恒为「配置 > 内置默认」，空白值等价于未配置（回落到默认），`resolveAgentPrompt` 是纯函数，可每轮重新取用；
+- 主执行面走 `resolveBaseAgentPrompt` 的 `main → default → 内置 GENERAL` 回退链，`default` 只在 `main` 未配置时生效，避免两份提示同时拼进上下文；
+- 委派角色的默认系统提示（`packages/runtime/src/agent/roles.ts` 的 `defaultAgentRoles(overrides)`）
+  同样取自该注册表（`prompts.<roleId>`），不再在角色定义里内联文案；
+- `intent` / `iteration-analysis` 分别绑定 `GOAL_PARSER_PROMPT` 与 `TOC_ANALYZE_PROMPT` 模板，
+  `replan` 绑定失败补救的规划约束。
+
+配置链路：`settings.json` 的 `prompts` 段 → `RuntimeSettingsFile.prompts` → `loadRuntimeConfig` 的
+`normalizeAgentPrompts`（过滤非法 id、非字符串、空白值）→ `RuntimeConfig.agentPrompts` → Harness 装配。
+保存走 `saveRuntimeSettings` 的 `mergeAgentPrompts`：空白值删除该 id（恢复默认），其余 id 不受影响，
+与 `goal` / `permissions` / `pricing` 的浅合并共存。
+
+对外接口（`apps/api/src/agent/agent.controller.ts`）：`GET /api/agent/prompts` 返回
+`AgentPromptView[]`（含 `defaultPrompt` / `override` / `effectivePrompt` / `source: 'config' | 'default'`），
+`PUT /api/agent/prompts/:id` 保存、`DELETE` 恢复默认；写入后重建运行时，**新会话生效，运行中的会话保持钉版**。
+`apps/webui/src/components/AgentSettingsPanel.vue` 以「系统提示」页签展示并编辑这些提示。
 
 ## 项目知识库
 
