@@ -17,11 +17,11 @@ verified = 2026-11-08
 text = "The project wiki UI projects v2 repository documents into a document navigation, Markdown body, and status/claims evidence layout, collapsing to a vertical flow on narrow screens."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "41cfd732a0447b23c711f06c74a07d2e633e29ae" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "9fecf46632055876a20bc3d4e015860f86043b95" },
   { file = "apps/webui/src/scripts/wiki.ts", oid = "d9f0870c1a93384e3a9627168276e1fd4862bbb7" },
 ]
 established = 2026-11-07
-verified = 2026-11-08
+verified = 2026-11-09
 
 [claims.wiki-init-domain-neutral-template]
 text = "wiki.py init keeps existing overview file paths but uses domain-neutral titles and a shared boundary/current/constraint/evidence structure for software and non-software projects."
@@ -218,11 +218,11 @@ evidence = [
   { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "6c7f7184a8d6a3deefd742beaf2d34f211051051" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/api/src/wiki/wiki.controller.ts", oid = "33a711aa0d40cbedac2f8978855f96ecc6bf52a4" },
-  { file = "apps/webui/src/components/WikiPage.vue", oid = "41cfd732a0447b23c711f06c74a07d2e633e29ae" },
+  { file = "apps/webui/src/components/WikiPage.vue", oid = "9fecf46632055876a20bc3d4e015860f86043b95" },
   { file = "packages/runtime/test/project-wiki-runtime.test.ts", oid = "a255c7a22e326c798b9d6c61eb2e0ccce726add4" },
 ]
 established = 2026-11-08
-verified = 2026-11-08
+verified = 2026-11-09
 
 [claims.todo-source-of-truth]
 text = "Pending product work is tracked only in docs/TODO.md (user behavior tracing; Provider monitoring panel with default execute/verify/plan model roles and a radar chart comparing cost/performance/completion; template features; later Project Wiki enhancements), and README section 13 Roadmap restates the same items from a user perspective. Answering \"what is left to do\" therefore requires reading docs/TODO.md and cross-checking the README Roadmap; TODO hits inside source are Wiki skeleton templates and Agent prompt text, not a tech-debt list."
