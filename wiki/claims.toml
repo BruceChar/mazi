@@ -182,7 +182,7 @@ text = "Project Wiki is maintained by runtime-native ProjectWikiService: init, c
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "bf0d534e96295b68f3e02e92011eae537fc661c9" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "e9ae72dbcc1e4bf2d4090e691d4bdcd4f2823d54" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "41cfd732a0447b23c711f06c74a07d2e633e29ae" },
 ]
@@ -304,7 +304,7 @@ status = "active"
 evidence = [
   { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "7313f22d6fea27ceece92543300ece3f4a176186" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "bf0d534e96295b68f3e02e92011eae537fc661c9" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "e9ae72dbcc1e4bf2d4090e691d4bdcd4f2823d54" },
   { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
   { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "de245a7ab0768f11fe33f0466d9eac27d23c59a7" },
 ]
