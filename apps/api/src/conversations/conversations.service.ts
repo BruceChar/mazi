@@ -311,6 +311,8 @@ export class ConversationsService {
             await this.runtime.harness().goalStore.deleteGoalTree(run.rootGoalId);
             await this.runtime.harness().deleteFailures(run.rootGoalId);
         }
+        // 会话边界收尾：session.end 钩子 + session.ended 审计（重复删除幂等）。
+        await this.runtime.harness().endSession(conversationId, 'conversation-removed');
         this.logger.log(
             `remove conversation=${conversationId} runs=${conversation.runs.length} (goal trees cascaded)`,
         );

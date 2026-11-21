@@ -2,7 +2,16 @@
  * @mazi/runtime —— Goal/Task/Step 坐标系的执行实现聚合包（C5 收口）。
  */
 
-export type { ProviderModelInfo, ProviderModelPricing } from '@mazi/core';
+export type {
+    HookContext,
+    HookDecision,
+    HookHost,
+    HookInvocationResult,
+    HookPoint,
+    HookRegistration,
+    ProviderModelInfo,
+    ProviderModelPricing,
+} from '@mazi/core';
 // Goal/Task/Step 坐标投影（审计/API/WebUI 消费；类型已上移到 @mazi/libs，此处 re-export 保持兼容）
 export type {
     GoalNodeView,
@@ -125,6 +134,7 @@ export * from './eval/index.js';
 // 观测层（事件总线；apps 直接消费）
 export type { ChainVerification, EventBusOptions, NewEventInput } from './events/event-bus.js';
 export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './events/event-bus.js';
+
 // 对照实验（Experiment）：日志 / 折叠复盘 / 指标 / 执行器（docs/AB测试设计.md §5-§7）
 export * from './experiment/index.js';
 // 特性开关（Feature）：定义持久化 + 运行期解析（docs/AB测试设计.md §3）
@@ -170,6 +180,13 @@ export {
     secretServiceRedactor,
     serializeSecretRef,
 } from './harness/index.js';
+// 控制面（钩子；设计 docs/runtime/AHF_RUNTIME_KERNEL_AND_HOOKS.md §4）
+export {
+    HookDispatcher,
+    type HookDispatcherOptions,
+    HookRunner,
+    type HookRunnerOptions,
+} from './hooks/index.js';
 export type {
     BehaviorMigrationResult,
     BehaviorRecordInput,

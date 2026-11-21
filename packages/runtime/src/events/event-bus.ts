@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
     EventBus,
@@ -9,7 +9,7 @@ import type {
     HarnessEventType,
     Unsubscribe,
 } from '@mazi/core';
-import { authz, ulid } from '@mazi/core';
+import { authz, sessionStreamId, ulid } from '@mazi/core';
 
 /**
  * Task 级事件：必须携带 taskId。
@@ -155,6 +155,11 @@ export interface EventBusOptions {
     eventDir?: string;
     /** 事件写入失败时的错误回调（默认写 stderr） */
     onWriteError?: (error: unknown, event: HarnessEvent) => void;
+    /**
+     * 会话归因解析器：由宿主按 rootGoalId 反查 conversationId。
+     * 事件自带的 sessionId 优先，解析结果只在缺失时补齐（不覆盖既有事实）。
+     */
+    sessionOf?: (rootGoalId: string) => string | undefined;
 }
 
 /**
@@ -168,10 +173,12 @@ export class DefaultEventBus implements EventBus {
     private readonly subscribers = new Set<{ filter: EventFilter; sink: EventSink }>();
     private writeChain: Promise<void> = Promise.resolve();
     private readonly onWriteError: (error: unknown, event: HarnessEvent) => void;
+    private readonly sessionOf?: (rootGoalId: string) => string | undefined;
     private readonly chainHeads = new Map<string, { seq: number; hash: string }>();
 
     constructor(opts: EventBusOptions = {}) {
         this.dir = opts.eventDir ?? defaultEventDir();
+        this.sessionOf = opts.sessionOf;
         this.onWriteError =
             opts.onWriteError ??
             ((error: unknown) => process.stderr.write(`event persist error: ${String(error)}\n`));
@@ -184,8 +191,10 @@ export class DefaultEventBus implements EventBus {
     emit(event: HarnessEvent): void {
         validateTraceIds(event);
         const chainHead = this.chainHead(event.rootGoalId);
+        const sessionId = event.sessionId ?? this.sessionOf?.(event.rootGoalId);
         const chained: HarnessEvent = {
             ...event,
+            ...(sessionId !== undefined ? { sessionId } : {}),
             eventId: event.eventId ?? ulid(),
             timestamp: event.timestamp ?? Date.now(),
             seq: chainHead.seq + 1,
@@ -238,6 +247,40 @@ export class DefaultEventBus implements EventBus {
             }
         }
         return events;
+    }
+
+    /**
+     * 会话回放：会话锚点流（session-<id>.jsonl）+ 其余文件中带该 sessionId 的事件。
+     * 复杂度 O(事件文件数)；会话删除后审计仍需可查，故不做索引缓存。
+     */
+    replaySession(sessionId: string): HarnessEvent[] {
+        const anchor = sessionStreamId(sessionId);
+        const events: HarnessEvent[] = this.replay(anchor);
+        let files: string[];
+        try {
+            files = readdirSync(this.dir);
+        } catch {
+            files = [];
+        }
+        for (const file of files) {
+            if (!file.endsWith('.jsonl') || file === `${anchor}.jsonl`) continue;
+            let raw: string;
+            try {
+                raw = readFileSync(join(this.dir, file), 'utf8');
+            } catch {
+                continue;
+            }
+            for (const line of raw.split('\n')) {
+                if (line.trim().length === 0) continue;
+                try {
+                    const parsed = JSON.parse(line) as HarnessEvent;
+                    if (parsed.sessionId === sessionId) events.push(parsed);
+                } catch {
+                    // 损坏行跳过（与 replay 的尽力而为一致）。
+                }
+            }
+        }
+        return events.sort((a, b) => a.timestamp - b.timestamp || (a.seq ?? 0) - (b.seq ?? 0));
     }
 
     /** Verify the per-root hash chain without trusting the writer. */

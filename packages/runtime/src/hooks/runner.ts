@@ -96,9 +96,7 @@ export class HookRunner implements HookHost {
             this.audit('hook.patch', 'info', ctx, {
                 decision: 'patch',
                 fields: Object.keys(result.decision.patch),
-                ...(result.decision.reason !== undefined
-                    ? { reason: result.decision.reason }
-                    : {}),
+                ...(result.decision.reason !== undefined ? { reason: result.decision.reason } : {}),
             });
         }
         return result;
@@ -115,7 +113,8 @@ export class HookRunner implements HookHost {
         payload: Record<string, unknown>,
         handlerId?: string,
     ): void {
-        const anchor = ctx.rootGoalId ?? (ctx.sessionId ? sessionStreamId(ctx.sessionId) : undefined);
+        const anchor =
+            ctx.rootGoalId ?? (ctx.sessionId ? sessionStreamId(ctx.sessionId) : undefined);
         if (anchor === undefined) return;
         try {
             this.emitAudit(

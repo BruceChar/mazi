@@ -9,7 +9,7 @@ import type {
     Task,
     ToolSchema,
 } from '@mazi/core';
-import { authz, ulid } from '@mazi/core';
+import { authz, sessionStreamId, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
 import { buildQuestionView } from '@mazi/libs';
 import {
@@ -54,6 +54,7 @@ import {
     snapshotFiles,
 } from '../effects/effect-store.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
+import { HookRunner } from '../hooks/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
 import { rollupAcceptance } from '../gts/acceptance.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
@@ -184,8 +185,20 @@ function withTriageTimeout<T>(promise: Promise<T>, ms: number): Promise<T | unde
     });
 }
 
+/** 允许 hook patch 传入的纯记录（拒绝数组 / null）。 */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
+    /** 控制面入口：钩子注册与调用（事件审计由 HookRunner 统一落盘）。 */
+    private readonly hookRunner: HookRunner;
+    /** rootGoalId → conversationId（事件会话归因；进程内保留，量级=运行过的轮次）。 */
+    private readonly sessionIds = new Map<string, string>();
+    /** 已开始/已结束的会话（begin/end 幂等）。 */
+    private readonly liveSessions = new Set<string>();
+    private readonly closedSessions = new Set<string>();
     private readonly goalStoreDb: GoalStore;
     private readonly resolver: ModelResolver;
     /** LLM provider 池（triage 无显式模型时取第一个可用 provider 的默认模型）。 */
@@ -330,7 +343,11 @@ export class HarnessRuntime {
         this.taskPlanner = options.taskPlanner;
         this.taskPlanningByDefault =
             options.taskPlanning === true || options.taskPlanner !== undefined;
-        this.bus = new DefaultEventBus({ eventDir: config.eventDir });
+        this.bus = new DefaultEventBus({
+            eventDir: config.eventDir,
+            sessionOf: (rootGoalId) => this.sessionIds.get(rootGoalId),
+        });
+        this.hookRunner = new HookRunner({ emit: (event) => this.bus.emit(event) });
         // 问题/行为统一入 SQLite 权威库；JSONL 目录降级为导出/迁移来源。
         this.behaviorStore =
             config.dbPath !== undefined
@@ -414,6 +431,68 @@ export class HarnessRuntime {
 
     get eventBus(): EventBus {
         return this.bus;
+    }
+
+    /** 钩子宿主（插件/宿主可注册；注册返回撤销函数）。 */
+    get hooks(): HookRunner {
+        return this.hookRunner;
+    }
+
+    /**
+     * 会话开始：进程内幂等。session.started 以会话锚点落盘（session-<id>.jsonl），
+     * 因此会话级事件不依赖当时是否已有 rootGoal。
+     */
+    async beginSession(sessionId: string): Promise<void> {
+        if (this.liveSessions.has(sessionId) || this.closedSessions.has(sessionId)) return;
+        this.liveSessions.add(sessionId);
+        const anchor = sessionStreamId(sessionId);
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'session.started',
+                rootGoalId: anchor,
+                sessionId,
+                payload: {},
+            }),
+        );
+        await this.bus.flush();
+        await this.hookRunner.invoke('session.start', {
+            hookPoint: 'session.start',
+            sessionId,
+            rootGoalId: anchor,
+            payload: {},
+        });
+    }
+
+    /**
+     * 会话结束：先跑 session.end 钩子（异步副作用点），再落终态事件。
+     * 由宿主在会话删除/归档时显式调用；重复调用幂等。
+     */
+    async endSession(sessionId: string, reason = 'session-ended'): Promise<void> {
+        if (this.closedSessions.has(sessionId)) return;
+        this.closedSessions.add(sessionId);
+        const anchor = sessionStreamId(sessionId);
+        try {
+            await this.hookRunner.invoke('session.end', {
+                hookPoint: 'session.end',
+                sessionId,
+                rootGoalId: anchor,
+                payload: { reason },
+            });
+        } finally {
+            this.bus.emit(
+                newHarnessEvent({
+                    type: 'session.ended',
+                    rootGoalId: anchor,
+                    sessionId,
+                    payload: { reason },
+                }),
+            );
+            await this.bus.flush();
+            this.liveSessions.delete(sessionId);
+            for (const [rootGoalId, conversationId] of this.sessionIds) {
+                if (conversationId === sessionId) this.sessionIds.delete(rootGoalId);
+            }
+        }
     }
 
     /** 接入目录与账本：此后每轮 LLM 调用按钉死的 offering 价目追加 UsageRecord。 */
@@ -539,6 +618,8 @@ export class HarnessRuntime {
         const rootGoalId = ulid();
         if (opts.conversationId !== undefined) {
             this.pendingSessionId.set(rootGoalId, opts.conversationId);
+            this.sessionIds.set(rootGoalId, opts.conversationId);
+            await this.beginSession(opts.conversationId);
         }
         const workspaceId = opts.workspaceRoot ?? this.workspaceRoot;
         const projectId =
@@ -842,7 +923,62 @@ export class HarnessRuntime {
     }
 
     /** 执行 Goal（plan → 逐 Task；事实全部经 goalStore 留痕）；发 goal.ended / run.aborted */
+    /**
+     * 执行 Goal 树（带轮次生命周期）：turn.started 在读取 Goal 之后发，
+     * turn.ended 无论成功/失败都发（失败信息进 payload）；钩子失败不影响执行。
+     */
     async executeGoalTree(
+        rootGoalId: string,
+        options: { resume?: boolean } = {},
+    ): Promise<GoalRunResult> {
+        try {
+            const result = await this.executeGoalTreeBody(rootGoalId, options);
+            await this.finishTurn(rootGoalId, result);
+            return result;
+        } catch (error) {
+            await this.finishTurn(rootGoalId, undefined, error);
+            throw error;
+        }
+    }
+
+    /** 轮次收尾：turn.end 钩子（异步副作用点）+ turn.ended 事实事件。 */
+    private async finishTurn(
+        rootGoalId: string,
+        result?: GoalRunResult,
+        error?: unknown,
+    ): Promise<void> {
+        const sessionId = this.sessionIds.get(rootGoalId);
+        const payload = {
+            ok: error === undefined && result?.ok === true,
+            tasks: result?.tasks.length ?? 0,
+            ...(error !== undefined
+                ? { error: error instanceof Error ? error.message : String(error) }
+                : {}),
+            ...(result?.finalAnswer !== undefined && result.finalAnswer.length > 0
+                ? { finalAnswer: result.finalAnswer.slice(0, 400) }
+                : {}),
+        };
+        try {
+            await this.hookRunner.invoke('turn.end', {
+                hookPoint: 'turn.end',
+                rootGoalId,
+                ...(sessionId !== undefined ? { sessionId } : {}),
+                payload,
+            });
+        } finally {
+            this.bus.emit(
+                newHarnessEvent({
+                    type: 'turn.ended',
+                    rootGoalId,
+                    ...(sessionId !== undefined ? { sessionId } : {}),
+                    payload,
+                }),
+            );
+            await this.bus.flush();
+        }
+    }
+
+    private async executeGoalTreeBody(
         rootGoalId: string,
         options: { resume?: boolean } = {},
     ): Promise<GoalRunResult> {
@@ -866,7 +1002,7 @@ export class HarnessRuntime {
         this.pendingReasoning.delete(rootGoalId);
         const modelId = this.pendingModel.get(rootGoalId);
         this.pendingModel.delete(rootGoalId);
-        const promptFragment = this.pendingPromptFragment.get(rootGoalId);
+        let promptFragment = this.pendingPromptFragment.get(rootGoalId);
         this.pendingPromptFragment.delete(rootGoalId);
         const requestedSkills = this.pendingSkills.get(rootGoalId);
         this.pendingSkills.delete(rootGoalId);
@@ -896,6 +1032,37 @@ export class HarnessRuntime {
             !resume && rootGoal?.negotiation?.route === 'direct'
                 ? rootGoal.negotiation.directAnswer?.trim()
                 : undefined;
+        // 轮次开始：先跑 turn.start（可注入上下文），再落 turn.started 事实。
+        const turnHook = await this.hookRunner.invoke('turn.start', {
+            hookPoint: 'turn.start',
+            rootGoalId,
+            goalId,
+            ...(sessionId !== undefined ? { sessionId } : {}),
+            payload: {
+                statement: rootGoal?.statement ?? '',
+                route: rootGoal?.negotiation?.route ?? 'task',
+            },
+        });
+        this.bus.emit(
+            newHarnessEvent({
+                type: 'turn.started',
+                rootGoalId,
+                goalId,
+                ...(sessionId !== undefined ? { sessionId } : {}),
+                payload: {
+                    statement: rootGoal?.statement ?? '',
+                    route: rootGoal?.negotiation?.route ?? 'task',
+                },
+            }),
+        );
+        if (turnHook.decision.kind === 'patch') {
+            const append = turnHook.decision.patch.contextAppend;
+            if (typeof append === 'string' && append.trim().length > 0) {
+                promptFragment = [promptFragment, append]
+                    .filter((part): part is string => typeof part === 'string' && part.length > 0)
+                    .join('\n\n');
+            }
+        }
         if (rootGoal !== undefined && directAnswer) {
             this.pendingBlackboard.delete(rootGoalId);
             await this.completeDirectGoal(rootGoal, directAnswer);
@@ -1608,9 +1775,47 @@ export class HarnessRuntime {
                 parameters: (t.parameters ?? undefined) as ToolSchema['parameters'],
             }));
         const invoke: GoalToolInvoker['invoke'] = async (toolName, args, ctx) => {
-            const result = await gateway.invoke(toolName, args, ctx ?? {});
+            const trace = {
+                rootGoalId,
+                goalId,
+                ...(sessionId !== undefined ? { sessionId } : {}),
+                ...(ctx?.taskId !== undefined ? { taskId: ctx.taskId } : {}),
+                ...(ctx?.stepId !== undefined ? { stepId: ctx.stepId } : {}),
+            };
+            const pre = await this.hookRunner.invoke('tool.pre', {
+                ...trace,
+                hookPoint: 'tool.pre',
+                payload: { toolName, arguments: args },
+            });
+            if (pre.decision.kind === 'block') {
+                return {
+                    ok: false,
+                    content: '',
+                    error: `hook 拦截 ${toolName}：${pre.decision.reason}`,
+                };
+            }
+            const effectiveArgs =
+                pre.decision.kind === 'patch' && isPlainRecord(pre.decision.patch.arguments)
+                    ? pre.decision.patch.arguments
+                    : args;
+            const result = await gateway.invoke(toolName, effectiveArgs, ctx ?? {});
+            const post = await this.hookRunner.invoke('tool.post', {
+                ...trace,
+                hookPoint: 'tool.post',
+                payload: {
+                    toolName,
+                    arguments: effectiveArgs,
+                    ok: result.ok,
+                    content: String(result.content ?? '').slice(0, 4000),
+                },
+            });
+            const rewritten =
+                post.decision.kind === 'patch' &&
+                typeof post.decision.patch.content === 'string'
+                    ? post.decision.patch.content
+                    : undefined;
             return result.ok
-                ? { ok: true, content: String(result.content ?? '') }
+                ? { ok: true, content: rewritten ?? String(result.content ?? '') }
                 : { ok: false, content: '', error: result.error ?? 'tool failed' };
         };
         return {

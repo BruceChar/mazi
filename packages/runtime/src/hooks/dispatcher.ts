@@ -88,10 +88,13 @@ async function withTimeout<T>(
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const guard = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-            controller.abort();
-            reject(new HookTimeoutError(`hook 超时（${timeoutMs}ms）`));
-        }, Math.max(1, timeoutMs));
+        timer = setTimeout(
+            () => {
+                controller.abort();
+                reject(new HookTimeoutError(`hook 超时（${timeoutMs}ms）`));
+            },
+            Math.max(1, timeoutMs),
+        );
     });
     try {
         return await Promise.race([Promise.resolve(run(controller.signal)), guard]);
@@ -218,7 +221,11 @@ export class HookDispatcher {
                             kind: 'block',
                             reason: `hook ${registration.id} fail-closed：${message}`,
                         },
-                        failure: { id: registration.id, mode: timeout ? 'timeout' : 'error', message },
+                        failure: {
+                            id: registration.id,
+                            mode: timeout ? 'timeout' : 'error',
+                            message,
+                        },
                     };
                 }
                 return {
