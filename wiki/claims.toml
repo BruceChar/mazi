@@ -161,7 +161,7 @@ text = "A goal is only marked succeeded when task execution and mechanical accep
 status = "active"
 evidence = [
   { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "d37a9e9638af522fbbabde6eeb5a708e33e4e323" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "b33be16b7866a271f9769a41bc7a2dd98a7f0138" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "f219d10423759313cf26cc1e1fbac5fa3e792a63" },
   { file = "packages/runtime/src/gts/replan.ts", oid = "1a040f04372c287a28fa086b78074a14ead17047" },
   { file = "packages/runtime/test/goal-strategy.test.ts", oid = "7b8f01d2a6a02fb8efa225c809b6aca00750d5f2" },
   { file = "packages/runtime/test/task-planning-runtime.test.ts", oid = "34028f9c84c24b5b6c0033f90914578dfcc25718" },
@@ -169,7 +169,7 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-22
-claim_oid = "bc2297bb2636f84f"
+claim_oid = "8e49c52a3d294ecf"
 
 [claims.project-context-lifecycle-runtime]
 text = "Project Context Lifecycle is a runtime-owned subsystem: it assembles task-scoped context packets at SessionStart, anchors long-session compaction in persisted facts and evidence, and asynchronously finalizes SessionEnd with deterministic diff/oid/research preflight plus optional bounded semantic distillation and checkpoint validation."
@@ -186,7 +186,7 @@ text = "Project Wiki is maintained by runtime-native ProjectWikiService: init, c
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "b33be16b7866a271f9769a41bc7a2dd98a7f0138" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "f219d10423759313cf26cc1e1fbac5fa3e792a63" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "9fecf46632055876a20bc3d4e015860f86043b95" },
 ]
@@ -309,13 +309,13 @@ status = "active"
 evidence = [
   { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "d37a9e9638af522fbbabde6eeb5a708e33e4e323" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "b33be16b7866a271f9769a41bc7a2dd98a7f0138" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "f219d10423759313cf26cc1e1fbac5fa3e792a63" },
   { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
   { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "2e0a6f09bdb860184cb2a79fc3fe20538ec0b696" },
 ]
 established = 2026-11-09
 verified = 2026-11-22
-claim_oid = "4e2ea8751a8f5c87"
+claim_oid = "0ebc022cabfcdc69"
 
 [claims.webui-trace-audit-anchor]
 text = "The right-side Trace panel preserves an explicit audit anchor for the selected scope: Step anchors include R/T/S coordinates plus rootGoalId, goalId, taskId, stepId, timestamps and step/task status; Task and run scopes retain their corresponding IDs and timing. Contract, acceptance, context, token, cost and tool facts therefore remain attributable to the exact audited Step even though the conversation surface omits that audit metadata."
