@@ -13,12 +13,25 @@ type TaskTag = string & {};
 export interface TraceIdentifiers {
     /** Root anchor: the root goal id */
     rootGoalId: string;
+    /** Owning conversation (session); stamped by the bus resolver when known. */
+    sessionId?: string;
     /** Owning goal (optional on general events) */
     goalId?: string;
     /** Owning task (optional on general events) */
     taskId?: string;
     /** Owning step (optional on general events) */
     stepId?: string;
+}
+
+/**
+ * Session-scoped events (session.started / session.ended) have no root goal yet,
+ * so they are anchored to a synthetic stream id. The anchor is also the JSONL
+ * file stem, which keeps per-root hash chains working without a second log.
+ */
+export const SESSION_STREAM_PREFIX = 'session-';
+
+export function sessionStreamId(sessionId: string): string {
+    return `${SESSION_STREAM_PREFIX}${sessionId}`;
 }
 
 /**
@@ -45,6 +58,18 @@ export interface AuditIdentifiers {
  * 不属于本集合 —— 由 runtime 的 RUNTIME_EVENT_TYPES 声明。
  */
 export type CoreEventType =
+    /** 会话开始/结束（锚定 sessionStreamId，见 TraceIdentifiers.sessionId） */
+    | 'session.started'
+    | 'session.ended'
+    /** 轮次开始/结束（一次 createGoalSession → executeGoalTree，anchor 为 rootGoalId） */
+    | 'turn.started'
+    | 'turn.ended'
+    /** 钩子调用审计：每次有监听器参与的调用都必须留痕 */
+    | 'hook.invoked'
+    | 'hook.decided'
+    | 'hook.patch'
+    | 'hook.failed'
+    | 'hook.timed_out'
     | 'goal.started'
     | 'goal.ended'
     | 'task.started'
@@ -145,6 +170,10 @@ export interface HarnessEvent extends TraceIdentifiers {
         'harness.flag_overrides'?: Record<string, unknown>;
         /** 本次运行开启的 Feature id（与 flag_overrides 互为明细/开关视图）。 */
         'harness.feature_ids'?: string[];
+        /** 钩子审计：点、宿主 handler id、派发模式（HookRunner 专用）。 */
+        'harness.hook_point'?: string;
+        'harness.hook_id'?: string;
+        'harness.hook_mode'?: string;
         'user.record_id'?: string;
         'user.feedback_type'?: string;
         [k: string]: unknown;

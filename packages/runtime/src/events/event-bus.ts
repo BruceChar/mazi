@@ -113,6 +113,8 @@ function validateTraceIds(event: HarnessEvent): void {
 export interface NewEventInput {
     type: HarnessEvent['type'];
     rootGoalId: string;
+    /** Owning conversation (session); omitted for non-conversation runs. */
+    sessionId?: string;
     goalId?: string;
     taskId?: string;
     stepId?: string;
@@ -126,6 +128,7 @@ export function newHarnessEvent(input: NewEventInput): HarnessEvent {
     return {
         type: input.type,
         rootGoalId: input.rootGoalId,
+        ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
         goalId: input.goalId,
         taskId: input.taskId,
         stepId: input.stepId,
