@@ -93,7 +93,7 @@ llm.pre            llm.post
 | `emit` | 同步广播，不收集返回值 | `llm.pre/post` 类纯观察 |
 | `parallel` | 并发等待全部，错误隔离 | `session.end` / `turn.end` 类副作用 |
 | `serial` | 按序等待，收集全部结果 | 需要顺序的外部调用 |
-| `bail` | 按序同步，首个非空决策胜出并停止 | `tool.pre`（首个拦截生效） |
+| `bail` | 按序求值，首个 `block` 胜出并停止；`patch` 累积 | `tool.pre`（首个拦截生效） |
 | `waterfall` | 链式改写，可短路 | `turn.start` / `context.assemble` / `tool.post` |
 
 ### 4.3 决策
