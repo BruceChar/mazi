@@ -55,6 +55,7 @@ import {
 } from '../effects/effect-store.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { HookRunner } from '../hooks/index.js';
+import { RuntimeKernel } from '../kernel/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
 import { rollupAcceptance } from '../gts/acceptance.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
@@ -194,6 +195,8 @@ export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
     /** 控制面入口：钩子注册与调用（事件审计由 HookRunner 统一落盘）。 */
     private readonly hookRunner: HookRunner;
+    /** 服务装配容器：注册/依赖顺序/可逆 effect（docs/.../§5）。 */
+    private readonly serviceKernel: RuntimeKernel;
     /** rootGoalId → conversationId（事件会话归因；进程内保留，量级=运行过的轮次）。 */
     private readonly sessionIds = new Map<string, string>();
     /** 已开始/已结束的会话（begin/end 幂等）。 */
@@ -427,6 +430,20 @@ export class HarnessRuntime {
         if (config.consoleEnabled ?? false) {
             this.bus.subscribe({}, new ConsoleSink());
         }
+        this.serviceKernel = new RuntimeKernel();
+        this.serviceKernel.provide({ name: 'eventBus', create: () => this.bus });
+        this.serviceKernel.provide({
+            name: 'hooks',
+            requires: ['eventBus'],
+            create: () => this.hookRunner,
+        });
+        this.serviceKernel.provide({
+            name: 'tools',
+            requires: ['eventBus'],
+            create: () => this.toolRegistry,
+        });
+        this.serviceKernel.provide({ name: 'memory', create: () => this.personalMemory });
+        this.serviceKernel.start();
     }
 
     get eventBus(): EventBus {
@@ -436,6 +453,11 @@ export class HarnessRuntime {
     /** 钩子宿主（插件/宿主可注册；注册返回撤销函数）。 */
     get hooks(): HookRunner {
         return this.hookRunner;
+    }
+
+    /** 装配容器（服务注册 / 依赖顺序 / 可逆 effect）。 */
+    get kernel(): RuntimeKernel {
+        return this.serviceKernel;
     }
 
     /**
@@ -596,6 +618,7 @@ export class HarnessRuntime {
     }
 
     async close(): Promise<void> {
+        this.serviceKernel.dispose();
         this.goalStoreDb.close();
         this.persistentMemoryStore?.close();
         this.effectStore.close();

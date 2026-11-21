@@ -187,6 +187,13 @@ export {
     HookRunner,
     type HookRunnerOptions,
 } from './hooks/index.js';
+// 装配容器（服务注册/依赖/可逆 effect；设计 §5）
+export {
+    type KernelServiceState,
+    RuntimeKernel,
+    type RuntimeKernelOptions,
+    type ServiceDefinition,
+} from './kernel/index.js';
 export type {
     BehaviorMigrationResult,
     BehaviorRecordInput,
