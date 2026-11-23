@@ -334,11 +334,11 @@ verified = 2026-11-10
 text = "The human permission ceiling (text/read-only/draft/approved/autonomous) is an auto boundary, not a visibility filter: grantForPermissionLevel puts every standard capability into the grant and marks those at or below the selected level auto while the rest become gated, so an out-of-level tool stays visible and its invocation raises human approval instead of disappearing. Only ceiling text empties the tool surface, and forbidden is reserved for the hard floor. Reading the ceiling as a filter misjudges why a tool appears but refuses to run."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/tool-gateway/permission.ts", oid = "3147d12890a25aa6717212ba90d15e0d1a6b37d3" },
+  { file = "packages/runtime/src/tool-gateway/permission.ts", oid = "f871c7651120deb9fb9e9049c336567a06a75c4e" },
   { file = "packages/core/src/authz/permissions.ts", oid = "d3c01b44a7945bca9919567651640271e29c6211" },
 ]
 established = 2026-11-09
-verified = 2026-11-09
+verified = 2026-11-23
 
 [claims.authz-command-classification-data-driven]
 text = "Shell command classification is data-driven: dangerousHeads/readonlyHeads/networkHeads/subcommands come from <MAZI_HOME>/config/auth/commands.json merged over DEFAULT_COMMAND_POLICY, while code keeps only command-agnostic hard conditions. Interpreter/privilege heads (sh/bash/zsh/fish/eval/exec/source/sudo/su/doas) are always dangerous and cannot be relaxed, shell metacharacters block readonly relaxation, a listed readonly subcommand relaxes the approval key to the command name, package-manager test/build/run/install stay unknown (workspace-write norm), and unknown git/docker subcommands stay dangerous. Approval keys follow the class: dangerous = full command line with once-only scope, readonly = command name, otherwise full command line."
