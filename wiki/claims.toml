@@ -344,12 +344,12 @@ verified = 2026-11-09
 text = "Shell command classification is data-driven: dangerousHeads/readonlyHeads/networkHeads/subcommands come from <MAZI_HOME>/config/auth/commands.json merged over DEFAULT_COMMAND_POLICY, while code keeps only command-agnostic hard conditions. Interpreter/privilege heads (sh/bash/zsh/fish/eval/exec/source/sudo/su/doas) are always dangerous and cannot be relaxed, shell metacharacters block readonly relaxation, a listed readonly subcommand relaxes the approval key to the command name, package-manager test/build/run/install stay unknown (workspace-write norm), and unknown git/docker subcommands stay dangerous. Approval keys follow the class: dangerous = full command line with once-only scope, readonly = command name, otherwise full command line."
 status = "active"
 evidence = [
-  { file = "packages/core/src/authz/command.ts", oid = "452e90b1910daac67f68dabec4d63f809592393c" },
+  { file = "packages/core/src/authz/command.ts", oid = "97db896c077d8ed55cbf33b0468ea21d207803ca" },
   { file = "packages/runtime/src/auth/command-policy.ts", oid = "0c60509f1208446eab04660cab5f8d248f3ed8a1" },
-  { file = "packages/runtime/src/tool-gateway/permission.ts", oid = "3147d12890a25aa6717212ba90d15e0d1a6b37d3" },
+  { file = "packages/runtime/src/tool-gateway/permission.ts", oid = "f871c7651120deb9fb9e9049c336567a06a75c4e" },
 ]
 established = 2026-11-09
-verified = 2026-11-09
+verified = 2026-11-23
 
 [claims.authz-approval-scope-dual-vocabulary]
 text = "Two ApprovalScope vocabularies coexist: the enforcement type in packages/core/src/authz/gateway-types.ts is 'once' | 'session' | 'workspace' and is what approvalTargetOf, ALL_SCOPES in command.ts and the ApprovalStore actually use, while permissions.ts adds a fourth 'generation' value that only the observability vocabulary consumes. Adding a new scope therefore requires editing gateway-types.ts (enforcement), command.ts ALL_SCOPES and the ApprovalStore, not just permissions.ts."
