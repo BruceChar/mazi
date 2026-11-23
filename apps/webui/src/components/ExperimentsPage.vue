@@ -31,6 +31,7 @@ import {
     formatDeltaPct,
     formatMetric,
     traceRounds,
+    traceSteps,
     traceToolRows,
     variableFormula,
 } from '../scripts/experiments.ts';
@@ -366,6 +367,14 @@ function toggleAnswer(label) {
     openAnswers[label] = !openAnswers[label];
 }
 
+/** 单行预览：把工具输出/参数压到固定长度，完整内容仍可在 Trace 面板查看。 */
+function previewText(text, limit = 240) {
+    const flat = String(text ?? '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return flat.length > limit ? `${flat.slice(0, limit)}…` : flat;
+}
+
 function kpis(arm) {
     const metrics = arm.metrics;
     if (!metrics) return [];
@@ -634,8 +643,12 @@ function isLive(label) {
                                         :class="step.status"
                                     >
                                         <span class="step-kind">{{ step.kind === 'invocation' ? '工具' : '思考' }}</span>
-                                        <span class="step-title">{{ step.title || step.content }}</span>
+                                        <span class="step-title">{{ step.title || step.content || '（无正文）' }}</span>
                                         <span class="step-status">{{ step.status }}</span>
+                                        <pre
+                                            v-if="step.kind === 'invocation' && step.output"
+                                            class="step-out"
+                                        >{{ previewText(step.output) }}</pre>
                                     </li>
                                 </ul>
                                 <div
@@ -670,6 +683,19 @@ function isLive(label) {
                             </div>
                             <pre class="answer" :class="{ open: openAnswers[arm.label] }">{{ arm.metrics?.finalAnswer || '（无输出）' }}</pre>
 
+                            <div class="block-head">Trace · 步骤</div>
+                            <ul class="steps">
+                                <li v-for="step in traceSteps(traces[arm.label])" :key="step.index">
+                                    <span class="step-index">{{ step.index }}</span>
+                                    <span class="step-kind">{{ step.label }}</span>
+                                    <code v-if="step.toolName">{{ step.toolName }}</code>
+                                    <span v-if="step.arguments" class="tool-args">{{ step.arguments }}</span>
+                                    <span class="muted">{{ step.status }}</span>
+                                    <div class="tool-out">{{ previewText(step.text || '（无正文）') }}</div>
+                                </li>
+                                <li v-if="!traceSteps(traces[arm.label]).length" class="muted">无步骤事实</li>
+                            </ul>
+
                             <div class="block-head">Trace · 模型轮次</div>
                             <table class="mini">
                                 <thead>
@@ -695,8 +721,9 @@ function isLive(label) {
                             <ul class="tools">
                                 <li v-for="(tool, index) in traceToolRows(traces[arm.label])" :key="index">
                                     <code>{{ tool.toolName }}</code>
+                                    <span v-if="tool.arguments" class="tool-args">{{ tool.arguments }}</span>
                                     <span v-if="tool.cwd" class="muted">{{ tool.cwd }}</span>
-                                    <div class="tool-out">{{ tool.output || '（空输出）' }}</div>
+                                    <div class="tool-out">{{ previewText(tool.output || '（空输出）') }}</div>
                                 </li>
                                 <li v-if="!traceToolRows(traces[arm.label]).length" class="muted">未调用工具</li>
                             </ul>
@@ -1066,6 +1093,7 @@ input:disabled {
 }
 .live-steps li {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     gap: 6px;
     font-size: 11px;
@@ -1187,7 +1215,8 @@ input:disabled {
     color: var(--fg-tertiary);
     font-weight: 500;
 }
-.tools {
+.tools,
+.steps {
     list-style: none;
     margin: 0;
     padding: 0;
@@ -1195,18 +1224,46 @@ input:disabled {
     flex-direction: column;
     gap: 6px;
 }
-.tools li {
+.tools li,
+.steps li {
     font-size: 11px;
     color: var(--fg-secondary);
 }
-.tools code {
+.tools code,
+.steps code {
     font-family: ui-monospace, monospace;
     color: var(--fg);
     margin-right: 6px;
 }
+.step-index {
+    display: inline-block;
+    min-width: 18px;
+    color: var(--fg-tertiary);
+    font-size: 10px;
+}
 .tool-out {
     margin-top: 2px;
     color: var(--fg-tertiary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.tool-args {
+    margin-right: 6px;
+    color: var(--fg-secondary);
+    font-family: ui-monospace, monospace;
+    word-break: break-all;
+}
+.step-out {
+    flex-basis: 100%;
+    margin: 2px 0 0;
+    padding: 4px 6px;
+    max-height: 80px;
+    overflow-y: auto;
+    border-radius: var(--radius-sm);
+    background: var(--bg-code, var(--bg-panel));
+    color: var(--fg-tertiary);
+    font-size: 10px;
+    font-family: inherit;
     white-space: pre-wrap;
     word-break: break-word;
 }

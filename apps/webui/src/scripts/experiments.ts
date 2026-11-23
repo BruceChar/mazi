@@ -404,6 +404,7 @@ export interface TraceRoundRow {
 
 export interface TraceToolRow {
     toolName: string;
+    arguments: string;
     cwd: string;
     output: string;
 }
@@ -433,6 +434,37 @@ export function traceRounds(snapshot: GoalTreeSnapshot | null | undefined): Trac
     return rows;
 }
 
+/** 一行执行步骤（思考 / 工具），用于跑完后的完整轨迹回看。 */
+export interface TraceStepRow {
+    index: number;
+    label: string;
+    toolName: string;
+    arguments: string;
+    text: string;
+    status: string;
+}
+
+/** 从 Goal 树快照投影完整步骤表（含思考与工具参数，跑完后不依赖 SSE）。 */
+export function traceSteps(snapshot: GoalTreeSnapshot | null | undefined): TraceStepRow[] {
+    const steps = snapshot?.goals.flatMap((goal) => goal.tasks).flatMap((task) => task.steps) ?? [];
+    return steps.map((step, index) => ({
+        index: index + 1,
+        label: step.kind === 'invocation' ? '工具' : '思考',
+        toolName: step.toolName ?? '',
+        arguments: compactJson(step.toolArguments),
+        text: compactText(
+            step.kind === 'invocation'
+                ? (step.toolOutput ?? step.content ?? '')
+                : (step.thinking ?? step.answer ?? step.content ?? ''),
+        ),
+        status: step.status,
+    }));
+}
+
+function compactText(value: string): string {
+    return value.replace(/\s+/g, ' ').trim();
+}
+
 /** 从 Goal 树快照投影工具调用表（Trace 对比的第二张表）。 */
 export function traceToolRows(snapshot: GoalTreeSnapshot | null | undefined): TraceToolRow[] {
     const steps = snapshot?.goals.flatMap((goal) => goal.tasks).flatMap((task) => task.steps) ?? [];
@@ -440,7 +472,17 @@ export function traceToolRows(snapshot: GoalTreeSnapshot | null | undefined): Tr
         .filter((step) => step.kind === 'invocation')
         .map((step) => ({
             toolName: step.toolName ?? '—',
+            arguments: compactJson(step.toolArguments),
             cwd: step.toolCwd ?? '',
             output: (step.toolOutput ?? step.content ?? '').replace(/\s+/g, ' ').trim(),
         }));
+}
+
+function compactJson(value: Record<string, unknown> | undefined): string {
+    if (value === undefined) return '';
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return '';
+    }
 }

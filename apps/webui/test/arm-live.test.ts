@@ -67,6 +67,14 @@ describe('arm-live（单臂实时投影）', () => {
         expect(applyArmEvent(running, event('llm.error', { message: '限流' })).error).toBe('限流');
     });
 
+    it('deliberation 无正文时给占位摘要，避免 Trace 出现空白行', () => {
+        const blank = liveStepOf(
+            event('step.started', { kind: 'deliberation', status: 'active' }, { stepId: 's1' }),
+            'active',
+        );
+        expect(blank.title).toBe('（无正文，直接发起下一步）');
+    });
+
     it('未知事件与同引用无变化', () => {
         const live = initialArmLive('running');
         expect(applyArmEvent(live, event('provider.selected', {}))).toBe(live);
@@ -91,6 +99,9 @@ describe('arm-live（单臂实时投影）', () => {
             mode: 'script',
             args: ['update', '--plan'],
         });
+        expect(invocation.title).toBe(
+            'project_wiki {"mode":"script","args":["update","--plan"]}',
+        );
 
         let live = applyArmEvent(initialArmLive('running'), event('step.started', invocation as never, { stepId: 'tool-1', taskId: 't1' }));
         live = applyArmEvent(

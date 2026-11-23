@@ -17,6 +17,7 @@ import {
     buildExperimentSpec,
     formatMetric,
     traceRounds,
+    traceSteps,
     traceToolRows,
     variableFormula,
     variableValueText,
@@ -302,9 +303,22 @@ describe('Trace 投影（两臂并排）', () => {
         expect(rows[1]).toMatchObject({ index: 2, inputTokens: 20, durationMs: 100 });
         expect(traceRounds(null)).toEqual([]);
     });
+    it('步骤表：思考与工具都入行，工具带参数位', () => {
+        const rows = traceSteps(snapshot as never);
+        expect(rows).toHaveLength(3);
+        expect(rows[0]).toMatchObject({ index: 1, label: '思考', text: '第一轮' });
+        expect(rows[1]).toMatchObject({
+            index: 2,
+            label: '工具',
+            toolName: 'fs.read',
+            arguments: '',
+            text: 'ok done',
+        });
+        expect(traceSteps(null)).toEqual([]);
+    });
     it('工具表：只取 invocation，空白折叠', () => {
         expect(traceToolRows(snapshot as never)).toEqual([
-            { toolName: 'fs.read', cwd: '/w', output: 'ok done' },
+            { toolName: 'fs.read', arguments: '', cwd: '/w', output: 'ok done' },
         ]);
         expect(traceToolRows(undefined)).toEqual([]);
     });

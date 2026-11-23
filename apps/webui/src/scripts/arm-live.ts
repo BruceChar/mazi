@@ -97,7 +97,14 @@ export function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
         thinking: typeof payload.thinking === 'string' ? payload.thinking : undefined,
         answer: typeof payload.answer === 'string' ? payload.answer : undefined,
         output: typeof payload.output === 'string' ? payload.output : undefined,
-        title: content.replace(/\s+/g, ' ').trim().slice(0, 80),
+        title: stepTitleOf({
+            kind: String(payload.kind ?? 'step'),
+            toolName,
+            toolArguments,
+            thinking: typeof payload.thinking === 'string' ? payload.thinking : '',
+            answer: typeof payload.answer === 'string' ? payload.answer : '',
+            content,
+        }),
         content,
         status,
         startedAt: at,
@@ -105,6 +112,43 @@ export function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
         endedAt: status === 'active' || status === 'pending' ? null : at,
         usage: (payload.usage as StepUsage | undefined) ?? null,
     };
+}
+
+/**
+ * 实时行摘要：工具行显示「工具名 + 参数」，思考行显示正文。
+ * 模型只发起工具调用而不写正文时，思考行会给占位文案，避免出现一条空白行。
+ */
+function stepTitleOf(input: {
+    kind: string;
+    toolName: string;
+    toolArguments: Record<string, unknown> | undefined;
+    thinking: string;
+    answer: string;
+    content: string;
+}): string {
+    if (input.kind === 'invocation') {
+        const args =
+            input.toolArguments !== undefined ? ` ${compactJson(input.toolArguments)}` : '';
+        return `${input.toolName || '工具'}${args}`.slice(0, 200);
+    }
+    const text = firstText([input.thinking, input.answer, input.content]);
+    return text.length > 0 ? text.slice(0, 80) : '（无正文，直接发起下一步）';
+}
+
+function firstText(values: string[]): string {
+    for (const value of values) {
+        const text = value.replace(/\s+/g, ' ').trim();
+        if (text.length > 0) return text;
+    }
+    return '';
+}
+
+function compactJson(value: Record<string, unknown>): string {
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return '{}';
+    }
 }
 
 function argumentsFromPayload(
