@@ -91,19 +91,16 @@ describe('内置节点', () => {
         expect(result?.delta?.pending).toEqual([]);
     });
 
-    it('失败≥2 且计划未标记失效时，Reflect 优先于 Act，并让计划 stale', async () => {
+    it('失败≥2 时 Reflect 让计划 stale 并请求重新规划', async () => {
         const nodes = createBuiltinNodes(host, DEFAULT_LIMITS);
-        const runner = makeRunner(nodes);
-        const result = await runner.run(
-            makeState({
-                failures: 2,
-                phase: 'observe',
-                facts: [{ id: 'f0', kind: 'error', text: 'boom' }],
-                plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
-            }),
-        );
-        const first = result.events.find((event) => event.type === 'node.selected');
-        expect(first?.nodeId).toBe('reflect');
+        const reflect = nodes.find((node) => node.id === 'reflect');
+        const state = makeState({
+            failures: 2,
+            plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
+        });
+        const result = await reflect?.run(state, buildContextView(state, 'reflect', SECTIONS, 12));
+        expect(result?.next).toBe('plan');
+        expect(result?.delta?.plan?.staleBy).toBe('reflect');
     });
 
     it('Plan 需要进展：有计划、有开放任务、零执行、未 stale 时不可用', () => {
@@ -132,8 +129,9 @@ describe('内置节点', () => {
 describe('WorkflowRunner 循环', () => {
     const host: WorkflowHost = {
         think: async (state) =>
-            state.usage.steps === 0
-                ? {
+            state.facts.length === 0
+                ? { next: 'act' }
+                : {
                       delta: {
                           plan: {
                               version: 1,
@@ -141,8 +139,7 @@ describe('WorkflowRunner 循环', () => {
                           },
                       },
                       next: 'act',
-                  }
-                : { next: 'act' },
+                  },
         act: async () => ({
             delta: { pending: [{ callId: 'c1', ok: false, text: 'boom' }] },
             next: 'observe',
@@ -151,18 +148,27 @@ describe('WorkflowRunner 循环', () => {
 
     it('Think→Act→Observe→Think 后由 runner 判定 done', async () => {
         const runner = makeRunner(createBuiltinNodes(host, DEFAULT_LIMITS));
-        const result = await runner.run(makeState());
+        const result = await runner.run(
+            makeState({
+                plan: { version: 1, tasks: [{ id: 't1', title: 'run tool', status: 'open' }] },
+            }),
+        );
         expect(result.outcome).toBe('done');
-        expect(result.state.usage.steps).toBe(3);
+        expect(result.state.usage.steps).toBe(4);
         expect(result.state.facts).toHaveLength(1);
-        expect(result.state.phase).toBe('think');
+        // Think 的 next=act 表示「下一步该执行 act」，收尾时停在 act。
+        expect(result.state.phase).toBe('act');
         expect(result.events.at(-1)?.reason).toBe('done');
     });
 
     it('Verify 可用且通过时先验收再结束', async () => {
         const runner = makeRunner(
             createBuiltinNodes(
-                { ...host, verify: async () => ({ delta: { verdict: 'passed' }, next: 'think' }) },
+                {
+                    ...host,
+                    think: async () => ({ next: 'verify' }),
+                    verify: async () => ({ delta: { verdict: 'passed' }, next: 'think' }),
+                },
                 DEFAULT_LIMITS,
             ),
         );

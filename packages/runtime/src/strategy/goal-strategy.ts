@@ -114,6 +114,8 @@ export interface GoalRunResult {
     finalAnswer?: string;
     rejected?: string[];
     planRevisions?: PlanRevision[];
+    /** 执行 loop 的元信息（loopMode=dynamic 时由节点引擎填写）。 */
+    loop?: { mode: 'default' | 'dynamic'; outcome?: string; nodes?: number };
 }
 
 function minDefined(...values: Array<number | undefined>): number | undefined {

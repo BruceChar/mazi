@@ -83,8 +83,11 @@ result = await next.run(state, view)
 apply(delta); charge(usage)
 ```
 
-`priority` 约定：`reflect=2 < verify=3 < plan=4 < act=5 < observe=6 < think=7`。
-即：失败优先归因、能验收先验收、能规划不硬想、能行动不空想、Think 是兜底。
+`priority` 只在同一角色有多个执行器时用于挑实现；正常路径相位由上一节点的 `next` 指定。
+首步固定由 Think 决策（否则 think→think 非法，Think 永远无法启动）。
+
+所以「谁是兜底」不再是优先级，而是 `next` 的合法集合：Think 的出边包含 `act/plan/verify`，
+失败≥2 时由 Reflect 节点（`failures ≥ 2`）被上一节点指向。
 
 ## 六、终止判定（只由 runner 说 done）
 

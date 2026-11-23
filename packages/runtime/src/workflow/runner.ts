@@ -74,6 +74,8 @@ export class WorkflowRunner {
         const events: WorkflowEvent[] = [];
         let noProgress = 0;
         let signature = progressSignature(state);
+        /** 上一个已执行的相位；用于校验「进入」这一跳，初始无。 */
+        let last: WorkflowState['phase'] | undefined;
 
         const terminate = (outcome: Outcome): WorkflowRunResult => {
             events.push({
@@ -92,10 +94,17 @@ export class WorkflowRunner {
             if (this.now() - state.startedAt >= this.limits.maxElapsedMs)
                 return terminate('aborted-budget');
 
-            const node = this.nodes.find(
-                (candidate) =>
-                    canEnterPhase(state.phase, candidate.role) && candidate.requires(state),
-            );
+            // phase 是「本步要执行的节点角色」。首步优先 Think 做决策；
+            // 进入这一跳由 last → phase 校验，输出那跳由 node → next 校验。
+            const node =
+                last === undefined
+                    ? (this.nodes.find(
+                          (candidate) => candidate.role === 'think' && candidate.requires(state),
+                      ) ?? this.nodes.find((candidate) => candidate.requires(state)))
+                    : this.nodes.find(
+                          (candidate) =>
+                              candidate.role === state.phase && candidate.requires(state),
+                      );
             if (node === undefined) return terminate('aborted-no-candidates');
 
             events.push({
@@ -106,7 +115,7 @@ export class WorkflowRunner {
                 reason: `${state.phase}→${node.role}`,
                 at: this.now(),
             });
-            assertTransition(state.phase, node.role);
+            if (last !== undefined) assertTransition(last, node.role);
 
             const view = buildContextView(state, node.role, this.sections, this.limits.maxFacts);
             let result: { delta?: Partial<WorkflowState>; next: WorkflowState['phase'] };
@@ -124,6 +133,7 @@ export class WorkflowRunner {
                 return { state, outcome: 'failed', events };
             }
             assertTransition(node.role, result.next);
+            last = node.role;
 
             state = applyDelta({ ...state, phase: result.next }, result.delta);
             state.usage.steps += 1;
