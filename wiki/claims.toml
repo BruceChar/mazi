@@ -355,22 +355,22 @@ verified = 2026-11-09
 text = "Two ApprovalScope vocabularies coexist: the enforcement type in packages/core/src/authz/gateway-types.ts is 'once' | 'session' | 'workspace' and is what approvalTargetOf, ALL_SCOPES in command.ts and the ApprovalStore actually use, while permissions.ts adds a fourth 'generation' value that only the observability vocabulary consumes. Adding a new scope therefore requires editing gateway-types.ts (enforcement), command.ts ALL_SCOPES and the ApprovalStore, not just permissions.ts."
 status = "active"
 evidence = [
-  { file = "packages/core/src/authz/gateway-types.ts", oid = "4b2c77d2e433fbce12c314fa65f22d5d06fd7128" },
+  { file = "packages/core/src/authz/gateway-types.ts", oid = "1a1ab301f28de7f0324eedf3433a2e091b97af57" },
   { file = "packages/core/src/authz/permissions.ts", oid = "d3c01b44a7945bca9919567651640271e29c6211" },
-  { file = "packages/core/src/authz/command.ts", oid = "452e90b1910daac67f68dabec4d63f809592393c" },
+  { file = "packages/core/src/authz/command.ts", oid = "97db896c077d8ed55cbf33b0468ea21d207803ca" },
 ]
 established = 2026-11-09
-verified = 2026-11-09
+verified = 2026-11-23
 
 [claims.authz-sandbox-egress-seams-unwired]
 text = "authz/sandbox.ts defines fail-closed seams requireSandbox/requireEgressProxy (SANDBOX_UNAVAILABLE / EGRESS_BLOCKED) but nothing in the runtime calls them: RuntimeToolGateway registers every tool with trust 'confined' and derives policy only from labels, ledger and taint. Sandbox and egress-proxy are therefore declared contracts rather than enforced execution paths, so a gated approval does not imply the operation actually runs inside a sandbox."
 status = "active"
 evidence = [
   { file = "packages/core/src/authz/sandbox.ts", oid = "04ad7b57f5c325d75956115795b6db69c7b9cbed" },
-  { file = "packages/runtime/src/tool-gateway/permission.ts", oid = "3147d12890a25aa6717212ba90d15e0d1a6b37d3" },
+  { file = "packages/runtime/src/tool-gateway/permission.ts", oid = "f871c7651120deb9fb9e9049c336567a06a75c4e" },
 ]
 established = 2026-11-09
-verified = 2026-11-09
+verified = 2026-11-23
 
 [claims.webui-trace-run-failure-summary]
 text = "The Trace panel shows a current-run failure summary that combines goal.ended status and error, persisted failure-ledger rows, replan.rejected reasons, failed Task acceptance details and plan.revised warnings for automatically discarded unknown requiredTools; successful runs render no failure block."
