@@ -98,6 +98,21 @@ openTasks === 0
 终止枚举：`done / done-unverified / aborted-budget / aborted-no-progress / aborted-no-candidates / failed`。
 摩擦层：步数/墙钟（硬保险丝）、无进展计数（连续 K 步 facts/openTasks/planVersion 均不变）、候选为空（立即终止）。
 
+## 七、RunState 与 WorkflowState
+
+```ts
+interface RunState {       // 可持久化、可跨 lane 共享
+    goalId; statement; plan?; facts; pending; acceptance; verdict; failures; usage;
+}
+interface WorkflowState extends RunState {   // 单个 loop 的视图
+    phase; actedSincePlan; startedAt; handoff?;
+}
+```
+
+- `RunState` 是事实与资源：计划、事实、待吸收结果、验收、失败数、用量。它是保存/恢复的单位，未来多 lane 共享的也是它。
+- `WorkflowState` 是 `RunState` 快照 + 游标（当前相位、Plan 后执行计数、起点时间、点对点 handoff）。游标不持久化，恢复时重新从 `think` 进入。
+- 节点只接收 `WorkflowState`；runner 在检查点把其中的 `RunState` 部分提交给 store，二者不共用可变引用。
+
 ## 七、上下文共享与 prompt 组织
 
 ```

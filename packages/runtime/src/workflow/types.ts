@@ -1,18 +1,15 @@
-/** 相位（typestate 的运行时等价）。 */
 export type Phase = 'think' | 'act' | 'observe' | 'plan' | 'verify' | 'reflect';
 
 export const PHASES: readonly Phase[] = ['think', 'act', 'observe', 'plan', 'verify', 'reflect'];
 
-/** 一条收敛后的事实（Observe 的产物）。 */
-export interface Fact {
+export interface ObserveFact {
     readonly id: string;
     readonly kind: 'tool' | 'note' | 'error';
     readonly text: string;
     readonly stepId?: string;
 }
 
-/** Act 产出的原始结果（未收敛）。 */
-export interface RawResult {
+export interface ActRawResult {
     readonly callId: string;
     readonly ok: boolean;
     readonly text: string;
@@ -38,20 +35,32 @@ export interface WorkflowUsage {
     costUsd: number;
 }
 
-/** 节点之间唯一共享的载体；节点只写 delta。 */
-export interface WorkflowState {
+/**
+ * RunState：一次运行的事实与资源，可持久化、可跨 lane 共享。
+ * 不含「现在走到哪个相位」这类游标，因此可恢复、可被多个 workflow 投影。
+ */
+export interface RunState {
     readonly goalId: string;
     readonly statement: string;
-    phase: Phase;
     plan?: PlanSnapshot;
-    facts: Fact[];
-    pending: RawResult[];
+    facts: ObserveFact[];
+    pending: ActRawResult[];
     acceptance: readonly string[];
     verdict: 'pending' | 'passed' | 'failed';
     failures: number;
+    usage: WorkflowUsage;
+}
+
+/**
+ * WorkflowState = RunState 快照 + 本 loop 的游标。
+ *
+ * 节点只看到 WorkflowState；持久化与跨 lane 共享只认 RunState。
+ */
+export interface WorkflowState extends RunState {
+    phase: Phase;
     /** 上次 Plan 之后执行的 Act 数：防止 Plan→Think→Plan 零执行空转。 */
     actedSincePlan: number;
-    usage: WorkflowUsage;
+    /** 点对点交接，≤200 token，仅本 loop 有效。 */
     handoff?: string;
     readonly startedAt: number;
 }
@@ -114,7 +123,7 @@ export interface WorkflowLimits {
 
 export const DEFAULT_LIMITS: WorkflowLimits = {
     maxSteps: 50,
-    maxElapsedMs: 30 * 60 * 1000,
+    maxElapsedMs: 15 * 60 * 1000,
     maxNoProgress: 4,
     maxFacts: 12,
 };

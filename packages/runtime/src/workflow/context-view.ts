@@ -1,4 +1,4 @@
-import type { ContextView, Fact, Phase, WorkflowState } from './types.js';
+import type { ContextView, ObserveFact, Phase, WorkflowState } from './types.js';
 
 /** 节点 prompt 的基座与角色段（角色段由调用方按相位提供）。 */
 export interface PromptSections {
@@ -7,7 +7,7 @@ export interface PromptSections {
 }
 
 /** 事实摘要（Observe 已收敛，这里只做渲染截断）。 */
-function renderFacts(facts: readonly Fact[], maxFacts: number): string {
+function renderFacts(facts: readonly ObserveFact[], maxFacts: number): string {
     return facts
         .slice(-maxFacts)
         .map((fact) => `- [${fact.kind}] ${fact.text}`)

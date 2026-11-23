@@ -371,15 +371,16 @@ export {
 } from './wiki/index.js';
 
 export {
+    type ActRawResult,
     assertTransition,
     buildContextView,
     type ContextView,
     canEnterPhase,
     createBuiltinNodes,
     DEFAULT_LIMITS,
-    type Fact,
     IllegalTransitionError,
     type NodeResult,
+    type ObserveFact,
     type Outcome,
     openTaskCount,
     PHASES,
@@ -387,7 +388,7 @@ export {
     type PlanSnapshot,
     type PlanTask,
     type PromptSections,
-    type RawResult,
+    type RunState,
     TRANSITIONS,
     type WorkflowEvent,
     type WorkflowHost,
