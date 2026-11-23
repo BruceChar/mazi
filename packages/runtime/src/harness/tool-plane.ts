@@ -1,7 +1,6 @@
 import { dirname } from 'node:path';
 import type { authz, Goal, PermissionLevel, ToolSchema } from '@mazi/core';
 import type { AgentRoleRegistry } from '../agent/roles.js';
-import type { ProjectBlackboardService } from '../blackboard/index.js';
 import type { SkillProvider } from '../capabilities/runtime.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import type { DefaultEventBus } from '../events/event-bus.js';
@@ -12,7 +11,7 @@ import { permissionForTool, RuntimeToolGateway } from '../tool-gateway/permissio
 import { RuntimePolicyAuditSink } from '../tool-gateway/policy-audit.js';
 import type { RuntimeToolRegistry } from '../tool-gateway/registry.js';
 import type { ProjectWikiService, WikiService } from '../wiki/index.js';
-import { blackboardToolConfigs, projectWikiToolConfig, wikiToolConfigs } from './tool-configs.js';
+import { projectWikiToolConfig, wikiToolConfigs } from './tool-configs.js';
 import { ToolInvoker } from './tool-invoker.js';
 import { webSearchToolConfig } from './web-search.js';
 
@@ -39,7 +38,6 @@ export interface ToolPlaneDeps {
     projectWiki?: ProjectWikiService | (() => ProjectWikiService | undefined);
     /** wiki 服务；传函数时延迟解析。 */
     wiki: WikiService | (() => WikiService);
-    blackboard: ProjectBlackboardService;
     /** 角色注册表；传函数时延迟解析（delegation 模块关闭时返回 undefined）。 */
     delegationRoles: AgentRoleRegistry | (() => AgentRoleRegistry | undefined);
     /** 可变接入点：运行期由宿主 setter 更换。 */
@@ -106,7 +104,7 @@ export class ToolPlane {
 
     constructor(private readonly deps: ToolPlaneDeps) {}
 
-    /** 装配本轮工具面：快照 → 注入 wiki/blackboard/delegate → 网关 → invoker。 */
+    /** 装配本轮工具面：快照 → 注入 wiki/delegate → 网关 → invoker。 */
     config(input: ToolPlaneInput): ToolPlaneOutput {
         const { deps } = this;
         const toolSnapshot = deps.toolRegistry.snapshot();
@@ -123,15 +121,6 @@ export class ToolPlane {
         } else {
             const wiki = this.wiki();
             if (wiki.enabled) merged.push(...wikiToolConfigs(wiki));
-        }
-        if (
-            input.freshContext !== true &&
-            input.projectId !== undefined &&
-            deps.workspaceRoot !== undefined
-        ) {
-            merged.push(
-                ...blackboardToolConfigs(deps.blackboard, input.projectId, deps.workspaceRoot),
-            );
         }
         const depth = input.delegationDepth ?? 0;
         if (input.parentGoal !== undefined && depth < 2) {

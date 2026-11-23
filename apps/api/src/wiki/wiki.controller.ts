@@ -1,10 +1,8 @@
 import 'reflect-metadata';
 import {
     listProjectWikis,
-    type ProjectBlackboard,
     type ProjectWikiOperationResult,
     ProjectWikiService,
-    projectIdForWorkspace,
     type WikiEntry,
     type WikiProjectSummary,
     WikiService,
@@ -26,7 +24,6 @@ export interface WikiView {
     snapshot: string | null;
     entries: WikiEntry[];
     empty: boolean;
-    blackboard: ProjectBlackboard | null;
     repository: ProjectWikiRepository | null;
     operation: ProjectWikiOperationView | null;
     backgroundSync: ProjectWikiOperationView | null;
@@ -53,9 +50,6 @@ export class WikiController {
             workspace: resolved,
         });
         const doc = service.snapshot();
-        const blackboard = await this.runtime
-            .harness()
-            .projectBlackboard(projectIdForWorkspace(resolved));
         const repository = readProjectWiki(resolved);
         return {
             project: service.project ?? '',
@@ -65,19 +59,10 @@ export class WikiController {
             snapshot: doc?.snapshot ?? null,
             entries: doc?.entries ?? [],
             empty: doc === undefined && repository === undefined,
-            blackboard: blackboard ?? null,
             repository: repository ?? null,
             operation: this.maintenance.current(resolved) ?? null,
             backgroundSync: this.maintenance.currentSync(resolved) ?? null,
         };
-    }
-
-    @Post('reconcile')
-    async reconcile(@Query('workspace') workspace?: string): Promise<WikiView> {
-        const resolved = this.resolveWorkspace(workspace);
-        this.runtime.setWorkspaceRoot(resolved);
-        await this.runtime.harness().reconcileProjectBlackboard(projectIdForWorkspace(resolved));
-        return this.view(resolved);
     }
 
     /** POST /api/wiki/init：启动 Agent 读取项目并完成首次填库。 */

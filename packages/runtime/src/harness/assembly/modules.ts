@@ -187,7 +187,6 @@ export const ASSEMBLY_MODULES: readonly AssemblyModule[] = [
             'memory.memoryManager',
             'memory.personalMemory',
             'memory.effectStore',
-            'memory.blackboard',
             'memory.behaviorRecorder',
             'memory.questionService',
             'memory.failureLedger',
@@ -216,7 +215,6 @@ export const ASSEMBLY_MODULES: readonly AssemblyModule[] = [
             ctx.memory.memoryManager = views.memoryManager;
             ctx.memory.personalMemory = new PersonalMemoryService(views.memoryManager);
             ctx.memory.effectStore = views.effectStore;
-            ctx.memory.blackboard = views.blackboard;
         },
     },
     {
@@ -315,7 +313,6 @@ export const ASSEMBLY_MODULES: readonly AssemblyModule[] = [
                     ? { workspaceRoot: ctx.assembly.workspaceRoot }
                     : {}),
                 config: ctx.assembly.config,
-                blackboard: ctx.memory.blackboard,
                 memoryManager: ctx.memory.memoryManager,
                 goalStoreDb: ctx.memory.goalStore,
                 behaviorRecorder: ctx.memory.behaviorRecorder,
@@ -341,7 +338,6 @@ export const ASSEMBLY_MODULES: readonly AssemblyModule[] = [
                     ? { projectWiki: ctx.memory.projectWiki }
                     : {}),
                 wiki: ctx.memory.wiki,
-                blackboard: ctx.memory.blackboard,
                 delegationRoles: () => ctx.delegation?.roles,
                 getSkillProvider: () => ctx.assembly.ports.get<SkillProvider>('skillProvider'),
                 getApprovalSeam: () => ctx.assembly.ports.get<authz.ApprovalSeam>('approvalSeam'),

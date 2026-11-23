@@ -93,7 +93,6 @@ export {
     validateCommandPolicy,
     writeDefaultCommandPolicy,
 } from './auth/command-policy.js';
-export * from './blackboard/index.js';
 // 能力包（Skill）管理：注册表 / 意图解析 / 激活卸载 / 记忆命名空间（docs/能力包规范.md）
 export * from './capabilities/index.js';
 export type {
@@ -369,7 +368,6 @@ export {
     type WikiStoreOptions,
     type WikiSummarizer,
 } from './wiki/index.js';
-
 export {
     type ActRawResult,
     assertTransition,
@@ -399,3 +397,4 @@ export {
     type WorkflowState,
     type WorkflowUsage,
 } from './workflow/index.js';
+export { projectIdForWorkspace } from './workspace-project.js';

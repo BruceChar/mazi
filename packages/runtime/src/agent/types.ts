@@ -28,7 +28,6 @@ export interface SuperAgentDecision {
     plannerId: 'task-graph';
     verifierId: 'independent-default';
     memoryPlan: SuperAgentMemoryPlan;
-    blackboardRequired: boolean;
     promptMatch: PromptMatchResult;
     reason: string[];
 }

@@ -18,7 +18,6 @@ import {
 } from '../agent/index.js';
 import type { IterationTracker } from '../analysis/iteration-tracker.js';
 import type { TocAnalyst } from '../analysis/toc-analyst.js';
-import type { ProjectBlackboard } from '../blackboard/index.js';
 import type { SkillProvider } from '../capabilities/runtime.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import {
@@ -1060,16 +1059,6 @@ export class HarnessRuntime {
             id: this.ctx.intelligence.verifier.id,
             semanticJudge: this.ctx.intelligence.verifier.hasSemanticJudge,
         };
-    }
-
-    async projectBlackboard(projectId: string): Promise<ProjectBlackboard | undefined> {
-        if (this.ctx.assembly.workspaceRoot === undefined) return undefined;
-        return this.ctx.memory.blackboard.ensure(projectId, this.ctx.assembly.workspaceRoot);
-    }
-
-    async reconcileProjectBlackboard(projectId: string): Promise<ProjectBlackboard | undefined> {
-        if (this.ctx.assembly.workspaceRoot === undefined) return undefined;
-        return this.ctx.memory.blackboard.reconcile(projectId, this.ctx.assembly.workspaceRoot);
     }
 
     async exportPortableBundle(rootGoalIds: readonly string[]): Promise<MemoryBundle> {

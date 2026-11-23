@@ -39,7 +39,7 @@ create 相内部无依赖，因此模块数组的排列对正确性没有影响�
 
 ```
 core:     config, intake, observability, memoryCore, intelligence, tools, session
-features: analysis, delegation, wiki/projectWiki, blackboard, plugins
+features: analysis, delegation, wiki/projectWiki, plugins
 ```
 
 - `core` 缺一即无法运行；
@@ -85,7 +85,7 @@ P3 资源统一由 `LazySlot` 包裹：属性访问触发 open，单飞，只 op
 | 入口 | 打开的资源 |
 | --- | --- |
 | 首次建会话 / 执行 Goal | goalStore、memoryManager、behaviorRecorder、questionService、failureLedger、promptPacks |
-| 首次工具执行（需要时） | effectStore、blackboard |
+| 首次工具执行（需要时） | effectStore |
 | 首次访问分析/委派 | analysis stack、delegation stack |
 | 首次使用 wiki / 项目 wiki | WikiService、ProjectWikiService（目录探测与索引） |
 

@@ -1,5 +1,4 @@
 import { type Goal, type Step, ulid } from '@mazi/core';
-import { projectIdForWorkspace } from '../blackboard/index.js';
 import type { SkillProvider } from '../capabilities/runtime.js';
 import { emitFlagEvent, emitGoalPhase, emitSkillEvent } from '../events/emitters.js';
 import { newHarnessEvent } from '../events/index.js';
@@ -126,7 +125,6 @@ export class TurnEngine {
         const model = this.h.ctx.intelligence.resolver.resolveModelChoice(modelId);
         const sessionId = this.h.ctx.session.intake.pendingSessionId.get(rootGoalId);
         this.h.ctx.session.intake.pendingSessionId.delete(rootGoalId);
-        this.h.ctx.session.intake.pendingProjectContext.delete(rootGoalId);
         const rootGoal = goals.find((goal) => goal.goalId === rootGoalId) ?? goals[0];
         const goalId = rootGoal?.goalId ?? rootGoalId;
         const directAnswer =
@@ -147,7 +145,6 @@ export class TurnEngine {
                 .join('\n\n');
         }
         if (rootGoal !== undefined && directAnswer) {
-            this.h.ctx.session.intake.pendingBlackboard.delete(rootGoalId);
             await this.h.completeDirectGoal(rootGoal, directAnswer);
             return {
                 rootGoalId,
@@ -159,23 +156,6 @@ export class TurnEngine {
         if (projectWikiActive) {
             await this.h.ensureProjectWikiInitialized();
         }
-        const blackboardContext =
-            this.h.ctx.session.intake.pendingBlackboard.get(rootGoalId) ??
-            (this.h.ctx.assembly.workspaceRoot !== undefined
-                ? {
-                      projectId: projectIdForWorkspace(this.h.ctx.assembly.workspaceRoot),
-                      workspace: this.h.ctx.assembly.workspaceRoot,
-                  }
-                : undefined);
-        const board =
-            !freshContext && blackboardContext !== undefined
-                ? await this.h.ctx.memory.blackboard.ensure(
-                      blackboardContext.projectId,
-                      blackboardContext.workspace,
-                  )
-                : undefined;
-        const blackboardFragment =
-            board !== undefined ? this.h.ctx.memory.blackboard.promptFragment(board) : undefined;
         const exec = this.h.ctx.tools.plane.config({
             rootGoalId,
             goalId,
@@ -185,8 +165,8 @@ export class TurnEngine {
                 'read-only',
             ...(sessionId !== undefined ? { sessionId } : {}),
             ...(allowedToolsOverride !== undefined ? { allowedToolsOverride } : {}),
-            ...(blackboardContext?.projectId !== undefined
-                ? { projectId: blackboardContext.projectId }
+            ...(memoryContext.projectId !== undefined
+                ? { projectId: memoryContext.projectId }
                 : {}),
             ...(rootGoal !== undefined ? { parentGoal: rootGoal } : {}),
             ...(memoryContext.userId !== undefined ? { userId: memoryContext.userId } : {}),
@@ -196,8 +176,8 @@ export class TurnEngine {
         });
         const decision = this.h.ctx.intelligence.superAgent.decide({
             ...(memoryContext.userId !== undefined ? { userId: memoryContext.userId } : {}),
-            ...(blackboardContext?.projectId !== undefined
-                ? { projectId: blackboardContext.projectId }
+            ...(memoryContext.projectId !== undefined
+                ? { projectId: memoryContext.projectId }
                 : {}),
             ...(this.h.ctx.assembly.workspaceRoot !== undefined
                 ? { workspace: this.h.ctx.assembly.workspaceRoot }
@@ -223,7 +203,6 @@ export class TurnEngine {
                     plannerId: decision.plannerId,
                     verifierId: decision.verifierId,
                     memoryPlan: decision.memoryPlan,
-                    blackboardRequired: decision.blackboardRequired,
                     reason: decision.reason,
                 },
             }),
@@ -339,7 +318,6 @@ export class TurnEngine {
                             promptFragment,
                             wikiFragment,
                             projectWikiFragment,
-                            blackboardFragment,
                             promptPackFragment,
                             this.h.codingPromptFragment(decision.taskKind),
                         ),
@@ -482,6 +460,22 @@ export class TurnEngine {
                             'executing',
                             '正在执行',
                         ),
+                    onWorkflowNode: (event) =>
+                        this.h.ctx.observability.bus.emit(
+                            newHarnessEvent({
+                                type: 'workflow.node',
+                                rootGoalId,
+                                goalId,
+                                payload: {
+                                    kind: event.type,
+                                    ...(event.role !== undefined ? { role: event.role } : {}),
+                                    ...(event.nodeId !== undefined ? { nodeId: event.nodeId } : {}),
+                                    reason: event.reason,
+                                    at: event.at,
+                                    loopMode: 'dynamic',
+                                },
+                            }),
+                        ),
                 },
                 goals,
             );
@@ -584,36 +578,6 @@ export class TurnEngine {
                 }),
             );
         }
-        if (blackboardContext !== undefined) {
-            const changedPaths = result.tasks.flatMap((outcome) =>
-                outcome.steps
-                    .filter(
-                        (step): step is Extract<Step, { kind: 'invocation' }> =>
-                            step.kind === 'invocation' && step.status === 'succeeded',
-                    )
-                    .flatMap((step) =>
-                        typeof step.payload.arguments?.path === 'string'
-                            ? [step.payload.arguments.path]
-                            : [],
-                    ),
-            );
-            await this.h.ctx.memory.blackboard.updateFromRun(
-                blackboardContext.projectId,
-                blackboardContext.workspace,
-                {
-                    rootGoalId,
-                    statement: rootGoal?.statement ?? '',
-                    ok: result.ok,
-                    reason: result.rejected?.join(';') || (result.ok ? 'completed' : 'failed'),
-                    ...(result.tasks.at(-1)?.finalMessage !== undefined
-                        ? { finalMessage: result.tasks.at(-1)?.finalMessage }
-                        : {}),
-                    taskTitles: result.tasks.map((outcome) => outcome.task.title),
-                    changedPaths: [...new Set(changedPaths)],
-                },
-            );
-        }
-        this.h.ctx.session.intake.pendingBlackboard.delete(rootGoalId);
         // project-wiki 的会话后同步由宿主后台队列处理；未挂载时保留 v1 收尾。
         if (this.h.ctx.memory.projectWiki === undefined) {
             await this.h.ctx.memory.wiki.flushRun({
@@ -643,12 +607,11 @@ function goalRunSummary(result: GoalRunResult): string {
     return summary && summary.length > 0 ? summary.slice(0, 2000) : '';
 }
 
-/** 合并 system prompt 片段：Feature 在前，wiki / blackboard / prompt pack 在后。 */
+/** 合并 system prompt 片段：Feature 在前，wiki / prompt pack 在后。 */
 function combinePromptFragments(
     featureFragment: string | undefined,
     wikiFragment: string | undefined,
     projectWikiFragment: string | undefined,
-    blackboardFragment: string | undefined,
     promptPackFragment: string | undefined,
     agentPromptFragment?: string,
 ): string | undefined {
@@ -656,7 +619,6 @@ function combinePromptFragments(
         featureFragment?.trim() ?? '',
         wikiFragment?.trim() ?? '',
         projectWikiFragment?.trim() ?? '',
-        blackboardFragment?.trim() ?? '',
         promptPackFragment?.trim() ?? '',
         agentPromptFragment?.trim() ?? '',
     ].filter((part) => part.length > 0);

@@ -1,47 +1,6 @@
 import { isAbsolute, relative, resolve } from 'node:path';
-import type { ProjectBlackboardService } from '../blackboard/index.js';
 import type { ToolConfig } from '../config.js';
 import type { ProjectWikiService, WikiService } from '../wiki/index.js';
-
-export function blackboardToolConfigs(
-    blackboard: ProjectBlackboardService,
-    projectId: string,
-    workspace: string,
-): ToolConfig[] {
-    return [
-        {
-            name: 'blackboard.read',
-            description:
-                'Read the current project blackboard. Use summary/architecture/status/issues/decisions for the relevant section instead of rescanning the entire repository.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    section: {
-                        type: 'string',
-                        enum: ['summary', 'architecture', 'status', 'issues', 'decisions', 'all'],
-                    },
-                },
-            },
-            minPermission: 'read-only',
-            sideEffects: [],
-            impl: async (args) => {
-                const board = await blackboard.ensure(projectId, workspace);
-                const section =
-                    args.section === 'summary' ||
-                    args.section === 'architecture' ||
-                    args.section === 'status' ||
-                    args.section === 'issues' ||
-                    args.section === 'decisions'
-                        ? args.section
-                        : 'all';
-                return {
-                    ok: true,
-                    content: blackboard.read(board, section),
-                };
-            },
-        },
-    ];
-}
 
 export function projectWikiToolConfig(projectWiki: ProjectWikiService): ToolConfig {
     return {

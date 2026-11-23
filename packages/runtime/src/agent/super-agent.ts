@@ -98,7 +98,6 @@ export class SuperAgent {
                 readProject: input.projectId !== undefined,
                 writeEpisode: true,
             },
-            blackboardRequired: input.projectId !== undefined,
             promptMatch: match,
             reason,
         };

@@ -21,7 +21,7 @@ export type RunLoopMode = 'default' | 'dynamic';
 
 export interface RunOptions {
     userId?: string;
-    /** Stable project identity used by personal memory and project blackboard. */
+    /** Stable project identity used by personal memory and project wiki. */
     projectId?: string;
     /** 本次 Goal 的权限档位（composer 选择）；缺省用配置默认。 */
     permissionCeiling?: PermissionLevel;

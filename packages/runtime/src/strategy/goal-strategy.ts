@@ -7,7 +7,7 @@
  * 一个进程内 MemoryManager，测试可直接注入。
  */
 
-import { type Goal, type Step, type Task, ulid } from '@mazi/core';
+import { type ExperimentLoopNode, type Goal, type Step, type Task, ulid } from '@mazi/core';
 import { evaluateAcceptance } from '../gts/acceptance.js';
 import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../gts/goal-executor.js';
 import { executeTask } from '../gts/goal-executor.js';
@@ -88,6 +88,8 @@ export interface GoalRunDeps {
     ) => void;
     /** Called only after the plan is emitted and before the first Task starts. */
     onExecutionStart?: () => void | Promise<void>;
+    /** dynamic loop：真实 workflow 节点事件（goal 级，供 trace 与实时面板）。 */
+    onWorkflowNode?: (event: import('../workflow/types.js').WorkflowEvent) => void;
     /** Independent verifier; absence keeps mechanical acceptance for lightweight callers. */
     verifier?: TaskVerifier;
     onVerification?: (report: VerificationReport, outcome: TaskOutcome) => void;
@@ -115,7 +117,12 @@ export interface GoalRunResult {
     rejected?: string[];
     planRevisions?: PlanRevision[];
     /** 执行 loop 的元信息（loopMode=dynamic 时由节点引擎填写）。 */
-    loop?: { mode: 'default' | 'dynamic'; outcome?: string; nodes?: number };
+    loop?: {
+        mode: 'default' | 'dynamic';
+        outcome?: string;
+        nodes?: number;
+        nodeTrail?: ExperimentLoopNode[];
+    };
 }
 
 function minDefined(...values: Array<number | undefined>): number | undefined {

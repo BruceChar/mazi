@@ -1,7 +1,5 @@
 import type { Goal } from '@mazi/core';
 import { ulid } from '@mazi/core';
-import type { ProjectBlackboardService } from '../blackboard/index.js';
-import { projectIdForWorkspace } from '../blackboard/index.js';
 import type { RuntimeConfig } from '../config.js';
 import { emitGoalPhase } from '../events/emitters.js';
 import type { DefaultEventBus } from '../events/event-bus.js';
@@ -15,6 +13,7 @@ import {
 import type { GoalStore } from '../memory/goal-store.js';
 import { type MemoryManager, turnsToMemory } from '../memory/memory.js';
 import type { BehaviorRecorder } from '../observability/behavior-recorder.js';
+import { projectIdForWorkspace } from '../workspace-project.js';
 import { conversationMessages, type RunOptions } from './conversation.js';
 import type { ModelResolver } from './model-resolver.js';
 import type { RoundRunner } from './round-runner.js';
@@ -34,7 +33,6 @@ export interface SessionFactoryDeps {
     beginSession: (sessionId: string) => Promise<void>;
     workspaceRoot?: string;
     config: RuntimeConfig;
-    blackboard: ProjectBlackboardService;
     memoryManager: MemoryManager;
     goalStoreDb: GoalStore;
     behaviorRecorder: BehaviorRecorder;
@@ -72,16 +70,6 @@ export class SessionFactory {
             ...(opts.freshContext === true ? { fresh: true } : {}),
         };
         this.d.intake.pendingMemoryContext.set(rootGoalId, memoryContext);
-        if (opts.freshContext !== true && projectId !== undefined && workspaceId !== undefined) {
-            if (opts.projectId !== undefined) {
-                this.d.intake.pendingProjectContext.set(rootGoalId, { workspace: workspaceId });
-            }
-            this.d.intake.pendingBlackboard.set(rootGoalId, {
-                projectId,
-                workspace: workspaceId,
-            });
-            await this.d.blackboard.ensure(projectId, workspaceId);
-        }
         if (opts.history !== undefined && opts.history.length > 0) {
             await this.d.memoryManager.remember(
                 turnsToMemory(opts.history, {
@@ -240,9 +228,7 @@ export class SessionFactory {
         const added = plan.conditions.filter(
             (condition) =>
                 condition.checkType === 'semantic' ||
-                (condition.check !== undefined &&
-                    condition.check.kind !== 'final-answer' &&
-                    condition.check.kind !== 'no-failed-steps'),
+                (condition.check !== undefined && condition.check.kind !== 'final-answer'),
         );
         goal.contract = {
             ...goal.contract,

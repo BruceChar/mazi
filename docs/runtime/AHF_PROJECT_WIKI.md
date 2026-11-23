@@ -621,7 +621,7 @@ WebUI 轮询 `GET /api/wiki/operations/:id`，完成后自动刷新知识库并�
 并在 Wiki Trace 内直接展示审批摘要与“拒绝 / 允许一次 / 本工作区允许”按钮；
 按钮调用 `POST /api/approvals/:id`，不是只读提示。
 右侧 Trace 栏默认 340px，可拖动左边缘在 260–720px 间调整，宽度保存在本地。
-无 v2 wiki 时展示初始化空态，不退回编程项目专用的 blackboard 术语。
+无 v2 wiki 时展示初始化空态；项目知识统一走 project wiki（blackboard 已移除）。
 从项目菜单进入 Wiki 时，页面会同时切换全局工作区；顶部栏始终显示当前 Wiki 的项目路径。
 
 ## 12. 初始化流程（端到端）

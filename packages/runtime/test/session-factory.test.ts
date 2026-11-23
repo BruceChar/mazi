@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { DefaultEventBus } from '../src/events/event-bus.js';
 import { SessionFactory } from '../src/harness/session-factory.js';
 import { SessionIntake } from '../src/harness/session-intake.js';
-import { MemoryBlackboardStore, ProjectBlackboardService } from '../src/blackboard/index.js';
 import { MemoryGoalStore } from '../src/memory/goal-store.js';
 import { MemoryBehaviorStore } from '../src/memory/behavior-store.js';
 import { MemoryManager } from '../src/memory/memory.js';
@@ -35,7 +34,6 @@ function buildFactory(): {
         sessionIds: new Map(),
         beginSession: async () => {},
         config: { providers: [], tools: [] } as unknown as RuntimeConfig,
-        blackboard: new ProjectBlackboardService(new MemoryBlackboardStore()),
         memoryManager: new MemoryManager(),
         goalStoreDb: goalStore,
         behaviorRecorder: new BehaviorRecorder(new MemoryBehaviorStore()),
@@ -54,20 +52,16 @@ function buildFactory(): {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('SessionFactory', () => {
-    it('freshContext=true：不建黑板注入，memoryContext 标记 fresh', async () => {
+    it('freshContext=true：memoryContext 标记 fresh，普通会话不标记', async () => {
         const { factory, intake } = buildFactory();
         const fresh = await factory.create('调研一个话题', {
             workspaceRoot: '/tmp/mazi-fresh-workspace',
             freshContext: true,
         });
-        expect(intake.pendingBlackboard.has(fresh.rootGoalId)).toBe(false);
         expect(intake.pendingMemoryContext.get(fresh.rootGoalId)?.fresh).toBe(true);
 
         const carried = await factory.create('调研一个话题', {
             workspaceRoot: '/tmp/mazi-carry-workspace',
-        });
-        expect(intake.pendingBlackboard.get(carried.rootGoalId)).toMatchObject({
-            workspace: '/tmp/mazi-carry-workspace',
         });
         expect(intake.pendingMemoryContext.get(carried.rootGoalId)?.fresh).toBeUndefined();
     });

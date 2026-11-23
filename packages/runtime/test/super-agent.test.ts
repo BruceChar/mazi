@@ -37,7 +37,6 @@ describe('SuperAgent', () => {
             taskKind: 'coding',
             plannerId: 'task-graph',
             verifierId: 'independent-default',
-            blackboardRequired: true,
             memoryPlan: { readUser: true, readProject: true, writeEpisode: true },
         });
         expect(decision.promptPackIds).toContain('project-agent');

@@ -64,7 +64,6 @@ describe('agent controller', () => {
             taskKind: 'memory',
             plannerId: 'task-graph',
             verifierId: 'independent-default',
-            blackboardRequired: true,
         });
         expect(controller.verifier()).toEqual({
             id: 'independent-default',

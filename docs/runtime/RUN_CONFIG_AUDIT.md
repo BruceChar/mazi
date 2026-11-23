@@ -15,7 +15,7 @@
 | 语义 | 使用点 |
 | --- | --- |
 | 进程 cwd | `runShellTool` / `runCliTool` |
-| 项目身份 | blackboard `ensure/reconcile`、session 上下文片段 |
+| 项目身份 | project wiki 作用域、session 上下文片段 |
 | 权限边界 | `assertInsideWorkspace` 包住 fs 写读、effect 快照 |
 
 前两者是上下文，第三条是策略。把「项目根目录」当成「允许访问的边界」，会让工具权限由路径推导，而不是由用户偏好与红线决定：换个目录就换了权限，写死一个路径就永久放开。
@@ -81,7 +81,7 @@ interface ProgressAuditor { review(snapshot: ProgressSnapshot): Review }
 
 ### 权限
 
-- `projectRoot` 只进上下文与 blackboard，不再参与 `assertInsideWorkspace`；
+- `projectRoot` 只进上下文与 project wiki，不再参与 `assertInsideWorkspace`；
 - 文件工具权限来自 `fsPolicy` + `permissionCeiling`，越界走审批 seam 申请一次性放行；
 - `config.goal.{permissionCeiling, allowedTools}` 与 `RunRequest` 双入口收敛为：请求覆盖配置，配置为默认。
 

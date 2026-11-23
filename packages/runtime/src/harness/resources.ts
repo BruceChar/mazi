@@ -1,8 +1,3 @@
-import {
-    MemoryBlackboardStore,
-    ProjectBlackboardService,
-    SqliteBlackboardStore,
-} from '../blackboard/index.js';
 import type { RuntimeConfig } from '../config.js';
 import type { EffectStore } from '../effects/effect-store.js';
 import { MemoryEffectStore, SqliteEffectStore } from '../effects/effect-store.js';
@@ -33,7 +28,6 @@ export class RuntimeResources {
     readonly goalStore: LazySlot<GoalStore>;
     readonly memoryManager: LazySlot<MemoryManager>;
     readonly effectStore: LazySlot<EffectStore>;
-    readonly blackboard: LazySlot<ProjectBlackboardService>;
     readonly behaviorRecorder: LazySlot<BehaviorRecorder>;
     readonly questionService: LazySlot<QuestionService>;
     readonly failureLedger: LazySlot<FailureLedgerStore>;
@@ -44,7 +38,6 @@ export class RuntimeResources {
         readonly goalStore: GoalStore;
         readonly memoryManager: MemoryManager;
         readonly effectStore: EffectStore;
-        readonly blackboard: ProjectBlackboardService;
         readonly behaviorRecorder: BehaviorRecorder;
         readonly questionService: QuestionService;
         readonly failureLedger: FailureLedgerStore;
@@ -67,11 +60,6 @@ export class RuntimeResources {
             config.dbPath !== undefined
                 ? new SqliteEffectStore(config.dbPath)
                 : new MemoryEffectStore(),
-        );
-        this.blackboard = new LazySlot(() =>
-            config.dbPath !== undefined
-                ? new ProjectBlackboardService(new SqliteBlackboardStore(config.dbPath))
-                : new ProjectBlackboardService(new MemoryBlackboardStore()),
         );
         this.behaviorRecorder = new LazySlot(() => {
             const recorder = new BehaviorRecorder(
@@ -110,7 +98,6 @@ export class RuntimeResources {
             goalStore: this.goalStore.view(),
             memoryManager: this.memoryManager.view(),
             effectStore: this.effectStore.view(),
-            blackboard: this.blackboard.view(),
             behaviorRecorder: this.behaviorRecorder.view(),
             questionService: this.questionService.view(),
             failureLedger: this.failureLedger.view(),
@@ -141,7 +128,6 @@ export class RuntimeResources {
             this.goalStore,
             this.memoryManager,
             this.effectStore,
-            this.blackboard,
             this.behaviorRecorder,
             this.questionService,
             this.failureLedger,

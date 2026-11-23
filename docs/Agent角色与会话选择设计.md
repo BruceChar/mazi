@@ -431,7 +431,7 @@ root Goal（主执行面，base prompt + session context）
 
 
 
-* **单向拓扑**：只允许父 → 子委派，子不能反向读取父的完整对话；跨 Agent 共享信息走 blackboard 与 session context，而不是复制 transcript。
+* **单向拓扑**：只允许父 → 子委派，子不能反向读取父的完整对话；跨 Agent 共享信息走 project wiki 与 session context，而不是复制 transcript。
 
 * **提示隔离**：每个子 Goal 只拿「基础提示 + 自己的 promptFragment + 自己的技能目录」。一个 Agent 改提示不会污染其他 Agent，也不会改变父的上下文。
 

@@ -36,9 +36,6 @@ export class SessionIntake {
             fresh?: boolean;
         }
     >();
-    readonly pendingBlackboard = new Map<string, { projectId: string; workspace: string }>();
-    /** 仅项目会话设置（随心聊即使有默认工作区也不初始化项目 wiki）。 */
-    readonly pendingProjectContext = new Map<string, { workspace: string }>();
     /** 待执行 Session 的开关审计（flag.evaluated：值 + 求值痕迹） */
     readonly pendingFlags = new Map<
         string,
@@ -65,8 +62,6 @@ export class SessionIntake {
             this.pendingPromptPackIds,
             this.pendingDelegationDepth,
             this.pendingMemoryContext,
-            this.pendingBlackboard,
-            this.pendingProjectContext,
             this.pendingFlags,
         ]) {
             map.delete(rootGoalId);

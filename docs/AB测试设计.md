@@ -50,8 +50,8 @@ Experiment（实验，一次对照）
 **执行单位是 Goal Run，不是 Session 续聊**：实验的两臂互不共享上下文（否则 A 的输出会污染 B，自变量不干净）。因此实验不写 Conversation（不进入聊天历史），只写 Goal 存储与实验日志；两臂的 `rootGoalId` 是 Trace 的入口。
 
 **默认干净上下文**：`spec.carryContext` 缺省 `false`，`ExperimentRunner` 给两臂注入
-`RunOptions.freshContext = true`——TurnEngine 不注入项目黑板的 `completedMilestones`/历史摘要，
-也不初始化项目 wiki；项目黑板工具仍可按需显式调用。若要复现「上一轮的结论」影响，把
+`RunOptions.freshContext = true`——TurnEngine 不注入任何项目知识层（blackboard 已移除，
+project wiki 也不初始化/不注入）；实验臂只看到本轮输入与显式工具。若要复现「上一轮的结论」影响，把
 `carryContext` 设为 `true`（UI 勾选「带上上一次运行的上下文」），此时两臂都继承，不构成自变量偏差。
 
 ### 2.1 控制变量法则

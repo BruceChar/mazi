@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { authz, type Goal } from '@mazi/core';
 import { AgentRoleRegistry } from '../src/agent/roles.js';
-import { MemoryBlackboardStore, ProjectBlackboardService } from '../src/blackboard/index.js';
 import type { ToolCallResult } from '../src/config.js';
 import { DefaultEventBus } from '../src/events/event-bus.js';
 import { DefaultFaultPipeline } from '../src/faults/pipeline.js';
@@ -35,7 +34,6 @@ function buildPlane(): { plane: ToolPlane; calls: string[] } {
             home: mkdtempSync(join(tmpdir(), 'mazi-home-')),
             workspace: mkdtempSync(join(tmpdir(), 'mazi-ws-')),
         }),
-        blackboard: new ProjectBlackboardService(new MemoryBlackboardStore()),
         delegationRoles: new AgentRoleRegistry(),
         getSkillProvider: () => undefined,
         getApprovalSeam: () => undefined,
@@ -67,33 +65,6 @@ describe('ToolPlane', () => {
             delegationDepth: 2,
         });
         expect(tooDeep.allowedTools).not.toContain('delegate');
-    });
-
-    it('有项目与工作区时挂上 blackboard，并按其权限生成 planTool', () => {
-        const { plane } = buildPlane();
-        const exec = plane.config({
-            rootGoalId: 'r',
-            goalId: 'g',
-            level: 'workspace-write',
-            projectId: 'p1',
-            parentGoal,
-        });
-        expect(exec.allowedTools).toContain('blackboard.read');
-        expect(exec.planTools.find((tool) => tool.name === 'delegate')?.minPermission).toBe(
-            'read-only',
-        );
-    });
-
-    it('freshContext 时不暴露项目黑板工具', () => {
-        const { plane } = buildPlane();
-        const exec = plane.config({
-            rootGoalId: 'r',
-            goalId: 'g',
-            level: 'read-only',
-            projectId: 'p1',
-            freshContext: true,
-        });
-        expect(exec.allowedTools).not.toContain('blackboard.read');
     });
 
     it('运行级白名单只收窄，不收窄到白名单之外', () => {

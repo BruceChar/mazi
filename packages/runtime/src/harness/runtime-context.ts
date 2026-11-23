@@ -2,7 +2,6 @@ import type { authz } from '@mazi/core';
 import type { DelegationStack } from '../agent/stack.js';
 import type { SuperAgent } from '../agent/super-agent.js';
 import type { AnalysisStack } from '../analysis/stack.js';
-import type { ProjectBlackboardService } from '../blackboard/index.js';
 import type { RuntimeConfig } from '../config.js';
 import type { EffectStore } from '../effects/effect-store.js';
 import type { DefaultEventBus } from '../events/event-bus.js';
@@ -68,7 +67,6 @@ export interface MemoryPlane {
     memoryManager: MemoryManager;
     personalMemory: PersonalMemoryService;
     effectStore: EffectStore;
-    blackboard: ProjectBlackboardService;
     behaviorRecorder: BehaviorRecorder;
     questionService: QuestionService;
     failureLedger: FailureLedgerStore;
