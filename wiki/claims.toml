@@ -127,10 +127,10 @@ text = "shell.run runs under bash pipefail, downstream SIGPIPE (exit 141) is tre
 status = "active"
 evidence = [
   { file = "packages/runtime/src/harness/tool-executor.ts", oid = "633f098dbd3de9704051d78000e44a02d7474547" },
-  { file = "packages/runtime/test/tool-executor.test.ts", oid = "4bea4a9b4eca6af782f168a045c0bb487b0c0f7b" },
+  { file = "packages/runtime/test/tool-executor.test.ts", oid = "6efd2043903dbdd36ef20136b63193fe621416ae" },
 ]
 established = 2026-11-07
-verified = 2026-11-09
+verified = 2026-11-24
 
 [claims.wiki-ui-current-status-facts-trace]
 text = "The Project Wiki UI shows complete state/current content, exact-second timestamps, expandable evidence facts, forgotten versus corrected claim state, and a live background maintenance trace with model stream, tool arguments/results and inline approvals."
