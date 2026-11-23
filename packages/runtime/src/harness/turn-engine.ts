@@ -8,6 +8,7 @@ import type { PlannedTask } from '../gts/plan-graph.js';
 import type { ReplanPlanner } from '../gts/replan.js';
 import type { TaskPlannerHistoryEntry } from '../gts/task-planner.js';
 import type { PromptRiskLevel, PromptTaskKind } from '../prompts/index.js';
+import { runGoalTreeDynamic } from '../strategy/dynamic-loop.js';
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
 import type { VerificationFailureCategory, VerificationReport } from '../verifier/index.js';
 import type { RuntimeContext } from './runtime-context.js';
@@ -109,6 +110,8 @@ export class TurnEngine {
             this.h.ctx.session.intake.pendingTaskPlanning.get(rootGoalId) ??
             this.h.ctx.assembly.taskPlanningByDefault;
         this.h.ctx.session.intake.pendingTaskPlanning.delete(rootGoalId);
+        const loopMode = this.h.ctx.session.intake.pendingLoopMode.get(rootGoalId) ?? 'default';
+        this.h.ctx.session.intake.pendingLoopMode.delete(rootGoalId);
         const memoryContext = this.h.ctx.session.intake.pendingMemoryContext.get(rootGoalId) ?? {};
         this.h.ctx.session.intake.pendingMemoryContext.delete(rootGoalId);
         const explicitPromptPackIds =
@@ -314,7 +317,8 @@ export class TurnEngine {
         this.h.ctx.session.running.set(rootGoalId, controller);
         let result: GoalRunResult;
         try {
-            result = await runGoalTree(
+            const runLoop = loopMode === 'dynamic' && !resume ? runGoalTreeDynamic : runGoalTree;
+            result = await runLoop(
                 {
                     store: this.h.ctx.memory.goalStore,
                     requestRound: (ctx) =>

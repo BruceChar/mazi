@@ -55,6 +55,12 @@ function flagMap(value: unknown): Record<string, boolean> | undefined {
     return out;
 }
 
+function loopModeOf(value: unknown, field: string): 'default' | 'dynamic' | undefined {
+    if (value === undefined) return undefined;
+    if (value === 'default' || value === 'dynamic') return value;
+    throw new ExperimentSpecError(field + ' 只能是 default 或 dynamic');
+}
+
 function baselineOf(value: unknown): ExperimentBaseline {
     if (value === undefined) return {};
     if (typeof value !== 'object' || value === null)
@@ -63,6 +69,8 @@ function baselineOf(value: unknown): ExperimentBaseline {
     const baseline: ExperimentBaseline = {};
     const modelId = optionalText(record.modelId);
     if (modelId !== undefined) baseline.modelId = modelId;
+    const loopMode = loopModeOf(record.loopMode, 'baseline.loopMode');
+    if (loopMode !== undefined) baseline.loopMode = loopMode;
     const skillIds = textList(record.skillIds);
     if (skillIds !== undefined) baseline.skillIds = skillIds;
     const features = flagMap(record.features);
@@ -83,6 +91,8 @@ function armOf(value: unknown, index: number): ExperimentArmSpec {
     const arm: ExperimentArmSpec = { label };
     const modelId = optionalText(record.modelId);
     if (modelId !== undefined) arm.modelId = modelId;
+    const loopMode = loopModeOf(record.loopMode, 'arms[' + index + '].loopMode');
+    if (loopMode !== undefined) arm.loopMode = loopMode;
     const skills = textList(record.skills);
     if (skills !== undefined) arm.skills = skills;
     const features = flagMap(record.features);

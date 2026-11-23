@@ -19,6 +19,12 @@ export interface MetricsInput {
     skills: readonly string[];
     /** 本次运行的有效开关值。 */
     features: Record<string, boolean>;
+    /** 执行 loop 的元信息（缺省时按 default 记录）。 */
+    loop?: {
+        mode?: 'default' | 'dynamic';
+        termination?: string;
+        nodeCount?: number;
+    };
 }
 
 function stepsOf(snapshot: GoalTreeSnapshot): StepView[] {
@@ -78,6 +84,9 @@ export function collectMetrics(input: MetricsInput): ExperimentMetrics {
         models: [...models].sort(),
         skills: [...input.skills].sort(),
         features: { ...input.features },
+        loopMode: input.loop?.mode ?? 'default',
+        termination: input.loop?.termination ?? input.reason ?? status,
+        ...(input.loop?.nodeCount !== undefined ? { nodeCount: input.loop.nodeCount } : {}),
     };
 }
 

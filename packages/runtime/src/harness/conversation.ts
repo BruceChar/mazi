@@ -16,6 +16,9 @@ export interface ConversationTurn {
     text: string;
 }
 
+/** 执行 loop 的选择：default（既有串行 cursor）/ dynamic（节点驱动）。 */
+export type RunLoopMode = 'default' | 'dynamic';
+
 export interface RunOptions {
     userId?: string;
     /** Stable project identity used by personal memory and project blackboard. */
@@ -58,6 +61,8 @@ export interface RunOptions {
     taskPlanner?: TaskPlanner;
     /** Enable automatic Task planning for this run. Product sessions default it on. */
     taskPlanning?: boolean;
+    /** 本次运行的执行 loop；缺省 default。dynamic 暂不支持 resume。 */
+    loopMode?: RunLoopMode;
     /** Explicit PromptPack ids. Matching still determines compatibility and budget. */
     promptPackIds?: readonly string[];
     /** Delegation depth. Root tasks are 0; runtime refuses deeper fanout at its cap. */

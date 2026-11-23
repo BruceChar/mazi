@@ -18,6 +18,7 @@ export class SessionIntake {
     readonly pendingAllowedTools = new Map<string, readonly string[]>();
     readonly pendingPlanProposal = new Map<string, readonly PlannedTask[]>();
     readonly pendingTaskPlanning = new Map<string, boolean>();
+    readonly pendingLoopMode = new Map<string, 'default' | 'dynamic'>();
     /** In-flight async triage for a freshly created session (planning must see the full contract). */
     readonly pendingTriage = new Map<string, Promise<void>>();
     /** Conversation turns from the previous session, forwarded to the Task Planner. */
@@ -56,6 +57,7 @@ export class SessionIntake {
             this.pendingAllowedTools,
             this.pendingPlanProposal,
             this.pendingTaskPlanning,
+            this.pendingLoopMode,
             this.pendingTriage,
             this.pendingHistory,
             this.pendingPromptPackIds,

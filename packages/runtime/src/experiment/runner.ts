@@ -40,6 +40,7 @@ interface ResolvedArm {
     options: RunOptions;
     skills?: string[];
     flags?: Record<string, boolean>;
+    loopMode?: 'default' | 'dynamic';
 }
 
 function messageOf(error: unknown): string {
@@ -220,6 +221,21 @@ export class ExperimentRunner {
             const metrics = collectMetrics({
                 snapshot,
                 ok: result.ok,
+                ...(result.loop !== undefined
+                    ? {
+                          loop: {
+                              mode: result.loop.mode,
+                              ...(result.loop.outcome !== undefined
+                                  ? { termination: result.loop.outcome }
+                                  : {}),
+                              ...(result.loop.nodes !== undefined
+                                  ? { nodeCount: result.loop.nodes }
+                                  : {}),
+                          },
+                      }
+                    : resolved.loopMode !== undefined
+                      ? { loop: { mode: resolved.loopMode } }
+                      : {}),
                 ...(last?.reason !== undefined ? { reason: last.reason } : {}),
                 startedAt,
                 endedAt,
@@ -277,12 +293,14 @@ export class ExperimentRunner {
                   : undefined;
         const promptFragment = effective?.promptFragment;
         const modelId = arm.modelId ?? baseline.modelId;
+        const loopMode = arm.loopMode ?? baseline.loopMode;
         const permissionCeiling = arm.permissionCeiling ?? baseline.permissionCeiling;
         const reasoningLevel =
             arm.reasoningLevel ?? effective?.reasoningLevel ?? baseline.reasoningLevel;
 
         const options: RunOptions = {
             ...(modelId !== undefined ? { modelId } : {}),
+            ...(loopMode !== undefined ? { loopMode } : {}),
             ...(permissionCeiling !== undefined ? { permissionCeiling } : {}),
             ...(reasoningLevel !== undefined ? { reasoningLevel } : {}),
             ...(promptFragment !== undefined && promptFragment.length > 0
@@ -297,6 +315,7 @@ export class ExperimentRunner {
         };
         return {
             options,
+            ...(loopMode !== undefined ? { loopMode } : {}),
             ...(skills !== undefined ? { skills } : {}),
             ...(flags !== undefined ? { flags } : {}),
         };

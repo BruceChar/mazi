@@ -9,7 +9,16 @@
 import type { PermissionLevel } from './authz/permissions.js';
 
 /** 自变量类型（闭集）。 */
-export type ExperimentVariableKind = 'feature' | 'skill' | 'model' | 'permission' | 'reasoning';
+export type ExperimentVariableKind =
+    | 'feature'
+    | 'skill'
+    | 'model'
+    | 'permission'
+    | 'reasoning'
+    | 'loopMode';
+
+/** 执行 loop 的两种取值（与 RunOptions.loopMode 对齐）。 */
+export type ExperimentLoopMode = 'default' | 'dynamic';
 
 export const EXPERIMENT_VARIABLE_KINDS: readonly ExperimentVariableKind[] = [
     'feature',
@@ -17,6 +26,7 @@ export const EXPERIMENT_VARIABLE_KINDS: readonly ExperimentVariableKind[] = [
     'model',
     'permission',
     'reasoning',
+    'loopMode',
 ];
 
 export function isExperimentVariableKind(value: unknown): value is ExperimentVariableKind {
@@ -37,6 +47,7 @@ export interface ExperimentVariable {
 /** 控制变量：两臂共用的运行参数（实验定义时冻结，运行期不重读全局设置）。 */
 export interface ExperimentBaseline {
     modelId?: string;
+    loopMode?: ExperimentLoopMode;
     skillIds?: readonly string[];
     features?: Record<string, boolean>;
     permissionCeiling?: PermissionLevel;
@@ -52,6 +63,8 @@ export interface ExperimentArmSpec {
     skills?: readonly string[];
     /** 该臂的 Feature 开关取值。 */
     features?: Record<string, boolean>;
+    /** 该臂的执行 loop（缺省沿用 baseline）。 */
+    loopMode?: ExperimentLoopMode;
     permissionCeiling?: PermissionLevel;
     reasoningLevel?: string;
 }
@@ -100,6 +113,12 @@ export interface ExperimentMetrics {
     skills: string[];
     /** 本次运行的有效 Feature 开关。 */
     features: Record<string, boolean>;
+    /** 本次运行使用的执行 loop。 */
+    loopMode?: ExperimentLoopMode;
+    /** loop 的终止原因（done / done-unverified / aborted-* / failed）。 */
+    termination?: string;
+    /** loop 实际执行的节点数（default 缺省）。 */
+    nodeCount?: number;
 }
 
 /** 单臂状态（含 Trace 指针 rootGoalId）。 */

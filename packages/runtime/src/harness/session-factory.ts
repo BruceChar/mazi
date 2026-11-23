@@ -123,6 +123,9 @@ export class SessionFactory {
         if (opts.taskPlanning !== undefined) {
             this.d.intake.pendingTaskPlanning.set(rootGoalId, opts.taskPlanning);
         }
+        if (opts.loopMode !== undefined) {
+            this.d.intake.pendingLoopMode.set(rootGoalId, opts.loopMode);
+        }
         if (opts.promptPackIds !== undefined) {
             this.d.intake.pendingPromptPackIds.set(rootGoalId, opts.promptPackIds);
         }
