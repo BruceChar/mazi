@@ -186,7 +186,7 @@ text = "Project Wiki is maintained by runtime-native ProjectWikiService: init, c
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "1f98d09d32d3b1f76940bc7badb87dc2e6e403bd" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "b36cbfc9c2cb8d5c68f9b8d79225b26b849e6554" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "9fecf46632055876a20bc3d4e015860f86043b95" },
 ]
