@@ -311,48 +311,11 @@ export class HarnessRuntime {
                     input.delegationDepth,
                 ),
         });
-        const self = this;
         this.ctx.session.turns = new TurnEngine({
-            bus: this.ctx.observability.bus,
-            config: this.ctx.assembly.config,
-            intake: this.ctx.session.intake,
-            goalStoreDb: this.ctx.memory.goalStore,
-            memoryManager: this.ctx.memory.memoryManager,
-            failureLedger: this.ctx.memory.failureLedger,
-            lifecycle: this.ctx.observability.lifecycle,
-            stepEvents: this.ctx.observability.stepEvents,
-            superAgent: this.ctx.intelligence.superAgent,
-            verifier: this.ctx.intelligence.verifier,
-            resolver: this.ctx.intelligence.resolver,
-            roundRunner: this.ctx.intelligence.roundRunner,
-            wiki: this.ctx.memory.wiki,
-            blackboard: this.ctx.memory.blackboard,
-            sessions: this.ctx.session.factory,
-            toolPlane: this.ctx.tools.plane,
-            get workspaceRoot() {
-                return self.ctx.assembly.workspaceRoot;
-            },
-            get projectWiki() {
-                return self.ctx.memory.projectWiki;
-            },
-            get skillProvider() {
-                return self.ctx.assembly.ports.get<SkillProvider>('skillProvider');
-            },
-            get replanPlanner() {
-                return self.ctx.assembly.ports.get<ReplanPlanner>('replanPlanner');
-            },
-            get maxReplans() {
-                return self.ctx.assembly.maxReplans;
-            },
-            get taskPlanningByDefault() {
-                return self.ctx.assembly.taskPlanningByDefault;
-            },
-            get running() {
-                return self.ctx.session.running;
-            },
-            completeDirectGoal: (goal, answer) => self.completeDirectGoal(goal, answer),
+            ctx: this.ctx,
+            completeDirectGoal: (goal, answer) => this.completeDirectGoal(goal, answer),
             generateTaskPlan: (rootGoalId, goal, model, reasoningLevel, history, tools, fragment) =>
-                self.generateTaskPlan(
+                this.generateTaskPlan(
                     rootGoalId,
                     goal,
                     model,
@@ -362,10 +325,10 @@ export class HarnessRuntime {
                     fragment,
                 ),
             systemPromptWithSkills: (rootGoalId, goalId, skillIds, promptFragment) =>
-                self.systemPromptWithSkills(rootGoalId, goalId, skillIds, promptFragment),
-            codingPromptFragment: (kind) => self.codingPromptFragment(kind),
-            projectWikiPromptFragment: () => self.projectWikiPromptFragment(),
-            ensureProjectWikiInitialized: () => self.ensureProjectWikiInitialized(),
+                this.systemPromptWithSkills(rootGoalId, goalId, skillIds, promptFragment),
+            codingPromptFragment: (kind) => this.codingPromptFragment(kind),
+            projectWikiPromptFragment: () => this.projectWikiPromptFragment(),
+            ensureProjectWikiInitialized: () => this.ensureProjectWikiInitialized(),
         });
         this.ctx.assembly.kernel = new RuntimeKernel();
         this.ctx.assembly.kernel.provide({
