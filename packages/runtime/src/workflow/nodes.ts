@@ -30,21 +30,22 @@ export function createBuiltinNodes(host: WorkflowHost, limits: WorkflowLimits): 
             id: 'think',
             role: 'think',
             priority: 7,
-            available: () => true,
+            requires: () => true,
             run: (state, view) => host.think(state, view),
         },
         {
             id: 'act',
             role: 'act',
             priority: 5,
-            available: () => true,
+            // 上一批结果还没被 Observe 吸收时不许再 Act，否则会重复执行。
+            requires: (state) => state.pending.length === 0,
             run: (state, view) => host.act(state, view),
         },
         {
             id: 'observe',
             role: 'observe',
             priority: 6,
-            available: (state) => state.pending.length > 0,
+            requires: (state) => state.pending.length > 0,
             run: (state) => {
                 const facts = state.pending.map((item, index) => ({
                     id: `${item.callId}:${index}`,
@@ -64,7 +65,7 @@ export function createBuiltinNodes(host: WorkflowHost, limits: WorkflowLimits): 
             id: 'reflect',
             role: 'reflect',
             priority: 2,
-            available: (state) => state.failures >= 2,
+            requires: (state) => state.failures >= 2,
             run: (state): Promise<NodeResult> =>
                 Promise.resolve(
                     hasPlan(state) && state.plan.staleBy !== 'reflect'
@@ -82,7 +83,7 @@ export function createBuiltinNodes(host: WorkflowHost, limits: WorkflowLimits): 
             id: 'plan',
             role: 'plan',
             priority: 4,
-            available: (state) =>
+            requires: (state) =>
                 state.plan === undefined ||
                 openTaskCount(state) === 0 ||
                 state.plan?.staleBy === 'reflect' ||
@@ -96,7 +97,7 @@ export function createBuiltinNodes(host: WorkflowHost, limits: WorkflowLimits): 
             id: 'verify',
             role: 'verify',
             priority: 3,
-            available: (state) =>
+            requires: (state) =>
                 state.acceptance.length > 0 &&
                 openTaskCount(state) === 0 &&
                 state.pending.length === 0,

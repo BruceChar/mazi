@@ -73,14 +73,14 @@ export interface NodeResult {
 /**
  * 节点契约（interface 而非基类：节点无共享状态，交叉能力由 runner 承担）。
  *
- * - available：数据前置条件（能力缺失由工厂决定是否创建节点，不在此判断）
+ * - requires：数据前置条件（能力缺失由工厂决定是否创建节点，不在此判断）
  * - run：读视图、返回 delta 与下一个相位（相位合法由 runner 校验）
  */
 export interface WorkflowNode {
     readonly id: string;
     readonly role: Phase;
     readonly priority: number;
-    available(state: WorkflowState): boolean;
+    requires(state: WorkflowState): boolean;
     run(state: WorkflowState, view: ContextView): Promise<NodeResult>;
 }
 

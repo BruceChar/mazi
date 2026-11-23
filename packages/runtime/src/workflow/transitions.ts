@@ -4,7 +4,7 @@ import type { Phase } from './types.js';
  * 合法转移表（typestate 的运行时等价）。
  *
  * 表拦「非法转移」（Think→Think、Act→Act）；合法但可能空转的环
- * （Think→Plan→Think）由节点 available 的进展条件拦。
+ * （Think→Plan→Think）由节点 requires 的进展条件拦。
  */
 export const TRANSITIONS = {
     think: ['act', 'plan', 'verify'],

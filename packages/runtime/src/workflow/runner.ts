@@ -37,7 +37,7 @@ function applyDelta(
 /**
  * 渐进式 workflow 的循环本体。
  *
- * 只做四件事：选节点（表 + available + priority）、执行、记账、判定终止。
+ * 只做四件事：选节点（表 + requires + priority）、执行、记账、判定终止。
  * 节点不宣布完成，不越权改相位——这两件事都由这里说了算。
  */
 export class WorkflowRunner {
@@ -94,7 +94,7 @@ export class WorkflowRunner {
 
             const node = this.nodes.find(
                 (candidate) =>
-                    canEnterPhase(state.phase, candidate.role) && candidate.available(state),
+                    canEnterPhase(state.phase, candidate.role) && candidate.requires(state),
             );
             if (node === undefined) return terminate('aborted-no-candidates');
 

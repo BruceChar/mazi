@@ -81,7 +81,7 @@ describe('内置节点', () => {
                 { callId: 'b', ok: false, text: 'bad' },
             ],
         });
-        expect(observe?.available(state)).toBe(true);
+        expect(observe?.requires(state)).toBe(true);
         const result = await observe?.run(state, buildContextView(state, 'observe', SECTIONS, 12));
         expect(result?.next).toBe('think');
         const facts = result?.delta?.facts ?? [];
@@ -115,9 +115,9 @@ describe('内置节点', () => {
         const state = makeState({
             plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
         });
-        expect(planNode?.available(state)).toBe(false);
-        expect(planNode?.available({ ...state, actedSincePlan: 1 })).toBe(true);
-        expect(planNode?.available({ ...state, plan: { ...state.plan!, staleBy: 'reflect' } })).toBe(
+        expect(planNode?.requires(state)).toBe(false);
+        expect(planNode?.requires({ ...state, actedSincePlan: 1 })).toBe(true);
+        expect(planNode?.requires({ ...state, plan: { ...state.plan!, staleBy: 'reflect' } })).toBe(
             true,
         );
     });
@@ -177,14 +177,14 @@ describe('WorkflowRunner 循环', () => {
                 id: 'p',
                 role: 'think',
                 priority: 1,
-                available: () => true,
+                requires: () => true,
                 run: async () => ({ next: 'plan' }),
             },
             {
                 id: 'q',
                 role: 'plan',
                 priority: 1,
-                available: () => true,
+                requires: () => true,
                 run: async () => ({ next: 'think' }),
             },
         ];
@@ -204,18 +204,18 @@ describe('WorkflowRunner 循环', () => {
                 id: 'a',
                 role: 'think',
                 priority: 1,
-                available: () => true,
+                requires: () => true,
                 run: async (state) => ({
                     delta: { facts: [...state.facts, { id: `f${state.usage.steps}`, kind: 'note', text: 'x' }] },
                     next: 'act',
                 }),
             },
-            { id: 'b', role: 'act', priority: 1, available: () => true, run: async () => ({ next: 'observe' }) },
+            { id: 'b', role: 'act', priority: 1, requires: () => true, run: async () => ({ next: 'observe' }) },
             {
                 id: 'c',
                 role: 'observe',
                 priority: 1,
-                available: () => true,
+                requires: () => true,
                 run: async () => ({ delta: { pending: [] }, next: 'think' }),
             },
         ];
@@ -232,7 +232,7 @@ describe('WorkflowRunner 循环', () => {
 
     it('节点返回非法下一相位时抛错，节点抛异常时 outcome=failed', async () => {
         const bad: WorkflowNode[] = [
-            { id: 'bad', role: 'act', priority: 1, available: () => true, run: async () => ({ next: 'think' }) },
+            { id: 'bad', role: 'act', priority: 1, requires: () => true, run: async () => ({ next: 'think' }) },
         ];
         const runner = makeRunner(bad);
         await expect(
@@ -249,7 +249,7 @@ describe('WorkflowRunner 循环', () => {
                 id: 'boom',
                 role: 'act',
                 priority: 1,
-                available: () => true,
+                requires: () => true,
                 run: async () => {
                     throw new Error('provider down');
                 },

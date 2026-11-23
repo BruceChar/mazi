@@ -11,7 +11,7 @@ interface WorkflowNode {
     readonly id: string;
     readonly role: Phase;
     readonly priority: number;
-    available(state: WorkflowState): boolean;          // 数据前置条件
+    requires(state: WorkflowState): boolean;          // 数据前置条件
     run(state: WorkflowState, view: ContextView): Promise<NodeResult>;
 }
 
@@ -45,7 +45,7 @@ const TRANSITIONS = {
 
 ## 三、数据前置条件与进展不变量
 
-| 节点 | available 条件 |
+| 节点 | requires 条件 |
 | --- | --- |
 | Plan | `host.plan` 存在，且（无计划 ∨ 无开放任务 ∨ `plan.staleBy === 'reflect'` ∨ `actedSincePlan > 0`） |
 | Act | `host.act` 存在 |
@@ -53,6 +53,8 @@ const TRANSITIONS = {
 | Verify | 验收标准非空 ∧ 无开放任务 ∧ `host.verify` 存在 |
 | Reflect | `failures ≥ 2` |
 | Think | 恒可用（最后兜底） |
+
+谓词轴只判**数据是否就绪**；**能力是否装配**由工厂决定是否创建节点（`plan`/`verify` 缺失即不建）。把能力判断塞进 `requires` 会让同一条规则随装配漂移，例如「Verify 需要验收标准」在没有验收器时也恒真。
 
 “Plan 之后必须消费一个任务才能再次 Plan”即 `actedSincePlan > 0`，这是防止 `Plan→Think→Plan` 空转的硬条件。
 
@@ -74,7 +76,7 @@ const TRANSITIONS = {
 runner 每步：
 
 ```
-candidates = nodes.filter(n => TRANSITIONS[state.phase].includes(n.role) && n.available(state))
+candidates = nodes.filter(n => TRANSITIONS[state.phase].includes(n.role) && n.requires(state))
 next = candidates.sort(priority).first()
 assertTransition(state.phase, next.role)
 result = await next.run(state, view)
