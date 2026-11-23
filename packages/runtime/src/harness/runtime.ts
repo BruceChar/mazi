@@ -7,7 +7,7 @@ import type {
     Step,
     Task,
 } from '@mazi/core';
-import { authz, ulid } from '@mazi/core';
+import { authz } from '@mazi/core';
 import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
 import { buildQuestionView } from '@mazi/libs';
 import {
@@ -36,7 +36,6 @@ import {
     MemoryBlackboardStore,
     type ProjectBlackboard,
     ProjectBlackboardService,
-    projectIdForWorkspace,
     SqliteBlackboardStore,
 } from '../blackboard/index.js';
 import type { SkillProvider } from '../capabilities/runtime.js';
@@ -50,11 +49,10 @@ import {
     SqliteEffectStore,
     snapshotFiles,
 } from '../effects/effect-store.js';
-import { emitFault, emitFlagEvent, emitGoalPhase, emitSkillEvent } from '../events/emitters.js';
+import { emitFault } from '../events/emitters.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
 import { DefaultFaultPipeline, type FaultPipeline } from '../faults/index.js';
-import { rollupAcceptance } from '../gts/acceptance.js';
 import { applyNegotiationAnswers } from '../gts/negotiation.js';
 import {
     compileTaskPlan,
@@ -103,7 +101,6 @@ import {
     MemoryPromptPackStore,
     type PromptPack,
     PromptPackRegistry,
-    type PromptRiskLevel,
     type PromptTaskKind,
     resolveAgentPrompt,
     resolveBaseAgentPrompt,
@@ -114,17 +111,12 @@ import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
 import { type QuestionClassifier, QuestionLabeler } from '../question/labeler.js';
 import { loadQuestionTaxonomy, type QuestionTaxonomy } from '../question/taxonomy.js';
-import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
+import type { GoalRunResult } from '../strategy/goal-strategy.js';
 import { configureTokenizer } from '../token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
 import { RuntimeToolRegistry } from '../tool-gateway/registry.js';
 import { createConditionEnvironment } from '../verifier/environment.js';
-import {
-    IndependentVerifier,
-    type SemanticJudge,
-    type VerificationFailureCategory,
-    type VerificationReport,
-} from '../verifier/index.js';
+import { IndependentVerifier, type SemanticJudge } from '../verifier/index.js';
 import { ProjectWikiService, WikiService } from '../wiki/index.js';
 import type { FeedbackInput, RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
@@ -137,6 +129,7 @@ import { assertInsideWorkspace } from './tool-configs.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
 import { ToolPlane } from './tool-plane.js';
 import { TRIAGE_TIMEOUT_MS, withTriageTimeout } from './triage-support.js';
+import { TurnEngine } from './turn-engine.js';
 
 /** 取值兜底：非有限数 → 0（花费回填的 token 字段）。 */
 function numberOf(value: unknown): number {
@@ -144,7 +137,7 @@ function numberOf(value: unknown): number {
 }
 
 /** GoalRunResult → goal.ended summary（截断 2000 字符） */
-function goalRunSummary(result: GoalRunResult): string {
+function _goalRunSummary(result: GoalRunResult): string {
     const last = result.tasks[result.tasks.length - 1];
     if (result.rejected && result.rejected.length > 0) {
         return result.rejected.join(';').slice(0, 2000);
@@ -241,6 +234,7 @@ export class HarnessRuntime {
     private skillProvider?: SkillProvider;
     private readonly toolPlane: ToolPlane;
     private readonly sessions: SessionFactory;
+    private readonly turns: TurnEngine;
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
@@ -412,6 +406,62 @@ export class HarnessRuntime {
                     input.userId,
                     input.delegationDepth,
                 ),
+        });
+        const self = this;
+        this.turns = new TurnEngine({
+            bus: this.bus,
+            config: this.config,
+            intake: this.intake,
+            goalStoreDb: this.goalStoreDb,
+            memoryManager: this.memoryManager,
+            failureLedger: this.failureLedger,
+            lifecycle: this.lifecycle,
+            stepEvents: this.stepEvents,
+            superAgent: this.superAgent,
+            verifier: this.verifier,
+            resolver: this.resolver,
+            roundRunner: this.roundRunner,
+            wiki: this.wiki,
+            blackboard: this.blackboard,
+            sessions: this.sessions,
+            toolPlane: this.toolPlane,
+            get workspaceRoot() {
+                return self.workspaceRoot;
+            },
+            get projectWiki() {
+                return self.projectWiki;
+            },
+            get skillProvider() {
+                return self.skillProvider;
+            },
+            get replanPlanner() {
+                return self.replanPlanner;
+            },
+            get maxReplans() {
+                return self.maxReplans;
+            },
+            get taskPlanningByDefault() {
+                return self.taskPlanningByDefault;
+            },
+            get running() {
+                return self.running;
+            },
+            completeDirectGoal: (goal, answer) => self.completeDirectGoal(goal, answer),
+            generateTaskPlan: (rootGoalId, goal, model, reasoningLevel, history, tools, fragment) =>
+                self.generateTaskPlan(
+                    rootGoalId,
+                    goal,
+                    model,
+                    reasoningLevel,
+                    history,
+                    tools,
+                    fragment,
+                ),
+            systemPromptWithSkills: (rootGoalId, goalId, skillIds, promptFragment) =>
+                self.systemPromptWithSkills(rootGoalId, goalId, skillIds, promptFragment),
+            codingPromptFragment: (kind) => self.codingPromptFragment(kind),
+            projectWikiPromptFragment: () => self.projectWikiPromptFragment(),
+            ensureProjectWikiInitialized: () => self.ensureProjectWikiInitialized(),
         });
         this.serviceKernel = new RuntimeKernel();
         this.serviceKernel.provide({ name: 'eventBus', create: () => this.bus });
@@ -642,538 +692,9 @@ export class HarnessRuntime {
         rootGoalId: string,
         options: { resume?: boolean } = {},
     ): Promise<GoalRunResult> {
-        try {
-            const result = await this.executeGoalTreeBody(rootGoalId, options);
-            await this.finishTurn(rootGoalId, result);
-            return result;
-        } catch (error) {
-            await this.finishTurn(rootGoalId, undefined, error);
-            throw error;
-        }
+        return this.turns.run(rootGoalId, options);
     }
 
-    /** 轮次收尾：turn.end 钩子（异步副作用点）+ turn.ended 事实事件。 */
-    private async finishTurn(
-        rootGoalId: string,
-        result?: GoalRunResult,
-        error?: unknown,
-    ): Promise<void> {
-        await this.lifecycle.endTurn(rootGoalId, {
-            ...(result !== undefined ? { result } : {}),
-            ...(error !== undefined ? { error } : {}),
-        });
-    }
-
-    private async executeGoalTreeBody(
-        rootGoalId: string,
-        options: { resume?: boolean } = {},
-    ): Promise<GoalRunResult> {
-        // Planning must not race the async triage: wait for the in-flight triage
-        // (bounded by TRIAGE_TIMEOUT_MS inside parseIntent) so the contract,
-        // route and semantic conditions are final before a plan is generated.
-        const triage = this.intake.pendingTriage.get(rootGoalId);
-        if (triage !== undefined) {
-            await triage;
-            this.intake.pendingTriage.delete(rootGoalId);
-        }
-        const history = this.intake.pendingHistory.get(rootGoalId);
-        this.intake.pendingHistory.delete(rootGoalId);
-        const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
-        if (goals.length === 0) {
-            throw new Error(`Goal 树不存在：${rootGoalId}`);
-        }
-        const resume = options.resume === true;
-        // 上下文 delta 基线由每个 Task 的 ContextManager 自己持有，无需跨 run 重置。
-        const reasoningLevel = this.intake.pendingReasoning.get(rootGoalId);
-        this.intake.pendingReasoning.delete(rootGoalId);
-        const modelId = this.intake.pendingModel.get(rootGoalId);
-        this.intake.pendingModel.delete(rootGoalId);
-        let promptFragment = this.intake.pendingPromptFragment.get(rootGoalId);
-        this.intake.pendingPromptFragment.delete(rootGoalId);
-        const requestedSkills = this.intake.pendingSkills.get(rootGoalId);
-        this.intake.pendingSkills.delete(rootGoalId);
-        const skillIds = requestedSkills ?? this.skillProvider?.mounted() ?? [];
-        const projectWikiActive = this.projectWiki !== undefined;
-        const allowedToolsOverride = this.intake.pendingAllowedTools.get(rootGoalId);
-        this.intake.pendingAllowedTools.delete(rootGoalId);
-        const planProposal = this.intake.pendingPlanProposal.get(rootGoalId);
-        this.intake.pendingPlanProposal.delete(rootGoalId);
-        const taskPlanning =
-            this.intake.pendingTaskPlanning.get(rootGoalId) ?? this.taskPlanningByDefault;
-        this.intake.pendingTaskPlanning.delete(rootGoalId);
-        const memoryContext = this.intake.pendingMemoryContext.get(rootGoalId) ?? {};
-        this.intake.pendingMemoryContext.delete(rootGoalId);
-        const explicitPromptPackIds = this.intake.pendingPromptPackIds.get(rootGoalId);
-        this.intake.pendingPromptPackIds.delete(rootGoalId);
-        const delegationDepth = this.intake.pendingDelegationDepth.get(rootGoalId) ?? 0;
-        this.intake.pendingDelegationDepth.delete(rootGoalId);
-        const flags = this.intake.pendingFlags.get(rootGoalId);
-        this.intake.pendingFlags.delete(rootGoalId);
-        const model = this.resolver.resolveModelChoice(modelId);
-        const sessionId = this.intake.pendingSessionId.get(rootGoalId);
-        this.intake.pendingSessionId.delete(rootGoalId);
-        this.intake.pendingProjectContext.delete(rootGoalId);
-        const rootGoal = goals.find((goal) => goal.goalId === rootGoalId) ?? goals[0];
-        const goalId = rootGoal?.goalId ?? rootGoalId;
-        const directAnswer =
-            !resume && rootGoal?.negotiation?.route === 'direct'
-                ? rootGoal.negotiation.directAnswer?.trim()
-                : undefined;
-        // 轮次开始：生命周期模块负责 turn.start 钩子与 turn.started 事实。
-        const contextAppend = await this.lifecycle.startTurn({
-            rootGoalId,
-            goalId,
-            ...(sessionId !== undefined ? { sessionId } : {}),
-            statement: rootGoal?.statement ?? '',
-            route: rootGoal?.negotiation?.route ?? 'task',
-        });
-        if (contextAppend !== undefined) {
-            promptFragment = [promptFragment, contextAppend]
-                .filter((part): part is string => typeof part === 'string' && part.length > 0)
-                .join('\n\n');
-        }
-        if (rootGoal !== undefined && directAnswer) {
-            this.intake.pendingBlackboard.delete(rootGoalId);
-            await this.completeDirectGoal(rootGoal, directAnswer);
-            return {
-                rootGoalId,
-                tasks: [],
-                ok: true,
-                finalAnswer: directAnswer,
-            };
-        }
-        if (projectWikiActive) {
-            await this.ensureProjectWikiInitialized();
-        }
-        const blackboardContext =
-            this.intake.pendingBlackboard.get(rootGoalId) ??
-            (this.workspaceRoot !== undefined
-                ? {
-                      projectId: projectIdForWorkspace(this.workspaceRoot),
-                      workspace: this.workspaceRoot,
-                  }
-                : undefined);
-        const board =
-            blackboardContext !== undefined
-                ? await this.blackboard.ensure(
-                      blackboardContext.projectId,
-                      blackboardContext.workspace,
-                  )
-                : undefined;
-        const blackboardFragment =
-            board !== undefined ? this.blackboard.promptFragment(board) : undefined;
-        const exec = this.toolPlane.config({
-            rootGoalId,
-            goalId,
-            level:
-                rootGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
-            ...(sessionId !== undefined ? { sessionId } : {}),
-            ...(allowedToolsOverride !== undefined ? { allowedToolsOverride } : {}),
-            ...(blackboardContext?.projectId !== undefined
-                ? { projectId: blackboardContext.projectId }
-                : {}),
-            ...(rootGoal !== undefined ? { parentGoal: rootGoal } : {}),
-            ...(memoryContext.userId !== undefined ? { userId: memoryContext.userId } : {}),
-            delegationDepth,
-            ...(skillIds.length > 0 ? { activeSkillIds: skillIds } : {}),
-        });
-        const decision = this.superAgent.decide({
-            ...(memoryContext.userId !== undefined ? { userId: memoryContext.userId } : {}),
-            ...(blackboardContext?.projectId !== undefined
-                ? { projectId: blackboardContext.projectId }
-                : {}),
-            ...(this.workspaceRoot !== undefined ? { workspace: this.workspaceRoot } : {}),
-            input: rootGoal?.statement ?? '',
-            tools: exec.allowedTools,
-            riskLevel: riskLevelOfGoal(rootGoal),
-            ...(explicitPromptPackIds !== undefined
-                ? { explicitPackIds: explicitPromptPackIds }
-                : {}),
-        });
-        const promptPackFragment = decision.promptMatch.prompt;
-        this.bus.emit(
-            newHarnessEvent({
-                type: 'superagent.decision',
-                rootGoalId,
-                goalId,
-                attributes: { 'harness.level': 'info' },
-                payload: {
-                    taskKind: decision.taskKind,
-                    riskLevel: decision.riskLevel,
-                    promptPackIds: decision.promptPackIds,
-                    plannerId: decision.plannerId,
-                    verifierId: decision.verifierId,
-                    memoryPlan: decision.memoryPlan,
-                    blackboardRequired: decision.blackboardRequired,
-                    reason: decision.reason,
-                },
-            }),
-        );
-        this.bus.emit(
-            newHarnessEvent({
-                type: 'prompt.pack.selected',
-                rootGoalId,
-                goalId,
-                attributes: { 'harness.level': 'info' },
-                payload: {
-                    selected: decision.promptMatch.selected.map((pack) => ({
-                        id: pack.id,
-                        version: pack.version,
-                    })),
-                    trace: decision.promptMatch.trace,
-                    estimatedTokens: decision.promptMatch.estimatedTokens,
-                },
-            }),
-        );
-        this.bus.emit(
-            newHarnessEvent({
-                type: 'toolset.assembled',
-                rootGoalId,
-                goalId,
-                attributes: { 'harness.level': 'info' },
-                payload: {
-                    version: exec.toolsetVersion,
-                    digest: exec.toolsetDigest,
-                    tools: exec.allowedTools,
-                },
-            }),
-        );
-        // Runtime-owned Project Wiki supersedes the legacy MAZI_HOME snapshot.
-        const wikiFragment = projectWikiActive ? '' : this.wiki.promptFragment();
-        const projectWikiFragment = projectWikiActive
-            ? this.projectWikiPromptFragment()
-            : undefined;
-        const willGeneratePlan =
-            planProposal === undefined &&
-            !resume &&
-            taskPlanning &&
-            exec.allowedTools.length > 0 &&
-            rootGoal?.negotiation?.route !== 'direct';
-        if (willGeneratePlan) {
-            // 可观测性：计划生成同样是首个 Step 之前的模型轮次，先让 UI 显示「制定计划」。
-            await emitGoalPhase(this.bus, rootGoalId, goalId, 'planning', '正在制定计划');
-        }
-        const effectivePlanProposal =
-            planProposal ??
-            (willGeneratePlan
-                ? await this.generateTaskPlan(
-                      rootGoalId,
-                      rootGoal,
-                      model ?? this.sessions.defaultModelChoice(),
-                      reasoningLevel,
-                      history,
-                      exec.planTools,
-                      promptFragment,
-                  )
-                : undefined);
-        // 挂载是用户级开关；每次运行在边界发能力事件，审计锚定本次 run。
-        // 运行级 skillIds 覆盖（实验臂）优先于全局挂载状态。
-        for (const skillId of skillIds) {
-            emitSkillEvent(this.bus, 'capability.activated', skillId, rootGoalId, goalId);
-        }
-        if (flags !== undefined && Object.keys(flags.values).length > 0) {
-            emitFlagEvent(this.bus, rootGoalId, goalId, flags.values, flags.trace);
-        }
-        // 普通会话保持计划稳定：失败不自动改写 Task 图。Replan 只能由宿主显式注入，
-        // 用于实验或需要人工确认恢复策略的高级路径。
-        const replanPlanner = this.replanPlanner;
-        const verificationByTask = new Map<string, VerificationReport>();
-        const controller = new AbortController();
-        this.running.set(rootGoalId, controller);
-        let result: GoalRunResult;
-        try {
-            result = await runGoalTree(
-                {
-                    store: this.goalStoreDb,
-                    requestRound: (ctx) =>
-                        this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel, sessionId),
-                    systemPrompt: this.systemPromptWithSkills(
-                        rootGoalId,
-                        goalId,
-                        requestedSkills,
-                        combinePromptFragments(
-                            promptFragment,
-                            wikiFragment,
-                            projectWikiFragment,
-                            blackboardFragment,
-                            promptPackFragment,
-                            this.codingPromptFragment(decision.taskKind),
-                        ),
-                    ),
-                    tools: exec.tools,
-                    invoker: exec.invoker,
-                    allowedTools: exec.allowedTools,
-                    memory: this.memoryManager,
-                    memoryQuery: {
-                        rootGoalId,
-                        ...memoryContext,
-                        queryText: rootGoal?.statement ?? '',
-                    },
-                    memoryWriteContext: memoryContext,
-                    ...(effectivePlanProposal !== undefined
-                        ? { planProposal: effectivePlanProposal }
-                        : {}),
-                    planTools: exec.planTools,
-                    ...(model ? { model } : {}),
-                    ...(this.workspaceRoot !== undefined
-                        ? { workspaceRoot: this.workspaceRoot }
-                        : {}),
-                    ...(resume ? { resume: true } : {}),
-                    signal: controller.signal,
-                    verifier: this.verifier,
-                    ...(replanPlanner !== undefined
-                        ? {
-                              replan: {
-                                  planner: replanPlanner,
-                                  availableTools: exec.planTools,
-                                  maxReplans: this.maxReplans,
-                              },
-                          }
-                        : {}),
-                    onVerification: (report, outcome) => {
-                        verificationByTask.set(outcome.task.taskId, report);
-                        this.bus.emit(
-                            newHarnessEvent({
-                                type: 'verification.completed',
-                                rootGoalId,
-                                goalId: outcome.task.goalId,
-                                taskId: outcome.task.taskId,
-                                attributes: {
-                                    'harness.level': report.state === 'failed' ? 'warn' : 'info',
-                                },
-                                payload: {
-                                    verifierId: report.verifierId,
-                                    state: report.state,
-                                    failureCategory: report.failureCategory,
-                                    semanticJudgeId: report.semanticJudgeId,
-                                    acceptance: report.acceptance,
-                                    evidence: report.evidence.map((item) => item.slice(0, 1000)),
-                                },
-                            }),
-                        );
-                    },
-                    onReplan: (revision, rejected, warnings) => {
-                        this.bus.emit(
-                            newHarnessEvent({
-                                type: revision !== undefined ? 'plan.revised' : 'replan.rejected',
-                                rootGoalId,
-                                goalId,
-                                attributes: {
-                                    'harness.level': revision !== undefined ? 'info' : 'warn',
-                                },
-                                payload:
-                                    revision !== undefined
-                                        ? {
-                                              revision: revision.revision,
-                                              // 计划版本：初始 = 1，第 N 次 Replan = N + 1；UI 按它过滤当前计划。
-                                              planVersion: revision.planVersion,
-                                              diff: revision.diff,
-                                              reason: revision.reason,
-                                              evidence: revision.evidence,
-                                              digest: revision.digest,
-                                              ...(revision.warnings !== undefined
-                                                  ? { warnings: revision.warnings }
-                                                  : {}),
-                                              // 修订后的完整 Task 列表：UI 无需再等 timeline 刷新即可渲染新计划。
-                                              tasks: revision.tasks.map((task) => ({
-                                                  taskId: task.taskId,
-                                                  title: task.title,
-                                                  dependsOn: task.dependsOn ?? [],
-                                                  planVersion:
-                                                      task.planVersion ?? revision.planVersion,
-                                                  status: task.status,
-                                              })),
-                                          }
-                                        : {
-                                              rejected,
-                                              ...(warnings !== undefined && warnings.length > 0
-                                                  ? { warnings }
-                                                  : {}),
-                                          },
-                            }),
-                        );
-                    },
-                    onStep: (step) => {
-                        this.stepEvents.emitStep(rootGoalId, step);
-                        if (this.projectWiki === undefined) this.wiki.observeStep(step);
-                    },
-                    onPlan: (taskCount, digest, rejected, tasks) => {
-                        const planVersion =
-                            tasks !== undefined && tasks.length > 0
-                                ? Math.max(...tasks.map((task) => task.planVersion ?? 1))
-                                : 1;
-                        this.bus.emit(
-                            newHarnessEvent({
-                                type: rejected === undefined ? 'plan.created' : 'plan.invalid',
-                                rootGoalId,
-                                goalId,
-                                attributes: {
-                                    'harness.level': rejected === undefined ? 'info' : 'warn',
-                                },
-                                payload:
-                                    rejected === undefined
-                                        ? {
-                                              taskCount,
-                                              digest,
-                                              // 初始计划 = 1；恢复运行沿用计划自身的版本。
-                                              planVersion,
-                                              // 计划可观测：Task 标题/依赖/版本让 UI 与复盘能审计 TaskPlan。
-                                              tasks: (tasks ?? []).map((task) => ({
-                                                  taskId: task.taskId,
-                                                  title: task.title,
-                                                  dependsOn: task.dependsOn ?? [],
-                                                  planVersion: task.planVersion ?? planVersion,
-                                              })),
-                                          }
-                                        : { taskCount, rejected },
-                            }),
-                        );
-                    },
-                    onExecutionStart: () =>
-                        emitGoalPhase(this.bus, rootGoalId, goalId, 'executing', '正在执行'),
-                },
-                goals,
-            );
-        } finally {
-            this.running.delete(rootGoalId);
-            for (const skillId of skillIds) {
-                emitSkillEvent(this.bus, 'capability.deactivated', skillId, rootGoalId, goalId);
-            }
-        }
-        const aborted = result.tasks.some((outcome) => outcome.reason === 'aborted');
-        // Settle the Goal entities so the persisted tree/snapshot no longer reports
-        // every active goal as 'active' after the run has finished. Aborted runs stay
-        // resumable (Goal.status='aborted') instead of being marked failed.
-        // 没有 TaskOutcome 的 Goal（blocked 待协商 / pending）保持原状态：
-        // 它们根本没进入本次执行，不能被一次「空运行」改写成 succeeded。
-        const outcomeByGoal = new Map(
-            result.tasks.map((outcome) => [outcome.task.goalId, outcome]),
-        );
-        for (const goal of goals) {
-            const outcome = outcomeByGoal.get(goal.goalId);
-            if (outcome === undefined) continue;
-            // 读改写最新行：异步 triage 可能刚把协商结论/语义条款写进同一个 Goal，
-            // 不能用运行开始时读到的旧副本整体覆盖。
-            const latest = (await this.goalStoreDb.loadGoal(goal.goalId)) ?? goal;
-            // 成败 = executor 执行结果 AND 契约机械验收（未判定的语义条款不计入失败）。
-            const acceptanceOk = outcome.task.acceptanceResult?.passed ?? true;
-            latest.status =
-                outcome.reason === 'aborted'
-                    ? 'aborted'
-                    : outcome.ok && acceptanceOk
-                      ? 'succeeded'
-                      : 'failed';
-            await this.goalStoreDb.saveGoal(latest);
-            // 契约满足度落事件：Goal.status 是 executor 的成败，这里才是评估器的机械判定，
-            // 两者分开（裁决 D8），审计可据此回答「契约到底被满足了没有」。
-            const evaluation = rollupAcceptance(
-                latest.contract.successConditions.map((condition) => condition.id),
-                [outcome.task.acceptanceResult],
-            );
-            this.bus.emit(
-                newHarnessEvent({
-                    type: 'goal.contract-evaluated',
-                    rootGoalId,
-                    goalId: goal.goalId,
-                    attributes: { 'harness.level': 'info' },
-                    payload: evaluation,
-                }),
-            );
-            await this.bus.flush();
-        }
-        // 终态失败写入分类账；aborted 是协作式停止、可恢复，不记失败。
-        for (const outcome of result.tasks) {
-            const acceptanceOk = outcome.task.acceptanceResult?.passed ?? true;
-            if ((outcome.ok && acceptanceOk) || outcome.reason === 'aborted') continue;
-            await this.failureLedger.add({
-                failureId: ulid(),
-                sessionId: rootGoalId,
-                goalId: outcome.task.goalId,
-                taskId: outcome.task.taskId,
-                kind: outcome.reason,
-                ...(verificationByTask.get(outcome.task.taskId)?.failureCategory !== undefined
-                    ? {
-                          category: verificationByTask.get(outcome.task.taskId)
-                              ?.failureCategory as VerificationFailureCategory,
-                      }
-                    : {}),
-                ...(model !== undefined
-                    ? { providerId: model.providerId, modelId: model.modelId }
-                    : {}),
-                ...(outcome.errorMessage !== undefined ? { summary: outcome.errorMessage } : {}),
-                createdAt: Date.now(),
-            });
-        }
-        if (aborted) {
-            this.bus.emit(
-                newHarnessEvent({
-                    type: 'run.aborted',
-                    rootGoalId,
-                    payload: { reason: 'user-stop' },
-                }),
-            );
-        } else {
-            this.bus.emit(
-                newHarnessEvent({
-                    type: 'goal.ended',
-                    rootGoalId,
-                    payload: {
-                        outcome: {
-                            status: result.ok ? 'success' : 'failed',
-                            summary: goalRunSummary(result),
-                        },
-                        error: result.rejected?.join(';'),
-                    },
-                }),
-            );
-        }
-        if (blackboardContext !== undefined) {
-            const changedPaths = result.tasks.flatMap((outcome) =>
-                outcome.steps
-                    .filter(
-                        (step): step is Extract<Step, { kind: 'invocation' }> =>
-                            step.kind === 'invocation' && step.status === 'succeeded',
-                    )
-                    .flatMap((step) =>
-                        typeof step.payload.arguments?.path === 'string'
-                            ? [step.payload.arguments.path]
-                            : [],
-                    ),
-            );
-            await this.blackboard.updateFromRun(
-                blackboardContext.projectId,
-                blackboardContext.workspace,
-                {
-                    rootGoalId,
-                    statement: rootGoal?.statement ?? '',
-                    ok: result.ok,
-                    reason: result.rejected?.join(';') || (result.ok ? 'completed' : 'failed'),
-                    ...(result.tasks.at(-1)?.finalMessage !== undefined
-                        ? { finalMessage: result.tasks.at(-1)?.finalMessage }
-                        : {}),
-                    taskTitles: result.tasks.map((outcome) => outcome.task.title),
-                    changedPaths: [...new Set(changedPaths)],
-                },
-            );
-        }
-        this.intake.pendingBlackboard.delete(rootGoalId);
-        // project-wiki 的会话后同步由宿主后台队列处理；未挂载时保留 v1 收尾。
-        if (this.projectWiki === undefined) {
-            await this.wiki.flushRun({
-                ...(sessionId !== undefined ? { sessionId } : {}),
-                ...(rootGoal?.statement !== undefined && rootGoal.statement.length > 0
-                    ? { userRequest: rootGoal.statement }
-                    : {}),
-            });
-        }
-        await this.bus.flush();
-        return result;
-    }
-
-    /**
-     * direct 是零执行终态：不创建 Task/Step，也不调用 planner/executor。
-     * 直答文本进入 GoalRunResult，供 API 摘要、评估和下一轮会话历史读取。
-     */
     private async completeDirectGoal(goal: Goal, answer: string): Promise<void> {
         const latest = (await this.goalStoreDb.loadGoal(goal.goalId)) ?? goal;
         latest.status = 'succeeded';
@@ -1897,39 +1418,4 @@ export class HarnessRuntime {
     async rollbackGoal(rootGoalId: string): Promise<EffectRecord[]> {
         return rollbackGoalEffects(this.effectStore, this.bus, this.workspaceRoot, rootGoalId);
     }
-}
-/**
- * 合并 system prompt 片段：Feature 片段在前，项目 wiki 快照在后（只增文本，不改工具面）。
- */
-function combinePromptFragments(
-    featureFragment: string | undefined,
-    wikiFragment: string | undefined,
-    projectWikiFragment: string | undefined,
-    blackboardFragment: string | undefined,
-    promptPackFragment: string | undefined,
-    agentPromptFragment?: string,
-): string | undefined {
-    const parts = [
-        featureFragment?.trim() ?? '',
-        wikiFragment?.trim() ?? '',
-        projectWikiFragment?.trim() ?? '',
-        blackboardFragment?.trim() ?? '',
-        promptPackFragment?.trim() ?? '',
-        agentPromptFragment?.trim() ?? '',
-    ].filter((part) => part.length > 0);
-    return parts.length > 0 ? parts.join('\n\n') : undefined;
-}
-
-function riskLevelOfGoal(goal: Goal | undefined): PromptRiskLevel {
-    if (goal?.contract.riskProfile.hasIrreversibleActions === true) return 'irreversible';
-    if (
-        goal?.contract.riskProfile.touchesNetwork === true ||
-        goal?.contract.riskProfile.touchesExternalApi === true
-    ) {
-        return 'external';
-    }
-    if (goal?.permissionCeiling === 'workspace-write' || goal?.permissionCeiling === 'draft') {
-        return 'workspace-write';
-    }
-    return 'read-only';
 }
