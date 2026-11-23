@@ -135,7 +135,11 @@ describe('plan-view 当前计划投影', () => {
                     {
                         tasks: [
                             task('old', { planVersion: 1, status: 'failed' }),
-                            task('t1', { planVersion: 2, status: 'active' }),
+                            task('t1', {
+                                planVersion: 2,
+                                status: 'active',
+                                acceptanceResult: { passed: true, evaluated: 1, total: 5 },
+                            }),
                             task('t2', { planVersion: 2, status: 'pending' }),
                         ],
                     },
@@ -145,6 +149,9 @@ describe('plan-view 当前计划投影', () => {
         expect(view.planVersion).toBe(2);
         expect(view.revisions).toBe(1);
         expect(view.tasks.map((row) => row.taskId)).toEqual(['t1', 't2']);
+        // 验收结果随快照进入 Task 行，供 Verifying 展示；实时计划事件里没有。
+        expect(view.tasks[0]?.acceptanceResult).toEqual({ passed: true, evaluated: 1, total: 5 });
+        expect(view.tasks[1]?.acceptanceResult).toBeNull();
         // 被 replan 替换的旧计划 Task：不进入当前计划树，只计数提示。
         expect(view.supersededCount).toBe(1);
     });

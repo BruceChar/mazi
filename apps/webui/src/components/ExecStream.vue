@@ -93,6 +93,13 @@ function kindLabel(kind, role) {
 function stepRoleLabel(step) {
     return kindLabel(step?.kind, step?.role);
 }
+function acceptanceLabel(acceptance) {
+    if (!acceptance) return '';
+    const total = Number(acceptance.total ?? 0);
+    const evaluated = Number(acceptance.evaluated ?? 0);
+    if (total > 0) return `${evaluated}/${total} 项已检查`;
+    return acceptance.passed === false ? '未通过' : '通过';
+}
 function statusLabel(status) {
     if (!status) return '';
     return status;
@@ -276,6 +283,7 @@ function buildExecTree(detailObj) {
                           planVersion: task.planVersion,
                           statusLabel: planTaskStatusLabel(task.status),
                           statusTone: planTaskStatusTone(task.status),
+                          acceptanceResult: task.acceptanceResult ?? null,
                           time: startedAt ? fmtDateTime(startedAt) : '',
                           steps: rows.map((row, index) => ({
                               ...row,
@@ -538,6 +546,11 @@ watch(
                 <span v-if="group.entries.length > 0" class="exec-task-count">
                     {{ group.entries.length }} steps
                 </span>
+                <span
+                    v-if="group.task.acceptanceResult"
+                    class="exec-task-verify"
+                    :title="`Verifying · ${acceptanceLabel(group.task.acceptanceResult)}`"
+                >Verifying · {{ acceptanceLabel(group.task.acceptanceResult) }}</span>
             </div>
             <div
                 v-if="!group.task || !collapsedTasks.has(group.task.taskId)"
@@ -574,7 +587,12 @@ watch(
                         <span v-else-if="entry.step.status === 'active'" class="exec-spinner"></span>
                         <LineIcon v-else :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'" size="16" />
                         <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
-                        <span class="exec-step-name">{{ stepRoleLabel(entry.step) }}</span>
+                        <span class="exec-step-name">
+                            {{ stepRoleLabel(entry.step) }}<span
+                                v-if="entry.bodies.output"
+                                class="exec-step-role-extra"
+                            > · Observing</span>
+                        </span>
                         <span class="exec-step-summary">{{
                             entry.step.title ||
                             (entry.step.kind === 'deliberation' ? '思考中…' : '调用中…')
@@ -685,6 +703,11 @@ watch(
                         <span v-if="task.steps.length > 0" class="exec-task-count">
                             {{ task.steps.length }} steps
                         </span>
+                        <span
+                            v-if="task.acceptanceResult"
+                            class="exec-task-verify"
+                            :title="`Verifying · ${acceptanceLabel(task.acceptanceResult)}`"
+                        >Verifying · {{ acceptanceLabel(task.acceptanceResult) }}</span>
                     </div>
                     <div v-if="!collapsedTasks.has(task.taskId)" class="exec-task-body">
                         <div
@@ -721,7 +744,12 @@ watch(
                                     size="16"
                                 />
                                 <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
-                                <span class="exec-step-name">{{ row.kindLabel }}</span>
+                                <span class="exec-step-name">
+                                    {{ row.kindLabel }}<span
+                                        v-if="row.outputText"
+                                        class="exec-step-role-extra"
+                                    > · Observing</span>
+                                </span>
                                 <span
                                     class="exec-step-summary"
                                     :title="row.toolArgs ? JSON.stringify(row.toolArgs) : undefined"
@@ -1116,6 +1144,16 @@ watch(
 .exec-invocation .exec-step-head .line-icon { color: var(--tool); }
 .exec-step.error .exec-step-head .line-icon { color: var(--error); }
 
+.exec-task-verify {
+    margin-left: 8px;
+    font-size: 11px;
+    color: var(--fg-tertiary);
+    white-space: nowrap;
+}
+.exec-step-role-extra {
+    font-weight: 400;
+    color: var(--fg-tertiary);
+}
 .exec-step-name {
     font-weight: 600;
     font-size: 13px;

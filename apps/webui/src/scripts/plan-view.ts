@@ -12,6 +12,13 @@
  * 被更高版本淘汰的 Task 不再进入当前计划树（审计数据仍在 Trace 面板）。
  */
 
+/** 验收投影（只取展示所需字段）。 */
+export interface PlanAcceptanceLike {
+    passed?: boolean;
+    evaluated?: number;
+    total?: number;
+}
+
 /** TaskPlan 的 Task 视图（runtime 事件 / timeline 快照共有的展示字段）。 */
 export interface PlanTaskLike {
     taskId: string;
@@ -25,6 +32,8 @@ export interface PlanTaskLike {
     startedAt?: number;
     /** timeline 快照里的步骤（仅用于步数兜底）。 */
     steps?: readonly unknown[];
+    /** timeline 快照里的验收结果（仅用于 Verifying 行）。 */
+    acceptanceResult?: PlanAcceptanceLike | null;
 }
 
 /** 当前 run 的最新计划事件归约结果（store.runPlans[rootGoalId]）。 */
@@ -66,6 +75,7 @@ export interface PlanTaskRow {
     tone: PlanTaskTone;
     /** 已执行/已落库的 step 数（取实时与快照的较大值，避免刷新防抖导致回退）。 */
     stepCount: number;
+    acceptanceResult: PlanAcceptanceLike | null;
 }
 
 /** 当前计划的展示投影。 */
@@ -279,6 +289,7 @@ export function planViewOf(input: {
             statusLabel: planTaskStatusLabel(status),
             tone: planTaskStatusTone(status),
             stepCount: Math.max(live?.count ?? 0, snapshotTask?.steps?.length ?? 0),
+            acceptanceResult: snapshotTask?.acceptanceResult ?? null,
         });
     }
 
