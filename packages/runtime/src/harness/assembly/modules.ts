@@ -104,6 +104,9 @@ export interface AssemblyModule {
     create(ctx: RuntimeContext, deps: AssemblyDeps, host: AssemblyHost): void;
 }
 
+const disabled = (deps: AssemblyDeps, name: string): boolean =>
+    deps.options.disabledModules?.includes(name) ?? false;
+
 export const ASSEMBLY_MODULES: readonly AssemblyModule[] = [
     {
         name: 'core-values',
@@ -231,16 +234,23 @@ export const ASSEMBLY_MODULES: readonly AssemblyModule[] = [
                 buildLlmProviders(deps.config, deps.options),
             );
             ctx.observability.stepEvents = new StepEventEmitter(ctx.observability.bus);
-            ctx.memory.wiki = new WikiService({
-                home: maziHome(),
-                ...(deps.options.workspaceRoot !== undefined
-                    ? { workspace: deps.options.workspaceRoot }
-                    : {}),
-                ...(deps.config.wiki ?? {}),
-            });
+            // wiki 服务同样只建槽：目录探测/索引在首次使用时付钱。
+            const workspace = deps.options.workspaceRoot;
+            ctx.memory.wiki = ctx.assembly.resources
+                .addSlot(
+                    () =>
+                        new WikiService({
+                            home: maziHome(),
+                            ...(workspace !== undefined ? { workspace } : {}),
+                            ...(deps.config.wiki ?? {}),
+                        }),
+                )
+                .view();
             ctx.memory.projectWiki =
-                deps.options.workspaceRoot !== undefined
-                    ? new ProjectWikiService({ workspace: deps.options.workspaceRoot })
+                workspace !== undefined
+                    ? ctx.assembly.resources
+                          .addSlot(() => new ProjectWikiService({ workspace }))
+                          .view()
                     : undefined;
             ctx.intelligence.roundRunner = new RoundRunner({
                 bus: ctx.observability.bus,
@@ -256,6 +266,7 @@ export const ASSEMBLY_MODULES: readonly AssemblyModule[] = [
         name: 'delegation',
         segment: 'features',
         owned: ['delegation'],
+        enabled: (deps) => !disabled(deps, 'delegation'),
         create(ctx: RuntimeContext, deps: AssemblyDeps, _host: AssemblyHost): void {
             // 委派栈含 SQLite 句柄：只建槽，首次访问角色/协调器时才打开。
             ctx.delegation = ctx.assembly.resources
@@ -267,6 +278,7 @@ export const ASSEMBLY_MODULES: readonly AssemblyModule[] = [
         name: 'analysis',
         segment: 'features',
         owned: ['analysis'],
+        enabled: (deps) => !disabled(deps, 'analysis'),
         create(ctx: RuntimeContext, deps: AssemblyDeps, host: AssemblyHost): void {
             ctx.analysis = ctx.assembly.resources
                 .addSlot(
@@ -330,7 +342,7 @@ export const ASSEMBLY_MODULES: readonly AssemblyModule[] = [
                     : {}),
                 wiki: ctx.memory.wiki,
                 blackboard: ctx.memory.blackboard,
-                delegationRoles: () => ctx.delegation.roles,
+                delegationRoles: () => ctx.delegation?.roles,
                 getSkillProvider: () => ctx.assembly.ports.get<SkillProvider>('skillProvider'),
                 getApprovalSeam: () => ctx.assembly.ports.get<authz.ApprovalSeam>('approvalSeam'),
                 execute: (tool, args, ctx, roots) => host.executeEffectful(tool, args, ctx, roots),

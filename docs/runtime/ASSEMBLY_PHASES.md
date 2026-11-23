@@ -43,8 +43,9 @@ features: analysis, delegation, wiki/projectWiki, blackboard, plugins
 ```
 
 - `core` 缺一即无法运行；
-- `features` 允许 `enabled(config)` 条件跳过；跳过时对应平面键变为 optional，
-  读取方必须显式处理缺失。
+- `features` 通过 `enabled(deps)` 条件跳过：`RunOptions.disabledModules` 传
+  `['analysis']` / `['delegation']` 即关闭对应模块，平面键为 `undefined`；
+  读接口降级（角色/边查询返回空），写接口与 `tocAnalyst` 明确报「模块未启用」。
 - 新增功能默认进 `features`；只有被所有执行路径依赖才升级进 `core`。
 
 ## 四、静态模块 vs 动态注入
@@ -86,6 +87,7 @@ P3 资源统一由 `LazySlot` 包裹：属性访问触发 open，单飞，只 op
 | 首次建会话 / 执行 Goal | goalStore、memoryManager、behaviorRecorder、questionService、failureLedger、promptPacks |
 | 首次工具执行（需要时） | effectStore、blackboard |
 | 首次访问分析/委派 | analysis stack、delegation stack |
+| 首次使用 wiki / 项目 wiki | WikiService、ProjectWikiService（目录探测与索引） |
 
 `close()` 幂等：只关闭已 open 的槽，未 open 的槽不产生副作用；重复 close 不抛错。
 

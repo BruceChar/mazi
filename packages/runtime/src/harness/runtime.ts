@@ -120,11 +120,11 @@ export class HarnessRuntime {
     /** 按模块数组装配：顺序只表达创建先后；owned 校验兜底「删模块/加模块」。 */
     private assembleAll(deps: AssemblyDeps): void {
         const host = this.assemblyHost();
-        for (const module of ASSEMBLY_MODULES) {
-            if (module.enabled !== undefined && !module.enabled(deps)) continue;
-            module.create(this.ctx, deps, host);
-        }
-        assertAssemblyComplete(this.ctx, ASSEMBLY_MODULES);
+        const enabled = ASSEMBLY_MODULES.filter(
+            (module) => module.enabled === undefined || module.enabled(deps),
+        );
+        for (const module of enabled) module.create(this.ctx, deps, host);
+        assertAssemblyComplete(this.ctx, enabled);
     }
 
     /** 宿主能力桥：模块只能经这组闭包回调本类，不直接持有 HarnessRuntime。 */
@@ -286,12 +286,16 @@ export class HarnessRuntime {
 
     /** TOC 冻结、独立分析、反馈与 Iterations 聚合（独立于 Goal 坐标系） */
     get tocAnalyst(): TocAnalyst {
-        return this.ctx.analysis.toc;
+        const analysis = this.ctx.analysis;
+        if (analysis === undefined) throw new Error('analysis 模块未启用');
+        return analysis.toc;
     }
 
     /** 系统迭代记录（分析报告 → 系统改动闭环；版本快照由 API 层注入）。 */
     get iterationTracker(): IterationTracker {
-        return this.ctx.analysis.iterations;
+        const analysis = this.ctx.analysis;
+        if (analysis === undefined) throw new Error('analysis 模块未启用');
+        return analysis.iterations;
     }
 
     get currentWorkspaceRoot(): string | undefined {
@@ -593,7 +597,9 @@ export class HarnessRuntime {
             .filter((item): item is DelegationProposal => item !== undefined);
         if (proposals.length === 0) return { ok: false, error: '缺少有效 delegations' };
 
-        const delegated = await this.ctx.delegation.coordinator.delegate(
+        const delegation = this.ctx.delegation;
+        if (delegation === undefined) return { ok: false, error: 'delegation 模块未启用' };
+        const delegated = await delegation.coordinator.delegate(
             rootGoalId,
             parentGoal,
             proposals,
@@ -1014,20 +1020,22 @@ export class HarnessRuntime {
     }
 
     agentRoles(): AgentRole[] {
-        return this.ctx.delegation.listRoles();
+        return this.ctx.delegation?.listRoles() ?? [];
     }
 
     registerAgentRole(role: AgentRole): void {
+        const delegation = this.ctx.delegation;
+        if (delegation === undefined) throw new Error('delegation 模块未启用');
         this.ctx.assembly.ports.set('agentRole', role);
-        this.ctx.delegation.roles.register(role);
+        delegation.roles.register(role);
     }
 
     removeAgentRole(roleId: string): boolean {
-        return this.ctx.delegation.roles.remove(roleId);
+        return this.ctx.delegation?.roles.remove(roleId) ?? false;
     }
 
     delegationEdges(rootGoalId: string): Promise<DelegationEdge[]> {
-        return this.ctx.delegation.coordinator.edges(rootGoalId);
+        return this.ctx.delegation?.coordinator.edges(rootGoalId) ?? Promise.resolve([]);
     }
 
     setSemanticJudge(judge?: SemanticJudge): void {

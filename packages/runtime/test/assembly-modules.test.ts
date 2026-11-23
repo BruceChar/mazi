@@ -58,6 +58,36 @@ describe('装配模块数组', () => {
         }
     });
 
+    it('disabledModules 关闭 features 段：平面为 undefined，查询接口降级', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'mazi-features-off-'));
+        dirs.push(dir);
+        const runtime = new HarnessRuntime(
+            {
+                providers: [],
+                tools: [],
+                eventDir: dir,
+                goal: { permissionCeiling: 'read-only' },
+                contextWindow: 64000,
+                wiki: { enabled: false },
+            },
+            { workspaceRoot: dir, disabledModules: ['analysis', 'delegation'] },
+        );
+        try {
+            expect(runtime.context.analysis).toBeUndefined();
+            expect(runtime.context.delegation).toBeUndefined();
+            expect(runtime.agentRoles()).toEqual([]);
+            expect(await runtime.delegationEdges('root')).toEqual([]);
+            expect(runtime.removeAgentRole('x')).toBe(false);
+            expect(() => runtime.tocAnalyst).toThrow(/analysis 模块未启用/);
+            expect(() => runtime.registerAgentRole({ roleId: 'x' } as never)).toThrow(
+                /delegation 模块未启用/,
+            );
+            expect(runtime.context.assembly.resources.openCount()).toBe(0);
+        } finally {
+            await runtime.close();
+        }
+    });
+
     it('删掉模块导致的空壳在启动期暴露', () => {
         const empty = createRuntimeContext();
         const fake: AssemblyModule = {

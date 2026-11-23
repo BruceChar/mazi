@@ -46,6 +46,8 @@ export interface RunOptions {
     skillIds?: readonly string[];
     /** 本次运行的工具白名单收窄（与配置白名单取交集，永不放宽）。 */
     allowedTools?: readonly string[];
+    /** 显式关闭的装配模块（features 段，如 'analysis'/'delegation'）；缺省全开。 */
+    disabledModules?: readonly string[];
     /** 本次运行的开关值（Feature 解析结果；写入 flag.evaluated 审计）。 */
     flagOverrides?: Readonly<Record<string, boolean>>;
     /** 开关求值痕迹（复盘：值从默认来还是从运行期覆盖来）。 */

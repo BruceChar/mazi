@@ -30,6 +30,7 @@ describe('冷构造', () => {
 
         const cold = new HarnessRuntime(configWithDb(dir), { workspaceRoot: dir });
         expect(existsSync(dbPath)).toBe(false);
+        expect(cold.context.assembly.resources.openCount()).toBe(0);
         await cold.close();
         expect(existsSync(dbPath)).toBe(false);
 

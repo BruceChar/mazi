@@ -35,11 +35,12 @@ export interface ToolPlaneDeps {
     bus: DefaultEventBus;
     approvalStore: authz.ApprovalStore;
     commandPolicy: authz.CommandPolicy;
-    projectWiki?: ProjectWikiService;
-    wiki: WikiService;
+    projectWiki?: ProjectWikiService | (() => ProjectWikiService | undefined);
+    /** wiki 服务；传函数时延迟解析。 */
+    wiki: WikiService | (() => WikiService);
     blackboard: ProjectBlackboardService;
-    /** 角色注册表；传函数时延迟解析，避免装配期握住未打开的委派栈。 */
-    delegationRoles: AgentRoleRegistry | (() => AgentRoleRegistry);
+    /** 角色注册表；传函数时延迟解析（delegation 模块关闭时返回 undefined）。 */
+    delegationRoles: AgentRoleRegistry | (() => AgentRoleRegistry | undefined);
     /** 可变接入点：运行期由宿主 setter 更换。 */
     getSkillProvider: () => SkillProvider | undefined;
     getApprovalSeam: () => authz.ApprovalSeam | undefined;
@@ -84,8 +85,19 @@ export interface ToolPlaneOutput {
 }
 
 export class ToolPlane {
-    private roles(): AgentRoleRegistry {
+    private roles(): AgentRoleRegistry | undefined {
         const dep = this.deps.delegationRoles;
+        return typeof dep === 'function' ? dep() : dep;
+    }
+
+    /** wiki 服务：传函数时延迟解析，避免装配期触发目录探测。 */
+    private wiki(): WikiService {
+        const dep = this.deps.wiki;
+        return typeof dep === 'function' ? dep() : dep;
+    }
+
+    private projectWiki(): ProjectWikiService | undefined {
+        const dep = this.deps.projectWiki;
         return typeof dep === 'function' ? dep() : dep;
     }
 
@@ -101,10 +113,12 @@ export class ToolPlane {
             input.activeSkillIds ?? [],
         );
         const merged: ToolConfig[] = toolSnapshot.tools;
-        if (deps.projectWiki !== undefined) {
-            merged.push(projectWikiToolConfig(deps.projectWiki));
-        } else if (deps.wiki.enabled) {
-            merged.push(...wikiToolConfigs(deps.wiki));
+        const projectWiki = this.projectWiki();
+        if (projectWiki !== undefined) {
+            merged.push(projectWikiToolConfig(projectWiki));
+        } else {
+            const wiki = this.wiki();
+            if (wiki.enabled) merged.push(...wikiToolConfigs(wiki));
         }
         if (input.projectId !== undefined && deps.workspaceRoot !== undefined) {
             merged.push(
@@ -196,9 +210,10 @@ export class ToolPlane {
                                 statement: { type: 'string' },
                                 roleId: {
                                     type: 'string',
-                                    enum: this.roles()
-                                        .list()
-                                        .map((role) => role.roleId),
+                                    enum:
+                                        this.roles()
+                                            ?.list()
+                                            .map((role) => role.roleId) ?? [],
                                 },
                                 ceiling: { type: 'string' },
                                 budget: { type: 'object' },

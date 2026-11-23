@@ -104,8 +104,9 @@ export interface RuntimeContext {
     tools: ToolsPlane;
     session: SessionPlane;
     memory: MemoryPlane;
-    analysis: AnalysisStack;
-    delegation: DelegationStack;
+    /** features 段：被 disabledModules 关闭时为 undefined。 */
+    analysis?: AnalysisStack;
+    delegation?: DelegationStack;
     assembly: AssemblyPlane;
 }
 
@@ -117,8 +118,9 @@ export function createRuntimeContext(): RuntimeContext {
         tools: {} as ToolsPlane,
         session: {} as SessionPlane,
         memory: {} as MemoryPlane,
-        analysis: {} as AnalysisStack,
-        delegation: {} as DelegationStack,
+        // features 段默认不装配；模块启用时才赋值。
+        analysis: undefined,
+        delegation: undefined,
         assembly: {} as AssemblyPlane,
     };
 }
