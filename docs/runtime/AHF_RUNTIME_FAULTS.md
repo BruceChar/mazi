@@ -1,7 +1,8 @@
 # Runtime Faults 契约（错误层）
 
 > 状态：设计定稿，按 §9 分批实现
-> 范围：`packages/core`（Fault 契约）、`packages/runtime`（`faults/`、工具调用接线、执行循环失败口径）
+> 范围：`packages/runtime`（`faults/`、工具调用接线、执行循环失败口径）；`packages/core` 只保留 `fault.raised` / `fault.recovered` 观测事件
+> 分层：Fault 属**运行时业务层**，不进 core 契约——core 不得定义错误域枚举
 > 关系：与 `docs/runtime/AHF_RUNTIME_KERNEL_AND_HOOKS.md` 平行——**hooks 管"事中改写"，faults 管"事后处置"**，两者互不合并
 > 依据：现有分散实现（`provider/retry.ts`、`core/authz/gateway.ts`、`gts/goal-executor.ts`、`hooks/runner.ts`、`memory/failure-ledger.ts`）
 
@@ -39,11 +40,14 @@
 
 ## 3. Fault 契约
 
+Fault 定义在 `packages/runtime/src/faults/types.ts`（**不是 core**）：core 是 AHF 契约层，
+不承载业务角色词汇；新增 `planner` / `verifier` / 任何后续角色都不应触发 core 变更。
+
 ```ts
 interface Fault {
     faultId: string;
-    domain: FaultDomain;        // provider | tool | hook | verifier | planner | storage | policy | context
-    kind: FaultKind;            // timeout | transient | invalid_args | not_found | policy_denied | internal | budget_exhausted | fatal | unknown
+    domain: string;             // 域由产出方声明（'provider' | 'tool' | 'billing' | 未来任意）
+    kind: string;               // 处置分类同样开放；runtime 只内置一组默认策略键
     severity: FaultSeverity;    // recoverable | degradable | fatal
     scope: FaultScope;          // call | turn | task | goal | session
     retryable: boolean;         // 生产者的判断，不是策略
@@ -60,6 +64,8 @@ interface Fault {
 
 三条约定：
 
+- **domain / kind 是开放字符串**：产出方自己声明常量（如 `tool-invoker` 的 `TIMEOUT`、
+  provider 错误码映射），错误层不维护闭集；新增业务角色只在自己的包里加常量；
 - `severity` 由生产者给，错误层不得提升或降低；
 - `key` 缺省由调用方按 `domain:tool:JSON(arguments)` 生成，**同参必须同键**；
 - `retryable` 与策略表冲突时以策略表为准，冲突本身记一条 `fault.raised`。
@@ -89,6 +95,7 @@ interface Fault {
 ## 5. 默认策略表
 
 按 `kind` 给基线，`domain` 可覆盖（写法对齐 `provider/retry.ts` 的可替换表）。
+表键是**内置默认**而非闭集：未登记的新 kind 落到 `unknown` 兜底策略，无需改本表即可上线。
 
 | kind | action | maxAttempts | backoff | 出口 |
 | --- | --- | --- | --- | --- |
