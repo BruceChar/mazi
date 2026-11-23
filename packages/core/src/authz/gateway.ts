@@ -340,7 +340,7 @@ export class DefaultToolGateway implements ToolGateway {
         let output: { value: unknown; untrusted?: boolean };
         try {
             output = await registration.handler(req.args, {
-                signal: new AbortController().signal,
+                signal: req.signal ?? new AbortController().signal,
                 identifiers,
                 ...(credentials.credentials ? { credentials: credentials.credentials } : {}),
             });

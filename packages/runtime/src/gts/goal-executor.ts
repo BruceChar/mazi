@@ -27,6 +27,10 @@ export interface GoalToolInvoker {
         ok: boolean;
         content: string;
         error?: string;
+        /** 失败分类（错误层给出的 code，供 Step 归因与审计）。 */
+        code?: string;
+        /** 错误层结论：是否值得让调用方重试（同参/变参）。 */
+        retryable?: boolean;
     }>;
 }
 
@@ -88,6 +92,29 @@ interface ReplayResult {
     lastCallKey?: string;
     /** 末轮未完成：assistant 已回注，待补齐 tool results（先执行 observation 缺省的调用）。 */
     openRound?: { calls: ReplayCall[] };
+}
+
+/**
+ * 工具调用的最后防线：invoker 契约是"不抛"，但装配错误仍可能抛出。
+ * 这里把抛出收敛成一条失败结果，任何工具异常都不得让 Task 直接失败。
+ */
+async function invokeSafely(
+    invoker: GoalToolInvoker,
+    toolName: string,
+    args: Record<string, unknown>,
+    ctx: { stepId?: string; taskId?: string },
+): Promise<{ ok: boolean; content: string; error?: string; code?: string; retryable?: boolean }> {
+    try {
+        return await invoker.invoke(toolName, args, ctx);
+    } catch (error) {
+        return {
+            ok: false,
+            content: '',
+            error: error instanceof Error ? error.message : String(error),
+            code: 'EXECUTION_FAILED',
+            retryable: false,
+        };
+    }
 }
 
 /** invocation 是否已到终态（pending/active 视为“已安排未执行”）。 */
@@ -243,7 +270,7 @@ async function completeOpenRound(
         toolStep.startedAt = now();
         await deps.store.saveStep(toolStep);
         deps.onStep?.(toolStep);
-        const res = await invoker.invoke(call.toolName, call.arguments, {
+        const res = await invokeSafely(invoker, call.toolName, call.arguments, {
             stepId: toolStep.stepId,
             taskId: task.taskId,
         });
@@ -265,10 +292,10 @@ async function completeOpenRound(
         toolStep.status = isError ? 'error' : 'succeeded';
         if (isError) {
             toolStep.error = {
-                code: 'tool_error',
+                code: res.code ?? 'tool_error',
                 message: output,
                 source: 'tool',
-                retryable: false,
+                retryable: res.retryable ?? false,
             };
         }
         toolStep.endedAt = now();
@@ -659,19 +686,23 @@ export async function executeTask(
                 let output: string;
                 let isError: boolean;
                 let replayed = false;
+                let code: string | undefined;
+                let retryable = false;
                 if (cached !== undefined && !cached.isError) {
                     // 同一调用此前已成功：不重复执行，直接把已有结果回给模型
                     output = cached.output;
                     isError = false;
                     replayed = true;
                 } else {
-                    const res = await invoker.invoke(call.toolName, call.arguments, {
+                    const res = await invokeSafely(invoker, call.toolName, call.arguments, {
                         stepId: toolStep.stepId,
                         taskId: task.taskId,
                     });
                     const raw = res.ok ? res.content : (res.error ?? 'tool failed');
                     output = formatToolObservation(raw, !res.ok);
                     isError = !res.ok;
+                    code = res.code;
+                    retryable = res.retryable ?? false;
                     executedCalls.set(callKey, { output, isError });
                 }
                 outputs.push({
@@ -687,10 +718,10 @@ export async function executeTask(
                 toolStep.status = isError ? 'error' : 'succeeded';
                 if (isError) {
                     toolStep.error = {
-                        code: 'tool_error',
+                        code: code ?? 'tool_error',
                         message: output,
                         source: 'tool',
-                        retryable: false,
+                        retryable,
                     };
                 }
                 toolStep.endedAt = now();

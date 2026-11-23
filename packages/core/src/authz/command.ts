@@ -107,11 +107,7 @@ const WORKSPACE_PACKAGE_HEADS: ReadonlySet<string> = new Set([
     'pip3',
 ]);
 
-function isDangerousToken(
-    tokens: readonly string[],
-    index: number,
-    rules: CommandRules,
-): boolean {
+function isDangerousToken(tokens: readonly string[], index: number, rules: CommandRules): boolean {
     const token = tokens[index] ?? '';
     const head = basename(token);
     // find/xargs 常被用于只读分析，不能仅凭命令名判危险。

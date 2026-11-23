@@ -616,3 +616,80 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(outcome.finalMessage).toContain('README');
     });
 });
+
+describe('工具失败口径（docs/runtime/AHF_RUNTIME_FAULTS.md §8）', () => {
+    const toolRound: RoundResult = {
+        text: '',
+        reasoning: '需要读文件。',
+        toolCalls: [{ callId: 'c1', toolName: 'fs.read', arguments: { path: 'README.md' } }],
+        finishReason: 'tool_calls',
+        ttftMs: 1,
+        totalMs: 2,
+    };
+
+    it('工具抛出不再把 Task 打成 driver-error，而是回填观察后继续', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        let round = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['fs.read'],
+                invoker: {
+                    invoke: async () => {
+                        throw new TypeError('handler exploded');
+                    },
+                },
+                requestRound: async () => {
+                    round += 1;
+                    return round === 1 ? toolRound : { ...okRound, text: '换了个方式读到了' };
+                },
+            },
+            t,
+            g,
+        );
+        expect(outcome.ok).toBe(true);
+        const invocation = outcome.steps.find((step) => step.kind === 'invocation');
+        expect(invocation).toBeDefined();
+        expect(invocation?.status).toBe('error');
+        if (invocation?.kind === 'invocation') {
+            expect(invocation.error?.source).toBe('tool');
+            expect(invocation.error?.code).toBe('EXECUTION_FAILED');
+        }
+    });
+
+    it('StepError 采用错误层给的 retryable，而不是硬编码 false', async () => {
+        const store = new MemoryGoalStore();
+        const t = task();
+        const g = goal();
+        let round = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['fs.read'],
+                invoker: {
+                    invoke: async () => ({
+                        ok: false,
+                        content: '',
+                        error: 'TIMEOUT: 工具执行超时',
+                        code: 'TIMEOUT',
+                        retryable: true,
+                    }),
+                },
+                requestRound: async () => {
+                    round += 1;
+                    return round === 1 ? toolRound : { ...okRound, text: '超时后改用缓存' };
+                },
+            },
+            t,
+            g,
+        );
+        expect(outcome.ok).toBe(true);
+        const invocation = outcome.steps.find((step) => step.kind === 'invocation');
+        if (invocation?.kind === 'invocation') {
+            expect(invocation.error?.code).toBe('TIMEOUT');
+            expect(invocation.error?.retryable).toBe(true);
+        }
+    });
+});

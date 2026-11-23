@@ -1,3 +1,4 @@
+import type { Fault, FaultRecovery } from '@mazi/core';
 import type { DefaultEventBus } from './event-bus.js';
 import { newHarnessEvent } from './event-bus.js';
 
@@ -46,6 +47,49 @@ export function emitSkillEvent(
             goalId,
             attributes: { 'harness.skill_id': skillId, 'harness.level': 'info' },
             payload: { skillId },
+        }),
+    );
+}
+
+/**
+ * 错误层事件：每次处置决策/恢复成功都留痕（设计 §7）。
+ * 无 rootGoalId 的故障（理论上面向会话）直接丢弃，避免产生无锚点事件。
+ */
+export function emitFault(
+    bus: DefaultEventBus,
+    type: 'fault.raised' | 'fault.recovered',
+    fault: Fault,
+    recovery?: FaultRecovery,
+): void {
+    const identifiers = fault.identifiers;
+    const rootGoalId = identifiers?.rootGoalId;
+    if (rootGoalId === undefined || rootGoalId.length === 0) return;
+    bus.emit(
+        newHarnessEvent({
+            type,
+            rootGoalId,
+            ...(identifiers?.goalId !== undefined ? { goalId: identifiers.goalId } : {}),
+            ...(identifiers?.sessionId !== undefined ? { sessionId: identifiers.sessionId } : {}),
+            ...(identifiers?.taskId !== undefined ? { taskId: identifiers.taskId } : {}),
+            ...(identifiers?.stepId !== undefined ? { stepId: identifiers.stepId } : {}),
+            attributes: {
+                'harness.fault_domain': fault.domain,
+                'harness.fault_kind': fault.kind,
+                'harness.fault_severity': fault.severity,
+                'harness.fault_scope': fault.scope,
+                'harness.level': fault.severity === 'fatal' ? 'error' : 'warn',
+                ...(recovery !== undefined
+                    ? {
+                          'harness.fault_action': recovery.action,
+                          'harness.fault_attempt': recovery.attempt,
+                      }
+                    : {}),
+            },
+            payload: {
+                message: fault.message.slice(0, 400),
+                ...(fault.code !== undefined ? { code: fault.code } : {}),
+                ...(fault.hint !== undefined ? { hint: fault.hint } : {}),
+            },
         }),
     );
 }

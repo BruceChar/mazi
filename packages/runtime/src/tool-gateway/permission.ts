@@ -281,7 +281,7 @@ export class RuntimeToolGateway {
     async invoke(
         toolName: string,
         args: Record<string, unknown>,
-        ctx: { stepId?: string } = {},
+        ctx: { stepId?: string; signal?: AbortSignal } = {},
     ): Promise<ToolCallResult> {
         if (!this.registrations.has(toolName)) {
             return { ok: false, error: `工具被策略拦截：${toolName}` };
@@ -290,6 +290,7 @@ export class RuntimeToolGateway {
             tool: toolName,
             args,
             ...(ctx.stepId ? { stepId: ctx.stepId } : {}),
+            ...(ctx.signal ? { signal: ctx.signal } : {}),
         });
         switch (result.kind) {
             case 'executed':

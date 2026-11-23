@@ -53,9 +53,10 @@ import {
     SqliteEffectStore,
     snapshotFiles,
 } from '../effects/effect-store.js';
-import { emitGoalPhase, emitSkillEvent } from '../events/emitters.js';
+import { emitFault, emitGoalPhase, emitSkillEvent } from '../events/emitters.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
+import { DefaultFaultPipeline, type FaultPipeline } from '../faults/index.js';
 import { rollupAcceptance } from '../gts/acceptance.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
 import {
@@ -142,6 +143,7 @@ import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { SessionIntake } from './session-intake.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
+import { ToolInvoker } from './tool-invoker.js';
 
 /** 取值兜底：非有限数 → 0（花费回填的 token 字段）。 */
 function numberOf(value: unknown): number {
@@ -188,10 +190,6 @@ function withTriageTimeout<T>(promise: Promise<T>, ms: number): Promise<T | unde
 }
 
 /** 允许 hook patch 传入的纯记录（拒绝数组 / null）。 */
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
     /** 控制面入口：钩子注册与调用（事件审计由 HookRunner 统一落盘）。 */
@@ -259,6 +257,8 @@ export class HarnessRuntime {
     private readonly failureLedger: FailureLedgerStore;
     /** 会话输入侧状态（create → execute 之间传递；见 session-intake）。 */
     private readonly intake = new SessionIntake();
+    /** 错误处置层（唯一入口；见 docs/runtime/AHF_RUNTIME_FAULTS.md）。 */
+    private readonly faultPipeline: FaultPipeline;
 
     /** 运行中的 Goal 树 → 协作式停止控制器（stop 生效、进程内互斥）。 */
     private readonly running = new Map<string, AbortController>();
@@ -314,6 +314,9 @@ export class HarnessRuntime {
             bus: this.bus,
             hooks: this.hookRunner,
             sessionIds: this.sessionIds,
+        });
+        this.faultPipeline = new DefaultFaultPipeline({
+            emit: (type, fault, recovery) => emitFault(this.bus, type, fault, recovery),
         });
         // 问题/行为统一入 SQLite 权威库；JSONL 目录降级为导出/迁移来源。
         this.behaviorStore =
@@ -396,6 +399,11 @@ export class HarnessRuntime {
         }
         this.serviceKernel = new RuntimeKernel();
         this.serviceKernel.provide({ name: 'eventBus', create: () => this.bus });
+        this.serviceKernel.provide({
+            name: 'faults',
+            requires: ['eventBus'],
+            create: () => this.faultPipeline,
+        });
         this.serviceKernel.provide({
             name: 'hooks',
             requires: ['eventBus'],
@@ -1677,52 +1685,17 @@ export class HarnessRuntime {
                 description: t.description,
                 parameters: (t.parameters ?? undefined) as ToolSchema['parameters'],
             }));
-        const invoke: GoalToolInvoker['invoke'] = async (toolName, args, ctx) => {
-            const trace = {
-                rootGoalId,
-                goalId,
-                ...(sessionId !== undefined ? { sessionId } : {}),
-                ...(ctx?.taskId !== undefined ? { taskId: ctx.taskId } : {}),
-                ...(ctx?.stepId !== undefined ? { stepId: ctx.stepId } : {}),
-            };
-            const pre = await this.hookRunner.invoke('tool.pre', {
-                ...trace,
-                hookPoint: 'tool.pre',
-                payload: { toolName, arguments: args },
-            });
-            if (pre.decision.kind === 'block') {
-                return {
-                    ok: false,
-                    content: '',
-                    error: `hook 拦截 ${toolName}：${pre.decision.reason}`,
-                };
-            }
-            const effectiveArgs =
-                pre.decision.kind === 'patch' && isPlainRecord(pre.decision.patch.arguments)
-                    ? pre.decision.patch.arguments
-                    : args;
-            const result = await gateway.invoke(toolName, effectiveArgs, ctx ?? {});
-            const post = await this.hookRunner.invoke('tool.post', {
-                ...trace,
-                hookPoint: 'tool.post',
-                payload: {
-                    toolName,
-                    arguments: effectiveArgs,
-                    ok: result.ok,
-                    content: String(result.content ?? '').slice(0, 4000),
-                },
-            });
-            const rewritten =
-                post.decision.kind === 'patch' && typeof post.decision.patch.content === 'string'
-                    ? post.decision.patch.content
-                    : undefined;
-            return result.ok
-                ? { ok: true, content: rewritten ?? String(result.content ?? '') }
-                : { ok: false, content: '', error: result.error ?? 'tool failed' };
-        };
+        const invoker = new ToolInvoker({
+            rootGoalId,
+            goalId,
+            ...(sessionId !== undefined ? { sessionId } : {}),
+            gateway,
+            hooks: this.hookRunner,
+            faults: this.faultPipeline,
+        });
         return {
             tools,
-            invoker: { invoke },
+            invoker,
             allowedTools: names,
             planTools: merged
                 .filter((tool) => names.includes(tool.name))

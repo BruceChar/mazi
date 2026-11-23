@@ -109,6 +109,8 @@ export interface InvocationRequest {
     /** Harness-injected attribution overrides (never model-supplied). */
     stepId?: string;
     taskId?: string;
+    /** 调用方的取消/超时信号；缺省时 handler 收到一个永不中止的信号。 */
+    signal?: AbortSignal;
 }
 
 /** 审批授权作用域：一次 / 本会话 / 本工作区。 */
