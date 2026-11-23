@@ -33,11 +33,21 @@ describe('实验自变量 loopMode', () => {
             endedAt: 20,
             skills: [],
             features: {},
-            loop: { mode: 'dynamic', termination: 'done-unverified', nodeCount: 7 },
+            loop: {
+                mode: 'dynamic',
+                termination: 'done-unverified',
+                nodeCount: 7,
+                nodeTrail: [
+                    { kind: 'selected', role: 'think', nodeId: 'think', at: 11 },
+                    { kind: 'selected', role: 'act', nodeId: 'act', at: 12 },
+                    { kind: 'terminated', reason: 'done-unverified', at: 13 },
+                ],
+            },
         });
         expect(metrics.loopMode).toBe('dynamic');
         expect(metrics.termination).toBe('done-unverified');
         expect(metrics.nodeCount).toBe(7);
+        expect(metrics.loopNodes?.map((node) => node.role)).toEqual(['think', 'act', undefined]);
     });
 
     it('未传 loop 时按 default 记录，termination 回落 reason', () => {

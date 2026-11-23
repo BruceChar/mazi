@@ -5,7 +5,7 @@
  * （一轮只计一次）；步数来自 Step 事实。不新增任何真相源。
  */
 
-import type { ExperimentMetrics } from '@mazi/core';
+import type { ExperimentLoopNode, ExperimentMetrics } from '@mazi/core';
 import type { GoalTreeSnapshot, StepView } from '@mazi/libs';
 
 export interface MetricsInput {
@@ -24,6 +24,7 @@ export interface MetricsInput {
         mode?: 'default' | 'dynamic';
         termination?: string;
         nodeCount?: number;
+        nodeTrail?: ExperimentLoopNode[];
     };
     /** 有答案但验收未完成：succeeded + unverified，不按 failed 处理。 */
     verification?: 'verified' | 'unverified' | 'failed';
@@ -119,6 +120,7 @@ export function collectMetrics(input: MetricsInput): ExperimentMetrics {
         loopMode: input.loop?.mode ?? 'default',
         termination: input.loop?.termination ?? input.reason ?? status,
         ...(input.loop?.nodeCount !== undefined ? { nodeCount: input.loop.nodeCount } : {}),
+        ...(input.loop?.nodeTrail !== undefined ? { loopNodes: input.loop.nodeTrail } : {}),
         ...(input.verification !== undefined ? { verification: input.verification } : {}),
     };
 }

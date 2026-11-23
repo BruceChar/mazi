@@ -40,6 +40,13 @@ export interface ExperimentMetricsView {
     loopMode?: 'default' | 'dynamic' | string;
     termination?: string;
     nodeCount?: number;
+    loopNodes?: Array<{
+        kind: 'selected' | 'failed' | 'terminated';
+        role?: string;
+        nodeId?: string;
+        reason?: string;
+        at: number;
+    }>;
     verification?: 'verified' | 'unverified' | 'failed';
 }
 
@@ -452,11 +459,21 @@ export interface TraceStepRow {
 }
 
 /** 从 Goal 树快照投影完整步骤表（含思考与工具参数，跑完后不依赖 SSE）。 */
-export function traceSteps(snapshot: GoalTreeSnapshot | null | undefined): TraceStepRow[] {
+export function traceSteps(
+    snapshot: GoalTreeSnapshot | null | undefined,
+    loopMode?: string,
+): TraceStepRow[] {
     const steps = snapshot?.goals.flatMap((goal) => goal.tasks).flatMap((task) => task.steps) ?? [];
     return steps.map((step, index) => ({
         index: index + 1,
-        label: step.kind === 'invocation' ? '工具' : '思考',
+        label:
+            step.kind === 'invocation'
+                ? loopMode === 'dynamic'
+                    ? 'Acting'
+                    : '工具'
+                : loopMode === 'dynamic'
+                  ? 'Thinking'
+                  : '思考',
         toolName: step.toolName ?? '',
         arguments: compactJson(step.toolArguments),
         text: compactText(
@@ -466,6 +483,26 @@ export function traceSteps(snapshot: GoalTreeSnapshot | null | undefined): Trace
         ),
         status: step.status,
     }));
+}
+
+/** workflow 节点角色 → 人类可读标签；工具行不伪装成节点。 */
+export function loopNodeRoleLabel(role: string | undefined): string {
+    switch (role) {
+        case 'think':
+            return 'Thinking';
+        case 'act':
+            return 'Acting';
+        case 'observe':
+            return 'Observing';
+        case 'plan':
+            return 'Planning';
+        case 'verify':
+            return 'Verifying';
+        case 'reflect':
+            return 'Reflecting';
+        default:
+            return role ?? '—';
+    }
 }
 
 function compactText(value: string): string {

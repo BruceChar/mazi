@@ -20,6 +20,18 @@ export type ExperimentVariableKind =
 /** 执行 loop 的两种取值（与 RunOptions.loopMode 对齐）。 */
 export type ExperimentLoopMode = 'default' | 'dynamic';
 
+/** workflow 节点角色（与 workflow Phase 对齐）。 */
+export type ExperimentLoopNodeRole = 'think' | 'act' | 'observe' | 'plan' | 'verify' | 'reflect';
+
+/** dynamic loop 的一次节点轨迹：真实 node 选择/失败/终止，而不是“一步=一思考”。 */
+export interface ExperimentLoopNode {
+    kind: 'selected' | 'failed' | 'terminated';
+    role?: ExperimentLoopNodeRole;
+    nodeId?: string;
+    reason?: string;
+    at: number;
+}
+
 export const EXPERIMENT_VARIABLE_KINDS: readonly ExperimentVariableKind[] = [
     'feature',
     'skill',
@@ -121,6 +133,8 @@ export interface ExperimentMetrics {
     termination?: string;
     /** loop 实际执行的节点数（default 缺省）。 */
     nodeCount?: number;
+    /** dynamic loop 的节点轨迹（default 缺省）。 */
+    loopNodes?: ExperimentLoopNode[];
     /** 验收态：unverified = 有最终答案但验收未通过/未完成，不等于运行失败。 */
     verification?: 'verified' | 'unverified' | 'failed';
 }

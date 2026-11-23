@@ -8,7 +8,7 @@
  * executeTask 的 Task 内记忆）。这三项在 switch 前必须补齐或明确降级。
  */
 
-import type { Goal, Task } from '@mazi/core';
+import type { ExperimentLoopNode, Goal, Task } from '@mazi/core';
 import { evaluateAcceptance } from '../gts/acceptance.js';
 import { executeTask, type TaskOutcome } from '../gts/goal-executor.js';
 import { planGoalTree } from '../gts/goal-planner.js';
@@ -114,6 +114,7 @@ export interface DynamicLoopInfo {
     mode: 'dynamic';
     outcome: string;
     nodes: number;
+    nodeTrail: ExperimentLoopNode[];
 }
 
 export async function runGoalTreeDynamic(
@@ -287,6 +288,8 @@ export async function runGoalTreeDynamic(
             byRole: { think: '', act: '', observe: '', plan: '', verify: '', reflect: '' },
         },
         { ...DEFAULT_LIMITS, maxNoProgress: 6 },
+        Date.now,
+        deps.onWorkflowNode,
     );
     const run = await runner.run(state);
     state = run.state;
@@ -294,10 +297,23 @@ export async function runGoalTreeDynamic(
 
     const ok = outcomes.every((item) => item.ok && (item.task.acceptanceResult?.passed ?? true));
     const accepted = run.outcome === 'done' || run.outcome === 'done-unverified';
+    const nodeTrail: ExperimentLoopNode[] = run.events.map((event: WorkflowEvent) => ({
+        kind:
+            event.type === 'node.selected'
+                ? ('selected' as const)
+                : event.type === 'node.failed'
+                  ? ('failed' as const)
+                  : ('terminated' as const),
+        ...(event.role !== undefined ? { role: event.role } : {}),
+        ...(event.nodeId !== undefined ? { nodeId: event.nodeId } : {}),
+        reason: event.reason,
+        at: event.at,
+    }));
     const loop: DynamicLoopInfo = {
         mode: 'dynamic',
         outcome: run.outcome,
-        nodes: run.events.filter((event: WorkflowEvent) => event.type === 'node.selected').length,
+        nodes: nodeTrail.filter((node) => node.kind === 'selected').length,
+        nodeTrail,
     };
     return {
         rootGoalId,

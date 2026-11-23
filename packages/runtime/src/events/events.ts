@@ -45,6 +45,8 @@ export const RUNTIME_EVENT_TYPES = [
      * 没有 Step 可承载，UI 据此显示真实阶段而不是泛化的「执行中」占位。
      */
     'goal.phase',
+    /** dynamic loop 的真实 workflow 节点选择/失败/终止（节点粒度，不是工具粒度） */
+    'workflow.node',
 ] as const;
 
 export type RuntimeEventType = (typeof RUNTIME_EVENT_TYPES)[number];

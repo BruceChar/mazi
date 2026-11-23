@@ -60,7 +60,10 @@ Think（选任务）→ Act（executeTask + 验收）→ Observe（pending→fac
 
 - `loopMode`：本次实际使用的 loop；
 - `termination`：`done / done-unverified / aborted-budget / aborted-no-progress / aborted-no-candidates / failed`；
-- `nodeCount`：dynamic 实际执行的节点数。
+- `nodeCount`：dynamic 实际执行的节点数；
+- `loopNodes`：dynamic 的真实节点轨迹（`selected / failed / terminated` + role + nodeId + reason + at）。
+- 展示口径：`loopNodes` 是 workflow 节点（Task 粒度）；工具调用属于 Act 节点内部，不是节点，
+  在 Trace 里 dynamic 模式下标 `Acting`，default 模式仍标「工具」。
 
 比较时先看 `termination` 分布，再看 `step / toolCalls / tokens / costUsd / durationMs`；只看
 `ok` 会把「验收缺失导致的 done-unverified」误判成成功。

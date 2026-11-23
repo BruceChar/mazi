@@ -46,9 +46,20 @@ export interface ArmApproval {
 
 export type ArmLiveStatus = 'idle' | 'running' | 'completed' | 'failed' | 'aborted';
 
+/** dynamic loop 的真实节点（Think/Act/Observe/Reflect），与工具行分开展示。 */
+export interface LiveWorkflowNode {
+    key: string;
+    kind: string;
+    role: string;
+    nodeId: string;
+    reason: string;
+    at: number;
+}
+
 export interface ArmLive {
     status: ArmLiveStatus;
     steps: LiveStep[];
+    nodes: LiveWorkflowNode[];
     streams: LiveStreamMap;
     approvals: ArmApproval[];
     error: string;
@@ -65,10 +76,11 @@ export const ARM_EVENT_TYPES = [
     'goal.ended',
     'run.aborted',
     'llm.error',
+    'workflow.node',
 ] as const;
 
 export function initialArmLive(status: ArmLiveStatus = 'idle'): ArmLive {
-    return { status, steps: [], streams: {}, approvals: [], error: '' };
+    return { status, steps: [], nodes: [], streams: {}, approvals: [], error: '' };
 }
 
 function timestampOf(event: EventItem): number {
@@ -259,6 +271,20 @@ export function applyArmEvent(state: ArmLive, event: EventItem, now: number = Da
                 typeof payload.invocationId === 'string' ? payload.invocationId : '';
             const approvals = state.approvals.filter((item) => item.invocationId !== invocationId);
             return approvals.length === state.approvals.length ? state : { ...state, approvals };
+        }
+        case 'workflow.node': {
+            const payload = (event.payload || {}) as Record<string, unknown>;
+            const kind = typeof payload.kind === 'string' ? payload.kind : 'node.selected';
+            const role = typeof payload.role === 'string' ? payload.role : '';
+            const nodeId = typeof payload.nodeId === 'string' ? payload.nodeId : '';
+            const reason = typeof payload.reason === 'string' ? payload.reason : '';
+            const at = timestampOf(event);
+            const key = `${at}-${kind}-${nodeId}`;
+            if (state.nodes.some((node) => node.key === key)) return state;
+            return {
+                ...state,
+                nodes: [...state.nodes, { key, kind, role, nodeId, reason, at }],
+            };
         }
         case 'goal.ended': {
             const payload = (event.payload || {}) as Record<string, unknown>;

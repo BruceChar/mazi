@@ -19,6 +19,23 @@ function event(type: string, payload: Record<string, unknown> = {}, extra: Recor
 }
 
 describe('arm-live（单臂实时投影）', () => {
+    it('workflow.node 投影成独立节点，不混入工具步骤', () => {
+        let live = initialArmLive('running');
+        live = applyArmEvent(
+            live,
+            event('workflow.node', {
+                kind: 'node.selected',
+                role: 'act',
+                nodeId: 'act',
+                reason: 'think→act',
+            }),
+        );
+        expect(live.nodes).toHaveLength(1);
+        expect(live.nodes[0]).toMatchObject({ kind: 'node.selected', role: 'act', nodeId: 'act' });
+        expect(live.steps).toEqual([]);
+        expect(applyArmEvent(live, event('workflow.node', { kind: 'node.selected', role: 'act', nodeId: 'act' })).nodes).toHaveLength(1);
+    });
+
     it('step.started 追加并收尾上一活跃步；step.ended 按 stepId 原地更新', () => {
         let live = initialArmLive('running');
         live = applyArmEvent(live, event('step.started', { kind: 'deliberation', status: 'active', content: '思考中' }, { stepId: 's1', taskId: 't1' }));

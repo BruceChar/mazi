@@ -48,6 +48,7 @@ export class WorkflowRunner {
         private readonly sections: PromptSections,
         private readonly limits: WorkflowLimits = DEFAULT_LIMITS,
         private readonly now: () => number = Date.now,
+        private readonly onEvent?: (event: WorkflowEvent) => void,
     ) {
         for (const node of nodes) {
             if (!PHASES.includes(node.role)) throw new Error(`节点 ${node.id} 的相位非法`);
@@ -69,6 +70,11 @@ export class WorkflowRunner {
         return this.hasVerify() ? undefined : 'done-unverified';
     }
 
+    private record(events: WorkflowEvent[], event: WorkflowEvent): void {
+        events.push(event);
+        this.onEvent?.(event);
+    }
+
     async run(initial: WorkflowState): Promise<WorkflowRunResult> {
         let state: WorkflowState = { ...initial, usage: { ...initial.usage } };
         const events: WorkflowEvent[] = [];
@@ -78,7 +84,7 @@ export class WorkflowRunner {
         let last: WorkflowState['phase'] | undefined;
 
         const terminate = (outcome: Outcome): WorkflowRunResult => {
-            events.push({
+            this.record(events, {
                 type: 'workflow.terminated',
                 phase: state.phase,
                 reason: outcome,
@@ -107,11 +113,12 @@ export class WorkflowRunner {
                       );
             if (node === undefined) return terminate('aborted-no-candidates');
 
-            events.push({
+            this.record(events, {
                 type: 'node.selected',
                 phase: state.phase,
                 next: node.role,
                 nodeId: node.id,
+                role: node.role,
                 reason: `${state.phase}→${node.role}`,
                 at: this.now(),
             });
@@ -122,11 +129,12 @@ export class WorkflowRunner {
             try {
                 result = await node.run(state, view);
             } catch (error) {
-                events.push({
+                this.record(events, {
                     type: 'node.failed',
                     phase: state.phase,
                     next: node.role,
                     nodeId: node.id,
+                    role: node.role,
                     reason: error instanceof Error ? error.message : String(error),
                     at: this.now(),
                 });

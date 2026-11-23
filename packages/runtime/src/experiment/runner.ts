@@ -247,6 +247,9 @@ export class ExperimentRunner {
                               ...(result.loop.nodes !== undefined
                                   ? { nodeCount: result.loop.nodes }
                                   : {}),
+                              ...(result.loop.nodeTrail !== undefined
+                                  ? { nodeTrail: result.loop.nodeTrail }
+                                  : {}),
                           },
                       }
                     : resolved.loopMode !== undefined

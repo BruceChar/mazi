@@ -30,6 +30,7 @@ import {
     formatDelta,
     formatDeltaPct,
     formatMetric,
+    loopNodeRoleLabel,
     traceRounds,
     traceSteps,
     traceToolRows,
@@ -647,13 +648,33 @@ function isLive(label) {
                                 </div>
                                 <pre v-if="armStreamText(live[arm.label])" class="stream">{{ armStreamText(live[arm.label]) }}</pre>
                                 <div v-if="live[arm.label].error" class="notice error small">{{ live[arm.label].error }}</div>
+                                <ul v-if="live[arm.label].nodes.length" class="live-steps">
+                                    <li v-for="node in live[arm.label].nodes" :key="node.key">
+                                        <span class="step-kind">{{
+                                            node.kind === 'node.selected'
+                                                ? loopNodeRoleLabel(node.role)
+                                                : node.kind === 'node.failed'
+                                                  ? 'Failed'
+                                                  : 'Terminated'
+                                        }}</span>
+                                        <span class="step-title">{{ node.nodeId || node.role }} · {{ node.reason }}</span>
+                                    </li>
+                                </ul>
                                 <ul class="live-steps">
                                     <li
                                         v-for="step in live[arm.label].steps"
                                         :key="step.stepId"
                                         :class="step.status"
                                     >
-                                        <span class="step-kind">{{ step.kind === 'invocation' ? '工具' : '思考' }}</span>
+                                        <span class="step-kind">{{
+                                            step.kind === 'invocation'
+                                                ? arm.spec.loopMode === 'dynamic'
+                                                    ? 'Acting'
+                                                    : '工具'
+                                                : arm.spec.loopMode === 'dynamic'
+                                                  ? 'Thinking'
+                                                  : '思考'
+                                        }}</span>
                                         <span class="step-title">{{ step.title || step.content || '（无正文）' }}</span>
                                         <span class="step-status">{{ step.status }}</span>
                                         <pre
@@ -694,9 +715,26 @@ function isLive(label) {
                             </div>
                             <pre class="answer" :class="{ open: openAnswers[arm.label] }">{{ arm.metrics?.finalAnswer || '（无输出）' }}</pre>
 
+                            <div v-if="arm.metrics?.loopNodes?.length" class="block-head">Trace · 节点</div>
+                            <ul v-if="arm.metrics?.loopNodes?.length" class="steps">
+                                <li v-for="(node, index) in arm.metrics.loopNodes" :key="index">
+                                    <span class="step-index">{{ index + 1 }}</span>
+                                    <span class="step-kind">{{
+                                        node.kind === 'selected'
+                                            ? loopNodeRoleLabel(node.role)
+                                            : node.kind === 'failed'
+                                              ? 'Failed'
+                                              : 'Terminated'
+                                    }}</span>
+                                    <code v-if="node.nodeId">{{ node.nodeId }}</code>
+                                    <span class="muted">{{ node.reason }}</span>
+                                </li>
+                            </ul>
+
                             <div class="block-head">Trace · 步骤</div>
                             <ul class="steps">
-                                <li v-for="step in traceSteps(traces[arm.label])" :key="step.index">
+                                <li
+                                    v-for="step in traceSteps(traces[arm.label], arm.spec.loopMode)" :key="step.index">
                                     <span class="step-index">{{ step.index }}</span>
                                     <span class="step-kind">{{ step.label }}</span>
                                     <code v-if="step.toolName">{{ step.toolName }}</code>
@@ -704,7 +742,7 @@ function isLive(label) {
                                     <span class="muted">{{ step.status }}</span>
                                     <div class="tool-out">{{ previewText(step.text || '（无正文）') }}</div>
                                 </li>
-                                <li v-if="!traceSteps(traces[arm.label]).length" class="muted">无步骤事实</li>
+                                <li v-if="!traceSteps(traces[arm.label], arm.spec.loopMode).length" class="muted">无步骤事实</li>
                             </ul>
 
                             <div class="block-head">Trace · 模型轮次</div>

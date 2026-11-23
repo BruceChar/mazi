@@ -106,6 +106,8 @@ export interface WorkflowEvent {
     readonly phase: Phase;
     readonly next?: Phase;
     readonly nodeId?: string;
+    /** 被选中/失败节点的角色，UI 直接按它渲染 Thinking / Acting / Observing。 */
+    readonly role?: Phase;
     readonly reason: string;
     readonly at: number;
 }

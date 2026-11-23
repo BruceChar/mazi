@@ -50,6 +50,13 @@ describe('dynamic loop（节点驱动）', () => {
         expect(result.tasks.map((item) => item.task.goalId)).toEqual([a.goalId, b.goalId]);
         expect(result.loop?.mode).toBe('dynamic');
         expect(result.loop?.nodes).toBeGreaterThan(0);
+        // 节点轨迹是真实 workflow 节点，不是“一步一思考”
+        expect(result.loop?.nodeTrail?.some((node) => node.role === 'think')).toBe(true);
+        expect(result.loop?.nodeTrail?.some((node) => node.role === 'act')).toBe(true);
+        expect(result.loop?.nodeTrail?.filter((node) => node.kind === 'selected')).toHaveLength(
+            result.loop?.nodes ?? 0,
+        );
+        expect(result.loop?.nodeTrail?.at(-1)?.kind).toBe('terminated');
         for (const item of result.tasks) {
             expect((await store.loadTask(item.task.taskId))?.status).toBe('succeeded');
         }
@@ -89,6 +96,25 @@ describe('dynamic loop（节点驱动）', () => {
         );
         expect(result.ok).toBe(false);
         expect(result.tasks[0]?.task.status).toBe('failed');
+    });
+
+    it('onWorkflowNode 逐节点回调（供实时 trace 使用）', async () => {
+        const store = new MemoryGoalStore();
+        const a = goal(ulid());
+        await store.saveGoal(a);
+        const roles: string[] = [];
+        await runGoalTreeDynamic(
+            {
+                store,
+                requestRound: async () => okRound,
+                onWorkflowNode: (event) => {
+                    if (event.role !== undefined) roles.push(event.role);
+                },
+            },
+            [a],
+        );
+        expect(roles).toContain('think');
+        expect(roles).toContain('act');
     });
 
     it('resume 明确拒绝（v1 不支持）', async () => {

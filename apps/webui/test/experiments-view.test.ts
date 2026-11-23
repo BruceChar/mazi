@@ -323,6 +323,11 @@ describe('Trace 投影（两臂并排）', () => {
         });
         expect(traceSteps(null)).toEqual([]);
     });
+    it('dynamic loop：工具行标 Acting、模型行标 Thinking', () => {
+        const rows = traceSteps(snapshot as never, 'dynamic');
+        expect(rows[0]).toMatchObject({ label: 'Thinking' });
+        expect(rows[1]).toMatchObject({ label: 'Acting', toolName: 'fs.read' });
+    });
     it('工具表：只取 invocation，空白折叠', () => {
         expect(traceToolRows(snapshot as never)).toEqual([
             { toolName: 'fs.read', arguments: '', cwd: '/w', output: 'ok done' },
