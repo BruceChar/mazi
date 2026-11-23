@@ -138,6 +138,30 @@ describe.skipIf(!SD_BIN)('sd 无改动检测（expectMutation）', () => {
         expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('X\nthree\n');
     });
 
+    it('代码里的正则元字符按字面量处理 → ok:true', async () => {
+        const workspace = tempDir('mazi-sd-literal-');
+        writeFileSync(
+            join(workspace, 'a.txt'),
+            'fn main() {\n    println!("count: {}");\n}\n',
+            'utf8',
+        );
+
+        const res = await runCliTool(
+            sdSpec(),
+            {
+                pattern: '    println!("count: {}");',
+                replacement: '    println!("count: {}");\n    println!("done");',
+                path: 'a.txt',
+            },
+            workspace,
+        );
+
+        expect(res.ok).toBe(true);
+        expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe(
+            'fn main() {\n    println!("count: {}");\n    println!("done");\n}\n',
+        );
+    });
+
     it('pattern 命中并修改文件 → ok:true', async () => {
         const workspace = tempDir('mazi-sd-hit-');
         writeFileSync(join(workspace, 'a.txt'), 'hello world\n', 'utf8');
