@@ -10,7 +10,6 @@ export * as authz from './authz/index.js';
 export type * from './authz/permissions.js';
 export * from './capabilities.js';
 export * from './experiment.js';
-export * from './faults.js';
 export * from './features.js';
 export type * from './gts.js';
 export { isConditionCheck, isWorkspaceRelativePath } from './gts.js';

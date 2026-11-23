@@ -1,4 +1,4 @@
-import type { Fault, FaultRecovery } from '@mazi/core';
+import type { Fault, FaultRecovery } from '../src/faults/types.js';
 import { describe, expect, it } from 'vitest';
 import { DefaultFaultPipeline } from '../src/faults/index.js';
 import { HookRunner } from '../src/hooks/index.js';

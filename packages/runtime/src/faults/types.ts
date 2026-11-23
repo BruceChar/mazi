@@ -1,40 +1,11 @@
-import type { TraceIdentifiers } from './observability.js';
+import type { TraceIdentifiers } from '@mazi/core';
 
 /**
- * Fault 契约 —— 错误处置层（设计见 docs/runtime/AHF_RUNTIME_FAULTS.md）。
+ * Fault 契约 —— 运行时业务层（设计见 docs/runtime/AHF_RUNTIME_FAULTS.md §3）。
  *
- * 分工：生产者只判定失败性质（domain/kind/retryable），错误层（runtime/faults）
- * 决定恢复动作。本文件只放词汇与默认策略表，不含任何执行逻辑。
+ * 刻意**不**放进 core：`domain` / `kind` 是开放字符串，由各业务域自己声明常量。
+ * 新增 planner / verifier / 任何后续角色只在自己的模块里加值，不触发 core 变更。
  */
-
-/** 失败来源域。新增域属于契约变更：同步修订设计文档。 */
-export const FAULT_DOMAINS = [
-    'provider',
-    'tool',
-    'hook',
-    'verifier',
-    'planner',
-    'storage',
-    'policy',
-    'context',
-] as const;
-
-export type FaultDomain = (typeof FAULT_DOMAINS)[number];
-
-/** 失败性质闭集（与 provider 错误码不同层：这是跨域的处置分类）。 */
-export const FAULT_KINDS = [
-    'timeout',
-    'transient',
-    'invalid_args',
-    'not_found',
-    'policy_denied',
-    'internal',
-    'budget_exhausted',
-    'fatal',
-    'unknown',
-] as const;
-
-export type FaultKind = (typeof FAULT_KINDS)[number];
 
 /** 严重度由生产者给出，错误层不得提升或降低。 */
 export type FaultSeverity = 'recoverable' | 'degradable' | 'fatal';
@@ -56,8 +27,10 @@ export interface FaultFix {
 
 export interface Fault {
     faultId: string;
-    domain: FaultDomain;
-    kind: FaultKind;
+    /** 产出方声明的域（如 'provider' / 'tool' / 未来任意业务域）。 */
+    domain: string;
+    /** 处置分类；内置默认见 BUILTIN_FAULT_KINDS，未登记的新值走兜底策略。 */
+    kind: string;
     severity: FaultSeverity;
     scope: FaultScope;
     /** 生产者的判断；与策略表冲突时以策略表为准（冲突记一条事件）。 */
@@ -89,9 +62,25 @@ export interface FaultPolicy {
     escalateTo?: FaultScope;
 }
 
-export type FaultPolicyTable = Readonly<Record<FaultKind, FaultPolicy>>;
+export type FaultPolicyTable = Readonly<Record<string, FaultPolicy>>;
 
-/** 默认策略表（§5）。domain 覆盖由 runtime 侧按需叠加。 */
+/**
+ * 内置默认策略键（**不是闭集**，只是 runtime 自带的一组处置基线）。
+ * 各域可以自由引入新 kind；表里没登记的 kind 落 `FALLBACK_FAULT_POLICY`。
+ */
+export const BUILTIN_FAULT_KINDS = [
+    'timeout',
+    'transient',
+    'invalid_args',
+    'not_found',
+    'policy_denied',
+    'internal',
+    'budget_exhausted',
+    'fatal',
+    'unknown',
+] as const;
+
+/** 默认策略表（§5）。domain 覆盖由调用方按需叠加。 */
 export const DEFAULT_FAULT_POLICY: FaultPolicyTable = {
     timeout: {
         maxRetries: 1,
@@ -143,6 +132,13 @@ export const DEFAULT_FAULT_POLICY: FaultPolicyTable = {
     },
 };
 
+/** 未登记 kind 的兜底：保守降级，绝不放大重试。 */
+export const FALLBACK_FAULT_POLICY: FaultPolicy = {
+    maxRetries: 0,
+    backoff: 'none',
+    onGiveUp: 'degrade',
+};
+
 /** 单次处置结论（错误层产出，调用方执行）。 */
 export interface FaultRecovery {
     action: FaultAction;
@@ -155,8 +151,8 @@ export interface FaultRecovery {
     reason: 'policy' | 'attempts-exhausted' | 'fatal' | 'non-idempotent';
 }
 
-/** fatal 白名单由 `severity` 判定；本函数只把 kind 映到默认严重度。 */
-export function defaultSeverityOf(kind: FaultKind): FaultSeverity {
+/** kind → 默认严重度；未登记的 kind 按"可降级"处理（保守但不中止）。 */
+export function defaultSeverityOf(kind: string): FaultSeverity {
     switch (kind) {
         case 'fatal':
             return 'fatal';
@@ -168,10 +164,7 @@ export function defaultSeverityOf(kind: FaultKind): FaultSeverity {
     }
 }
 
-export function isFaultKind(value: string): value is FaultKind {
-    return (FAULT_KINDS as readonly string[]).includes(value);
-}
-
-export function isFaultDomain(value: string): value is FaultDomain {
-    return (FAULT_DOMAINS as readonly string[]).includes(value);
-}
+/** 域覆盖表：`{ [domain]: { [kind]: 覆盖项 } }`，两维都开放。 */
+export type FaultDomainPolicy = {
+    [domain: string]: Record<string, Partial<FaultPolicy>> | undefined;
+};

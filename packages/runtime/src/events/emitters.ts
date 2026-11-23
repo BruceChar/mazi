@@ -1,4 +1,4 @@
-import type { Fault, FaultRecovery } from '@mazi/core';
+import type { Fault, FaultRecovery } from '../faults/types.js';
 import type { DefaultEventBus } from './event-bus.js';
 import { newHarnessEvent } from './event-bus.js';
 

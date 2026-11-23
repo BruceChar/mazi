@@ -1,19 +1,19 @@
-import { defaultSeverityOf, type FaultKind, type FaultSeverity, isFaultKind } from '@mazi/core';
+import { defaultSeverityOf, type FaultSeverity } from './types.js';
 
 /**
  * 错误层基础校验：策略表形状与严重度派生。
  * 处置逻辑在 `runtime/faults/pipeline.ts`，归一化在 `normalize.ts`。
  */
 
-export { defaultSeverityOf, isFaultKind };
+export { defaultSeverityOf };
 
 /** 仅 `fatal` 允许直接中止；其余必须经策略表得出动作。 */
 export function isFatalSeverity(severity: FaultSeverity): boolean {
     return severity === 'fatal';
 }
 
-/** 厂商/网关错误码 → 跨域 kind（归一化的最后一跳）。 */
-export const CODE_TO_KIND: Readonly<Record<string, FaultKind>> = {
+/** 厂商/网关错误码 → 处置 kind（归一化的最后一跳）。code 表由本层维护，kind 不必闭集。 */
+export const CODE_TO_KIND: Readonly<Record<string, string>> = {
     INVALID_ARGS: 'invalid_args',
     FORBIDDEN_UNREGISTERED: 'policy_denied',
     FORBIDDEN_BY_POLICY: 'policy_denied',
@@ -28,7 +28,7 @@ export const CODE_TO_KIND: Readonly<Record<string, FaultKind>> = {
     ETIMEDOUT: 'timeout',
 };
 
-export function kindFromCode(code: string | undefined): FaultKind | undefined {
+export function kindFromCode(code: string | undefined): string | undefined {
     if (code === undefined) return undefined;
     return CODE_TO_KIND[code];
 }

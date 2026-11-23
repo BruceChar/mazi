@@ -1,6 +1,7 @@
-import type { Fault, FaultRecovery, TraceIdentifiers } from '@mazi/core';
+import type { TraceIdentifiers } from '@mazi/core';
 import type { ToolCallResult } from '../config.js';
 import { backoffDelay, type FaultPipeline, toFault, toFaultFromResult } from '../faults/index.js';
+import type { Fault, FaultRecovery } from '../faults/types.js';
 import type { GoalToolInvoker } from '../gts/goal-executor.js';
 import type { HookRunner } from '../hooks/index.js';
 

@@ -1,12 +1,13 @@
 import {
     DEFAULT_FAULT_POLICY,
+    FALLBACK_FAULT_POLICY,
     type Fault,
-    type FaultDomain,
-    type FaultKind,
+    type FaultDomainPolicy,
     type FaultPolicy,
+    type FaultPolicyTable,
     type FaultRecovery,
     type FaultScope,
-} from '@mazi/core';
+} from './types.js';
 
 /**
  * FaultPipeline —— 错误处置层唯一入口。
@@ -15,16 +16,11 @@ import {
  * 执行动作由调用方完成（工具调用在 ToolInvoker，模型调用在 provider）。
  */
 
-/** 按 domain 覆盖基线策略（写法对齐 provider/retry.ts 的可替换表）。 */
-export type FaultDomainPolicy = {
-    [D in FaultDomain]?: Partial<Record<FaultKind, Partial<FaultPolicy>>>;
-};
-
 export type FaultEventType = 'fault.raised' | 'fault.recovered';
 
 export interface FaultPipelineDeps {
     /** 整表替换（测试/实验），缺省用 DEFAULT_FAULT_POLICY。 */
-    policy?: Readonly<Record<FaultKind, FaultPolicy>>;
+    policy?: FaultPolicyTable;
     /** 按 domain 的覆盖项。 */
     domains?: FaultDomainPolicy;
     /** 广播端口（runtime 接到事件总线）。抛出被吞，不影响主流程。 */
@@ -45,7 +41,7 @@ const MAX_TRACKED_KEYS = 512;
 
 export class DefaultFaultPipeline implements FaultPipeline {
     private readonly attempts = new Map<string, number>();
-    private readonly policy: Readonly<Record<FaultKind, FaultPolicy>>;
+    private readonly policy: FaultPolicyTable;
     private readonly domains: FaultDomainPolicy;
     private readonly emit:
         | ((type: FaultEventType, fault: Fault, recovery?: FaultRecovery) => void)
@@ -128,8 +124,8 @@ export class DefaultFaultPipeline implements FaultPipeline {
         };
     }
 
-    private resolve(domain: FaultDomain, kind: FaultKind): FaultPolicy {
-        const base = this.policy[kind];
+    private resolve(domain: string, kind: string): FaultPolicy {
+        const base = this.policy[kind] ?? FALLBACK_FAULT_POLICY;
         const override = this.domains[domain]?.[kind];
         if (override === undefined) return base;
         return { ...base, ...override };

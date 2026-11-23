@@ -1,6 +1,14 @@
-import type { Fault } from '@mazi/core';
+import type { Fault } from '../src/faults/types.js';
 import { describe, expect, it } from 'vitest';
-import { DefaultFaultPipeline, parseCode, toFault, toFaultFromResult } from '../src/faults/index.js';
+import {
+    BUILTIN_FAULT_KINDS,
+    DEFAULT_FAULT_POLICY,
+    DefaultFaultPipeline,
+    FALLBACK_FAULT_POLICY,
+    parseCode,
+    toFault,
+    toFaultFromResult,
+} from '../src/faults/index.js';
 
 const ids = { rootGoalId: 'g1', sessionId: 's1' };
 
@@ -125,5 +133,21 @@ describe('归一化（§3 契约）', () => {
             key: 'tool:x:{}',
         });
         expect(f).toMatchObject({ kind: 'invalid_args', code: 'INVALID_ARGS' });
+    });
+});
+
+describe('开放分类（Fault 属 runtime，不进 core）', () => {
+    it('内置策略键彼此独立，新增 kind 走兜底而不需要改表', () => {
+        expect(BUILTIN_FAULT_KINDS.length).toBeGreaterThan(0);
+        for (const kind of BUILTIN_FAULT_KINDS) {
+            expect(DEFAULT_FAULT_POLICY[kind]).toBeTruthy();
+        }
+        // 新业务域 + 新 kind：既不在内置集合里，也不改 core。
+        const p = new DefaultFaultPipeline();
+        const recovery = p.decide(
+            fault({ domain: 'billing', kind: 'quota_exceeded', severity: 'degradable' }),
+        );
+        expect(recovery.action).toBe(FALLBACK_FAULT_POLICY.onGiveUp);
+        expect(recovery.maxRetries).toBe(FALLBACK_FAULT_POLICY.maxRetries);
     });
 });

@@ -1,15 +1,12 @@
+import { type TraceIdentifiers, ulid } from '@mazi/core';
+import { kindFromCode } from './policy.js';
 import {
     defaultSeverityOf,
     type Fault,
-    type FaultDomain,
     type FaultFix,
-    type FaultKind,
     type FaultScope,
     type FaultSeverity,
-    type TraceIdentifiers,
-    ulid,
-} from '@mazi/core';
-import { kindFromCode } from './policy.js';
+} from './types.js';
 
 /**
  * 归一化：任何 throw / 结果码 → Fault。
@@ -17,7 +14,8 @@ import { kindFromCode } from './policy.js';
  */
 
 export interface FaultContext {
-    domain: FaultDomain;
+    /** 由产出方声明（开放字符串）。 */
+    domain: string;
     scope?: FaultScope;
     /** 尝试计数键：同参调用必须一致。 */
     key?: string;
@@ -52,7 +50,7 @@ function errorMessage(error: unknown): string {
  */
 export function toFault(error: unknown, ctx: FaultContext): Fault {
     const code = ctx.code;
-    const kind: FaultKind = kindFromCode(code) ?? 'internal';
+    const kind = kindFromCode(code) ?? 'internal';
     const defect = ctx.domain !== 'tool' && DEFECT_ERROR_NAMES.has(errorName(error));
     const severity: FaultSeverity = ctx.severity ?? (defect ? 'fatal' : defaultSeverityOf(kind));
     const message = ctx.message ?? errorMessage(error);
