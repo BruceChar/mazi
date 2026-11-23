@@ -169,7 +169,7 @@ export class HarnessRuntime {
         this.ctx.delegation = new DelegationStack(config);
         configureTokenizer(config.tokenizerEncoding);
         this.ctx.assembly.workspaceRoot = options.workspaceRoot;
-        this.ctx.assembly.taskPlanner = options.taskPlanner;
+        this.ctx.assembly.ports.set('taskPlanner', options.taskPlanner);
         this.ctx.assembly.taskPlanningByDefault =
             options.taskPlanning === true || options.taskPlanner !== undefined;
         this.ctx.observability.bus = new DefaultEventBus({
@@ -298,8 +298,8 @@ export class HarnessRuntime {
             wiki: this.ctx.memory.wiki,
             blackboard: this.ctx.memory.blackboard,
             delegationRoles: this.ctx.delegation.roles,
-            getSkillProvider: () => this.ctx.assembly.skillProvider,
-            getApprovalSeam: () => this.ctx.assembly.approvalSeam,
+            getSkillProvider: () => this.ctx.assembly.ports.get<SkillProvider>('skillProvider'),
+            getApprovalSeam: () => this.ctx.assembly.ports.get<authz.ApprovalSeam>('approvalSeam'),
             execute: (tool, args, ctx, roots) => this.executeEffectful(tool, args, ctx, roots),
             delegate: (input) =>
                 this.delegateAgents(
@@ -336,10 +336,10 @@ export class HarnessRuntime {
                 return self.ctx.memory.projectWiki;
             },
             get skillProvider() {
-                return self.ctx.assembly.skillProvider;
+                return self.ctx.assembly.ports.get<SkillProvider>('skillProvider');
             },
             get replanPlanner() {
-                return self.ctx.assembly.replanPlanner;
+                return self.ctx.assembly.ports.get<ReplanPlanner>('replanPlanner');
             },
             get maxReplans() {
                 return self.ctx.assembly.maxReplans;
@@ -467,14 +467,12 @@ export class HarnessRuntime {
 
     /** 接入目录与账本：此后每轮 LLM 调用按钉死的 offering 价目追加 UsageRecord。 */
     setCatalog(service: CatalogService): void {
-                this.ctx.assembly.catalogService = service;
         this.ctx.assembly.ports.set('catalog', service);
         this.ctx.intelligence.roundRunner.setCatalog(service);
     }
 
     /** 接入已挂载技能包：工具并入每次 Goal 的执行工具面，档位按包 ceiling 收敛。 */
     setSkillProvider(provider?: SkillProvider): void {
-                this.ctx.assembly.skillProvider = provider;
         this.ctx.assembly.ports.set('skillProvider', provider);
     }
 
@@ -483,7 +481,7 @@ export class HarnessRuntime {
      * 凭证 id = `bf:<stepId>`，重复调用幂等；目录未收录/无价的模型跳过（目录是权威）。
      */
     async backfillUsage(): Promise<{ recorded: number; skipped: number }> {
-        const service = this.ctx.assembly.catalogService;
+        const service = this.ctx.assembly.ports.get<CatalogService>('catalog');
         if (service === undefined) return { recorded: 0, skipped: 0 };
         const existing = new Set((await service.usageRecords()).map((record) => record.id));
         const steps = await this.ctx.memory.goalStore.listAllSteps();
@@ -528,7 +526,6 @@ export class HarnessRuntime {
 
     /** 接入人审审批 seam；缺省时运行时网关回退到 ceiling 常设授权。 */
     setApprovalSeam(seam: authz.ApprovalSeam): void {
-                this.ctx.assembly.approvalSeam = seam;
         this.ctx.assembly.ports.set('approvalSeam', seam);
     }
 
@@ -890,7 +887,7 @@ export class HarnessRuntime {
                     }),
                 );
                 const roleSkillIds = resolveRoleSkillIds(
-                    this.ctx.assembly.skillProvider?.mounted() ?? [],
+                    this.ctx.assembly.ports.get<SkillProvider>('skillProvider')?.mounted() ?? [],
                     context.role.skillIds,
                 );
                 const child = await this.createGoalSession(context.proposal.statement, {
@@ -986,11 +983,16 @@ export class HarnessRuntime {
         const context = { rootGoalId, goalId };
         const entries =
             skillIds === undefined
-                ? (this.ctx.assembly.skillProvider?.catalog(context) ?? [])
-                : (this.ctx.assembly.skillProvider?.catalogFor?.(skillIds, context) ??
-                  (this.ctx.assembly.skillProvider?.catalog(context) ?? []).filter((entry) =>
-                      skillIds.includes(entry.id),
-                  ));
+                ? (this.ctx.assembly.ports.get<SkillProvider>('skillProvider')?.catalog(context) ??
+                  [])
+                : (this.ctx.assembly.ports
+                      .get<SkillProvider>('skillProvider')
+                      ?.catalogFor?.(skillIds, context) ??
+                  (
+                      this.ctx.assembly.ports
+                          .get<SkillProvider>('skillProvider')
+                          ?.catalog(context) ?? []
+                  ).filter((entry) => skillIds.includes(entry.id)));
         const parts = [base];
         const sessionContext = sessionContextFragment(this.ctx.assembly.workspaceRoot);
         if (sessionContext !== undefined) parts.push(sessionContext);
@@ -1065,7 +1067,7 @@ export class HarnessRuntime {
             .join('\n\n');
         try {
             const planner =
-                this.ctx.assembly.taskPlanner ??
+                this.ctx.assembly.ports.get<TaskPlanner>('taskPlanner') ??
                 createLlmTaskPlanner(async (prompt) => {
                     if (model === undefined) throw new Error('没有可用于 Task Planner 的模型');
                     const round = await withTriageTimeout(
@@ -1307,14 +1309,14 @@ export class HarnessRuntime {
     }
 
     setReplanPlanner(planner?: ReplanPlanner, maxReplans = 2): void {
-        this.ctx.assembly.replanPlanner = planner;
-        this.ctx.assembly.replanPlanner = planner;
+        this.ctx.assembly.ports.set('replanPlanner', planner);
+        this.ctx.assembly.ports.set('replanPlanner', planner);
         this.ctx.assembly.maxReplans = Math.max(0, maxReplans);
     }
 
     setTaskPlanner(planner?: TaskPlanner): void {
-        this.ctx.assembly.taskPlanner = planner;
-        this.ctx.assembly.taskPlanner = planner;
+        this.ctx.assembly.ports.set('taskPlanner', planner);
+        this.ctx.assembly.ports.set('taskPlanner', planner);
         if (planner !== undefined) this.ctx.assembly.taskPlanningByDefault = true;
     }
 
