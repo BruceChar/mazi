@@ -141,6 +141,15 @@ export class HarnessRuntime {
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.ctx = createRuntimeContext();
+        this.assembleCoreObjects(config, options);
+        this.assembleStores(config, options);
+        this.assembleServices(config, options);
+        this.assembleExecutors(config, options);
+        this.assembleKernel();
+    }
+
+    /** P0/P1：纯值与纯对象，无 IO（事件总线、钩子、策略、注册表、委托栈壳）。 */
+    private assembleCoreObjects(config: RuntimeConfig, options: RunOptions): void {
         this.ctx.session.sessionIds = new Map<string, string>();
         this.ctx.session.intake = new SessionIntake();
         this.ctx.session.running = new Map<string, AbortController>();
@@ -188,6 +197,10 @@ export class HarnessRuntime {
             emit: (type, fault, recovery) =>
                 emitFault(this.ctx.observability.bus, type, fault, recovery),
         });
+    }
+
+    /** P3：SQLite 权威库与文件型服务（行为/问题/失败账本/目标/记忆/效果/黑板）。 */
+    private assembleStores(config: RuntimeConfig, _options: RunOptions): void {
         // 问题/行为统一入 SQLite 权威库；JSONL 目录降级为导出/迁移来源。
         const behaviorStore =
             config.dbPath !== undefined
@@ -231,6 +244,10 @@ export class HarnessRuntime {
                 ? new SqliteBlackboardStore(config.dbPath)
                 : new MemoryBlackboardStore(),
         );
+    }
+
+    /** P3：模型解析、step 事件、wiki 与分析栈（含 prompt pack 落库）。 */
+    private assembleServices(config: RuntimeConfig, options: RunOptions): void {
         this.ctx.intelligence.resolver = new ModelResolver(
             config,
             buildLlmProviders(config, options),
@@ -262,6 +279,10 @@ export class HarnessRuntime {
         if (config.consoleEnabled ?? false) {
             this.ctx.observability.bus.subscribe({}, new ConsoleSink());
         }
+    }
+
+    /** P2：执行面接线（会话工厂、工具平面、TurnEngine 宿主）。 */
+    private assembleExecutors(_config: RuntimeConfig, _options: RunOptions): void {
         this.ctx.session.factory = new SessionFactory({
             intake: this.ctx.session.intake,
             sessionIds: this.ctx.session.sessionIds,
@@ -330,6 +351,10 @@ export class HarnessRuntime {
             projectWikiPromptFragment: () => this.projectWikiPromptFragment(),
             ensureProjectWikiInitialized: () => this.ensureProjectWikiInitialized(),
         });
+    }
+
+    /** P2：装配容器与插件宿主（服务登记后启动）。 */
+    private assembleKernel(): void {
         this.ctx.assembly.kernel = new RuntimeKernel();
         this.ctx.assembly.kernel.provide({
             name: 'eventBus',
@@ -361,6 +386,7 @@ export class HarnessRuntime {
             .catch((error) => {
                 this.warn(`memory 插件安装失败：${error instanceof Error ? error.message : error}`);
             });
+
         this.ctx.assembly.kernel.provide({
             name: 'memoryManager',
             requires: ['memory'],
