@@ -179,6 +179,7 @@ export function snapshotGoalTree(
                         goalId: step.goalId,
                         taskId: step.taskId,
                         kind: step.kind,
+                        ...(step.role !== undefined ? { role: step.role } : {}),
                         status: step.status,
                         startedAt: step.startedAt,
                         ...(step.endedAt ? { endedAt: step.endedAt } : {}),

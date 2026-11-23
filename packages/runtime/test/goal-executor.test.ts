@@ -73,6 +73,41 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect((await store.loadTask(t.taskId))?.status).toBe('succeeded');
     });
 
+    it('roleForStep 按 StepKind 写入节点角色；不改 kind 判别式', async () => {
+        const store = new MemoryGoalStore();
+        let roundIndex = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['fs.read'],
+                invoker: { invoke: async () => ({ ok: true, content: 'A' }) },
+                roleForStep: (kind) => (kind === 'deliberation' ? 'think' : 'act'),
+                requestRound: async () => {
+                    roundIndex += 1;
+                    if (roundIndex === 1) {
+                        return {
+                            text: '',
+                            reasoning: '',
+                            toolCalls: [
+                                { callId: 'c1', toolName: 'fs.read', arguments: { path: 'a' } },
+                            ],
+                            finishReason: 'tool_calls',
+                            ttftMs: 0,
+                            totalMs: 1,
+                        };
+                    }
+                    return { ...okRound, text: '完成。' };
+                },
+            },
+            task(),
+            goal(),
+        );
+        expect(outcome.ok).toBe(true);
+        const steps = await store.listSteps(outcome.task.taskId);
+        expect(steps.find((step) => step.kind === 'deliberation')?.role).toBe('think');
+        expect(steps.find((step) => step.kind === 'invocation')?.role).toBe('act');
+    });
+
     it('模型步真实起止窗口 = now − totalMs；task 起止落库；context bytes 入库', async () => {
         const store = new MemoryGoalStore();
         const t = task();

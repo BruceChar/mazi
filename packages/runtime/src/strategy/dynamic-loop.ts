@@ -90,6 +90,7 @@ function taskDeps(
         ...(deps.workspaceRoot !== undefined ? { workspaceRoot: deps.workspaceRoot } : {}),
         ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
         ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
+        roleForStep: (kind) => (kind === 'deliberation' ? 'think' : 'act'),
         ...limitsOf(deps, task, goal),
         contributions,
         ...(task.dependsOn !== undefined && task.dependsOn.length > 0

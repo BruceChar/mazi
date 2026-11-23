@@ -27,8 +27,6 @@ const props = defineProps({
     liveStream: { type: Object, default: null },
     /** Append-only live steps of the executing run (store.liveSteps[run]). */
     liveSteps: { type: Array, default: () => [] },
-    /** dynamic loop 的真实 workflow 节点（store.runWorkflowNodes[run]）。 */
-    workflowNodes: { type: Array, default: () => [] },
     /** Audit selection highlight (store.selectedStepId / selectedTaskId). */
     selectedStepId: { type: String, default: '' },
     selectedTaskId: { type: String, default: '' },
@@ -78,15 +76,22 @@ function formatDuration(ms) {
     if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
     return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
-function kindLabel(kind) {
-    // dynamic loop 已有 workflow 节点轨迹：Step 是 Act 内部的行动/观察，不再叫 model/tool。
-    if (props.workflowNodes.length > 0) {
-        if (kind === 'deliberation') return 'Thinking';
-        if (kind === 'invocation') return 'Acting';
-    }
-    if (kind === 'deliberation') return 'model';
-    if (kind === 'invocation') return 'tool';
+const ROLE_LABELS = {
+    think: 'Thinking',
+    plan: 'Planning',
+    act: 'Acting',
+    observe: 'Observing',
+    verify: 'Verifying',
+    reflect: 'Reflecting',
+};
+function kindLabel(kind, role) {
+    if (role && ROLE_LABELS[role]) return ROLE_LABELS[role];
+    if (kind === 'deliberation') return 'Thinking';
+    if (kind === 'invocation') return 'Acting';
     return kind || '-';
+}
+function stepRoleLabel(step) {
+    return kindLabel(step?.kind, step?.role);
 }
 function statusLabel(status) {
     if (!status) return '';
@@ -120,21 +125,6 @@ function formatToolArgs(toolName, args) {
 }
 
 /* ---- Step row conversion ---- */
-function workflowNodeLabel(node) {
-    if (!node) return '';
-    if (node.kind === 'node.failed') return 'Failed';
-    if (node.kind === 'terminated') return 'Terminated';
-    const labels = {
-        think: 'Thinking',
-        act: 'Acting',
-        observe: 'Observing',
-        plan: 'Planning',
-        verify: 'Verifying',
-        reflect: 'Reflecting',
-    };
-    return labels[node.role] || node.role || 'Node';
-}
-
 function stepToRow(step, idx) {
     const durationMs = step.endedAt && step.startedAt ? step.endedAt - step.startedAt : null;
     const isDeliberation = step.kind === 'deliberation';
@@ -146,7 +136,8 @@ function stepToRow(step, idx) {
         at: step.startedAt,
         time: fmtTime(step.startedAt),
         kind: step.kind,
-        kindLabel: kindLabel(step.kind),
+        role: step.role || '',
+        kindLabel: kindLabel(step.kind, step.role),
         status: step.status,
         statusLabel: statusLabel(step.status),
         toolName: step.toolName || '',
@@ -519,25 +510,9 @@ watch(
     <!-- Live steps grouped by the synchronously produced Task plan. Contract,
          route, plan version and acceptance metadata live in the Trace panel. -->
     <div
-        v-if="workflowNodes.length || (busy && (liveSteps.length || showPlanTree))"
+        v-if="busy && (liveSteps.length || showPlanTree)"
         class="exec-stream"
     >
-        <div v-if="workflowNodes.length" class="workflow-nodes">
-            <div class="workflow-nodes-head">
-                <span>Workflow · 节点</span>
-                <span class="workflow-nodes-count">{{ workflowNodes.length }}</span>
-            </div>
-            <div
-                v-for="node in workflowNodes"
-                :key="node.key"
-                class="workflow-node"
-                :class="[node.kind, node.role]"
-            >
-                <span class="workflow-node-label">{{ workflowNodeLabel(node) }}</span>
-                <code v-if="node.nodeId" class="workflow-node-id">{{ node.nodeId }}</code>
-                <span class="workflow-node-reason">{{ node.reason }}</span>
-            </div>
-        </div>
         <div
             v-for="(group, gIdx) in liveGroups.groups"
             :key="group.task ? group.task.taskId : 'pre-plan'"
@@ -599,7 +574,7 @@ watch(
                         <span v-else-if="entry.step.status === 'active'" class="exec-spinner"></span>
                         <LineIcon v-else :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'" size="16" />
                         <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
-                        <span class="exec-step-name">{{ entry.step.toolName || entry.step.kind }}</span>
+                        <span class="exec-step-name">{{ stepRoleLabel(entry.step) }}</span>
                         <span class="exec-step-summary">{{
                             entry.step.title ||
                             (entry.step.kind === 'deliberation' ? '思考中…' : '调用中…')
@@ -633,6 +608,7 @@ watch(
                             v-html="renderMarkdown(entry.bodies.answer)"
                         ></div>
                         <div v-if="entry.bodies.output" class="exec-step-code">
+                            <div class="exec-role-caption">Observing</div>
                             <pre class="exec-step-code-inner">{{ entry.bodies.output }}</pre>
                         </div>
                     </template>
@@ -745,7 +721,7 @@ watch(
                                     size="16"
                                 />
                                 <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
-                                <span class="exec-step-name">{{ row.toolName || row.kind }}</span>
+                                <span class="exec-step-name">{{ row.kindLabel }}</span>
                                 <span
                                     class="exec-step-summary"
                                     :title="row.toolArgs ? JSON.stringify(row.toolArgs) : undefined"
@@ -768,6 +744,7 @@ watch(
                                 </div>
                             </div>
                             <div v-if="isStepExpanded(row) && row.text" class="exec-step-code">
+                                <div v-if="row.kind === 'invocation'" class="exec-role-caption">Observing</div>
                                 <pre class="exec-step-code-inner">{{ row.text }}</pre>
                             </div>
                             <!-- 同轮 intent（模型输出）：紧贴 reasoning 下方，正文呈现（非代码框） -->
@@ -903,54 +880,6 @@ watch(
 }
 .exec-goal.single > .exec-goal-body {
     padding-left: 0;
-}
-.workflow-nodes {
-    margin: 6px 0 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 6px 8px;
-    background: var(--bg-subtle);
-}
-.workflow-nodes-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--fg-secondary);
-    margin-bottom: 4px;
-}
-.workflow-nodes-count {
-    color: var(--fg-tertiary);
-    font-weight: 400;
-}
-.workflow-node {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 2px 0;
-    font-size: 12px;
-    color: var(--fg-secondary);
-}
-.workflow-node-label {
-    min-width: 72px;
-    font-family: ui-monospace, monospace;
-    font-weight: 600;
-    color: var(--thinking);
-}
-.workflow-node.failed .workflow-node-label,
-.workflow-node.terminated .workflow-node-label {
-    color: var(--warning, #b45309);
-}
-.workflow-node-id {
-    font-size: 11px;
-    color: var(--fg-tertiary);
-}
-.workflow-node-reason {
-    color: var(--fg-tertiary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 .exec-task {
     margin: 8px 0;
@@ -1251,6 +1180,13 @@ watch(
     border-radius: var(--radius-sm);
     margin: 2px 8px 4px 14px;
     overflow: hidden;
+}
+.exec-role-caption {
+    padding: 4px 10px 0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--fg-tertiary);
 }
 .exec-step-code-inner {
     margin: 0;

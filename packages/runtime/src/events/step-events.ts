@@ -36,6 +36,7 @@ export class StepEventEmitter {
         // 实时消费方（SSE/UI）据此自行分段渲染，无需再从文本反解。
         const payload: Record<string, unknown> = {
             kind: step.kind,
+            ...(step.role !== undefined ? { role: step.role } : {}),
             status: step.status,
             goalId: step.goalId,
             taskId: step.taskId,

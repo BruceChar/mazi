@@ -26,8 +26,6 @@ const props = defineProps({
     liveStream: { type: Object, default: null },
     /** Append-only live steps per run (store.liveSteps), keyed by rootGoalId. */
     liveSteps: { type: Object, default: () => ({}) },
-    /** dynamic workflow 节点轨迹（store.runWorkflowNodes），keyed by rootGoalId. */
-    runWorkflowNodes: { type: Object, default: () => ({}) },
     /** 当前 run 的执行前阶段进度（store.runPhases[current]，runtime `goal.phase`）。 */
     phase: { type: Object, default: null },
     suggestionCards: { type: Array, default: () => [] },
@@ -356,7 +354,6 @@ onBeforeUnmount(() => {
                                 :busy="busy && run.rootGoalId === current"
                                 :live-stream="run.rootGoalId === current ? liveStream : null"
                                 :live-steps="liveSteps[run.rootGoalId] || []"
-                                :workflow-nodes="runWorkflowNodes[run.rootGoalId] || []"
                                 :selected-step-id="run.rootGoalId === current ? selectedStepId : ''"
                                 :selected-task-id="run.rootGoalId === current ? selectedTaskId : ''"
                                 @select-step="emit('select-step', $event)"

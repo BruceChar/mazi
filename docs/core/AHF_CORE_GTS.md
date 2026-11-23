@@ -85,6 +85,8 @@ export interface Task {
 
 StepKind 只有两个值，按**事实来源**二分：`deliberation`（LLM 内在，一次模型输出）与 `invocation`（外在实际，一次对外部世界的调用）。决策链的三个环节（思考 / 回答与提议 / 执行与结果）落在二者的字段上，而不是各自成为一个 kind。
 
+节点语义不进入 `StepKind`，由可选的 `Step.role` 表达：`think / plan / act / observe / verify / reflect`。dynamic loop 写入该字段，UI 按 role 展示 Thinking / Planning / Acting / Observing / Verifying / Reflecting；default loop 缺省 role，展示层按 kind 回退为 Thinking / Acting。`kind` 仍是 payload 收窄与历史重放的唯一判别式。
+
 ```ts
 // ═══ step.ts ═══
 export type StepKind = 'deliberation' | 'invocation';

@@ -4,7 +4,7 @@
  * 无 toolCalls → 最终回答。Step 归因 taskId/goalId，全部经 GoalStore 持久化。
  */
 
-import type { Goal, Step, Task, ToolSchema } from '@mazi/core';
+import type { Goal, Step, StepKind, StepRole, Task, ToolSchema } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import {
     type ContextContribution,
@@ -54,6 +54,8 @@ export interface GoalExecutorDeps {
     now?: () => number;
     /** Step 落库后即时回调（流式上报：思考/工具/观察），供事件总线实时推送给 UI */
     onStep?: (step: Step) => void;
+    /** 按 StepKind 标注 workflow 节点角色；缺省不写 role（default loop / 轻量调用）。 */
+    roleForStep?: (kind: StepKind) => StepRole | undefined;
     /** 敏感内容进入 context 的断流端口（V3 机制二）；缺省时 secret 观察值 fail-closed */
     redactor?: SecretRedactor;
     /** 协作式停止信号：每个轮次开始前检查；模型调用透传到 provider 层。 */
@@ -68,6 +70,11 @@ export interface GoalExecutorDeps {
         finalMessage?: string;
         errorMessage?: string;
     }[];
+}
+
+function stepRoleOf(deps: GoalExecutorDeps, kind: StepKind): Partial<Pick<Step, 'role'>> {
+    const role = deps.roleForStep?.(kind);
+    return role !== undefined ? { role } : {};
 }
 
 export type TaskStopReason =
@@ -252,6 +259,7 @@ async function completeOpenRound(
                 stepId: ulid(),
                 taskId: task.taskId,
                 goalId: task.goalId,
+                ...stepRoleOf(deps, 'invocation'),
                 kind: 'invocation',
                 payload: {
                     toolName: call.toolName,
@@ -524,6 +532,7 @@ export async function executeTask(
                     stepId: ulid(),
                     taskId: task.taskId,
                     goalId: task.goalId,
+                    ...stepRoleOf(deps, 'deliberation'),
                     kind: 'deliberation',
                     payload: {
                         ...(round.reasoning.length > 0 ? { thinking: round.reasoning } : {}),
@@ -606,6 +615,7 @@ export async function executeTask(
                     stepId: ulid(),
                     taskId: task.taskId,
                     goalId: task.goalId,
+                    ...stepRoleOf(deps, 'invocation'),
                     kind: 'invocation',
                     payload: {
                         toolName: blocked.toolName,
@@ -646,6 +656,7 @@ export async function executeTask(
                     stepId: ulid(),
                     taskId: task.taskId,
                     goalId: task.goalId,
+                    ...stepRoleOf(deps, 'invocation'),
                     kind: 'invocation',
                     payload: {
                         toolName: call.toolName,

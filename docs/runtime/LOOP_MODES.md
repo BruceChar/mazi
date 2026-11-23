@@ -62,10 +62,11 @@ Think（选任务）→ Act（executeTask + 验收）→ Observe（pending→fac
 - `termination`：`done / done-unverified / aborted-budget / aborted-no-progress / aborted-no-candidates / failed`；
 - `nodeCount`：dynamic 实际执行的节点数；
 - `loopNodes`：dynamic 的真实节点轨迹（`selected / failed / terminated` + role + nodeId + reason + at）。
-- 展示口径：`loopNodes` 是真实 workflow 节点，按 `Thinking / Acting / Observing / Planning /
-  Verifying / Reflecting` 展示；工具调用属于 Act 节点内部，不是独立节点。Step 的
-  `deliberation / invocation` 在 dynamic 下分别显示为 `Thinking / Acting`，default 模式仍保留
-  「模型 / 工具」语义。
+- 展示口径：主会话不再单独渲染 workflow 节点框。节点语义落到 `Step.role`，按
+  `think / plan / act / observe / verify / reflect` 展示为
+  `Thinking / Planning / Acting / Observing / Verifying / Reflecting`；没有 role 的 default
+  loop 按 kind 回退为 Thinking / Acting。`Step.kind` 仍是 deliberation / invocation，
+  只负责 payload 与重放。
 - 收尾保护：真实工具动作失败后，如果模型只是重放此前已经成功的读取结果，不能把旧输出当作
   Task 最终答案；必须出现新的成功动作或模型给出最终回答。
 

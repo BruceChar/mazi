@@ -251,6 +251,9 @@ export type StepKind =
     // Extrinsic：一次对外部世界的实际调用（tool / http / shell 等）
     | 'invocation';
 
+/** Step 所属 workflow 节点角色；缺省表示未运行在节点驱动的 loop 中。 */
+export type StepRole = 'think' | 'plan' | 'act' | 'observe' | 'verify' | 'reflect';
+
 /** 模型一次输出的决策事实：推理、回答、提议的工具调用（三者可并存） */
 export interface DeliberationPayload {
     thinking?: string;
@@ -290,6 +293,8 @@ interface StepBase {
     /** 归因：taskId 锚定 Task，goalId 锚定 Goal */
     taskId: ULID;
     goalId: ULID;
+    /** 节点语义（dynamic loop 写入）；kind 仍是持久化判别式，role 只影响展示/归因。 */
+    role?: StepRole;
     model?: { providerId: string; modelId: string };
     usage?: unknown;
     status: StepStatus;

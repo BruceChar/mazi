@@ -104,6 +104,7 @@ describe('arm-live（单臂实时投影）', () => {
                 'step.started',
                 {
                     kind: 'invocation',
+                    role: 'act',
                     toolName: 'project_wiki',
                     content: 'project_wiki {"mode":"script","args":["update","--plan"]}',
                     status: 'active',
@@ -116,6 +117,7 @@ describe('arm-live（单臂实时投影）', () => {
             mode: 'script',
             args: ['update', '--plan'],
         });
+        expect(invocation.role).toBe('act');
         expect(invocation.title).toBe(
             'project_wiki {"mode":"script","args":["update","--plan"]}',
         );
@@ -135,6 +137,7 @@ describe('arm-live（单臂实时投影）', () => {
             ),
         );
         expect(live.steps[0]).toMatchObject({
+            role: 'act',
             toolArguments: { mode: 'script', args: ['update', '--plan'] },
             output: 'updated',
         });
