@@ -161,7 +161,7 @@ text = "A goal is only marked succeeded when task execution and mechanical accep
 status = "active"
 evidence = [
   { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "d37a9e9638af522fbbabde6eeb5a708e33e4e323" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "6dfcbb30293281c21d298ae5eeaba5b7e2978149" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "272b4672bb7efbc4cc032d856129205ae076b92f" },
   { file = "packages/runtime/src/gts/replan.ts", oid = "1a040f04372c287a28fa086b78074a14ead17047" },
   { file = "packages/runtime/test/goal-strategy.test.ts", oid = "7b8f01d2a6a02fb8efa225c809b6aca00750d5f2" },
   { file = "packages/runtime/test/task-planning-runtime.test.ts", oid = "34028f9c84c24b5b6c0033f90914578dfcc25718" },
@@ -169,7 +169,7 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-23
-claim_oid = "00d409c68a7b550b"
+claim_oid = "aa9ddfbfb9cdbdbc"
 
 [claims.project-context-lifecycle-runtime]
 text = "Project Context Lifecycle is a runtime-owned subsystem: it assembles task-scoped context packets at SessionStart, anchors long-session compaction in persisted facts and evidence, and asynchronously finalizes SessionEnd with deterministic diff/oid/research preflight plus optional bounded semantic distillation and checkpoint validation."
