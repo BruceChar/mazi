@@ -6,12 +6,12 @@
 text = "GET /api/wiki exposes the runtime-owned Git-backed Project Wiki repository, including documents, resolved claims, active/stale/missing/retracted/forgotten summaries, correction links and evidence status, while preserving legacy view fields."
 status = "active"
 evidence = [
-  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "33a711aa0d40cbedac2f8978855f96ecc6bf52a4" },
+  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "ccef494d65203410be8bdf0c8883906712c6353c" },
   { file = "apps/api/src/wiki/repository.ts", oid = "73e120a4cc1fd3b9c4fce34dd56cb4c56adbbe3c" },
   { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "6c7f7184a8d6a3deefd742beaf2d34f211051051" },
 ]
 established = 2026-11-07
-verified = 2026-11-08
+verified = 2026-11-24
 
 [claims.wiki-ui-three-pane]
 text = "The project wiki UI projects v2 repository documents into a document navigation, Markdown body, and status/claims evidence layout, collapsing to a vertical flow on narrow screens."
@@ -138,10 +138,10 @@ status = "active"
 evidence = [
   { file = "apps/webui/src/components/WikiPage.vue", oid = "9fecf46632055876a20bc3d4e015860f86043b95" },
   { file = "apps/webui/src/scripts/wiki.ts", oid = "d9f0870c1a93384e3a9627168276e1fd4862bbb7" },
-  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "cd6dafc5cc2e305800c82ebadd16ef5b65a45962" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "4a899fc0148be3e7f9c8839ecf8930e1bda63eb2" },
 ]
 established = 2026-11-07
-verified = 2026-11-09
+verified = 2026-11-24
 
 [claims.project-wiki-incremental-preflight]
 text = "Wiki init returns without launching an Agent when existing claims or a non-TODO index prove initialization. Cold init uses a bounded 24-step Agent and explicit read limits so it starts writing before exploring the whole project. Update and SessionEnd obtain a structured diff/status plan plus evidence-oid findings; SessionEnd additionally extracts safe files actually read by the completed session trace and starts bounded semantic capture even without a git diff. Explicit updates read only changed files, automatic capture reads only filtered research files, and true claims can be batch-verified with claim verify --ids."
@@ -186,12 +186,12 @@ text = "Project Wiki is maintained by runtime-native ProjectWikiService: init, c
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "5e15611468c96198ec9229cc4e2402769796be9a" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "27fb08d01c50948bbd65c046a35e504329e89d43" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "9fecf46632055876a20bc3d4e015860f86043b95" },
 ]
 established = 2026-11-08
-verified = 2026-11-23
+verified = 2026-11-24
 
 [claims.project-wiki-run-activity-runtime]
 text = "Each project SessionEnd enqueues a per-workspace runtime sync without blocking the foreground response; ProjectWikiService computes the incremental plan before recording activity, and bounded semantic update runs when evidence drifts or high-value read-only exploration should become durable Project Wiki knowledge."
@@ -221,12 +221,12 @@ status = "active"
 evidence = [
   { file = "packages/runtime/src/wiki/project-wiki-types.ts", oid = "6c7f7184a8d6a3deefd742beaf2d34f211051051" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
-  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "33a711aa0d40cbedac2f8978855f96ecc6bf52a4" },
+  { file = "apps/api/src/wiki/wiki.controller.ts", oid = "ccef494d65203410be8bdf0c8883906712c6353c" },
   { file = "apps/webui/src/components/WikiPage.vue", oid = "9fecf46632055876a20bc3d4e015860f86043b95" },
   { file = "packages/runtime/test/project-wiki-runtime.test.ts", oid = "a255c7a22e326c798b9d6c61eb2e0ccce726add4" },
 ]
 established = 2026-11-08
-verified = 2026-11-09
+verified = 2026-11-24
 
 [claims.todo-source-of-truth]
 text = "Pending product work is tracked only in docs/TODO.md (user behavior tracing; Provider monitoring panel with default execute/verify/plan model roles and a radar chart comparing cost/performance/completion; template features; later Project Wiki enhancements), and README section 13 Roadmap restates the same items from a user perspective. Answering \"what is left to do\" therefore requires reading docs/TODO.md and cross-checking the README Roadmap; TODO hits inside source are Wiki skeleton templates and Agent prompt text, not a tech-debt list."
@@ -266,7 +266,7 @@ status = "active"
 evidence = [
   { file = "docs/TODO.md", oid = "4e467b5f4e00419dd01f47156a0ec9a4d0502ae7" },
   { file = "docs/项目wiki设计.md", oid = "9e83a981bbc843f8d9e26e3a715f95387a7ced92" },
-  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "cd6dafc5cc2e305800c82ebadd16ef5b65a45962" },
+  { file = "docs/runtime/AHF_PROJECT_WIKI.md", oid = "4a899fc0148be3e7f9c8839ecf8930e1bda63eb2" },
   { file = "README.md", oid = "ba1123596a2a9775fc31e0721aaf84e4d1ecf9be" },
 ]
 established = 2026-11-08
