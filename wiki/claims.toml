@@ -63,7 +63,7 @@ verified = 2026-11-10
 text = "Opening a project wiki from the project menu switches the global workspace so the top bar shows that wiki project's path."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/App.vue", oid = "d8ec6922dfe1ed80d5e4b57ab9b1c17ee0d62317" },
+  { file = "apps/webui/src/App.vue", oid = "346f00950319544e407fcda3b302113b56a10b19" },
 ]
 established = 2026-11-07
 verified = 2026-11-24
@@ -114,10 +114,10 @@ retracted_reason = "Goal and Task planning are serial phases; executing must not
 text = "Goal contracts support deterministic checks final-answer/no-failed-steps/file-exists/file-contains/git-has-commit/command-output-contains; triage can emit structured checks and the verifier evaluates them through an injected ConditionEnvironment."
 status = "active"
 evidence = [
-  { file = "packages/core/src/gts.ts", oid = "f138178afbe298ec31c83acd28fb73852a395439" },
+  { file = "packages/core/src/gts.ts", oid = "a78ac5533dea9126a44b0edad9fe000a5e21f075" },
   { file = "packages/runtime/src/gts/acceptance.ts", oid = "4385a64a9fcc40164c39a1e5773c5efe08b406e3" },
   { file = "packages/runtime/src/templates/prompts/goal-parser.prompt.ts", oid = "b72a1b406f0f2738726ab4acda0e039df5ee5a4e" },
-  { file = "docs/core/AHF_CORE_GTS.md", oid = "dbfc43263d96138afa1696b8b99bbc9a1c1fac76" },
+  { file = "docs/core/AHF_CORE_GTS.md", oid = "603406813e97be466ff48fb5b2b9d7b7f0866401" },
 ]
 established = 2026-11-07
 verified = 2026-11-24
@@ -291,7 +291,7 @@ retracted_reason = "The message surface no longer duplicates contract, route, ac
 text = "ExecStream renders bare-code answers as one code block; zero-execution direct answers are ordinary assistant Markdown without direct/route/contract chrome; the conversation renders Task-to-Step execution in plan order while contract, acceptance and plan metadata stay in the right Trace panel. TaskBoard shows only the highest planVersion, but the settled Goal tree retains superseded Tasks that started, contain Steps or reached failed/aborted/timeout and shows their recorded Step sequence before the current plan, with plan-version and terminal-status badges. Completed settled steps remain expanded while live rows are expandable/collapsible, and approval/authorization behavior rows stay inline with the gated tool Step."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/ExecStream.vue", oid = "aabfe06fb5acade4c9d16dee1a27da916f1b4885" },
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "9ca364d94bbdc16ea3d54c81c56128a2d57d88ae" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "a60bef7a7c5b6b76a8cdf94672be6bb4027328de" },
   { file = "apps/webui/src/scripts/plan-view.ts", oid = "7a084a51a5bb31ea590ab3630b8bb39723b7ed3f" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
@@ -301,7 +301,7 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-24
-claim_oid = "7dc78b1cc0d910c0"
+claim_oid = "772f758370341c82"
 
 [claims.runtime-goal-plan-execution-serial-v2]
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
