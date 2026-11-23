@@ -37,11 +37,15 @@ export interface ExperimentMetricsView {
     models: string[];
     skills: string[];
     features: Record<string, boolean>;
+    loopMode?: 'default' | 'dynamic' | string;
+    termination?: string;
+    nodeCount?: number;
 }
 
 export interface ExperimentArmSpecView {
     label: string;
     modelId?: string;
+    loopMode?: 'default' | 'dynamic' | string;
     skills?: string[];
     features?: Record<string, boolean>;
     permissionCeiling?: string;
@@ -254,6 +258,10 @@ export function armConfigSummary(arm: ExperimentArmView): string {
     parts.push('技能 ' + (skills.length > 0 ? skills.join(', ') : '（全局挂载）'));
     if (arm.spec.permissionCeiling) parts.push('权限 ' + arm.spec.permissionCeiling);
     if (arm.spec.reasoningLevel) parts.push('推理 ' + arm.spec.reasoningLevel);
+    const loop = arm.metrics?.loopMode ?? arm.spec.loopMode;
+    if (loop) parts.push('循环 ' + loop);
+    if (arm.metrics?.termination) parts.push('终止 ' + arm.metrics.termination);
+    if (arm.metrics?.nodeCount !== undefined) parts.push('节点 ' + arm.metrics.nodeCount);
     return parts.join(' · ');
 }
 
@@ -263,7 +271,13 @@ export function canCompare(view: ExperimentView): boolean {
 }
 /* ---- 新建实验表单 → spec（纯函数，便于单测） ---- */
 
-export type ExperimentVariableKind = 'feature' | 'skill' | 'model' | 'permission' | 'reasoning';
+export type ExperimentVariableKind =
+    | 'feature'
+    | 'skill'
+    | 'model'
+    | 'permission'
+    | 'reasoning'
+    | 'loopMode';
 
 export const EXPERIMENT_KIND_LABELS: Record<ExperimentVariableKind, string> = {
     feature: 'Feature 开关',
@@ -271,6 +285,7 @@ export const EXPERIMENT_KIND_LABELS: Record<ExperimentVariableKind, string> = {
     model: '模型',
     permission: '权限档位',
     reasoning: '推理强度',
+    loopMode: '循环模式',
 };
 
 /** 实验台「新建实验」表单状态（两臂取值按 kind 取用对应字段）。 */
@@ -290,6 +305,9 @@ export interface ExperimentFormState {
     reasoningB: string;
     permissionA: string;
     permissionB: string;
+    /** 两臂执行 loop：default / dynamic。 */
+    loopA: string;
+    loopB: string;
 }
 
 export interface ExperimentSpecDraft {
@@ -333,6 +351,14 @@ export function buildExperimentSpec(form: ExperimentFormState): ExperimentSpecDr
         treatment = skillsB;
         armA.skills = skillsA;
         armB.skills = skillsB;
+    } else if (form.kind === 'loopMode') {
+        if (form.loopA.length === 0 || form.loopB.length === 0) {
+            return { error: '请选择两臂循环模式' };
+        }
+        baseline = form.loopA;
+        treatment = form.loopB;
+        armA.loopMode = form.loopA;
+        armB.loopMode = form.loopB;
     } else if (form.kind === 'reasoning') {
         if (form.reasoningA.length === 0 || form.reasoningB.length === 0) {
             return { error: '请选择两臂推理强度' };

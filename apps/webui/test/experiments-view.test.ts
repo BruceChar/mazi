@@ -154,11 +154,25 @@ function form(partial: Partial<import('../src/scripts/experiments.ts').Experimen
         reasoningB: '',
         permissionA: '',
         permissionB: '',
+        loopA: 'default',
+        loopB: 'dynamic',
         ...partial,
     };
 }
 
 describe('buildExperimentSpec（表单 → 实验定义）', () => {
+    it('loopMode 自变量：A default / B dynamic，变量声明冻结两取值', () => {
+        const { spec, error } = buildExperimentSpec(form({ kind: 'loopMode' }));
+        expect(error).toBeUndefined();
+        expect(spec?.variables).toEqual([
+            { kind: 'loopMode', label: '循环模式', baseline: 'default', treatment: 'dynamic' },
+        ]);
+        expect(spec?.arms).toEqual([
+            { label: 'A', loopMode: 'default' },
+            { label: 'B', loopMode: 'dynamic' },
+        ]);
+    });
+
     it('feature 自变量：A 关 B 开，变量声明记录两取值', () => {
         const { spec, error } = buildExperimentSpec(form());
         expect(error).toBeUndefined();

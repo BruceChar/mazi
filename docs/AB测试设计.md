@@ -8,7 +8,7 @@
 
 ## 1. 需求
 
-一句话：**给 harness 一个「对照AB 实验室」——同一输入、同一工作区，只改一个自变量（Feature 开关 / Skill 集合 / 模型 / 权限 / 推理档），分 A/B 两臂各跑一次 Goal，并排看最终输出与 Trace，结果写入独立实验日志，可随时复盘。**
+一句话：**给 harness 一个「对照AB 实验室」——同一输入、同一工作区，只改一个自变量（Feature 开关 / Skill 集合 / 模型 / 权限 / 推理档 / 执行 loop），分 A/B 两臂各跑一次 Goal，并排看最终输出与 Trace，结果写入独立实验日志，可随时复盘。**
 
 用户画像（原话转译）：
 
@@ -29,6 +29,7 @@
 | 模型目录 / Provider | 自变量：两臂可指定不同 `modelId` | 复用 `RunOptions.modelId` |
 | 权限档位 | 自变量：两臂可指定不同 `permissionCeiling` | 复用 `RunOptions.permissionCeiling` |
 | 推理强度 | 自变量：两臂可指定不同 `reasoningLevel` | 复用 `RunOptions.reasoningLevel` |
+| 执行 loop | 自变量：default 串行 cursor / dynamic 节点驱动 | 复用 `RunOptions.loopMode`（见 `docs/runtime/LOOP_MODES.md`） |
 | **Feature 开关** | 自变量：开关的实际增益（Roadmap 原文） | **新增**（见 §3） |
 | Goal / Task / Step + 事件 JSONL | 事实来源：指标与 Trace 全部从既有存储投影，不新增真相源 | 只读复用 |
 | 事件总线 | 运行边界审计（`flag.evaluated` / `capability.activated`） | 复用闭集事件 + 新增 1 个 kind |

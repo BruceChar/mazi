@@ -90,6 +90,8 @@ const form = reactive({
     reasoningB: 'high',
     permissionA: 'read-only',
     permissionB: 'draft',
+    loopA: 'default',
+    loopB: 'dynamic',
 });
 
 const selected = computed(() => {
@@ -497,6 +499,21 @@ function isLive(label) {
                         <label>处理 B 模型
                             <select v-model="form.modelB">
                                 <option v-for="option in modelOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <div v-else-if="form.kind === 'loopMode'" class="grid two">
+                        <label>基线 A 循环模式
+                            <select v-model="form.loopA">
+                                <option value="default">default · 串行 cursor</option>
+                                <option value="dynamic">dynamic · 节点驱动</option>
+                            </select>
+                        </label>
+                        <label>处理 B 循环模式
+                            <select v-model="form.loopB">
+                                <option value="default">default · 串行 cursor</option>
+                                <option value="dynamic">dynamic · 节点驱动</option>
                             </select>
                         </label>
                     </div>

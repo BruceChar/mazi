@@ -90,6 +90,31 @@ describe('对照实验接口', () => {
         expect(logs).toContain(view.experimentId + '.jsonl');
     });
 
+    it('loopMode 自变量可创建：两臂冻结 loop 模式', async () => {
+        const created = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/experiments',
+            payload: {
+                title: 'loop 对照',
+                input: '同一任务',
+                baseline: { loopMode: 'default' },
+                variables: [
+                    { kind: 'loopMode', baseline: 'default', treatment: 'dynamic' },
+                ],
+                arms: [{ label: 'A' }, { label: 'B', loopMode: 'dynamic' }],
+            },
+        });
+        expect(created.statusCode).toBe(200);
+        const view = created.json();
+        expect(view.baseline.loopMode).toBe('default');
+        expect(view.arms[1].spec.loopMode).toBe('dynamic');
+        expect(view.variables[0].kind).toBe('loopMode');
+        await h.fastify.inject({
+            method: 'DELETE',
+            url: '/api/experiments/' + view.experimentId,
+        });
+    });
+
     it('POST /:id/run 前台执行两臂 → completed + 对比；重复 run 幂等', async () => {
         const list = await h.fastify.inject({ method: 'GET', url: '/api/experiments' });
         const experimentId = list.json().experiments[0].experimentId;
