@@ -23,6 +23,7 @@ import type { QuestionService } from '../question/service.js';
 import type { IndependentVerifier } from '../verifier/index.js';
 import type { ProjectWikiService, WikiService } from '../wiki/index.js';
 import type { ModelResolver } from './model-resolver.js';
+import type { RuntimeResources } from './resources.js';
 import type { RoundRunner } from './round-runner.js';
 import type { SessionFactory } from './session-factory.js';
 import type { SessionIntake } from './session-intake.js';
@@ -93,6 +94,7 @@ export interface AssemblyPlane {
     taskPlanningByDefault: boolean;
     maxReplans: number;
     memoryStore?: MemoryStore;
+    resources: RuntimeResources;
 }
 
 /** 按平面分组的运行时对象图。 */

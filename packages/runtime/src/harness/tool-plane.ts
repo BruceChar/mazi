@@ -38,7 +38,8 @@ export interface ToolPlaneDeps {
     projectWiki?: ProjectWikiService;
     wiki: WikiService;
     blackboard: ProjectBlackboardService;
-    delegationRoles: AgentRoleRegistry;
+    /** 角色注册表；传函数时延迟解析，避免装配期握住未打开的委派栈。 */
+    delegationRoles: AgentRoleRegistry | (() => AgentRoleRegistry);
     /** 可变接入点：运行期由宿主 setter 更换。 */
     getSkillProvider: () => SkillProvider | undefined;
     getApprovalSeam: () => authz.ApprovalSeam | undefined;
@@ -83,6 +84,11 @@ export interface ToolPlaneOutput {
 }
 
 export class ToolPlane {
+    private roles(): AgentRoleRegistry {
+        const dep = this.deps.delegationRoles;
+        return typeof dep === 'function' ? dep() : dep;
+    }
+
     constructor(private readonly deps: ToolPlaneDeps) {}
 
     /** 装配本轮工具面：快照 → 注入 wiki/blackboard/delegate → 网关 → invoker。 */
@@ -190,7 +196,7 @@ export class ToolPlane {
                                 statement: { type: 'string' },
                                 roleId: {
                                     type: 'string',
-                                    enum: this.deps.delegationRoles
+                                    enum: this.roles()
                                         .list()
                                         .map((role) => role.roleId),
                                 },

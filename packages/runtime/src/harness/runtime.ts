@@ -15,20 +15,13 @@ import type { IterationTracker } from '../analysis/iteration-tracker.js';
 import { AnalysisStack } from '../analysis/stack.js';
 import type { TocAnalyst } from '../analysis/toc-analyst.js';
 import { loadCommandPolicy } from '../auth/command-policy.js';
-import {
-    MemoryBlackboardStore,
-    type ProjectBlackboard,
-    ProjectBlackboardService,
-    SqliteBlackboardStore,
-} from '../blackboard/index.js';
+import type { ProjectBlackboard } from '../blackboard/index.js';
 import type { SkillProvider } from '../capabilities/runtime.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import {
     type EffectRecord,
     effectPathsForTool,
-    MemoryEffectStore,
     newEffectRecord,
-    SqliteEffectStore,
     snapshotFiles,
 } from '../effects/effect-store.js';
 import { emitFault } from '../events/emitters.js';
@@ -53,40 +46,27 @@ import {
 import { HookRunner, SessionLifecycle } from '../hooks/index.js';
 import { RuntimeKernel } from '../kernel/index.js';
 import { RuntimePorts } from '../kernel/ports.js';
-import {
-    type BehaviorMigrationResult,
-    MemoryBehaviorStore,
-    SqliteBehaviorStore,
-} from '../memory/behavior-store.js';
-import {
-    type FailureLedgerEntry,
-    type FailureLedgerQuery,
-    SqliteFailureLedger,
-} from '../memory/failure-ledger.js';
-import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
-import { MemoryManager } from '../memory/memory.js';
+import type { BehaviorMigrationResult } from '../memory/behavior-store.js';
+import type { FailureLedgerEntry, FailureLedgerQuery } from '../memory/failure-ledger.js';
+import type { GoalStore } from '../memory/goal-store.js';
 import { PersonalMemoryService } from '../memory/personal-memory.js';
 import type { QuestionLabelInput, QuestionQuery } from '../memory/question-store.js';
-import { type MemoryItem, SqliteMemoryStore } from '../memory/store.js';
+import type { MemoryItem } from '../memory/store.js';
 import { exportMemoryBundle, importMemoryBundle, type MemoryBundle } from '../memory/transfer.js';
-import { BehaviorRecorder } from '../observability/behavior-recorder.js';
 import { maziHome, maziPaths } from '../paths.js';
 import { memoryPlugin, PluginHost } from '../plugins/index.js';
 import {
     type AgentPromptId,
-    MemoryPromptPackStore,
     type PromptPack,
-    PromptPackRegistry,
+    type PromptPackRegistry,
     type PromptTaskKind,
     resolveAgentPrompt,
     resolveBaseAgentPrompt,
-    SqlitePromptPackStore,
 } from '../prompts/index.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
 import type { QuestionClassifier } from '../question/labeler.js';
-import { QuestionService } from '../question/service.js';
 import type { QuestionTaxonomy } from '../question/taxonomy.js';
 import type { GoalRunResult } from '../strategy/goal-strategy.js';
 import { configureTokenizer } from '../token-estimator.js';
@@ -97,6 +77,7 @@ import { IndependentVerifier, type SemanticJudge } from '../verifier/index.js';
 import { ProjectWikiService, WikiService } from '../wiki/index.js';
 import type { FeedbackInput, RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
+import { RuntimeResources } from './resources.js';
 import { rollbackGoalEffects } from './rollback.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { createRuntimeContext, type RuntimeContext } from './runtime-context.js';
@@ -164,18 +145,18 @@ export class HarnessRuntime {
             ...BUILTIN_TOOL_PRESET,
             ...config.tools,
         ]);
-        this.ctx.assembly.promptPacks = new PromptPackRegistry(
-            undefined,
-            config.dbPath !== undefined
-                ? new SqlitePromptPackStore(config.dbPath)
-                : new MemoryPromptPackStore(),
-        );
+        // P3 资源只建槽不 open：prompt pack 落库同样延迟到首次读写。
+        this.ctx.assembly.resources = new RuntimeResources(config);
+        this.ctx.assembly.promptPacks = this.ctx.assembly.resources.views.promptPacks;
         this.ctx.intelligence.superAgent = new SuperAgent(this.ctx.assembly.promptPacks);
         this.ctx.intelligence.verifier = new IndependentVerifier({
             // Lazy workspace lookup: the root is assigned a few lines below.
             environment: createConditionEnvironment(() => this.ctx.assembly.workspaceRoot),
         });
-        this.ctx.delegation = new DelegationStack(config);
+        // 委派栈含 SQLite 句柄：只建槽，首次访问角色/协调器时才打开。
+        this.ctx.delegation = this.ctx.assembly.resources
+            .addSlot(() => new DelegationStack(config))
+            .view();
         configureTokenizer(config.tokenizerEncoding);
         this.ctx.assembly.workspaceRoot = options.workspaceRoot;
         this.ctx.assembly.ports.set('taskPlanner', options.taskPlanner);
@@ -200,23 +181,13 @@ export class HarnessRuntime {
     }
 
     /** P3：SQLite 权威库与文件型服务（行为/问题/失败账本/目标/记忆/效果/黑板）。 */
-    private assembleStores(config: RuntimeConfig, _options: RunOptions): void {
+    private assembleStores(_config: RuntimeConfig, _options: RunOptions): void {
         // 问题/行为统一入 SQLite 权威库；JSONL 目录降级为导出/迁移来源。
-        const behaviorStore =
-            config.dbPath !== undefined
-                ? new SqliteBehaviorStore(config.dbPath)
-                : new MemoryBehaviorStore();
-        this.ctx.memory.behaviorRecorder = new BehaviorRecorder(behaviorStore);
-        this.ctx.memory.questionService = new QuestionService({
-            ...(config.dbPath !== undefined ? { dbPath: config.dbPath } : {}),
-            taxonomyFile: config.questionTaxonomyFile ?? maziPaths().questionTaxonomyFile,
-        });
-        if (config.behaviorDir !== undefined && config.dbPath !== undefined) {
-            void this.migrateBehaviorStream().catch((error: unknown) => {
-                process.stderr.write(`behavior migration error: ${String(error)}\n`);
-            });
-        }
-        this.ctx.memory.failureLedger = new SqliteFailureLedger(config.dbPath ?? ':memory:');
+        // 句柄由 RuntimeResources 延迟打开：本节只挂代理视图，构造期零 IO。
+        const views = this.ctx.assembly.resources.views;
+        this.ctx.memory.behaviorRecorder = views.behaviorRecorder;
+        this.ctx.memory.questionService = views.questionService;
+        this.ctx.memory.failureLedger = views.failureLedger;
         this.ctx.observability.bus.subscribe(
             { types: ['approval.requested', 'approval.granted', 'approval.cancelled'] },
             {
@@ -230,20 +201,11 @@ export class HarnessRuntime {
                 },
             },
         );
-        this.ctx.memory.goalStore = new SqliteGoalStore(config.dbPath ?? ':memory:');
-        this.ctx.memory.memoryManager = new MemoryManager(
-            config.dbPath !== undefined ? { store: new SqliteMemoryStore(config.dbPath) } : {},
-        );
-        this.ctx.memory.personalMemory = new PersonalMemoryService(this.ctx.memory.memoryManager);
-        this.ctx.memory.effectStore =
-            config.dbPath !== undefined
-                ? new SqliteEffectStore(config.dbPath)
-                : new MemoryEffectStore();
-        this.ctx.memory.blackboard = new ProjectBlackboardService(
-            config.dbPath !== undefined
-                ? new SqliteBlackboardStore(config.dbPath)
-                : new MemoryBlackboardStore(),
-        );
+        this.ctx.memory.goalStore = views.goalStore;
+        this.ctx.memory.memoryManager = views.memoryManager;
+        this.ctx.memory.personalMemory = new PersonalMemoryService(views.memoryManager);
+        this.ctx.memory.effectStore = views.effectStore;
+        this.ctx.memory.blackboard = views.blackboard;
     }
 
     /** P3：模型解析、step 事件、wiki 与分析栈（含 prompt pack 落库）。 */
@@ -267,15 +229,24 @@ export class HarnessRuntime {
             executor: new RoundExecutor(),
             resolver: this.ctx.intelligence.resolver,
         });
-        this.ctx.analysis = new AnalysisStack({
-            ...(config.dbPath !== undefined ? { dbPath: config.dbPath } : {}),
-            snapshotOf: (rootGoalId) => this.goalSnapshot(rootGoalId),
-            requestRound: (rootGoalId, ctx, reasoningLevel) =>
-                this.ctx.intelligence.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel),
-            resolveModelChoice: (modelId) =>
-                this.ctx.intelligence.resolver.resolveModelChoice(modelId),
-            systemPrompt: this.agentPrompt('iteration-analysis'),
-        });
+        this.ctx.analysis = this.ctx.assembly.resources
+            .addSlot(
+                () =>
+                    new AnalysisStack({
+                        ...(config.dbPath !== undefined ? { dbPath: config.dbPath } : {}),
+                        snapshotOf: (rootGoalId) => this.goalSnapshot(rootGoalId),
+                        requestRound: (rootGoalId, ctx, reasoningLevel) =>
+                            this.ctx.intelligence.roundRunner.requestRound(
+                                rootGoalId,
+                                ctx,
+                                reasoningLevel,
+                            ),
+                        resolveModelChoice: (modelId) =>
+                            this.ctx.intelligence.resolver.resolveModelChoice(modelId),
+                        systemPrompt: this.agentPrompt('iteration-analysis'),
+                    }),
+            )
+            .view();
         if (config.consoleEnabled ?? false) {
             this.ctx.observability.bus.subscribe({}, new ConsoleSink());
         }
@@ -318,7 +289,7 @@ export class HarnessRuntime {
                 : {}),
             wiki: this.ctx.memory.wiki,
             blackboard: this.ctx.memory.blackboard,
-            delegationRoles: this.ctx.delegation.roles,
+            delegationRoles: () => this.ctx.delegation.roles,
             getSkillProvider: () => this.ctx.assembly.ports.get<SkillProvider>('skillProvider'),
             getApprovalSeam: () => this.ctx.assembly.ports.get<authz.ApprovalSeam>('approvalSeam'),
             execute: (tool, args, ctx, roots) => this.executeEffectful(tool, args, ctx, roots),
@@ -555,16 +526,8 @@ export class HarnessRuntime {
     async close(): Promise<void> {
         await this.ctx.assembly.plugins.uninstallAll();
         this.ctx.assembly.kernel.dispose();
-        this.ctx.memory.goalStore.close();
-        this.ctx.memory.memoryManager.close();
-        this.ctx.memory.effectStore.close();
-        this.ctx.memory.blackboard.close();
-        this.ctx.assembly.promptPacks.close();
-        this.ctx.delegation.close();
-        this.ctx.analysis.close();
-        this.ctx.memory.behaviorRecorder.close();
-        this.ctx.memory.questionService.close();
-        this.ctx.memory.failureLedger.close();
+        // 只释放已打开的资源；冷构造后 close 不产生任何 IO。
+        this.ctx.assembly.resources.close();
     }
 
     /** 创建 Goal 会话：委托 SessionFactory（创建立即返回，triage 异步增强）。 */
@@ -784,7 +747,7 @@ export class HarnessRuntime {
 
     /**
      * 一次性把旧 JSONL 行为流导入 SQLite 权威库（幂等；JSONL 原文件保留为证据）。
-     * 启动时构造器已 fire-and-forget 调用一次；测试可直接 await。
+     * 迁移只在行为库首次打开时自动触发一次（见 RuntimeResources）；也可显式 await。
      */
     migrateBehaviorStream(): Promise<BehaviorMigrationResult> {
         const dir = this.ctx.assembly.config.behaviorDir;
