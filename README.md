@@ -34,7 +34,19 @@ mazi 是一个 **AI Agent harness**：本地运行的执行内核，加一个把
 - **Goal 树** —— Goal（意图）→ Task（可独立验收）→ Step（thinking / tool / observation）。归因链必须闭合到 human/system 根；委托与切分的权限、预算只能向下收缩；唯一升权路径是人类审批。
 - **工具网关** —— 能力发现与风险分级，默认拒绝（fail-closed），越界必须留下审批记录，secret 不以明文外流。
 - **只追加事件日志** —— 没有 update/delete 事件 API，`seq` 定序、`prevHash/hash` 成链，天然可回放、可归因。
+- **长期记忆** —— 偏好与决策入库、按预算召回，越用越懂你；数据与画像都留在本机。
 - **透明界面** —— Trace 看板（每步的上下文、token、成本、异常）、契约与验收判定、评测与 AB Lab、项目 Wiki。
+
+## Memory：数据留在本地，AI 越来越懂你
+
+模型是无状态的，每次对话都从零开始。如果「懂你」只表现为 prompt 里的几行摘要，这份理解就永远是租来的。mazi 把它做成留在你机器上、可以审计的资产：
+
+- **全部落在本地** —— 会话、事件、行为流、记忆、密钥都在 `MAZI_HOME`（SQLite 为权威库，`secrets.json` 0600），不上云；都是本地文件，随时能导出带走，换模型不丢，换框架也能迁。
+- **记事实，不记印象** —— 偏好、决策、事实、片段按 `kind` 与重要度入库，内容哈希去重，每条都带 provenance（来源、时间、置信度）。机器只能提出候选（`pending_confirmation`），要不要记住由你确认。
+- **能理解，也能纠正** —— 可查看、可修改（新版本留痕，不覆盖旧版）、可遗忘（留下墓碑，防止再从残留数据里学回来）；画像从行为流计算，结论必须附证据，缺数据就留空。
+- **记忆也要花预算** —— 召回按 token 上限与重要度排序裁剪后再注入上下文，不是把历史全塞进去；角色之间可 `inherit` / `isolated`，互不串味。
+
+界面在「用户中心 → 记忆」：每条记忆都摊开来源与置信度，候选等你确认，确认过的可以随时纠正或遗忘。
 
 ## How
 
@@ -72,6 +84,7 @@ packages/libs      跨端共享类型（Goal 树投影等）
 早期版本（Alpha）。可以在本地完成真实的编码与只读分析任务，接口、数据结构、提示词仍在快速变化，请勿直接用于生产。
 
 - ✅ 单机运行、多会话/多工作区、Goal 树与审批门、Trace/评测/Lab
+- ✅ 长期记忆：入库、按预算召回、记忆治理（确认 / 纠正 / 遗忘留墓碑）
 - ✅ 项目 Wiki：claim + evidence 与代码绑定，提交前校验（`wiki/claims.toml` 不接受手改）
 - 🚧 Provider 监控面板、模板能力、行为追踪面板 —— 见 [`docs/TODO.md`](docs/TODO.md)
 
@@ -82,6 +95,8 @@ packages/libs      跨端共享类型（Goal 树投影等）
 | 架构与模块地图 | [`wiki/INDEX.md`](wiki/INDEX.md) |
 | 设计长文：为什么必须有 harness | [`docs/whitepaper.md`](docs/whitepaper.md) |
 | 核心契约（授权、GTS、观测、工具网关） | [`docs/core/`](docs/core) |
+| 记忆与上下文设计 | [`docs/context_design.md`](docs/context_design.md) |
+| 用户行为流与画像 | [`docs/用户行为流设计文档.md`](docs/用户行为流设计文档.md) |
 | 观测看板设计 | [`docs/web/`](docs/web) |
 | 还没做的功能 | [`docs/TODO.md`](docs/TODO.md) |
 
