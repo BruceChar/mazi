@@ -14,6 +14,7 @@ import type { RuntimeToolRegistry } from '../tool-gateway/registry.js';
 import type { ProjectWikiService, WikiService } from '../wiki/index.js';
 import { blackboardToolConfigs, projectWikiToolConfig, wikiToolConfigs } from './tool-configs.js';
 import { ToolInvoker } from './tool-invoker.js';
+import { webSearchToolConfig } from './web-search.js';
 
 /**
  * ToolPlane —— 工具面装配（从 HarnessRuntime 抽出）。
@@ -113,6 +114,7 @@ export class ToolPlane {
             input.activeSkillIds ?? [],
         );
         const merged: ToolConfig[] = toolSnapshot.tools;
+        merged.push(webSearchToolConfig());
         const projectWiki = this.projectWiki();
         if (projectWiki !== undefined) {
             merged.push(projectWikiToolConfig(projectWiki));
