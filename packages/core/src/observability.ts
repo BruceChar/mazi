@@ -103,7 +103,10 @@ export type CoreEventType =
     | 'user.interaction.updated'
     /** 能力包（Skill）生命周期：挂载 / 卸载（docs/能力包规范.md §7.2，skillId 走 harness.skill_id） */
     | 'capability.activated'
-    | 'capability.deactivated';
+    | 'capability.deactivated'
+    /** 错误处置层：每次故障决策与恢复成功（见 docs/runtime/AHF_RUNTIME_FAULTS.md §7） */
+    | 'fault.raised'
+    | 'fault.recovered';
 
 /**
  * 事件类型 —— 核心契约面 + 宿主扩展。
