@@ -84,6 +84,18 @@ describe('ToolPlane', () => {
         );
     });
 
+    it('freshContext 时不暴露项目黑板工具', () => {
+        const { plane } = buildPlane();
+        const exec = plane.config({
+            rootGoalId: 'r',
+            goalId: 'g',
+            level: 'read-only',
+            projectId: 'p1',
+            freshContext: true,
+        });
+        expect(exec.allowedTools).not.toContain('blackboard.read');
+    });
+
     it('运行级白名单只收窄，不收窄到白名单之外', () => {
         const { plane } = buildPlane();
         const exec = plane.config({

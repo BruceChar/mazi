@@ -103,6 +103,14 @@ describe('collectMetrics（口径与 Trace 看板一致）', () => {
             }),
         ).toEqual({ ok: true, verification: 'unverified', termination: 'done-unverified' });
         expect(
+            classifyArmResult({
+                ok: false,
+                answer: '已有答案',
+                acceptanceFailed: true,
+                loop: { outcome: 'aborted-no-candidates' },
+            }),
+        ).toEqual({ ok: true, verification: 'failed' });
+        expect(
             classifyArmResult({ ok: false, answer: '', loop: { outcome: 'aborted-budget' } }),
         ).toEqual({ ok: false });
     });

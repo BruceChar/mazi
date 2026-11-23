@@ -74,6 +74,8 @@ export interface ToolPlaneInput {
     userId?: string;
     delegationDepth?: number;
     activeSkillIds?: readonly string[];
+    /** 干净上下文：不暴露项目黑板工具（实验默认）。 */
+    freshContext?: boolean;
 }
 
 export interface ToolPlaneOutput {
@@ -122,7 +124,11 @@ export class ToolPlane {
             const wiki = this.wiki();
             if (wiki.enabled) merged.push(...wikiToolConfigs(wiki));
         }
-        if (input.projectId !== undefined && deps.workspaceRoot !== undefined) {
+        if (
+            input.freshContext !== true &&
+            input.projectId !== undefined &&
+            deps.workspaceRoot !== undefined
+        ) {
             merged.push(
                 ...blackboardToolConfigs(deps.blackboard, input.projectId, deps.workspaceRoot),
             );

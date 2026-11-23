@@ -122,7 +122,7 @@ export interface ExperimentMetrics {
     /** loop 实际执行的节点数（default 缺省）。 */
     nodeCount?: number;
     /** 验收态：unverified = 有最终答案但验收未通过/未完成，不等于运行失败。 */
-    verification?: 'verified' | 'unverified';
+    verification?: 'verified' | 'unverified' | 'failed';
 }
 
 /** 单臂状态（含 Trace 指针 rootGoalId）。 */

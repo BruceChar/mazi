@@ -191,6 +191,7 @@ export class TurnEngine {
             ...(rootGoal !== undefined ? { parentGoal: rootGoal } : {}),
             ...(memoryContext.userId !== undefined ? { userId: memoryContext.userId } : {}),
             delegationDepth,
+            freshContext,
             ...(skillIds.length > 0 ? { activeSkillIds: skillIds } : {}),
         });
         const decision = this.h.ctx.intelligence.superAgent.decide({

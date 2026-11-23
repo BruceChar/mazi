@@ -26,7 +26,7 @@ export interface MetricsInput {
         nodeCount?: number;
     };
     /** 有答案但验收未完成：succeeded + unverified，不按 failed 处理。 */
-    verification?: 'verified' | 'unverified';
+    verification?: 'verified' | 'unverified' | 'failed';
 }
 
 /**
@@ -38,7 +38,13 @@ export function classifyArmResult(input: {
     ok: boolean;
     answer?: string;
     loop?: { outcome?: string };
-}): { ok: boolean; verification?: 'verified' | 'unverified'; termination?: string } {
+    /** Task 已有明确验收结论且未通过（区别于「没有验收」）。 */
+    acceptanceFailed?: boolean;
+}): {
+    ok: boolean;
+    verification?: 'verified' | 'unverified' | 'failed';
+    termination?: string;
+} {
     const answer = (input.answer ?? '').trim();
     const outcome = input.loop?.outcome;
     if (input.ok) return { ok: true, verification: 'verified' };
@@ -46,7 +52,9 @@ export function classifyArmResult(input: {
         answer.length > 0 &&
         (outcome === 'done-unverified' || outcome === 'aborted-no-candidates')
     ) {
-        return { ok: true, verification: 'unverified', termination: 'done-unverified' };
+        return input.acceptanceFailed === true
+            ? { ok: true, verification: 'failed' }
+            : { ok: true, verification: 'unverified', termination: 'done-unverified' };
     }
     return { ok: false };
 }

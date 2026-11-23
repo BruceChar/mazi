@@ -270,7 +270,7 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 - **并行执行**：两臂在同一个 `runExclusive` 持有期内 `Promise.all` 并发（同一运行时实例）。并发安全依赖既有事实：Goal 运行登记、待执行覆盖、上下文与记忆都按 `rootGoalId` 隔离；估算缓存命中率按 `conversationId ?? rootGoalId` 分键；Goal/Step 落库为同一 SQLite 连接（JS 单线程天然串行）。代价：两臂共用同一 Provider 配额，耗时/限流会互相影响——对比结果的 `execution` 字段保留并在 UI 标注。
 - **工作区冻结**：实验**不切换**主会话的当前工作区；创建时把生效工作区（表单选择，缺省取当前选择）冻结进 `spec.workspace`——既可复现，也让建会话 / 执行 / SSE 订阅解析到同一个实验运行时实例（按工作区缓存）。
 - **基线快照**：`baseline` 在实验定义时冻结（permissionCeiling / reasoningLevel / 挂载技能快照 `skillIds`），运行时不再重读全局——保证可复现。
-- **未验证 ≠ 失败**：dynamic loop 以 `done-unverified` 或 `aborted-no-candidates` 收尾但已产出最终答案时，实验指标记为 `ok=true, status=succeeded, verification=unverified, termination=done-unverified`；只有无答案的真实异常才记 `failed`。比较时把「验收」和「产出」分开看，避免有产出的臂被状态直接判负。
+- **执行状态与验收分开**：dynamic loop 以 `done-unverified` 或 `aborted-no-candidates` 收尾但已产出最终答案时，臂状态记 `succeeded`（执行完成了），验收另记 `verification`：没有验收结论 → `unverified`，验收明确未通过 → `failed`。只有无答案的真实异常才记 `failed`。比较时把「产出」「验收」分开看，避免有产出的臂被状态直接判负，也避免把验收失败伪装成未验证。
 - **失败语义**：单臂失败不阻断另一臂（对照实验要拿到两边的数据）；两臂都失败 → `experiment.completed` 仍写入（comparison 标注失败），整体流程只在「日志写入失败 / 执行期异常」时落 `experiment.failed`。
 - **重跑 / 继续**：`rerun` 只复制为新的**待执行**实验（`status=created`），执行统一走前台 `:id/run`；页面刷新后可用「继续运行」把未跑完的臂接着跑（execute 对已完成臂幂等）。
 - **随时终止**：`POST /api/experiments/:id/stop`（`body.label` 指定单臂，缺省两臂全停）**不进串行锁**、立即可调：运行中的臂在 Step 边界协作式停止（abort 信号透传到模型调用），尚未开始的臂直接落 `aborted`（之后 `execute` 不再拉起）；空闲 / 已结束调用幂等返回 `stopping: []`。终止后实验状态为 `aborted`，并**仍然写出 comparison** —— 对照数据不会因为终止而缺一半。

@@ -40,7 +40,7 @@ export interface ExperimentMetricsView {
     loopMode?: 'default' | 'dynamic' | string;
     termination?: string;
     nodeCount?: number;
-    verification?: 'verified' | 'unverified';
+    verification?: 'verified' | 'unverified' | 'failed';
 }
 
 export interface ExperimentArmSpecView {
@@ -264,6 +264,7 @@ export function armConfigSummary(arm: ExperimentArmView): string {
     if (loop) parts.push('循环 ' + loop);
     if (arm.metrics?.termination) parts.push('终止 ' + arm.metrics.termination);
     if (arm.metrics?.verification === 'unverified') parts.push('验收 未验证');
+    if (arm.metrics?.verification === 'failed') parts.push('验收 未通过');
     if (arm.metrics?.nodeCount !== undefined) parts.push('节点 ' + arm.metrics.nodeCount);
     return parts.join(' · ');
 }

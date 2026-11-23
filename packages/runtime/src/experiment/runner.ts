@@ -218,9 +218,13 @@ export class ExperimentRunner {
             const endedAt = this.now();
             const snapshot = await this.harness.goalSnapshot(rootGoalId);
             const last = result.tasks[result.tasks.length - 1];
+            const acceptanceFailed = snapshot.goals
+                .flatMap((goal) => goal.tasks)
+                .some((task) => task.acceptanceResult?.passed === false);
             const classified = classifyArmResult({
                 ok: result.ok,
                 answer: result.finalAnswer ?? last?.finalMessage,
+                acceptanceFailed,
                 ...(result.loop?.outcome !== undefined
                     ? { loop: { outcome: result.loop.outcome } }
                     : {}),
