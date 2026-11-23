@@ -52,6 +52,47 @@ export class RuntimeKernel {
         }
         this.definitions.set(definition.name, definition as ServiceDefinition<unknown>);
         this.states.set(definition.name, 'pending');
+        // 运行期装入（插件）时立即可用；失败则回滚注册，不留半装条目。
+        if (this.started) {
+            try {
+                this.instantiate(definition.name, []);
+            } catch (error) {
+                this.definitions.delete(definition.name);
+                this.states.delete(definition.name);
+                throw error;
+            }
+        }
+    }
+
+    /**
+     * 撤销一个服务（插件卸载用）。仍有其他服务依赖它时拒绝；
+     * 释放逻辑照常执行，之后该名字回到未知状态。
+     */
+    unregister(name: string): void {
+        if (this.disposed) throw new Error(`kernel 已释放，不能再撤销服务：${name}`);
+        const dependents = [...this.definitions.values()].filter(
+            (definition) => definition.name !== name && (definition.requires ?? []).includes(name),
+        );
+        if (dependents.length > 0) {
+            throw new Error(
+                `服务仍被依赖，不能撤销：${name} ← ${dependents.map((item) => item.name).join(', ')}`,
+            );
+        }
+        const definition = this.definitions.get(name);
+        if (definition === undefined) return;
+        const value = this.instances.get(name);
+        if (definition.dispose !== undefined && value !== undefined) {
+            try {
+                definition.dispose(value);
+            } catch (error) {
+                this.onError(error, `service ${name} dispose`);
+            }
+        }
+        this.definitions.delete(name);
+        this.instances.delete(name);
+        this.states.delete(name);
+        const index = this.instantiationOrder.indexOf(name);
+        if (index >= 0) this.instantiationOrder.splice(index, 1);
     }
 
     /** 按依赖拓扑实例化全部服务；缺失依赖或环依赖 fail-fast。 */

@@ -97,6 +97,7 @@ import { type MemoryItem, SqliteMemoryStore } from '../memory/store.js';
 import { exportMemoryBundle, importMemoryBundle, type MemoryBundle } from '../memory/transfer.js';
 import { BehaviorRecorder } from '../observability/behavior-recorder.js';
 import { maziHome, maziPaths } from '../paths.js';
+import { memoryPlugin, PluginHost } from '../plugins/index.js';
 import {
     type AgentPromptId,
     MemoryPromptPackStore,
@@ -163,6 +164,8 @@ export class HarnessRuntime {
     private readonly serviceKernel: RuntimeKernel;
     /** 能力接入点登记表：宿主 setter 与插件都经此登记。 */
     private readonly ports = new RuntimePorts();
+    /** 插件宿主：能力以插件形式装入/卸下（memory 为首个插件）。 */
+    private readonly plugins: PluginHost;
     /** rootGoalId → conversationId（事件会话归因；进程内保留，量级=运行过的轮次）。 */
     private readonly sessionIds = new Map<string, string>();
     /** 会话/轮次生命周期（事件 + 钩子边界）。 */
@@ -483,7 +486,15 @@ export class HarnessRuntime {
             requires: ['eventBus'],
             create: () => this.toolRegistry,
         });
-        this.serviceKernel.provide({ name: 'memory', create: () => this.personalMemory });
+        this.plugins = new PluginHost({
+            kernel: this.serviceKernel,
+            hooks: this.hookRunner,
+            ports: this.ports,
+            eventBus: this.bus,
+        });
+        void this.plugins.install(memoryPlugin(this.personalMemory)).catch((error) => {
+            this.warn(`memory 插件安装失败：${error instanceof Error ? error.message : error}`);
+        });
         this.serviceKernel.provide({
             name: 'memoryManager',
             requires: ['memory'],
@@ -642,6 +653,7 @@ export class HarnessRuntime {
     }
 
     async close(): Promise<void> {
+        await this.plugins.uninstallAll();
         this.serviceKernel.dispose();
         this.goalStoreDb.close();
         this.persistentMemoryStore?.close();
