@@ -36,6 +36,8 @@ export interface FaultPipeline {
     decide(fault: Fault): FaultRecovery;
     /** 调用成功后清零尝试键；返回清零前的次数（>0 说明本次是"恢复成功"）。 */
     reset(key: string): number;
+    /** 清零并（此前有失败时）广播 fault.recovered。 */
+    recover(key: string, fault?: Fault): number;
     attemptsOf(key: string): number;
 }
 
@@ -60,7 +62,7 @@ export class DefaultFaultPipeline implements FaultPipeline {
         const attempt = (this.attempts.get(key) ?? 0) + 1;
         this.track(key, attempt);
         const policy = this.resolve(fault.domain, fault.kind);
-        const recovery = this.recover(fault, policy, attempt);
+        const recovery = this.recoveryFor(fault, policy, attempt);
         // 观测失败不影响处置结论：广播端口异常在此吞掉。
         try {
             this.emit?.('fault.raised', fault, recovery);
@@ -76,11 +78,23 @@ export class DefaultFaultPipeline implements FaultPipeline {
         return prior;
     }
 
+    recover(key: string, fault?: Fault): number {
+        const prior = this.reset(key);
+        if (prior > 0 && fault !== undefined) {
+            try {
+                this.emit?.('fault.recovered', fault);
+            } catch {
+                /* 观测面不可用，主流程继续 */
+            }
+        }
+        return prior;
+    }
+
     attemptsOf(key: string): number {
         return this.attempts.get(key) ?? 0;
     }
 
-    private recover(fault: Fault, policy: FaultPolicy, attempt: number): FaultRecovery {
+    private recoveryFor(fault: Fault, policy: FaultPolicy, attempt: number): FaultRecovery {
         if (fault.severity === 'fatal') {
             return { action: 'abort', attempt, maxRetries: 0, reason: 'fatal' };
         }
