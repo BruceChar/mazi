@@ -114,13 +114,13 @@ retracted_reason = "Goal and Task planning are serial phases; executing must not
 text = "Goal contracts support deterministic checks final-answer/no-failed-steps/file-exists/file-contains/git-has-commit/command-output-contains; triage can emit structured checks and the verifier evaluates them through an injected ConditionEnvironment."
 status = "active"
 evidence = [
-  { file = "packages/core/src/gts.ts", oid = "75094b85de62738856db6872d71301eed01e36b8" },
-  { file = "packages/runtime/src/gts/acceptance.ts", oid = "4462217539171d8b5783e0197a60ea2e170c31b3" },
+  { file = "packages/core/src/gts.ts", oid = "f138178afbe298ec31c83acd28fb73852a395439" },
+  { file = "packages/runtime/src/gts/acceptance.ts", oid = "4385a64a9fcc40164c39a1e5773c5efe08b406e3" },
   { file = "packages/runtime/src/templates/prompts/goal-parser.prompt.ts", oid = "b72a1b406f0f2738726ab4acda0e039df5ee5a4e" },
-  { file = "docs/core/AHF_CORE_GTS.md", oid = "24c648e85166c3a302192c10ebfa18a440e71791" },
+  { file = "docs/core/AHF_CORE_GTS.md", oid = "dbfc43263d96138afa1696b8b99bbc9a1c1fac76" },
 ]
 established = 2026-11-07
-verified = 2026-11-07
+verified = 2026-11-24
 
 [claims.runtime-tool-failure-signals]
 text = "shell.run runs under bash pipefail, downstream SIGPIPE (exit 141) is treated as success, and mutating CLI tools (sd) return an error when the target file did not change, so swallowed command failures surface as tool errors and can trigger replan."
@@ -160,16 +160,16 @@ retracted_reason = "Incremental Project Wiki behavior is now implemented in runt
 text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass. Default product sessions keep the initial Task plan stable and do not automatically Replan after Task or verifier failure; aborted, budget-exceeded, max-steps and timeout never trigger Replan. Dynamic Replan exists only when a host explicitly injects a ReplanPlanner: it must preserve the frozen GoalContract, preserve remaining Tasks, and may remove unregistered requiredTools with auditable warnings while permission, budget, dependency and contract violations remain fail-closed."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "86770897dadf65349dd210dedabcc06b244df0c5" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "5e15611468c96198ec9229cc4e2402769796be9a" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "6700464d0fe856b002b925b57405155f06a8cf90" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "27fb08d01c50948bbd65c046a35e504329e89d43" },
   { file = "packages/runtime/src/gts/replan.ts", oid = "1a040f04372c287a28fa086b78074a14ead17047" },
   { file = "packages/runtime/test/goal-strategy.test.ts", oid = "7b8f01d2a6a02fb8efa225c809b6aca00750d5f2" },
-  { file = "packages/runtime/test/task-planning-runtime.test.ts", oid = "34028f9c84c24b5b6c0033f90914578dfcc25718" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "2e0a6f09bdb860184cb2a79fc3fe20538ec0b696" },
+  { file = "packages/runtime/test/task-planning-runtime.test.ts", oid = "389b789fe824e597e8a22264365ca02ed4b1be35" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "5910f9e5ea28ef6f21c2aeaa96e461458de24939" },
 ]
 established = 2026-11-07
-verified = 2026-11-23
-claim_oid = "7da1690e11af9cff"
+verified = 2026-11-24
+claim_oid = "47c652a6184c7a09"
 
 [claims.project-context-lifecycle-runtime]
 text = "Project Context Lifecycle is a runtime-owned subsystem: it assembles task-scoped context packets at SessionStart, anchors long-session compaction in persisted facts and evidence, and asynchronously finalizes SessionEnd with deterministic diff/oid/research preflight plus optional bounded semantic distillation and checkpoint validation."
@@ -307,15 +307,15 @@ claim_oid = "62d8bfc7b0c654e1"
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "86770897dadf65349dd210dedabcc06b244df0c5" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "6700464d0fe856b002b925b57405155f06a8cf90" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
-  { file = "packages/runtime/src/harness/runtime.ts", oid = "5e15611468c96198ec9229cc4e2402769796be9a" },
+  { file = "packages/runtime/src/harness/runtime.ts", oid = "27fb08d01c50948bbd65c046a35e504329e89d43" },
   { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "2e0a6f09bdb860184cb2a79fc3fe20538ec0b696" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "5910f9e5ea28ef6f21c2aeaa96e461458de24939" },
 ]
 established = 2026-11-09
-verified = 2026-11-23
-claim_oid = "d37dbbd5ae25062b"
+verified = 2026-11-24
+claim_oid = "65ef345bac86c07f"
 
 [claims.webui-trace-audit-anchor]
 text = "The right-side Trace panel preserves an explicit audit anchor for the selected scope: Step anchors include R/T/S coordinates plus rootGoalId, goalId, taskId, stepId, timestamps and step/task status; Task and run scopes retain their corresponding IDs and timing. Contract, acceptance, context, token, cost and tool facts therefore remain attributable to the exact audited Step even though the conversation surface omits that audit metadata."
