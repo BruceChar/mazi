@@ -3,25 +3,17 @@ import { authz } from '@mazi/core';
 import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
 import {
     type AgentRole,
-    AgentRoleRegistry,
-    DelegationCoordinator,
     type DelegationEdge,
     type DelegationProposal,
-    type DelegationStore,
-    defaultAgentRoles,
-    MemoryAgentRoleStore,
-    MemoryDelegationStore,
     resolveRoleSkillIds,
-    SqliteAgentRoleStore,
-    SqliteDelegationStore,
     SuperAgent,
     type SuperAgentDecision,
     type SuperAgentInput,
 } from '../agent/index.js';
-import { type IterationStore, SqliteIterationStore } from '../analysis/iteration-store.js';
-import { IterationTracker } from '../analysis/iteration-tracker.js';
-import { TocAnalyst } from '../analysis/toc-analyst.js';
-import { SqliteTocStore, type TocStore } from '../analysis/toc-store.js';
+import { DelegationStack } from '../agent/stack.js';
+import type { IterationTracker } from '../analysis/iteration-tracker.js';
+import { AnalysisStack } from '../analysis/stack.js';
+import type { TocAnalyst } from '../analysis/toc-analyst.js';
 import { loadCommandPolicy } from '../auth/command-policy.js';
 import {
     MemoryBlackboardStore,
@@ -165,11 +157,8 @@ export class HarnessRuntime {
     /** Legacy MAZI_HOME wiki retained only for compatibility with non-project runs. */
     private readonly wiki: WikiService;
     /** TOC/Iterations 独立存储与编排（不进 Goal 坐标系） */
-    private readonly tocStore: TocStore;
-    private readonly tocAnalysis: TocAnalyst;
-    /** 系统迭代记录存储与状态机（分析报告 → 系统改动闭环）。 */
-    private readonly iterationStore: IterationStore;
-    private readonly iterationTrackerImpl: IterationTracker;
+    /** 分析栈：TOC 冻结分析与 Iterations 记录（独立于 Goal 坐标系）。 */
+    private readonly analysis: AnalysisStack;
     private readonly config: RuntimeConfig;
     private readonly workspaceRoot?: string;
     /** Human-in-the-loop approval seam; absent → runtime gateway uses the standing ceiling approval. */
@@ -183,9 +172,8 @@ export class HarnessRuntime {
     private readonly promptPacks: PromptPackRegistry;
     private readonly superAgent: SuperAgent;
     private readonly verifier: IndependentVerifier;
-    private readonly delegationRoles: AgentRoleRegistry;
-    private readonly delegationStore: DelegationStore;
-    private readonly delegationCoordinator: DelegationCoordinator;
+    /** 委派栈：角色注册表 + 委派记录 + 协调器。 */
+    private readonly delegation: DelegationStack;
     private replanPlanner?: ReplanPlanner;
     private taskPlanner?: TaskPlanner;
     private taskPlanningByDefault: boolean;
@@ -238,20 +226,7 @@ export class HarnessRuntime {
             // Lazy workspace lookup: the root is assigned a few lines below.
             environment: createConditionEnvironment(() => this.workspaceRoot),
         });
-        this.delegationRoles = new AgentRoleRegistry(
-            defaultAgentRoles(config.agentPrompts),
-            config.dbPath !== undefined
-                ? new SqliteAgentRoleStore(config.dbPath)
-                : new MemoryAgentRoleStore(),
-        );
-        this.delegationStore =
-            config.dbPath !== undefined
-                ? new SqliteDelegationStore(config.dbPath)
-                : new MemoryDelegationStore();
-        this.delegationCoordinator = new DelegationCoordinator(
-            this.delegationRoles,
-            this.delegationStore,
-        );
+        this.delegation = new DelegationStack(config);
         configureTokenizer(config.tokenizerEncoding);
         this.workspaceRoot = options.workspaceRoot;
         this.taskPlanner = options.taskPlanner;
@@ -329,17 +304,14 @@ export class HarnessRuntime {
             executor: new RoundExecutor(),
             resolver: this.resolver,
         });
-        this.tocStore = new SqliteTocStore(config.dbPath ?? ':memory:');
-        this.tocAnalysis = new TocAnalyst({
-            store: this.tocStore,
+        this.analysis = new AnalysisStack({
+            ...(config.dbPath !== undefined ? { dbPath: config.dbPath } : {}),
             snapshotOf: (rootGoalId) => this.goalSnapshot(rootGoalId),
             requestRound: (rootGoalId, ctx, reasoningLevel) =>
                 this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel),
             resolveModelChoice: (modelId) => this.resolver.resolveModelChoice(modelId),
             systemPrompt: this.agentPrompt('iteration-analysis'),
         });
-        this.iterationStore = new SqliteIterationStore(config.dbPath ?? ':memory:');
-        this.iterationTrackerImpl = new IterationTracker({ store: this.iterationStore });
         if (config.consoleEnabled ?? false) {
             this.bus.subscribe({}, new ConsoleSink());
         }
@@ -371,7 +343,7 @@ export class HarnessRuntime {
             ...(this.projectWiki !== undefined ? { projectWiki: this.projectWiki } : {}),
             wiki: this.wiki,
             blackboard: this.blackboard,
-            delegationRoles: this.delegationRoles,
+            delegationRoles: this.delegation.roles,
             getSkillProvider: () => this.skillProvider,
             getApprovalSeam: () => this.approvalSeam,
             execute: (tool, args, ctx, roots) => this.executeEffectful(tool, args, ctx, roots),
@@ -609,12 +581,12 @@ export class HarnessRuntime {
 
     /** TOC 冻结、独立分析、反馈与 Iterations 聚合（独立于 Goal 坐标系） */
     get tocAnalyst(): TocAnalyst {
-        return this.tocAnalysis;
+        return this.analysis.toc;
     }
 
     /** 系统迭代记录（分析报告 → 系统改动闭环；版本快照由 API 层注入）。 */
     get iterationTracker(): IterationTracker {
-        return this.iterationTrackerImpl;
+        return this.analysis.iterations;
     }
 
     get currentWorkspaceRoot(): string | undefined {
@@ -629,10 +601,8 @@ export class HarnessRuntime {
         this.effectStore.close();
         this.blackboard.close();
         this.promptPacks.close();
-        this.delegationRoles.close();
-        this.delegationStore.close();
-        this.tocStore.close();
-        this.iterationStore.close();
+        this.delegation.close();
+        this.analysis.close();
         this.behaviorRecorder.close();
         this.questionService.close();
         this.failureLedger.close();
@@ -924,7 +894,7 @@ export class HarnessRuntime {
             .filter((item): item is DelegationProposal => item !== undefined);
         if (proposals.length === 0) return { ok: false, error: '缺少有效 delegations' };
 
-        const delegated = await this.delegationCoordinator.delegate(
+        const delegated = await this.delegation.coordinator.delegate(
             rootGoalId,
             parentGoal,
             proposals,
@@ -1333,20 +1303,20 @@ export class HarnessRuntime {
     }
 
     agentRoles(): AgentRole[] {
-        return this.delegationRoles.list();
+        return this.delegation.listRoles();
     }
 
     registerAgentRole(role: AgentRole): void {
         this.ports.set('agentRole', role);
-        this.delegationRoles.register(role);
+        this.delegation.roles.register(role);
     }
 
     removeAgentRole(roleId: string): boolean {
-        return this.delegationRoles.remove(roleId);
+        return this.delegation.roles.remove(roleId);
     }
 
     delegationEdges(rootGoalId: string): Promise<DelegationEdge[]> {
-        return this.delegationCoordinator.edges(rootGoalId);
+        return this.delegation.coordinator.edges(rootGoalId);
     }
 
     setSemanticJudge(judge?: SemanticJudge): void {
