@@ -1,0 +1,293 @@
+import { describe, expect, it } from 'vitest';
+import { buildContextView, createBuiltinNodes } from '../src/workflow/index.js';
+import { WorkflowRunner } from '../src/workflow/runner.js';
+import { IllegalTransitionError, TRANSITIONS, assertTransition } from '../src/workflow/transitions.js';
+import {
+    DEFAULT_LIMITS,
+    type PromptSections,
+    type WorkflowHost,
+    type WorkflowNode,
+    type WorkflowState,
+} from '../src/workflow/index.js';
+
+const SECTIONS: PromptSections = {
+    base: 'BASE',
+    byRole: {
+        think: 'THINK',
+        act: 'ACT',
+        observe: 'OBSERVE',
+        plan: 'PLAN',
+        verify: 'VERIFY',
+        reflect: 'REFLECT',
+    },
+};
+
+function makeRunner(
+    nodes: readonly WorkflowNode[],
+    limits = DEFAULT_LIMITS,
+): WorkflowRunner {
+    return new WorkflowRunner(nodes, SECTIONS, limits, () => 0);
+}
+
+function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {
+    return {
+        goalId: 'g1',
+        statement: 'ship it',
+        phase: 'think',
+        facts: [],
+        pending: [],
+        acceptance: [],
+        verdict: 'pending',
+        failures: 0,
+        actedSincePlan: 0,
+        usage: { steps: 0, elapsedMs: 0, tokens: 0, costUsd: 0 },
+        startedAt: 0,
+        ...overrides,
+    };
+}
+
+describe('相位转移表', () => {
+    it('表内每一条边都能通过断言，表外一律拒绝', () => {
+        for (const [from, targets] of Object.entries(TRANSITIONS)) {
+            for (const to of targets) assertTransition(from as WorkflowState['phase'], to);
+        }
+        expect(() => assertTransition('think', 'think')).toThrow(IllegalTransitionError);
+        expect(() => assertTransition('act', 'act')).toThrow(IllegalTransitionError);
+    });
+
+    it('Act 之后只能 Observe', () => {
+        expect(TRANSITIONS.act).toEqual(['observe']);
+    });
+});
+
+describe('内置节点', () => {
+    const host: WorkflowHost = {
+        think: async () => ({ next: 'act' }),
+        act: async () => ({ next: 'observe' }),
+    };
+
+    it('缺 plan/verify 时不创建对应节点（自动降级），observe/reflect 恒存在', () => {
+        const nodes = createBuiltinNodes(host, DEFAULT_LIMITS);
+        expect(nodes.map((node) => node.id).sort()).toEqual(['act', 'observe', 'reflect', 'think']);
+    });
+
+    it('Observe 是确定性实现：pending 收敛为 facts，按 maxFacts 截断并保留 ok/error', async () => {
+        const nodes = createBuiltinNodes(host, { ...DEFAULT_LIMITS, maxFacts: 2 });
+        const observe = nodes.find((node) => node.id === 'observe');
+        const state = makeState({
+            facts: [{ id: 'f0', kind: 'note', text: 'old' }],
+            pending: [
+                { callId: 'a', ok: true, text: 'ok-1' },
+                { callId: 'b', ok: false, text: 'bad' },
+            ],
+        });
+        expect(observe?.available(state)).toBe(true);
+        const result = await observe?.run(state, buildContextView(state, 'observe', SECTIONS, 12));
+        expect(result?.next).toBe('think');
+        const facts = result?.delta?.facts ?? [];
+        expect(facts).toHaveLength(2);
+        expect(facts[0]?.kind).toBe('tool');
+        expect(facts[1]?.kind).toBe('error');
+        expect(result?.delta?.pending).toEqual([]);
+    });
+
+    it('失败≥2 且计划未标记失效时，Reflect 优先于 Act，并让计划 stale', async () => {
+        const nodes = createBuiltinNodes(host, DEFAULT_LIMITS);
+        const runner = makeRunner(nodes);
+        const result = await runner.run(
+            makeState({
+                failures: 2,
+                phase: 'observe',
+                facts: [{ id: 'f0', kind: 'error', text: 'boom' }],
+                plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
+            }),
+        );
+        const first = result.events.find((event) => event.type === 'node.selected');
+        expect(first?.nodeId).toBe('reflect');
+    });
+
+    it('Plan 需要进展：有计划、有开放任务、零执行、未 stale 时不可用', () => {
+        const withPlan = createBuiltinNodes(
+            { ...host, plan: async () => ({ next: 'think' }) },
+            DEFAULT_LIMITS,
+        );
+        const planNode = withPlan.find((node) => node.id === 'plan');
+        const state = makeState({
+            plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
+        });
+        expect(planNode?.available(state)).toBe(false);
+        expect(planNode?.available({ ...state, actedSincePlan: 1 })).toBe(true);
+        expect(planNode?.available({ ...state, plan: { ...state.plan!, staleBy: 'reflect' } })).toBe(
+            true,
+        );
+    });
+
+    it('缺 Verify 且验收非空时只落到 done-unverified', async () => {
+        const runner = makeRunner(createBuiltinNodes(host, DEFAULT_LIMITS));
+        const result = await runner.run(makeState({ acceptance: ['tests pass'] }));
+        expect(result.outcome).toBe('done-unverified');
+    });
+});
+
+describe('WorkflowRunner 循环', () => {
+    const host: WorkflowHost = {
+        think: async (state) =>
+            state.usage.steps === 0
+                ? {
+                      delta: {
+                          plan: {
+                              version: 1,
+                              tasks: [{ id: 't1', title: 'run tool', status: 'done' }],
+                          },
+                      },
+                      next: 'act',
+                  }
+                : { next: 'act' },
+        act: async () => ({
+            delta: { pending: [{ callId: 'c1', ok: false, text: 'boom' }] },
+            next: 'observe',
+        }),
+    };
+
+    it('Think→Act→Observe→Think 后由 runner 判定 done', async () => {
+        const runner = makeRunner(createBuiltinNodes(host, DEFAULT_LIMITS));
+        const result = await runner.run(makeState());
+        expect(result.outcome).toBe('done');
+        expect(result.state.usage.steps).toBe(3);
+        expect(result.state.facts).toHaveLength(1);
+        expect(result.state.phase).toBe('think');
+        expect(result.events.at(-1)?.reason).toBe('done');
+    });
+
+    it('Verify 可用且通过时先验收再结束', async () => {
+        const runner = makeRunner(
+            createBuiltinNodes(
+                { ...host, verify: async () => ({ delta: { verdict: 'passed' }, next: 'think' }) },
+                DEFAULT_LIMITS,
+            ),
+        );
+        const result = await runner.run(makeState({ acceptance: ['tests pass'] }));
+        expect(result.outcome).toBe('done');
+        expect(result.state.verdict).toBe('passed');
+    });
+
+    it('无进展的一对节点会在 maxNoProgress 内被终止', async () => {
+        const pingPong: WorkflowNode[] = [
+            {
+                id: 'p',
+                role: 'think',
+                priority: 1,
+                available: () => true,
+                run: async () => ({ next: 'plan' }),
+            },
+            {
+                id: 'q',
+                role: 'plan',
+                priority: 1,
+                available: () => true,
+                run: async () => ({ next: 'think' }),
+            },
+        ];
+        const runner = makeRunner(pingPong, { ...DEFAULT_LIMITS, maxNoProgress: 3 });
+        const result = await runner.run(
+            makeState({
+                acceptance: ['never verified'],
+                plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
+            }),
+        );
+        expect(result.outcome).toBe('aborted-no-progress');
+    });
+
+    it('步数保险丝生效', async () => {
+        const nodes: WorkflowNode[] = [
+            {
+                id: 'a',
+                role: 'think',
+                priority: 1,
+                available: () => true,
+                run: async (state) => ({
+                    delta: { facts: [...state.facts, { id: `f${state.usage.steps}`, kind: 'note', text: 'x' }] },
+                    next: 'act',
+                }),
+            },
+            { id: 'b', role: 'act', priority: 1, available: () => true, run: async () => ({ next: 'observe' }) },
+            {
+                id: 'c',
+                role: 'observe',
+                priority: 1,
+                available: () => true,
+                run: async () => ({ delta: { pending: [] }, next: 'think' }),
+            },
+        ];
+        const runner = makeRunner(nodes, { ...DEFAULT_LIMITS, maxSteps: 2 });
+        const result = await runner.run(
+            makeState({
+                acceptance: ['x'],
+                plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
+            }),
+        );
+        expect(result.outcome).toBe('aborted-budget');
+        expect(result.state.usage.steps).toBe(2);
+    });
+
+    it('节点返回非法下一相位时抛错，节点抛异常时 outcome=failed', async () => {
+        const bad: WorkflowNode[] = [
+            { id: 'bad', role: 'act', priority: 1, available: () => true, run: async () => ({ next: 'think' }) },
+        ];
+        const runner = makeRunner(bad);
+        await expect(
+            runner.run(
+                makeState({
+                    acceptance: ['x'],
+                    plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
+                }),
+            ),
+        ).rejects.toThrow(IllegalTransitionError);
+
+        const throwing: WorkflowNode[] = [
+            {
+                id: 'boom',
+                role: 'act',
+                priority: 1,
+                available: () => true,
+                run: async () => {
+                    throw new Error('provider down');
+                },
+            },
+        ];
+        const failed = await makeRunner(throwing).run(
+            makeState({
+                acceptance: ['x'],
+                plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
+            }),
+        );
+        expect(failed.outcome).toBe('failed');
+        expect(failed.events.at(-1)?.type).toBe('node.failed');
+    });
+
+    it('无候选节点时立即终止', async () => {
+        const none: WorkflowNode[] = [];
+        const result = await makeRunner(none).run(
+            makeState({
+                acceptance: ['x'],
+                plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
+            }),
+        );
+        expect(result.outcome).toBe('aborted-no-candidates');
+    });
+
+    it('视图三段可拼装，且工作集只带最近 K 条事实', () => {
+        const state = makeState({
+            facts: Array.from({ length: 5 }, (_, index) => ({
+                id: `f${index}`,
+                kind: 'note' as const,
+                text: `fact-${index}`,
+            })),
+        });
+        const view = buildContextView(state, 'think', SECTIONS, 2);
+        expect(view.base).toBe('BASE');
+        expect(view.role).toBe('THINK');
+        expect(view.workingSet).toContain('fact-4');
+        expect(view.workingSet).not.toContain('fact-2');
+    });
+});
