@@ -27,6 +27,8 @@ import {
     applyStepEnded as applyLiveStepEnded,
     applyStepStarted as applyLiveStepStarted,
     type LiveStep,
+    type LiveWorkflowNode,
+    workflowNodeOf,
 } from './arm-live.js';
 import {
     completeExecution,
@@ -60,6 +62,7 @@ const LIVE_EVENT_TYPES = [
     // 契约协商：异步 triage 落地后必须刷新快照，否则协商问题永远到不了 UI
     'goal.negotiation.requested',
     'goal.contract-revised',
+    'workflow.node',
     'superagent.decision',
     'prompt.pack.selected',
     'verification.completed',
@@ -315,10 +318,13 @@ export const liveStreams = ref<LiveStreamMap>({});
 export const activeLiveStream = computed<LiveStream | null>(() => activeStream(liveStreams.value));
 
 // 实时步骤类型与投影实现见 ./arm-live.ts（实验台与主对话共用同一份纯函数）。
-export type { LiveStep };
+export type { LiveStep, LiveWorkflowNode };
 
 /** Live steps per run (rootGoalId -> ordered steps). */
 export const liveSteps = reactive<Record<string, LiveStep[]>>({});
+
+/** dynamic loop 的真实 workflow 节点（rootGoalId -> 节点轨迹）。 */
+export const runWorkflowNodes = reactive<Record<string, LiveWorkflowNode[]>>({});
 
 /** 执行前阶段进度（runtime `goal.phase`，按 rootGoalId 记录最近一次阶段）。 */
 export interface RunPhase {
@@ -712,6 +718,15 @@ function applyStepEnded(rootGoalId: string, event: EventItem): void {
     liveSteps[rootGoalId] = applyLiveStepEnded(liveSteps[rootGoalId] ?? [], event);
 }
 
+/** workflow.node：追加节点轨迹（同一事件只入一次）。 */
+function applyWorkflowNode(rootGoalId: string, event: EventItem): void {
+    const node = workflowNodeOf(event);
+    if (node === null) return;
+    const list = runWorkflowNodes[rootGoalId] ?? [];
+    if (list.some((item) => item.key === node.key)) return;
+    runWorkflowNodes[rootGoalId] = [...list, node];
+}
+
 /** plan.created / plan.revised 的 payload.tasks → 展示用 Task 视图（字段缺失一律降级）。 */
 function planTasksOf(payload: unknown): PlanTaskLike[] {
     const raw = (payload as { tasks?: unknown } | null | undefined)?.tasks;
@@ -846,6 +861,11 @@ export function watchEvents(rootGoalId: string): void {
                 refreshLater(rootGoalId);
                 return;
             }
+            if (event.type === 'workflow.node') {
+                const root = (event.rootGoalId as string | undefined) || rootGoalId;
+                applyWorkflowNode(root, event);
+                return;
+            }
             if (event.type === 'step.started') {
                 applyStepStarted(rootGoalId, event);
                 return;
@@ -905,6 +925,10 @@ export async function loadEvents(rootGoalId: string): Promise<void> {
         events.list = Array.isArray(list)
             ? list.filter((event) => event.type !== 'llm.stream_event')
             : [];
+        runWorkflowNodes[rootGoalId] = events.list
+            .filter((event) => event.type === 'workflow.node')
+            .map((event) => workflowNodeOf(event))
+            .filter((node): node is LiveWorkflowNode => node !== null);
     } catch {
         events.list = [];
     }

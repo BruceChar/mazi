@@ -113,6 +113,14 @@ export class SessionsService {
                 : typeof body.modelId === 'string'
                   ? body.modelId
                   : undefined;
+        // 执行 loop 只能取后端支持的两种；旧 UI 值一律按 default，避免静默跑错 loop。
+        const requestedLoopMode = goalBody?.loopMode ?? body.loopMode;
+        const loopMode: 'default' | 'dynamic' | undefined =
+            requestedLoopMode === 'dynamic'
+                ? 'dynamic'
+                : requestedLoopMode === 'default'
+                  ? 'default'
+                  : undefined;
         const history = conversationId ? await this.conversationHistory(conversationId) : [];
         const planProposal = planProposalOf(body, goalBody);
         const promptPackIds = promptPackIdsOf(body, goalBody);
@@ -136,6 +144,7 @@ export class SessionsService {
             ...(promptPackIds !== undefined ? { promptPackIds } : {}),
             ...(reasoningLevel ? { reasoningLevel } : {}),
             ...(modelId ? { modelId } : {}),
+            ...(loopMode !== undefined ? { loopMode } : {}),
             ...featureOptions,
             ...(promptFragment.length > 0 ? { promptFragment } : {}),
         });
@@ -444,6 +453,14 @@ export class SessionsService {
                 ? goalBody.modelId
                 : typeof body.modelId === 'string'
                   ? body.modelId
+                  : undefined;
+        // 执行 loop 只能取后端支持的两种；旧 UI 值一律按 default，避免静默跑错 loop。
+        const requestedLoopMode = goalBody?.loopMode ?? body.loopMode;
+        const loopMode: 'default' | 'dynamic' | undefined =
+            requestedLoopMode === 'dynamic'
+                ? 'dynamic'
+                : requestedLoopMode === 'default'
+                  ? 'default'
                   : undefined;
         this.logger.log(`resumeSession ${sessionId}`);
         const started = Date.now();

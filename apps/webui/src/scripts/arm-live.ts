@@ -236,6 +236,18 @@ function approvalOf(event: EventItem): ArmApproval {
     return { invocationId, toolName, summary, requestedAt: timestampOf(event) };
 }
 
+/** workflow.node 事件 → 独立节点行（历史回放与实时共用）。 */
+export function workflowNodeOf(event: EventItem): LiveWorkflowNode | null {
+    const payload = (event.payload || {}) as Record<string, unknown>;
+    const kind = typeof payload.kind === 'string' ? payload.kind : 'node.selected';
+    const role = typeof payload.role === 'string' ? payload.role : '';
+    const nodeId = typeof payload.nodeId === 'string' ? payload.nodeId : '';
+    const reason = typeof payload.reason === 'string' ? payload.reason : '';
+    const at = timestampOf(event);
+    const key = `${at}-${kind}-${nodeId}`;
+    return { key, kind, role, nodeId, reason, at };
+}
+
 /** 归约一条 SSE 事件（返回新对象；同一引用表示无变化，避免无谓渲染）。 */
 export function applyArmEvent(state: ArmLive, event: EventItem, now: number = Date.now()): ArmLive {
     switch (event.type) {
@@ -273,18 +285,9 @@ export function applyArmEvent(state: ArmLive, event: EventItem, now: number = Da
             return approvals.length === state.approvals.length ? state : { ...state, approvals };
         }
         case 'workflow.node': {
-            const payload = (event.payload || {}) as Record<string, unknown>;
-            const kind = typeof payload.kind === 'string' ? payload.kind : 'node.selected';
-            const role = typeof payload.role === 'string' ? payload.role : '';
-            const nodeId = typeof payload.nodeId === 'string' ? payload.nodeId : '';
-            const reason = typeof payload.reason === 'string' ? payload.reason : '';
-            const at = timestampOf(event);
-            const key = `${at}-${kind}-${nodeId}`;
-            if (state.nodes.some((node) => node.key === key)) return state;
-            return {
-                ...state,
-                nodes: [...state.nodes, { key, kind, role, nodeId, reason, at }],
-            };
+            const node = workflowNodeOf(event);
+            if (node === null || state.nodes.some((item) => item.key === node.key)) return state;
+            return { ...state, nodes: [...state.nodes, node] };
         }
         case 'goal.ended': {
             const payload = (event.payload || {}) as Record<string, unknown>;

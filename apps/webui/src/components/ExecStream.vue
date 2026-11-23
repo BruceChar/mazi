@@ -27,6 +27,8 @@ const props = defineProps({
     liveStream: { type: Object, default: null },
     /** Append-only live steps of the executing run (store.liveSteps[run]). */
     liveSteps: { type: Array, default: () => [] },
+    /** dynamic loop 的真实 workflow 节点（store.runWorkflowNodes[run]）。 */
+    workflowNodes: { type: Array, default: () => [] },
     /** Audit selection highlight (store.selectedStepId / selectedTaskId). */
     selectedStepId: { type: String, default: '' },
     selectedTaskId: { type: String, default: '' },
@@ -77,6 +79,11 @@ function formatDuration(ms) {
     return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 function kindLabel(kind) {
+    // dynamic loop 已有 workflow 节点轨迹：Step 是 Act 内部的行动/观察，不再叫 model/tool。
+    if (props.workflowNodes.length > 0) {
+        if (kind === 'deliberation') return 'Thinking';
+        if (kind === 'invocation') return 'Acting';
+    }
     if (kind === 'deliberation') return 'model';
     if (kind === 'invocation') return 'tool';
     return kind || '-';
@@ -113,6 +120,21 @@ function formatToolArgs(toolName, args) {
 }
 
 /* ---- Step row conversion ---- */
+function workflowNodeLabel(node) {
+    if (!node) return '';
+    if (node.kind === 'node.failed') return 'Failed';
+    if (node.kind === 'terminated') return 'Terminated';
+    const labels = {
+        think: 'Thinking',
+        act: 'Acting',
+        observe: 'Observing',
+        plan: 'Planning',
+        verify: 'Verifying',
+        reflect: 'Reflecting',
+    };
+    return labels[node.role] || node.role || 'Node';
+}
+
 function stepToRow(step, idx) {
     const durationMs = step.endedAt && step.startedAt ? step.endedAt - step.startedAt : null;
     const isDeliberation = step.kind === 'deliberation';
@@ -496,7 +518,26 @@ watch(
 <template>
     <!-- Live steps grouped by the synchronously produced Task plan. Contract,
          route, plan version and acceptance metadata live in the Trace panel. -->
-    <div v-if="busy && (liveSteps.length || showPlanTree)" class="exec-stream">
+    <div
+        v-if="workflowNodes.length || (busy && (liveSteps.length || showPlanTree))"
+        class="exec-stream"
+    >
+        <div v-if="workflowNodes.length" class="workflow-nodes">
+            <div class="workflow-nodes-head">
+                <span>Workflow · 节点</span>
+                <span class="workflow-nodes-count">{{ workflowNodes.length }}</span>
+            </div>
+            <div
+                v-for="node in workflowNodes"
+                :key="node.key"
+                class="workflow-node"
+                :class="[node.kind, node.role]"
+            >
+                <span class="workflow-node-label">{{ workflowNodeLabel(node) }}</span>
+                <code v-if="node.nodeId" class="workflow-node-id">{{ node.nodeId }}</code>
+                <span class="workflow-node-reason">{{ node.reason }}</span>
+            </div>
+        </div>
         <div
             v-for="(group, gIdx) in liveGroups.groups"
             :key="group.task ? group.task.taskId : 'pre-plan'"
@@ -862,6 +903,54 @@ watch(
 }
 .exec-goal.single > .exec-goal-body {
     padding-left: 0;
+}
+.workflow-nodes {
+    margin: 6px 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    background: var(--bg-subtle);
+}
+.workflow-nodes-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--fg-secondary);
+    margin-bottom: 4px;
+}
+.workflow-nodes-count {
+    color: var(--fg-tertiary);
+    font-weight: 400;
+}
+.workflow-node {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 2px 0;
+    font-size: 12px;
+    color: var(--fg-secondary);
+}
+.workflow-node-label {
+    min-width: 72px;
+    font-family: ui-monospace, monospace;
+    font-weight: 600;
+    color: var(--thinking);
+}
+.workflow-node.failed .workflow-node-label,
+.workflow-node.terminated .workflow-node-label {
+    color: var(--warning, #b45309);
+}
+.workflow-node-id {
+    font-size: 11px;
+    color: var(--fg-tertiary);
+}
+.workflow-node-reason {
+    color: var(--fg-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .exec-task {
     margin: 8px 0;

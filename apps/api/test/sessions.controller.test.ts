@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -7,6 +7,7 @@ import { FastifyAdapter } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
 import type { FastifyInstance } from 'fastify';
 import { AppModule } from '../src/app.module.js';
+import { ApiRuntimeService } from '../src/common/runtime.service.js';
 
 /** 独立 MAZI_HOME（含离线 faux 真实驱动配置），避免触碰 ~/.mazi */
 function makeHome(): { home: string; cleanup: () => void } {
@@ -71,6 +72,28 @@ describe('sessions（Goal 坐标系：sessionId = rootGoalId）', () => {
         });
         expect(res.statusCode).toBe(400);
         expect(res.json()).toEqual({ error: '缺少 input' });
+    });
+
+    it('POST /api/sessions 把 goal.loopMode 传给 createGoalSession', async () => {
+        const service = app.get(ApiRuntimeService) as unknown as {
+            harness(): { createGoalSession: (...args: never[]) => unknown };
+        };
+        const harness = service.harness();
+        const original = harness.createGoalSession.bind(harness);
+        const spy = vi.fn(original);
+        harness.createGoalSession = spy as never;
+
+        const created = await fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '跑 dynamic loop', goal: { loopMode: 'dynamic' } },
+        });
+        expect(created.statusCode).toBe(200);
+        expect(spy).toHaveBeenCalled();
+        expect(spy.mock.calls[0]?.[1]).toMatchObject({ loopMode: 'dynamic' });
+
+        harness.createGoalSession = original as never;
     });
 
     it('POST /api/sessions + GET 详情/时间线（Goal 树快照闭环）', async () => {

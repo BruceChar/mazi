@@ -67,9 +67,8 @@ vi.mock('vue', () => ({
     watch: () => () => {},
 }));
 
-const { liveSteps, runDetails, runPhases, runPlans, stopEvents, watchEvents } = await import(
-    '../src/scripts/store.ts'
-);
+const { liveSteps, runDetails, runPhases, runPlans, runWorkflowNodes, stopEvents, watchEvents } =
+    await import('../src/scripts/store.ts');
 
 describe('webui live step refresh', () => {
     beforeEach(() => {
@@ -130,6 +129,25 @@ describe('webui live step refresh', () => {
         // Starting b closes a (the "next step starts, previous ends" rule).
         expect(liveSteps['run-2']?.[0]?.status).toBe('succeeded');
         expect(liveSteps['run-2']?.[0]?.endedAt).not.toBeNull();
+    });
+
+    it('workflow.node 进入独立节点轨迹，不混入 live steps', () => {
+        watchEvents('run-node');
+        const source = FakeEventSource.instances.at(-1)!;
+        source.emit('workflow.node', {
+            eventId: 'w1',
+            type: 'workflow.node',
+            rootGoalId: 'run-node',
+            payload: { kind: 'node.selected', role: 'act', nodeId: 'act', reason: 'think→act' },
+        });
+        source.emit('workflow.node', {
+            eventId: 'w2',
+            type: 'workflow.node',
+            rootGoalId: 'run-node',
+            payload: { kind: 'node.selected', role: 'observe', nodeId: 'observe', reason: 'act→observe' },
+        });
+        expect(runWorkflowNodes['run-node']?.map((node) => node.role)).toEqual(['act', 'observe']);
+        expect(liveSteps['run-node'] ?? []).toEqual([]);
     });
 
     it('step.ended updates the running tool call in place (no duplicate row)', () => {

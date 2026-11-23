@@ -44,6 +44,7 @@ import {
     loadRunDetail,
     events,
     liveSteps,
+    runWorkflowNodes,
     loadConfig,
     loadConversations,
     authCommands,
@@ -1062,6 +1063,7 @@ onBeforeUnmount(() => {
                     :busy="busy"
                     :live-stream="activeLiveStream"
                     :live-steps="liveSteps"
+                    :run-workflow-nodes="runWorkflowNodes"
                     :phase="current ? runPhases[current] : null"
                     :suggestion-cards="suggestionCards"
                     :feedback-sent="feedbackSent"
