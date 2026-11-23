@@ -41,6 +41,7 @@ ToolConfig.command (CliCommandSpec) → runCliTool → execFile(bin, argv, { cwd
 | `argDefaults` | rg 的 `path='.'` | 不传目录时补 `.`，否则 rg 在读 stdin（非 TTY）下阻塞或空退出 |
 | `globFlag` | fd 的 `--glob` | pattern 含 `* ? [` **且不是合法 regex** 时前置该 flag；`.*\.md$` 这类合法 regex 保持 regex 语义 |
 | `expectMutation` | sd | 退出 0 但目标文件未变化 → `ok:false`（`no change: pattern did not match`） |
+| 跨行语义 | sd | 固定传 `-A`。sd 默认逐行匹配，跨行 `pattern` 永远匹配不到；代码编辑需要整文件模式 |
 | stdin 隔离 | xh | 固定传 `--ignore-stdin`。`runCliTool` 的 stdin 是未关闭 pipe；xh 检测到非 TTY 会等待 stdin EOF，并可能把请求降级成空 POST，导致外部 API 返回 4xx 或一直挂到工具超时 |
 | 命令分类 | shell.run | `readonly` / `network` / `unknown` / `dangerous` 四类决定审批粒度（见 `core/authz/command.ts`） |
 

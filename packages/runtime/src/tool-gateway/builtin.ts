@@ -194,7 +194,7 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
     {
         name: 'sd',
         description:
-            'Replace text in a file (this tool WRITES the file). Use to apply a string/regex substitution to one file. Read the file first to confirm before editing. If unsure about flags, run `sd --help` first.',
+            'Replace text in a file (this tool WRITES the file). Supports patterns that span multiple lines. Read the file first to confirm before editing. If unsure about flags, run `sd --help` first.',
         parameters: {
             type: 'object',
             properties: {
@@ -212,7 +212,8 @@ export const BUILTIN_TOOL_PRESET: ToolConfig[] = [
         sideEffects: ['fs'],
         command: {
             bin: 'sd',
-            args: ['{pattern}', '{replacement}', '{path}'],
+            // sd 默认逐行处理，跨行 pattern 永远匹配不到；代码编辑几乎都是跨行替换。
+            args: ['-A', '{pattern}', '{replacement}', '{path}'],
             installPackage: 'sd',
         },
     },

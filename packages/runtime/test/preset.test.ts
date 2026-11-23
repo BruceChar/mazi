@@ -16,6 +16,7 @@ describe('BUILTIN_TOOL_PRESET（CLI 工具预设）', () => {
         expect(rg?.command?.args.join(' ')).toContain('{pattern}');
         const sd = BUILTIN_TOOL_PRESET.find((t) => t.name === 'sd');
         expect(sd?.command?.bin).toBe('sd');
+        expect(sd?.command?.args).toContain('-A');
         expect(sd?.irreversible).toBe(true);
     });
 

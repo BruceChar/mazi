@@ -51,11 +51,7 @@ function builtinCommand(name: string, bin: string | undefined): CliCommandSpec {
 }
 
 function sdSpec(): CliCommandSpec {
-    return {
-        bin: SD_BIN ?? 'sd',
-        args: ['{pattern}', '{replacement}', '{path}'],
-        timeoutMs: 15_000,
-    };
+    return builtinCommand('sd', SD_BIN);
 }
 
 function rgSpec(): CliCommandSpec {
@@ -128,7 +124,7 @@ describe.skipIf(!SD_BIN)('sd 无改动检测（expectMutation）', () => {
         expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('hello world\n');
     });
 
-    it('多行 pattern 未匹配（真实故障场景）→ ok:false', async () => {
+    it('多行 pattern 跨行命中并替换 → ok:true', async () => {
         const workspace = tempDir('mazi-sd-multiline-');
         writeFileSync(join(workspace, 'a.txt'), 'one\ntwo\nthree\n', 'utf8');
 
@@ -138,9 +134,8 @@ describe.skipIf(!SD_BIN)('sd 无改动检测（expectMutation）', () => {
             workspace,
         );
 
-        expect(res.ok).toBe(false);
-        expect(res.error).toContain('no change');
-        expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('one\ntwo\nthree\n');
+        expect(res.ok).toBe(true);
+        expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('X\nthree\n');
     });
 
     it('pattern 命中并修改文件 → ok:true', async () => {
