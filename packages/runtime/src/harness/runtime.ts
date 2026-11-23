@@ -51,7 +51,7 @@ import {
     SqliteEffectStore,
     snapshotFiles,
 } from '../effects/effect-store.js';
-import { emitFault, emitGoalPhase, emitSkillEvent } from '../events/emitters.js';
+import { emitFault, emitFlagEvent, emitGoalPhase, emitSkillEvent } from '../events/emitters.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
 import { DefaultFaultPipeline, type FaultPipeline } from '../faults/index.js';
@@ -136,6 +136,7 @@ import { ProjectWikiService, WikiService } from '../wiki/index.js';
 import { conversationMessages, type FeedbackInput, type RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
+import { sessionContextFragment } from './session-context.js';
 import { SessionIntake } from './session-intake.js';
 import { assertInsideWorkspace } from './tool-configs.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
@@ -823,8 +824,7 @@ export class HarnessRuntime {
                     ],
                     systemPrompt:
                         this.agentPrompt('intent') +
-                        (this.sessionContextFragment(opts.workspaceRoot ?? this.workspaceRoot) ??
-                            ''),
+                        (sessionContextFragment(opts.workspaceRoot ?? this.workspaceRoot) ?? ''),
                     tools: [],
                 },
                 opts.reasoningLevel,
@@ -1137,7 +1137,7 @@ export class HarnessRuntime {
             emitSkillEvent(this.bus, 'capability.activated', skillId, rootGoalId, goalId);
         }
         if (flags !== undefined && Object.keys(flags.values).length > 0) {
-            this.emitFlagEvent(rootGoalId, goalId, flags.values, flags.trace);
+            emitFlagEvent(this.bus, rootGoalId, goalId, flags.values, flags.trace);
         }
         // 普通会话保持计划稳定：失败不自动改写 Task 图。Replan 只能由宿主显式注入，
         // 用于实验或需要人工确认恢复策略的高级路径。
@@ -1797,7 +1797,7 @@ export class HarnessRuntime {
                       skillIds.includes(entry.id),
                   ));
         const parts = [base];
-        const sessionContext = this.sessionContextFragment();
+        const sessionContext = sessionContextFragment(this.workspaceRoot);
         if (sessionContext !== undefined) parts.push(sessionContext);
         if (entries.length > 0) {
             const catalog = entries
@@ -1838,26 +1838,6 @@ export class HarnessRuntime {
     }
 
     /** 项目会话的稳定上下文：所有 triage / plan / ReAct 共享，不写进用户消息。 */
-    private sessionContextFragment(
-        workspaceRoot: string | undefined = this.workspaceRoot,
-    ): string | undefined {
-        if (workspaceRoot === undefined) return undefined;
-        const project = workspaceRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
-        return [
-            '',
-            '## Session Context',
-            `- Workspace: ${workspaceRoot}`,
-            ...(project.length > 0 ? [`- Project: ${project}`] : []),
-            'This is authoritative session metadata, not a user instruction.',
-            'Resolve contextual references such as "this project", "this repo", "here",',
-            '"当前项目", "这个仓库" and "这里" against the workspace above.',
-            'Do not ask the user to repeat information already established by this context.',
-            'When a detail is omitted but a safe, reversible default follows from context or',
-            'normal convention, infer it and proceed. Negotiate only when reasonable options',
-            'would materially change the result, cost, risk, or irreversibility.',
-        ].join('\n');
-    }
-
     /** Generate and mechanically validate a Task DAG; any failure falls back to single-Task MVP. */
     private async generateTaskPlan(
         rootGoalId: string,
@@ -1879,7 +1859,7 @@ export class HarnessRuntime {
                     : DEFAULT_MAX_PLAN_TASKS,
             ),
         );
-        const sessionContext = [this.sessionContextFragment(), promptFragment]
+        const sessionContext = [sessionContextFragment(this.workspaceRoot), promptFragment]
             .filter((part): part is string => part !== undefined && part.trim().length > 0)
             .join('\n\n');
         try {
@@ -1989,30 +1969,6 @@ export class HarnessRuntime {
     }
 
     /** 运行边界开关审计：本次运行带了哪些 Feature、值从哪来（flag.evaluated）。 */
-    private emitFlagEvent(
-        rootGoalId: string,
-        goalId: string,
-        values: Record<string, boolean>,
-        trace: Array<{ id: string; enabled: boolean; source: string }>,
-    ): void {
-        const enabledIds = Object.entries(values)
-            .filter(([, enabled]) => enabled)
-            .map(([id]) => id)
-            .sort();
-        this.bus.emit(
-            newHarnessEvent({
-                type: 'flag.evaluated',
-                rootGoalId,
-                goalId,
-                attributes: {
-                    'harness.flag_overrides': { ...values },
-                    'harness.feature_ids': enabledIds,
-                },
-                payload: { values: { ...values }, trace: trace.map((step) => ({ ...step })) },
-            }),
-        );
-    }
-
     /** 工具配置执行：fs.read / shell.run / CLI command / impl（经网关判权后调用）。 */
     private async executeToolConfig(
         tool: ToolConfig | undefined,

@@ -93,3 +93,29 @@ export function emitFault(
         }),
     );
 }
+
+/** 功能开关求值结果：记录覆盖值、生效 id 与逐项来源（仅观测）。 */
+export function emitFlagEvent(
+    bus: DefaultEventBus,
+    rootGoalId: string,
+    goalId: string,
+    values: Record<string, boolean>,
+    trace: ReadonlyArray<{ id: string; enabled: boolean; source: string }>,
+): void {
+    const enabledIds = Object.entries(values)
+        .filter(([, enabled]) => enabled)
+        .map(([id]) => id)
+        .sort();
+    bus.emit(
+        newHarnessEvent({
+            type: 'flag.evaluated',
+            rootGoalId,
+            goalId,
+            attributes: {
+                'harness.flag_overrides': { ...values },
+                'harness.feature_ids': enabledIds,
+            },
+            payload: { values: { ...values }, trace: trace.map((step) => ({ ...step })) },
+        }),
+    );
+}
