@@ -7,8 +7,6 @@ import { MemoryGoalStore } from '../src/memory/goal-store.js';
 import { MemoryBehaviorStore } from '../src/memory/behavior-store.js';
 import { MemoryManager } from '../src/memory/memory.js';
 import { BehaviorRecorder } from '../src/observability/behavior-recorder.js';
-import { QuestionLabeler } from '../src/question/labeler.js';
-import { loadQuestionTaxonomy } from '../src/question/taxonomy.js';
 import type { ModelResolver } from '../src/harness/model-resolver.js';
 import type { RoundRunner } from '../src/harness/round-runner.js';
 import type { RuntimeConfig } from '../src/config.js';
@@ -41,10 +39,12 @@ function buildFactory(): {
         memoryManager: new MemoryManager(),
         goalStoreDb: goalStore,
         behaviorRecorder: new BehaviorRecorder(new MemoryBehaviorStore()),
-        questionLabeler: new QuestionLabeler(loadQuestionTaxonomy(), async () => {}),
+        labelQuestion: async () => {},
         bus,
-        resolver: {} as ModelResolver,
-        llmProviders: new Map(),
+        resolver: {
+            defaultModelChoice: () => undefined,
+            resolveModelChoice: () => undefined,
+        } as ModelResolver,
         roundRunner: {} as RoundRunner,
         intentPrompt: () => 'intent',
     });

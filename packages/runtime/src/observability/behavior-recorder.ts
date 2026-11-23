@@ -8,7 +8,13 @@
 import type { HarnessEvent } from '@mazi/core';
 import type { UserBehaviorView } from '@mazi/libs';
 import type { FeedbackInput } from '../harness/conversation.js';
-import type { BehaviorRecordInput, BehaviorStore } from '../memory/behavior-store.js';
+import {
+    type BehaviorMigrationResult,
+    type BehaviorRecordInput,
+    type BehaviorStore,
+    migrateBehaviorJsonlToSqlite,
+    SqliteBehaviorStore,
+} from '../memory/behavior-store.js';
 
 interface PendingApproval {
     requestedAt: number;
@@ -57,6 +63,7 @@ export class BehaviorRecorder {
     private readonly pending = new Map<string, PendingApproval>();
     private readonly store: BehaviorStore;
     private readonly now: () => number;
+    private migration?: Promise<BehaviorMigrationResult>;
 
     constructor(store: BehaviorStore, now: () => number = () => Date.now()) {
         this.store = store;
@@ -95,6 +102,19 @@ export class BehaviorRecorder {
 
     list(rootGoalId: string): Promise<UserBehaviorView[]> {
         return this.store.list(rootGoalId);
+    }
+
+    /**
+     * 一次性把旧 JSONL 行为流导入当前 store（幂等、单飞；仅 SQLite 目标生效）。
+     * JSONL 原文件保留为证据。
+     */
+    migrateFromJsonl(behaviorDir: string): Promise<BehaviorMigrationResult> {
+        if (this.migration !== undefined) return this.migration;
+        this.migration =
+            this.store instanceof SqliteBehaviorStore
+                ? migrateBehaviorJsonlToSqlite(behaviorDir, this.store)
+                : Promise.resolve({ partitions: 0, imported: 0 });
+        return this.migration;
     }
 
     /**

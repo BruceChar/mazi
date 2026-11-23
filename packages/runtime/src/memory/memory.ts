@@ -186,6 +186,11 @@ export class MemoryManager {
         this.budgetTokens = opts.budgetTokens;
     }
 
+    /** 释放底层存储（runtime close 时调用；内存实现为空操作）。 */
+    close(): void {
+        this.store.close();
+    }
+
     async remember(items: readonly MemoryItem[]): Promise<void> {
         if (items.length === 0) return;
         await this.store.append(items);

@@ -1,15 +1,6 @@
-import type {
-    EventBus,
-    Goal,
-    LLMProvider,
-    NegotiationAnswer,
-    PermissionLevel,
-    Step,
-    Task,
-} from '@mazi/core';
+import type { EventBus, Goal, NegotiationAnswer, PermissionLevel, Step, Task } from '@mazi/core';
 import { authz } from '@mazi/core';
 import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
-import { buildQuestionView } from '@mazi/libs';
 import {
     type AgentRole,
     AgentRoleRegistry,
@@ -73,9 +64,7 @@ import { RuntimeKernel } from '../kernel/index.js';
 import { RuntimePorts } from '../kernel/ports.js';
 import {
     type BehaviorMigrationResult,
-    type BehaviorStore,
     MemoryBehaviorStore,
-    migrateBehaviorJsonlToSqlite,
     SqliteBehaviorStore,
 } from '../memory/behavior-store.js';
 import {
@@ -87,12 +76,7 @@ import {
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
 import { MemoryManager } from '../memory/memory.js';
 import { PersonalMemoryService } from '../memory/personal-memory.js';
-import {
-    type QuestionLabelInput,
-    type QuestionQuery,
-    type QuestionStore,
-    SqliteQuestionStore,
-} from '../memory/question-store.js';
+import type { QuestionLabelInput, QuestionQuery } from '../memory/question-store.js';
 import { type MemoryItem, SqliteMemoryStore } from '../memory/store.js';
 import { exportMemoryBundle, importMemoryBundle, type MemoryBundle } from '../memory/transfer.js';
 import { BehaviorRecorder } from '../observability/behavior-recorder.js';
@@ -111,8 +95,9 @@ import {
 import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
 import type { CatalogService } from '../provider/catalog/service.js';
 import { RoundExecutor } from '../provider/index.js';
-import { type QuestionClassifier, QuestionLabeler } from '../question/labeler.js';
-import { loadQuestionTaxonomy, type QuestionTaxonomy } from '../question/taxonomy.js';
+import type { QuestionClassifier } from '../question/labeler.js';
+import { QuestionService } from '../question/service.js';
+import type { QuestionTaxonomy } from '../question/taxonomy.js';
 import type { GoalRunResult } from '../strategy/goal-strategy.js';
 import { configureTokenizer } from '../token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
@@ -173,7 +158,6 @@ export class HarnessRuntime {
     private readonly goalStoreDb: GoalStore;
     private readonly resolver: ModelResolver;
     /** LLM provider 池（triage 无显式模型时取第一个可用 provider 的默认模型）。 */
-    private readonly llmProviders: Map<string, LLMProvider>;
     private readonly stepEvents: StepEventEmitter;
     private readonly roundRunner: RoundRunner;
     /** Runtime-native Git-backed Project Wiki lifecycle. */
@@ -209,20 +193,16 @@ export class HarnessRuntime {
     /** 长期记忆调度组合根（有 dbPath 时跨进程持久化）。 */
     private readonly memoryManager: MemoryManager;
     private readonly personalMemory: PersonalMemoryService;
-    private readonly persistentMemoryStore?: SqliteMemoryStore;
     /** Reversible workspace effect journal (snapshots only explicitly scoped file writes). */
     private readonly effectStore: EffectStore;
     private readonly blackboard: ProjectBlackboardService;
     /** 用户行为流权威库（SQLite；缺 dbPath 时进程内）。 */
-    private readonly behaviorStore: BehaviorStore;
     /** 用户行为指令记录器（输入/反馈/审批；行为流 append-only）。 */
     private readonly behaviorRecorder: BehaviorRecorder;
     /** 用户问题与标签存储（问题实体 + 标签；与行为库同一 DB 文件）。 */
-    private readonly questionStore: QuestionStore;
+    private readonly questionService: QuestionService;
     /** 问题标注器（规则同步 + LLM 精标 seam）。 */
-    private readonly questionLabeler: QuestionLabeler;
     /** 问题标签分类法（注册表）。 */
-    private readonly questionTaxonomy: QuestionTaxonomy;
     /** 失败分类账（Task 终态失败事实；只追加）。 */
     private readonly failureLedger: FailureLedgerStore;
     /** 会话输入侧状态（create → execute 之间传递；见 session-intake）。 */
@@ -233,7 +213,6 @@ export class HarnessRuntime {
     /** 运行中的 Goal 树 → 协作式停止控制器（stop 生效、进程内互斥）。 */
     private readonly running = new Map<string, AbortController>();
     /** JSONL→DB 迁移单飞（构造器与显式调用共享同一 Promise）。 */
-    private behaviorMigration?: Promise<BehaviorMigrationResult>;
     /** 接入后的目录账本（花费回填等一次性遍历用）。 */
     private catalogService?: CatalogService;
     /** 已挂载技能包的工具面（apps/api 注入；缺省 = 无技能）。 */
@@ -292,18 +271,15 @@ export class HarnessRuntime {
             emit: (type, fault, recovery) => emitFault(this.bus, type, fault, recovery),
         });
         // 问题/行为统一入 SQLite 权威库；JSONL 目录降级为导出/迁移来源。
-        this.behaviorStore =
+        const behaviorStore =
             config.dbPath !== undefined
                 ? new SqliteBehaviorStore(config.dbPath)
                 : new MemoryBehaviorStore();
-        this.behaviorRecorder = new BehaviorRecorder(this.behaviorStore);
-        this.questionStore = new SqliteQuestionStore(config.dbPath ?? ':memory:');
-        this.questionTaxonomy = loadQuestionTaxonomy(
-            config.questionTaxonomyFile ?? maziPaths().questionTaxonomyFile,
-        );
-        this.questionLabeler = new QuestionLabeler(this.questionTaxonomy, (questionId, labels) =>
-            this.questionStore.addLabels(questionId, labels),
-        );
+        this.behaviorRecorder = new BehaviorRecorder(behaviorStore);
+        this.questionService = new QuestionService({
+            ...(config.dbPath !== undefined ? { dbPath: config.dbPath } : {}),
+            taxonomyFile: config.questionTaxonomyFile ?? maziPaths().questionTaxonomyFile,
+        });
         if (config.behaviorDir !== undefined && config.dbPath !== undefined) {
             void this.migrateBehaviorStream().catch((error: unknown) => {
                 process.stderr.write(`behavior migration error: ${String(error)}\n`);
@@ -324,10 +300,8 @@ export class HarnessRuntime {
             },
         );
         this.goalStoreDb = new SqliteGoalStore(config.dbPath ?? ':memory:');
-        this.persistentMemoryStore =
-            config.dbPath !== undefined ? new SqliteMemoryStore(config.dbPath) : undefined;
         this.memoryManager = new MemoryManager(
-            this.persistentMemoryStore !== undefined ? { store: this.persistentMemoryStore } : {},
+            config.dbPath !== undefined ? { store: new SqliteMemoryStore(config.dbPath) } : {},
         );
         this.personalMemory = new PersonalMemoryService(this.memoryManager);
         this.effectStore =
@@ -339,8 +313,7 @@ export class HarnessRuntime {
                 ? new SqliteBlackboardStore(config.dbPath)
                 : new MemoryBlackboardStore(),
         );
-        this.llmProviders = buildLlmProviders(config, options);
-        this.resolver = new ModelResolver(config, this.llmProviders);
+        this.resolver = new ModelResolver(config, buildLlmProviders(config, options));
         this.stepEvents = new StepEventEmitter(this.bus);
         this.wiki = new WikiService({
             home: maziHome(),
@@ -380,10 +353,9 @@ export class HarnessRuntime {
             memoryManager: this.memoryManager,
             goalStoreDb: this.goalStoreDb,
             behaviorRecorder: this.behaviorRecorder,
-            questionLabeler: this.questionLabeler,
+            labelQuestion: (questionId, text) => this.questionService.label(questionId, text),
             bus: this.bus,
             resolver: this.resolver,
-            llmProviders: this.llmProviders,
             roundRunner: this.roundRunner,
             intentPrompt: () => this.agentPrompt('intent'),
         });
@@ -617,20 +589,17 @@ export class HarnessRuntime {
 
     /** 问题标签分类法（注册表；GET /api/question-taxonomy 消费）。 */
     getQuestionTaxonomy(): QuestionTaxonomy {
-        return this.questionTaxonomy;
+        return this.questionService.taxonomyView();
     }
 
     /** 对某问题重跑 LLM 精标（需已注入分类器）；返回是否命中该问题。 */
     async classifyQuestion(questionId: string): Promise<boolean> {
-        const record = await this.questionStore.get(questionId);
-        if (record === undefined) return false;
-        await this.questionLabeler.classify(questionId, record.text);
-        return true;
+        return this.questionService.classify(questionId);
     }
 
     /** 注入 LLM 问题分类器（可选；不注入则仅规则预标注）。输出经注册表校验后落库。 */
     setQuestionClassifier(classifier: QuestionClassifier): void {
-        this.questionLabeler.setClassifier(classifier);
+        this.questionService.setClassifier(classifier);
     }
 
     /** Goal/Task/Step 存储（Goal 会话审计/级联删除） */
@@ -656,7 +625,7 @@ export class HarnessRuntime {
         await this.plugins.uninstallAll();
         this.serviceKernel.dispose();
         this.goalStoreDb.close();
-        this.persistentMemoryStore?.close();
+        this.memoryManager.close();
         this.effectStore.close();
         this.blackboard.close();
         this.promptPacks.close();
@@ -665,7 +634,7 @@ export class HarnessRuntime {
         this.tocStore.close();
         this.iterationStore.close();
         this.behaviorRecorder.close();
-        this.questionStore.close();
+        this.questionService.close();
         this.failureLedger.close();
     }
 
@@ -869,25 +838,17 @@ export class HarnessRuntime {
 
     /** 问题视图（含有效标签）——apps/api 问题查询消费。 */
     async listQuestions(query: QuestionQuery = {}): Promise<UserQuestionView[]> {
-        const records = await this.questionStore.list(query);
-        const labels = await this.questionStore.listLabelsFor(
-            records.map((record) => record.questionId),
-        );
-        return records.map((record) =>
-            buildQuestionView(record, labels.get(record.questionId) ?? []),
-        );
+        return this.questionService.list(query);
     }
 
     /** 单条问题视图（无则 undefined）。 */
     async getQuestion(questionId: string): Promise<UserQuestionView | undefined> {
-        const record = await this.questionStore.get(questionId);
-        if (record === undefined) return undefined;
-        return buildQuestionView(record, await this.questionStore.listLabels(questionId));
+        return this.questionService.view(questionId);
     }
 
     /** 追加标签（append-only；user 覆盖由 effectiveLabels 合并规则承担）。 */
     addQuestionLabels(questionId: string, labels: readonly QuestionLabelInput[]): Promise<void> {
-        return this.questionStore.addLabels(questionId, labels);
+        return this.questionService.addLabels(questionId, labels);
     }
 
     /**
@@ -895,19 +856,9 @@ export class HarnessRuntime {
      * 启动时构造器已 fire-and-forget 调用一次；测试可直接 await。
      */
     migrateBehaviorStream(): Promise<BehaviorMigrationResult> {
-        if (this.behaviorMigration !== undefined) return this.behaviorMigration;
-        if (
-            this.config.behaviorDir === undefined ||
-            !(this.behaviorStore instanceof SqliteBehaviorStore)
-        ) {
-            this.behaviorMigration = Promise.resolve({ partitions: 0, imported: 0 });
-            return this.behaviorMigration;
-        }
-        this.behaviorMigration = migrateBehaviorJsonlToSqlite(
-            this.config.behaviorDir,
-            this.behaviorStore,
-        );
-        return this.behaviorMigration;
+        const dir = this.config.behaviorDir;
+        if (dir === undefined) return Promise.resolve({ partitions: 0, imported: 0 });
+        return this.behaviorRecorder.migrateFromJsonl(dir);
     }
 
     /** 历史提问回填（采集上线前的 run；写入一条 derived input 并规则标注）。 */
@@ -918,7 +869,7 @@ export class HarnessRuntime {
         const written = await this.behaviorRecorder.backfillInput(rootGoalId, run);
         const first = written[0];
         if (first !== undefined) {
-            await this.questionLabeler.label(`${rootGoalId}:${first.ts}`, run.input);
+            await this.questionService.label(`${rootGoalId}:${first.ts}`, run.input);
         }
         return written;
     }

@@ -1,4 +1,4 @@
-import type { Goal, LLMProvider } from '@mazi/core';
+import type { Goal } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import type { ProjectBlackboardService } from '../blackboard/index.js';
 import { projectIdForWorkspace } from '../blackboard/index.js';
@@ -15,7 +15,6 @@ import {
 import type { GoalStore } from '../memory/goal-store.js';
 import { type MemoryManager, turnsToMemory } from '../memory/memory.js';
 import type { BehaviorRecorder } from '../observability/behavior-recorder.js';
-import type { QuestionLabeler } from '../question/labeler.js';
 import { conversationMessages, type RunOptions } from './conversation.js';
 import type { ModelResolver } from './model-resolver.js';
 import type { RoundRunner } from './round-runner.js';
@@ -39,10 +38,10 @@ export interface SessionFactoryDeps {
     memoryManager: MemoryManager;
     goalStoreDb: GoalStore;
     behaviorRecorder: BehaviorRecorder;
-    questionLabeler: QuestionLabeler;
+    labelQuestion: (questionId: string, text: string) => Promise<void>;
     bus: DefaultEventBus;
     resolver: ModelResolver;
-    llmProviders: Map<string, LLMProvider>;
+
     roundRunner: RoundRunner;
     /** goal-parser 模板（可被宿主覆盖，故用 getter）。 */
     intentPrompt: () => string;
@@ -175,7 +174,7 @@ export class SessionFactory {
         });
         const question = recorded[0];
         if (question !== undefined) {
-            await this.d.questionLabeler.label(`${rootGoalId}:${question.ts}`, input);
+            await this.d.labelQuestion(`${rootGoalId}:${question.ts}`, input);
         }
         this.d.bus.emit(
             newHarnessEvent({
@@ -225,6 +224,8 @@ export class SessionFactory {
         opts: RunOptions,
     ): Promise<void> {
         const parsed = await this.parseIntent(statement, rootGoalId, opts);
+        // 无可用模型/超时/解析失败：triage 视为未发生，不写任何协商结论。
+        if (parsed === undefined) return;
         const plan = planNegotiation(parsed);
         const goal = await this.d.goalStoreDb.loadGoal(rootGoalId);
         if (goal === undefined || goal.negotiation !== undefined) return;
@@ -300,18 +301,8 @@ export class SessionFactory {
         return parseGoalParserOutput(round.text);
     }
 
-    /**
-     * triage 用的模型：无显式 modelId 时取 provider 池里第一个有默认模型的 provider。
-     * 没有任何可用 provider 时返回 undefined（不协商，走 fallback）。
-     */
-    /** 默认模型：无显式 modelId 时取 provider 池里首个有默认模型的 provider。 */
+    /** 默认模型：无显式 modelId 时由 ModelResolver 取首个可用 provider。 */
     defaultModelChoice(): { providerId: string; modelId: string } | undefined {
-        for (const [providerId, provider] of this.d.llmProviders) {
-            const modelId = provider.defaultModel || provider.models?.[0]?.id;
-            if (modelId !== undefined && modelId.length > 0) {
-                return { providerId, modelId };
-            }
-        }
-        return undefined;
+        return this.d.resolver.defaultModelChoice();
     }
 }

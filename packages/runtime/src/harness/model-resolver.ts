@@ -61,6 +61,17 @@ export class ModelResolver {
         private readonly llmProviders: Map<string, LLMProvider>,
     ) {}
 
+    /** 无显式 modelId 时的默认模型：provider 池里首个有默认模型的 provider。 */
+    defaultModelChoice(): { providerId: string; modelId: string } | undefined {
+        for (const [providerId, provider] of this.llmProviders) {
+            const modelId = provider.defaultModel ?? provider.models?.[0]?.id;
+            if (modelId !== undefined && modelId.length > 0) {
+                return { providerId, modelId };
+            }
+        }
+        return undefined;
+    }
+
     /** 由模型 id 解析所属 provider（配置内取第一个匹配）；未命中 → undefined。 */
     resolveModelChoice(modelId?: string): { providerId: string; modelId: string } | undefined {
         if (!modelId) {
