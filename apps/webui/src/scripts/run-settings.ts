@@ -2,6 +2,7 @@ import { reactive } from 'vue';
 import {
     createGoalContractDraft,
     type GoalContractDraft,
+    normalizeLoopMode,
     toGoalContractPayload,
 } from './goal-contract.js';
 
@@ -38,7 +39,7 @@ function readRunSettings(): RunSettings {
         return {
             budgetUsd: typeof parsed.budgetUsd === 'number' ? parsed.budgetUsd : base.budgetUsd,
             maxSteps: typeof parsed.maxSteps === 'number' ? parsed.maxSteps : base.maxSteps,
-            loopMode: typeof parsed.loopMode === 'string' ? parsed.loopMode : base.loopMode,
+            loopMode: normalizeLoopMode(parsed.loopMode ?? base.loopMode),
             model: typeof parsed.model === 'string' ? parsed.model : base.model,
             reasoningLevel:
                 typeof parsed.reasoningLevel === 'string'

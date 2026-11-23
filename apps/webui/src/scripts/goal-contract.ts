@@ -30,10 +30,17 @@ export const PERMISSION_META = {
 };
 
 export const LOOP_MODES = [
-    { value: 'goal-plan-execute-reflect', label: 'GPER · default' },
-    { value: 'goal-plan-execute', label: 'Plan-Execute' },
-    { value: 'react-only', label: 'React Only' },
+    { value: 'default', label: 'Default · 串行计划执行' },
+    { value: 'dynamic', label: 'Dynamic · 节点驱动' },
 ] as const;
+
+export type LoopMode = (typeof LOOP_MODES)[number]['value'];
+
+/** 旧设置值归一：历史 UI 的三档并非真实执行 loop，只保留两种后端语义。 */
+export function normalizeLoopMode(value: unknown): LoopMode {
+    if (value === 'dynamic' || value === 'react-only') return 'dynamic';
+    return 'default';
+}
 
 export interface GoalContractDraft {
     statement: string;
@@ -54,7 +61,7 @@ export function createGoalContractDraft(): GoalContractDraft {
         budgetUsd: 0.5,
         maxSteps: 8,
         userId: '',
-        loopMode: 'goal-plan-execute-reflect',
+        loopMode: 'default',
     };
 }
 

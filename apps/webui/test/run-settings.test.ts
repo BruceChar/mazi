@@ -5,23 +5,23 @@ describe('run settings (global GoalContract defaults)', () => {
     it('starts from the documented defaults', () => {
         // 与执行器默认一致（50）：该值已真正写入契约，默认过小会截断复杂任务
         expect(runSettings.maxSteps).toBe(50);
-        expect(runSettings.loopMode).toBe('goal-plan-execute-reflect');
+        expect(runSettings.loopMode).toBe('default');
     });
 
     it('applies partial updates in memory', () => {
-        saveRunSettings({ maxSteps: 12, loopMode: 'react-only' });
+        saveRunSettings({ maxSteps: 12, loopMode: 'dynamic' });
         expect(runSettings.maxSteps).toBe(12);
-        expect(runSettings.loopMode).toBe('react-only');
+        expect(runSettings.loopMode).toBe('dynamic');
     });
 
     it('carries the per-workspace permission override onto the run payload', () => {
-        saveRunSettings({ budgetUsd: 1.5, maxSteps: 20, loopMode: 'goal-plan-execute' });
+        saveRunSettings({ budgetUsd: 1.5, maxSteps: 20, loopMode: 'default' });
         expect(goalFromRunSettings('hello', 'workspace-write')).toMatchObject({
             statement: 'hello',
             permissionCeiling: 'workspace-write',
             maxCostUsd: 1.5,
             maxSteps: 20,
-            loopMode: 'goal-plan-execute',
+            loopMode: 'default',
         });
         // Without an override the GoalContract default applies (the backend then
         // falls back to the system grant if the field is absent).

@@ -341,8 +341,8 @@ watch(
                     <div class="setting-info">
                         <div class="setting-name">Loop mode</div>
                         <div class="setting-desc">
-                            Execution loop used for new goals · 后端尚未消费：当前只有单一
-                            plan→execute 循环，复杂任务的契约协商未接线
+                            Execution loop used for new goals · default 为串行计划执行，
+                            dynamic 为 workflow 节点驱动（Think/Act/Observe/Reflect）
                         </div>
                     </div>
                     <select

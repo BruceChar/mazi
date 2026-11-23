@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     createGoalContractDraft,
     LOOP_MODES,
+    normalizeLoopMode,
     PERMISSION_LEVELS,
     toGoalContractPayload,
 } from '../src/scripts/goal-contract.ts';
@@ -9,7 +10,15 @@ import {
 describe('GoalContract defaults', () => {
     it('exposes the supported permission ceilings and loop modes', () => {
         expect(PERMISSION_LEVELS).toContain('read-only');
-        expect(LOOP_MODES.map((m) => m.value)).toContain('goal-plan-execute-reflect');
+        expect(LOOP_MODES.map((m) => m.value)).toEqual(['default', 'dynamic']);
+    });
+
+    it('旧 loop mode 归一为当前两种执行 loop', () => {
+        expect(normalizeLoopMode('goal-plan-execute-reflect')).toBe('default');
+        expect(normalizeLoopMode('goal-plan-execute')).toBe('default');
+        expect(normalizeLoopMode('react-only')).toBe('dynamic');
+        expect(normalizeLoopMode('dynamic')).toBe('dynamic');
+        expect(normalizeLoopMode(undefined)).toBe('default');
     });
 
     it('creates a fresh draft with the documented defaults', () => {
