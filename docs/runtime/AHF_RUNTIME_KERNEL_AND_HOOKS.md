@@ -32,7 +32,7 @@
 
 - **事件只追加、只通知**，永不承载控制决策；
 - **钩子只做决策与改写**，每次调用必须落一条审计事件；
-- **装配可逆**，任何注册都返回撤销函数，`dispose()` 逆序回收。
+- **装配可释放**：服务定义可带 `dispose`，`kernel.dispose()` 逆序释放；不提供 effect/inject 式可逆副作用。
 
 ---
 
@@ -140,7 +140,8 @@ kernel.start();
 
 - 服务状态机：`pending → loading → active → disposed`；`get()` 只返回 `active` 服务，否则抛带缺失链的错误。
 - 依赖按 `requires` 做拓扑实例化；缺失依赖或环依赖在 `start()` 阶段 fail-fast。
-- `effect(dispose)` 注册可逆副作用，`dispose()` 按注册逆序执行，单个失败不影响其余（错误回报 `onError`）。
+- `dispose()` 按实例化逆序调用服务 `dispose`，单个失败不影响其余（错误回报 `onError`）。
+  **不做** effect/inject 式可逆副作用：插件只注册能力服务，不往 kernel 注入需要撤销的副作用。
 - **不追求**替换 core loop：本期只把既有服务登记进 kernel，`HarnessRuntime` 仍是编排者；插件可替换"能力服务"，不可替换"治理服务"。
 
 ---

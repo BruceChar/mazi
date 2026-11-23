@@ -1,7 +1,7 @@
 /**
  * RuntimeKernel —— 最小装配容器（docs/runtime/AHF_RUNTIME_KERNEL_AND_HOOKS.md §5）。
  *
- * 只解决三件事：服务注册、依赖顺序、可逆注册。刻意保持同步：
+ * 只解决三件事：服务注册、依赖顺序、生命周期释放。刻意保持同步：
  * 当前所有服务都是构造期同步可得的；需要异步初始化时再引入 startAsync，
  * 避免把"装配"变成第二个隐式状态机。
  */
@@ -28,12 +28,10 @@ export class RuntimeKernel {
     private readonly instances = new Map<string, unknown>();
     private readonly states = new Map<string, KernelServiceState>();
     private readonly instantiationOrder: string[] = [];
-    private readonly effects: Array<{ id: number; dispose: () => void; revoked: boolean }> = [];
     private readonly onError: (error: unknown, context: string) => void;
 
     private started = false;
     private disposed = false;
-    private nextEffectId = 1;
 
     constructor(options: RuntimeKernelOptions = {}) {
         this.onError =
@@ -81,37 +79,10 @@ export class RuntimeKernel {
         return [...this.states.entries()].map(([name, state]) => ({ name, state }));
     }
 
-    /**
-     * 注册可逆副作用（prompt 片段、工具注册、监听器…）。
-     * 返回撤销函数：调用即回收，重复调用幂等。
-     */
-    effect(dispose: () => void): () => void {
-        if (this.disposed) throw new Error('kernel 已释放，不能再注册 effect');
-        const entry = { id: this.nextEffectId++, dispose, revoked: false };
-        this.effects.push(entry);
-        return () => {
-            if (entry.revoked) return;
-            entry.revoked = true;
-            try {
-                entry.dispose();
-            } catch (error) {
-                this.onError(error, `effect#${entry.id} revoke`);
-            }
-        };
-    }
-
-    /** 逆序回收：effects → 服务 dispose；单个失败隔离，继续处理其余。 */
+    /** 逆序释放服务；单个失败隔离，继续处理其余。 */
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
-        for (const entry of this.effects.splice(0).reverse()) {
-            if (entry.revoked) continue;
-            try {
-                entry.dispose();
-            } catch (error) {
-                this.onError(error, `effect#${entry.id} dispose`);
-            }
-        }
         for (const name of this.instantiationOrder.slice().reverse()) {
             const definition = this.definitions.get(name);
             const value = this.instances.get(name);

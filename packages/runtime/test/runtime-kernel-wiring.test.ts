@@ -28,19 +28,14 @@ describe('HarnessRuntime × RuntimeKernel（§5 接线）', () => {
         const dir = mkdtempSync(join(tmpdir(), 'mazi-kernel-'));
         dirs.push(dir);
         const runtime = new HarnessRuntime(runtimeConfig(dir), { workspaceRoot: dir });
-        let revoked = false;
         try {
             expect(runtime.kernel.stateOf('eventBus')).toBe('active');
             expect(runtime.kernel.stateOf('hooks')).toBe('active');
             expect(runtime.kernel.get('hooks')).toBe(runtime.hooks);
             expect(runtime.kernel.get('eventBus')).toBe(runtime.eventBus);
-            runtime.kernel.effect(() => {
-                revoked = true;
-            });
         } finally {
             await runtime.close();
         }
-        expect(revoked).toBe(true);
         expect(runtime.kernel.stateOf('hooks')).toBe('disposed');
         expect(() => runtime.kernel.get('hooks')).toThrow(/disposed/);
     });

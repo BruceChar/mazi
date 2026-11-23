@@ -59,19 +59,6 @@ describe('RuntimeKernel（§5 装配容器）', () => {
         expect(() => kernel.get('a')).not.toThrow();
     });
 
-    it('effect 逆序回收且撤销幂等', () => {
-        const order: string[] = [];
-        const kernel = new RuntimeKernel();
-        const revokeFirst = kernel.effect(() => order.push('first'));
-        kernel.effect(() => order.push('second'));
-        revokeFirst();
-        expect(order).toEqual(['first']);
-        revokeFirst();
-        expect(order).toEqual(['first']);
-        kernel.dispose();
-        expect(order).toEqual(['first', 'second']);
-    });
-
     it('dispose 逆序释放服务，单个失败隔离并继续', () => {
         const order: string[] = [];
         const errors: string[] = [];
