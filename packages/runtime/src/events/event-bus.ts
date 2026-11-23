@@ -280,7 +280,19 @@ export class DefaultEventBus implements EventBus {
                 }
             }
         }
-        return events.sort((a, b) => a.timestamp - b.timestamp || (a.seq ?? 0) - (b.seq ?? 0));
+        // 同一毫秒内的排序必须确定：会话边界事件恒在最外（started 最前、ended 最后），
+        // 再按各自 root 的 seq 兜底。否则 turn.ended 与 session.ended 会同毫秒竞争。
+        const boundaryRank = (type: string): number => {
+            if (type === 'session.started') return -1;
+            if (type === 'session.ended') return 1;
+            return 0;
+        };
+        return events.sort(
+            (a, b) =>
+                a.timestamp - b.timestamp ||
+                boundaryRank(a.type) - boundaryRank(b.type) ||
+                (a.seq ?? 0) - (b.seq ?? 0),
+        );
     }
 
     /** Verify the per-root hash chain without trusting the writer. */
