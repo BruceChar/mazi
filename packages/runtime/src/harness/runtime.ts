@@ -1,20 +1,23 @@
-import type { EventBus, Goal, NegotiationAnswer, PermissionLevel, Step, Task } from '@mazi/core';
-import { authz } from '@mazi/core';
+import type {
+    authz,
+    EventBus,
+    Goal,
+    NegotiationAnswer,
+    PermissionLevel,
+    Step,
+    Task,
+} from '@mazi/core';
 import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
 import {
     type AgentRole,
     type DelegationEdge,
     type DelegationProposal,
     resolveRoleSkillIds,
-    SuperAgent,
     type SuperAgentDecision,
     type SuperAgentInput,
 } from '../agent/index.js';
-import { DelegationStack } from '../agent/stack.js';
 import type { IterationTracker } from '../analysis/iteration-tracker.js';
-import { AnalysisStack } from '../analysis/stack.js';
 import type { TocAnalyst } from '../analysis/toc-analyst.js';
-import { loadCommandPolicy } from '../auth/command-policy.js';
 import type { ProjectBlackboard } from '../blackboard/index.js';
 import type { SkillProvider } from '../capabilities/runtime.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
@@ -24,10 +27,7 @@ import {
     newEffectRecord,
     snapshotFiles,
 } from '../effects/effect-store.js';
-import { emitFault } from '../events/emitters.js';
-import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
-import { StepEventEmitter } from '../events/step-events.js';
-import { DefaultFaultPipeline } from '../faults/index.js';
+import { newHarnessEvent } from '../events/index.js';
 import { applyNegotiationAnswers } from '../gts/negotiation.js';
 import {
     compileTaskPlan,
@@ -43,18 +43,16 @@ import {
     type TaskPlanner,
     type TaskPlannerHistoryEntry,
 } from '../gts/task-planner.js';
-import { HookRunner, SessionLifecycle } from '../hooks/index.js';
-import { RuntimeKernel } from '../kernel/index.js';
-import { RuntimePorts } from '../kernel/ports.js';
+import type { HookRunner } from '../hooks/index.js';
+import type { RuntimeKernel } from '../kernel/index.js';
+import type { RuntimePorts } from '../kernel/ports.js';
 import type { BehaviorMigrationResult } from '../memory/behavior-store.js';
 import type { FailureLedgerEntry, FailureLedgerQuery } from '../memory/failure-ledger.js';
 import type { GoalStore } from '../memory/goal-store.js';
-import { PersonalMemoryService } from '../memory/personal-memory.js';
+import type { PersonalMemoryService } from '../memory/personal-memory.js';
 import type { QuestionLabelInput, QuestionQuery } from '../memory/question-store.js';
 import type { MemoryItem } from '../memory/store.js';
 import { exportMemoryBundle, importMemoryBundle, type MemoryBundle } from '../memory/transfer.js';
-import { maziHome, maziPaths } from '../paths.js';
-import { memoryPlugin, PluginHost } from '../plugins/index.js';
 import {
     type AgentPromptId,
     type PromptPack,
@@ -65,30 +63,24 @@ import {
 } from '../prompts/index.js';
 import { modelIdOf, offeringIdOf, providerIdOf } from '../provider/catalog/contract.js';
 import type { CatalogService } from '../provider/catalog/service.js';
-import { RoundExecutor } from '../provider/index.js';
 import type { QuestionClassifier } from '../question/labeler.js';
 import type { QuestionTaxonomy } from '../question/taxonomy.js';
 import type { GoalRunResult } from '../strategy/goal-strategy.js';
-import { configureTokenizer } from '../token-estimator.js';
-import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
-import { RuntimeToolRegistry } from '../tool-gateway/registry.js';
-import { createConditionEnvironment } from '../verifier/environment.js';
-import { IndependentVerifier, type SemanticJudge } from '../verifier/index.js';
-import { ProjectWikiService, WikiService } from '../wiki/index.js';
+import type { SemanticJudge } from '../verifier/index.js';
+import {
+    ASSEMBLY_MODULES,
+    type AssemblyDeps,
+    type AssemblyHost,
+    assertAssemblyComplete,
+} from './assembly/modules.js';
 import type { FeedbackInput, RunOptions } from './conversation.js';
-import { buildLlmProviders, ModelResolver } from './model-resolver.js';
-import { RuntimeResources } from './resources.js';
 import { rollbackGoalEffects } from './rollback.js';
-import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
+import type { ModelRecoveryFn } from './round-runner.js';
 import { createRuntimeContext, type RuntimeContext } from './runtime-context.js';
 import { sessionContextFragment } from './session-context.js';
-import { SessionFactory } from './session-factory.js';
-import { SessionIntake } from './session-intake.js';
 import { assertInsideWorkspace } from './tool-configs.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
-import { ToolPlane } from './tool-plane.js';
 import { TRIAGE_TIMEOUT_MS, withTriageTimeout } from './triage-support.js';
-import { TurnEngine } from './turn-engine.js';
 
 /** 取值兜底：非有限数 → 0（花费回填的 token 字段）。 */
 function numberOf(value: unknown): number {
@@ -122,190 +114,25 @@ export class HarnessRuntime {
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.ctx = createRuntimeContext();
-        this.assembleCoreObjects(config, options);
-        this.assembleStores(config, options);
-        this.assembleServices(config, options);
-        this.assembleExecutors(config, options);
-        this.assembleKernel();
+        this.assembleAll({ config, options });
     }
 
-    /** P0/P1：纯值与纯对象，无 IO（事件总线、钩子、策略、注册表、委托栈壳）。 */
-    private assembleCoreObjects(config: RuntimeConfig, options: RunOptions): void {
-        this.ctx.session.sessionIds = new Map<string, string>();
-        this.ctx.session.intake = new SessionIntake();
-        this.ctx.session.running = new Map<string, AbortController>();
-        this.ctx.assembly.ports = new RuntimePorts();
-        this.ctx.assembly.approvalStore = new authz.InMemoryApprovalStore();
-        this.ctx.assembly.maxReplans = 2;
-        this.ctx.assembly.config = config;
-        this.ctx.assembly.commandPolicy = loadCommandPolicy(
-            config.authCommandPolicyFile ?? maziPaths().authCommandPolicyFile,
-        ).policy;
-        this.ctx.tools.registry = new RuntimeToolRegistry([
-            ...BUILTIN_TOOL_PRESET,
-            ...config.tools,
-        ]);
-        // P3 资源只建槽不 open：prompt pack 落库同样延迟到首次读写。
-        this.ctx.assembly.resources = new RuntimeResources(config);
-        this.ctx.assembly.promptPacks = this.ctx.assembly.resources.views.promptPacks;
-        this.ctx.intelligence.superAgent = new SuperAgent(this.ctx.assembly.promptPacks);
-        this.ctx.intelligence.verifier = new IndependentVerifier({
-            // Lazy workspace lookup: the root is assigned a few lines below.
-            environment: createConditionEnvironment(() => this.ctx.assembly.workspaceRoot),
-        });
-        // 委派栈含 SQLite 句柄：只建槽，首次访问角色/协调器时才打开。
-        this.ctx.delegation = this.ctx.assembly.resources
-            .addSlot(() => new DelegationStack(config))
-            .view();
-        configureTokenizer(config.tokenizerEncoding);
-        this.ctx.assembly.workspaceRoot = options.workspaceRoot;
-        this.ctx.assembly.ports.set('taskPlanner', options.taskPlanner);
-        this.ctx.assembly.taskPlanningByDefault =
-            options.taskPlanning === true || options.taskPlanner !== undefined;
-        this.ctx.observability.bus = new DefaultEventBus({
-            eventDir: config.eventDir,
-            sessionOf: (rootGoalId) => this.ctx.session.sessionIds.get(rootGoalId),
-        });
-        this.ctx.observability.hookRunner = new HookRunner({
-            emit: (event) => this.ctx.observability.bus.emit(event),
-        });
-        this.ctx.observability.lifecycle = new SessionLifecycle({
-            bus: this.ctx.observability.bus,
-            hooks: this.ctx.observability.hookRunner,
-            sessionIds: this.ctx.session.sessionIds,
-        });
-        this.ctx.observability.faultPipeline = new DefaultFaultPipeline({
-            emit: (type, fault, recovery) =>
-                emitFault(this.ctx.observability.bus, type, fault, recovery),
-        });
-    }
-
-    /** P3：SQLite 权威库与文件型服务（行为/问题/失败账本/目标/记忆/效果/黑板）。 */
-    private assembleStores(_config: RuntimeConfig, _options: RunOptions): void {
-        // 问题/行为统一入 SQLite 权威库；JSONL 目录降级为导出/迁移来源。
-        // 句柄由 RuntimeResources 延迟打开：本节只挂代理视图，构造期零 IO。
-        const views = this.ctx.assembly.resources.views;
-        this.ctx.memory.behaviorRecorder = views.behaviorRecorder;
-        this.ctx.memory.questionService = views.questionService;
-        this.ctx.memory.failureLedger = views.failureLedger;
-        this.ctx.observability.bus.subscribe(
-            { types: ['approval.requested', 'approval.granted', 'approval.cancelled'] },
-            {
-                id: 'behavior-recorder',
-                handle: (event) => {
-                    void this.ctx.memory.behaviorRecorder
-                        .handleApprovalEvent(event)
-                        .catch((error: unknown) => {
-                            process.stderr.write(`behavior capture error: ${String(error)}\n`);
-                        });
-                },
-            },
-        );
-        this.ctx.memory.goalStore = views.goalStore;
-        this.ctx.memory.memoryManager = views.memoryManager;
-        this.ctx.memory.personalMemory = new PersonalMemoryService(views.memoryManager);
-        this.ctx.memory.effectStore = views.effectStore;
-        this.ctx.memory.blackboard = views.blackboard;
-    }
-
-    /** P3：模型解析、step 事件、wiki 与分析栈（含 prompt pack 落库）。 */
-    private assembleServices(config: RuntimeConfig, options: RunOptions): void {
-        this.ctx.intelligence.resolver = new ModelResolver(
-            config,
-            buildLlmProviders(config, options),
-        );
-        this.ctx.observability.stepEvents = new StepEventEmitter(this.ctx.observability.bus);
-        this.ctx.memory.wiki = new WikiService({
-            home: maziHome(),
-            ...(options.workspaceRoot !== undefined ? { workspace: options.workspaceRoot } : {}),
-            ...(config.wiki ?? {}),
-        });
-        this.ctx.memory.projectWiki =
-            options.workspaceRoot !== undefined
-                ? new ProjectWikiService({ workspace: options.workspaceRoot })
-                : undefined;
-        this.ctx.intelligence.roundRunner = new RoundRunner({
-            bus: this.ctx.observability.bus,
-            executor: new RoundExecutor(),
-            resolver: this.ctx.intelligence.resolver,
-        });
-        this.ctx.analysis = this.ctx.assembly.resources
-            .addSlot(
-                () =>
-                    new AnalysisStack({
-                        ...(config.dbPath !== undefined ? { dbPath: config.dbPath } : {}),
-                        snapshotOf: (rootGoalId) => this.goalSnapshot(rootGoalId),
-                        requestRound: (rootGoalId, ctx, reasoningLevel) =>
-                            this.ctx.intelligence.roundRunner.requestRound(
-                                rootGoalId,
-                                ctx,
-                                reasoningLevel,
-                            ),
-                        resolveModelChoice: (modelId) =>
-                            this.ctx.intelligence.resolver.resolveModelChoice(modelId),
-                        systemPrompt: this.agentPrompt('iteration-analysis'),
-                    }),
-            )
-            .view();
-        if (config.consoleEnabled ?? false) {
-            this.ctx.observability.bus.subscribe({}, new ConsoleSink());
+    /** 按模块数组装配：顺序只表达创建先后；owned 校验兜底「删模块/加模块」。 */
+    private assembleAll(deps: AssemblyDeps): void {
+        const host = this.assemblyHost();
+        for (const module of ASSEMBLY_MODULES) {
+            if (module.enabled !== undefined && !module.enabled(deps)) continue;
+            module.create(this.ctx, deps, host);
         }
+        assertAssemblyComplete(this.ctx, ASSEMBLY_MODULES);
     }
 
-    /** P2：执行面接线（会话工厂、工具平面、TurnEngine 宿主）。 */
-    private assembleExecutors(_config: RuntimeConfig, _options: RunOptions): void {
-        this.ctx.session.factory = new SessionFactory({
-            intake: this.ctx.session.intake,
-            sessionIds: this.ctx.session.sessionIds,
+    /** 宿主能力桥：模块只能经这组闭包回调本类，不直接持有 HarnessRuntime。 */
+    private assemblyHost(): AssemblyHost {
+        return {
             beginSession: (sessionId) => this.beginSession(sessionId),
-            ...(this.ctx.assembly.workspaceRoot !== undefined
-                ? { workspaceRoot: this.ctx.assembly.workspaceRoot }
-                : {}),
-            config: this.ctx.assembly.config,
-            blackboard: this.ctx.memory.blackboard,
-            memoryManager: this.ctx.memory.memoryManager,
-            goalStoreDb: this.ctx.memory.goalStore,
-            behaviorRecorder: this.ctx.memory.behaviorRecorder,
-            labelQuestion: (questionId, text) =>
-                this.ctx.memory.questionService.label(questionId, text),
-            bus: this.ctx.observability.bus,
-            resolver: this.ctx.intelligence.resolver,
-            roundRunner: this.ctx.intelligence.roundRunner,
-            intentPrompt: () => this.agentPrompt('intent'),
-        });
-        this.ctx.tools.plane = new ToolPlane({
-            config: this.ctx.assembly.config,
-            toolRegistry: this.ctx.tools.registry,
-            ...(this.ctx.assembly.workspaceRoot !== undefined
-                ? { workspaceRoot: this.ctx.assembly.workspaceRoot }
-                : {}),
-            hooks: this.ctx.observability.hookRunner,
-            faults: this.ctx.observability.faultPipeline,
-            bus: this.ctx.observability.bus,
-            approvalStore: this.ctx.assembly.approvalStore,
-            commandPolicy: this.ctx.assembly.commandPolicy,
-            ...(this.ctx.memory.projectWiki !== undefined
-                ? { projectWiki: this.ctx.memory.projectWiki }
-                : {}),
-            wiki: this.ctx.memory.wiki,
-            blackboard: this.ctx.memory.blackboard,
-            delegationRoles: () => this.ctx.delegation.roles,
-            getSkillProvider: () => this.ctx.assembly.ports.get<SkillProvider>('skillProvider'),
-            getApprovalSeam: () => this.ctx.assembly.ports.get<authz.ApprovalSeam>('approvalSeam'),
-            execute: (tool, args, ctx, roots) => this.executeEffectful(tool, args, ctx, roots),
-            delegate: (input) =>
-                this.delegateAgents(
-                    input.rootGoalId,
-                    input.parentGoal,
-                    input.args,
-                    input.projectId,
-                    input.userId,
-                    input.delegationDepth,
-                ),
-        });
-        this.ctx.session.turns = new TurnEngine({
-            ctx: this.ctx,
             completeDirectGoal: (goal, answer) => this.completeDirectGoal(goal, answer),
+            goalSnapshot: (rootGoalId) => this.goalSnapshot(rootGoalId),
             generateTaskPlan: (rootGoalId, goal, model, reasoningLevel, history, tools, fragment) =>
                 this.generateTaskPlan(
                     rootGoalId,
@@ -318,80 +145,28 @@ export class HarnessRuntime {
                 ),
             systemPromptWithSkills: (rootGoalId, goalId, skillIds, promptFragment) =>
                 this.systemPromptWithSkills(rootGoalId, goalId, skillIds, promptFragment),
+            agentPrompt: (id) => this.agentPrompt(id),
             codingPromptFragment: (kind) => this.codingPromptFragment(kind),
             projectWikiPromptFragment: () => this.projectWikiPromptFragment(),
             ensureProjectWikiInitialized: () => this.ensureProjectWikiInitialized(),
-        });
+            executeEffectful: (tool, args, context, skillReadRoots) =>
+                this.executeEffectful(tool, args, context, skillReadRoots),
+            delegateAgents: (rootGoalId, parentGoal, args, projectId, userId, delegationDepth) =>
+                this.delegateAgents(
+                    rootGoalId,
+                    parentGoal,
+                    args,
+                    projectId,
+                    userId,
+                    delegationDepth,
+                ),
+            warn: (message) => this.warn(message),
+        };
     }
 
-    /** P2：装配容器与插件宿主（服务登记后启动）。 */
-    private assembleKernel(): void {
-        this.ctx.assembly.kernel = new RuntimeKernel();
-        this.ctx.assembly.kernel.provide({
-            name: 'eventBus',
-            create: () => this.ctx.observability.bus,
-        });
-        this.ctx.assembly.kernel.provide({
-            name: 'faults',
-            requires: ['eventBus'],
-            create: () => this.ctx.observability.faultPipeline,
-        });
-        this.ctx.assembly.kernel.provide({
-            name: 'hooks',
-            requires: ['eventBus'],
-            create: () => this.ctx.observability.hookRunner,
-        });
-        this.ctx.assembly.kernel.provide({
-            name: 'tools',
-            requires: ['eventBus'],
-            create: () => this.ctx.tools.registry,
-        });
-        this.ctx.assembly.plugins = new PluginHost({
-            kernel: this.ctx.assembly.kernel,
-            hooks: this.ctx.observability.hookRunner,
-            ports: this.ctx.assembly.ports,
-            eventBus: this.ctx.observability.bus,
-        });
-        void this.ctx.assembly.plugins
-            .install(memoryPlugin(this.ctx.memory.personalMemory))
-            .catch((error) => {
-                this.warn(`memory 插件安装失败：${error instanceof Error ? error.message : error}`);
-            });
-
-        this.ctx.assembly.kernel.provide({
-            name: 'memoryManager',
-            requires: ['memory'],
-            create: () => this.ctx.memory.memoryManager,
-        });
-        this.ctx.assembly.kernel.provide({
-            name: 'goalStore',
-            create: () => this.ctx.memory.goalStore,
-        });
-        this.ctx.assembly.kernel.provide({
-            name: 'behavior',
-            requires: ['eventBus'],
-            create: () => this.ctx.memory.behaviorRecorder,
-        });
-        this.ctx.assembly.kernel.provide({
-            name: 'wiki',
-            requires: ['eventBus'],
-            create: () => this.ctx.memory.wiki,
-        });
-        this.ctx.assembly.kernel.provide({
-            name: 'verifier',
-            create: () => this.ctx.intelligence.verifier,
-        });
-        this.ctx.assembly.kernel.provide({
-            name: 'planner',
-            create: () => this.ctx.session.factory,
-        });
-        this.ctx.assembly.kernel.provide({
-            name: 'toolPlane',
-            requires: ['eventBus', 'hooks', 'faults'],
-            create: () => this.ctx.tools.plane,
-        });
-        this.ctx.assembly.kernel.provide({ name: 'ports', create: () => this.ctx.assembly.ports });
-        this.ctx.assembly.kernel.start();
+    /** 诊断用：装配后的对象图（只读，勿改；测试校验 owned 完整性使用）。 */
+    get context(): RuntimeContext {
+        return this.ctx;
     }
 
     get eventBus(): EventBus {
