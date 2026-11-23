@@ -155,6 +155,7 @@ export function foldExperiment(events: readonly ExperimentEvent[]): ExperimentVi
         ...(spec.hypothesis !== undefined ? { hypothesis: spec.hypothesis } : {}),
         input: spec.input,
         ...(spec.workspace !== undefined ? { workspace: spec.workspace } : {}),
+        ...(spec.carryContext !== undefined ? { carryContext: spec.carryContext } : {}),
         baseline: spec.baseline,
         variables: spec.variables,
         arms: spec.arms.map((arm) => ({ label: arm.label, spec: arm, status: 'pending' as const })),

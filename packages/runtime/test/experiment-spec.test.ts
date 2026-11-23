@@ -19,6 +19,13 @@ describe('validateExperimentSpec', () => {
         expect(spec.arms.map((arm) => arm.label)).toEqual(['A', 'B']);
     });
 
+    it('carryContext 可选且必须是布尔值', () => {
+        expect(validateExperimentSpec({ ...base(), carryContext: true }).carryContext).toBe(true);
+        expect(() =>
+            validateExperimentSpec({ ...base(), carryContext: 'yes' }),
+        ).toThrow(/carryContext/);
+    });
+
     it('title/input 必填', () => {
         expect(() => validateExperimentSpec({ ...base(), title: '  ' })).toThrow(ExperimentSpecError);
         expect(() => validateExperimentSpec({ ...base(), input: '' })).toThrow(ExperimentSpecError);

@@ -40,6 +40,7 @@ export interface ExperimentMetricsView {
     loopMode?: 'default' | 'dynamic' | string;
     termination?: string;
     nodeCount?: number;
+    verification?: 'verified' | 'unverified';
 }
 
 export interface ExperimentArmSpecView {
@@ -93,6 +94,7 @@ export interface ExperimentView {
     hypothesis?: string;
     input: string;
     workspace?: string;
+    carryContext?: boolean;
     baseline: Record<string, unknown>;
     variables: ExperimentVariableView[];
     arms: ExperimentArmView[];
@@ -261,6 +263,7 @@ export function armConfigSummary(arm: ExperimentArmView): string {
     const loop = arm.metrics?.loopMode ?? arm.spec.loopMode;
     if (loop) parts.push('循环 ' + loop);
     if (arm.metrics?.termination) parts.push('终止 ' + arm.metrics.termination);
+    if (arm.metrics?.verification === 'unverified') parts.push('验收 未验证');
     if (arm.metrics?.nodeCount !== undefined) parts.push('节点 ' + arm.metrics.nodeCount);
     return parts.join(' · ');
 }
@@ -308,6 +311,8 @@ export interface ExperimentFormState {
     /** 两臂执行 loop：default / dynamic。 */
     loopA: string;
     loopB: string;
+    /** 是否把上一次运行的上下文带入两臂；默认 false = 干净上下文。 */
+    carryContext: boolean;
 }
 
 export interface ExperimentSpecDraft {
@@ -387,6 +392,7 @@ export function buildExperimentSpec(form: ExperimentFormState): ExperimentSpecDr
     };
     if (form.hypothesis.trim().length > 0) spec.hypothesis = form.hypothesis.trim();
     if (form.workspace.trim().length > 0) spec.workspace = form.workspace.trim();
+    spec.carryContext = form.carryContext;
     return { spec };
 }
 

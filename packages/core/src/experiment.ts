@@ -77,6 +77,8 @@ export interface ExperimentSpec {
     input: string;
     /** 同一工作区（可选；缺省用宿主当前工作区）。 */
     workspace?: string;
+    /** 是否把上一次运行的上下文（黑板/历史）带入两臂；缺省 false = 每臂干净上下文。 */
+    carryContext?: boolean;
     /** 控制变量：两臂共用。 */
     baseline: ExperimentBaseline;
     /** 自变量声明（至少一项）。 */
@@ -119,6 +121,8 @@ export interface ExperimentMetrics {
     termination?: string;
     /** loop 实际执行的节点数（default 缺省）。 */
     nodeCount?: number;
+    /** 验收态：unverified = 有最终答案但验收未通过/未完成，不等于运行失败。 */
+    verification?: 'verified' | 'unverified';
 }
 
 /** 单臂状态（含 Trace 指针 rootGoalId）。 */
@@ -145,6 +149,8 @@ export interface ExperimentView {
     hypothesis?: string;
     input: string;
     workspace?: string;
+    /** 实验级上下文策略：true = 两臂都继承上一轮上下文。 */
+    carryContext?: boolean;
     baseline: ExperimentBaseline;
     variables: ExperimentVariable[];
     arms: ExperimentArmState[];

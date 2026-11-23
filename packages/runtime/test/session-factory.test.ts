@@ -54,6 +54,24 @@ function buildFactory(): {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('SessionFactory', () => {
+    it('freshContext=true：不建黑板注入，memoryContext 标记 fresh', async () => {
+        const { factory, intake } = buildFactory();
+        const fresh = await factory.create('调研一个话题', {
+            workspaceRoot: '/tmp/mazi-fresh-workspace',
+            freshContext: true,
+        });
+        expect(intake.pendingBlackboard.has(fresh.rootGoalId)).toBe(false);
+        expect(intake.pendingMemoryContext.get(fresh.rootGoalId)?.fresh).toBe(true);
+
+        const carried = await factory.create('调研一个话题', {
+            workspaceRoot: '/tmp/mazi-carry-workspace',
+        });
+        expect(intake.pendingBlackboard.get(carried.rootGoalId)).toMatchObject({
+            workspace: '/tmp/mazi-carry-workspace',
+        });
+        expect(intake.pendingMemoryContext.get(carried.rootGoalId)?.fresh).toBeUndefined();
+    });
+
     it('创建会话立即落库并冻结契约，运行级输入先进 intake', async () => {
         const { factory, intake, goalStore } = buildFactory();
         const ids = await factory.create('把首页改成深色', {

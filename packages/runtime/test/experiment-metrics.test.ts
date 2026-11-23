@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GoalTreeSnapshot } from '@mazi/libs';
-import { collectMetrics, failedMetrics } from '../src/experiment/metrics.js';
+import { classifyArmResult, collectMetrics, failedMetrics } from '../src/experiment/metrics.js';
 
 function snapshotWith(steps: unknown[]): GoalTreeSnapshot {
     return {
@@ -85,6 +85,26 @@ describe('collectMetrics（口径与 Trace 看板一致）', () => {
         expect(metrics.status).toBe('aborted');
         expect(metrics.inputTokens).toBe(0);
         expect(metrics.models).toEqual([]);
+    });
+
+    it('classifyArmResult：有答案的 done-unverified/aborted-no-candidates 记为未验证而非失败', () => {
+        expect(classifyArmResult({ ok: true, answer: 'x' })).toEqual({
+            ok: true,
+            verification: 'verified',
+        });
+        expect(
+            classifyArmResult({ ok: false, answer: '已有答案', loop: { outcome: 'done-unverified' } }),
+        ).toEqual({ ok: true, verification: 'unverified', termination: 'done-unverified' });
+        expect(
+            classifyArmResult({
+                ok: false,
+                answer: '已有答案',
+                loop: { outcome: 'aborted-no-candidates' },
+            }),
+        ).toEqual({ ok: true, verification: 'unverified', termination: 'done-unverified' });
+        expect(
+            classifyArmResult({ ok: false, answer: '', loop: { outcome: 'aborted-budget' } }),
+        ).toEqual({ ok: false });
     });
 
     it('failedMetrics 兜底：保留错误文本与臂配置，便于仍做对照', () => {

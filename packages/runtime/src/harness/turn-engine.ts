@@ -101,7 +101,10 @@ export class TurnEngine {
             requestedSkills ??
             this.h.ctx.assembly.ports.get<SkillProvider>('skillProvider')?.mounted() ??
             [];
-        const projectWikiActive = this.h.ctx.memory.projectWiki !== undefined;
+        const memoryContext = this.h.ctx.session.intake.pendingMemoryContext.get(rootGoalId) ?? {};
+        this.h.ctx.session.intake.pendingMemoryContext.delete(rootGoalId);
+        const freshContext = memoryContext.fresh === true;
+        const projectWikiActive = !freshContext && this.h.ctx.memory.projectWiki !== undefined;
         const allowedToolsOverride = this.h.ctx.session.intake.pendingAllowedTools.get(rootGoalId);
         this.h.ctx.session.intake.pendingAllowedTools.delete(rootGoalId);
         const planProposal = this.h.ctx.session.intake.pendingPlanProposal.get(rootGoalId);
@@ -112,8 +115,6 @@ export class TurnEngine {
         this.h.ctx.session.intake.pendingTaskPlanning.delete(rootGoalId);
         const loopMode = this.h.ctx.session.intake.pendingLoopMode.get(rootGoalId) ?? 'default';
         this.h.ctx.session.intake.pendingLoopMode.delete(rootGoalId);
-        const memoryContext = this.h.ctx.session.intake.pendingMemoryContext.get(rootGoalId) ?? {};
-        this.h.ctx.session.intake.pendingMemoryContext.delete(rootGoalId);
         const explicitPromptPackIds =
             this.h.ctx.session.intake.pendingPromptPackIds.get(rootGoalId);
         this.h.ctx.session.intake.pendingPromptPackIds.delete(rootGoalId);
@@ -167,7 +168,7 @@ export class TurnEngine {
                   }
                 : undefined);
         const board =
-            blackboardContext !== undefined
+            !freshContext && blackboardContext !== undefined
                 ? await this.h.ctx.memory.blackboard.ensure(
                       blackboardContext.projectId,
                       blackboardContext.workspace,
@@ -256,7 +257,8 @@ export class TurnEngine {
             }),
         );
         // Runtime-owned Project Wiki supersedes the legacy MAZI_HOME snapshot.
-        const wikiFragment = projectWikiActive ? '' : this.h.ctx.memory.wiki.promptFragment();
+        const wikiFragment =
+            !freshContext && !projectWikiActive ? this.h.ctx.memory.wiki.promptFragment() : '';
         const projectWikiFragment = projectWikiActive
             ? this.h.projectWikiPromptFragment()
             : undefined;

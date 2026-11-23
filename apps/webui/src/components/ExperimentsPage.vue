@@ -93,6 +93,7 @@ const form = reactive({
     permissionB: 'draft',
     loopA: 'default',
     loopB: 'dynamic',
+    carryContext: false,
 });
 
 const selected = computed(() => {
@@ -388,6 +389,9 @@ function kpis(arm) {
         { label: '模型轮次', value: formatMetric(metrics.modelRounds, '') },
         { label: '总耗时', value: formatMetric(metrics.durationMs, 'ms') },
         { label: '首 token', value: formatMetric(metrics.ttftMs, 'ms') },
+        ...(metrics.verification !== undefined
+            ? [{ label: '验收', value: metrics.verification === 'unverified' ? '未验证' : '通过' }]
+            : []),
     ];
 }
 
@@ -552,6 +556,12 @@ function isLive(label) {
                             </select>
                         </label>
                     </div>
+                    <label class="check-line">
+                        <input v-model="form.carryContext" type="checkbox" />
+                        带上上一次运行的上下文
+                        <span class="muted">（默认关闭：两臂各自从干净上下文开始，不注入历史黑板/摘要）</span>
+                    </label>
+
                     <div class="create-actions">
                         <span class="hint">点运行后左右两窗同时前台执行；审批会实时弹出，不会卡在后台。</span>
                         <button class="btn primary" :disabled="experimentRunning" @click="submit">
@@ -596,6 +606,7 @@ function isLive(label) {
                             <span>{{ new Date(selected.createdAt).toLocaleString() }}</span>
                             <span v-if="selected.endedAt">· 用时 {{ formatMetric(selected.endedAt - selected.createdAt, 'ms') }}</span>
                             <span v-if="selected.workspace">· 工作区 {{ selected.workspace }}</span>
+                            <span>· 上下文 {{ selected.carryContext ? '携带上一轮' : '干净' }}</span>
                         </div>
                         <div v-if="selected.hypothesis" class="hypothesis">假设：{{ selected.hypothesis }}</div>
                         <div class="input-line">输入：{{ selected.input }}</div>
@@ -1080,6 +1091,17 @@ input:disabled {
     font-family: inherit;
     white-space: pre-wrap;
     word-break: break-word;
+}
+.check-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--fg-secondary);
+}
+.check-line input {
+    margin: 0;
 }
 .live-steps {
     list-style: none;

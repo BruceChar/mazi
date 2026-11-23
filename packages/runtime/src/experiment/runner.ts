@@ -21,7 +21,7 @@ import { compareArms, ulid } from '@mazi/core';
 import type { RunOptions } from '../harness/conversation.js';
 import type { HarnessRuntime } from '../harness/index.js';
 import { listExperiments, loadExperiment } from './fold.js';
-import { collectMetrics, failedMetrics } from './metrics.js';
+import { classifyArmResult, collectMetrics, failedMetrics } from './metrics.js';
 import type { ExperimentEventType, ExperimentStore } from './store.js';
 import { newExperimentEvent } from './store.js';
 
@@ -218,16 +218,28 @@ export class ExperimentRunner {
             const endedAt = this.now();
             const snapshot = await this.harness.goalSnapshot(rootGoalId);
             const last = result.tasks[result.tasks.length - 1];
+            const classified = classifyArmResult({
+                ok: result.ok,
+                answer: result.finalAnswer ?? last?.finalMessage,
+                ...(result.loop?.outcome !== undefined
+                    ? { loop: { outcome: result.loop.outcome } }
+                    : {}),
+            });
             const metrics = collectMetrics({
                 snapshot,
-                ok: result.ok,
+                ok: classified.ok,
+                ...(classified.verification !== undefined
+                    ? { verification: classified.verification }
+                    : {}),
                 ...(result.loop !== undefined
                     ? {
                           loop: {
                               mode: result.loop.mode,
-                              ...(result.loop.outcome !== undefined
-                                  ? { termination: result.loop.outcome }
-                                  : {}),
+                              ...(classified.termination !== undefined
+                                  ? { termination: classified.termination }
+                                  : result.loop.outcome !== undefined
+                                    ? { termination: result.loop.outcome }
+                                    : {}),
                               ...(result.loop.nodes !== undefined
                                   ? { nodeCount: result.loop.nodes }
                                   : {}),
@@ -299,6 +311,7 @@ export class ExperimentRunner {
             arm.reasoningLevel ?? effective?.reasoningLevel ?? baseline.reasoningLevel;
 
         const options: RunOptions = {
+            freshContext: spec.carryContext !== true,
             ...(modelId !== undefined ? { modelId } : {}),
             ...(loopMode !== undefined ? { loopMode } : {}),
             ...(permissionCeiling !== undefined ? { permissionCeiling } : {}),
@@ -343,5 +356,6 @@ export function specOfExperiment(view: ExperimentView): ExperimentSpec {
         arms: view.arms.map((arm) => arm.spec),
         ...(view.hypothesis !== undefined ? { hypothesis: view.hypothesis } : {}),
         ...(view.workspace !== undefined ? { workspace: view.workspace } : {}),
+        ...(view.carryContext !== undefined ? { carryContext: view.carryContext } : {}),
     };
 }

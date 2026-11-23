@@ -69,9 +69,10 @@ export class SessionFactory {
             ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
             ...(workspaceId !== undefined ? { workspaceId } : {}),
             ...(projectId !== undefined ? { projectId } : {}),
+            ...(opts.freshContext === true ? { fresh: true } : {}),
         };
         this.d.intake.pendingMemoryContext.set(rootGoalId, memoryContext);
-        if (projectId !== undefined && workspaceId !== undefined) {
+        if (opts.freshContext !== true && projectId !== undefined && workspaceId !== undefined) {
             if (opts.projectId !== undefined) {
                 this.d.intake.pendingProjectContext.set(rootGoalId, { workspace: workspaceId });
             }

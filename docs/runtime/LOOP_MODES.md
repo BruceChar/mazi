@@ -20,7 +20,9 @@ Think（选任务）→ Act（executeTask + 验收）→ Observe（pending→fac
 ```
 
 没有任何任务可执行（依赖失败）时，Think 把剩余 open 标记 failed，runner 以
-`done-unverified` 收尾，结果 `ok=false`。
+`done-unverified` 收尾，runtime 结果 `ok=false`（验收没过）。但在实验指标层，**已有最终答案**的
+`done-unverified` / `aborted-no-candidates` 记为 `succeeded + verification=unverified`，
+不按运行失败处理——否则有产出的臂会在 A/B 对比里被状态直接判负。
 
 ## 二、转移语义
 

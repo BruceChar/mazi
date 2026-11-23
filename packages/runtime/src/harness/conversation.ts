@@ -39,6 +39,11 @@ export interface RunOptions {
     conversationId?: string;
     /** 同一 Conversation 内此前轮次，作为本轮前置消息（共享上下文） */
     history?: ConversationTurn[];
+    /**
+     * 是否从干净上下文开始（实验默认 true）：不自动注入项目黑板/历史摘要。
+     * 黑板工具仍可按需显式调用，避免把上一次运行的结论当成本轮已知事实。
+     */
+    freshContext?: boolean;
     /** 推理强度（off/low/medium/high...），透传 provider 的 reasoningEffort */
     reasoningLevel?: string;
     /** 指定模型 id（provider 内 model id；缺省用 provider 默认模型） */

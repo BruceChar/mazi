@@ -32,6 +32,8 @@ export class SessionIntake {
             userId?: string;
             workspaceId?: string;
             projectId?: string;
+            /** 本次运行要求干净上下文：跳过黑板自动注入。 */
+            fresh?: boolean;
         }
     >();
     readonly pendingBlackboard = new Map<string, { projectId: string; workspace: string }>();

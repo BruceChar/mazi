@@ -25,6 +25,30 @@ export interface MetricsInput {
         termination?: string;
         nodeCount?: number;
     };
+    /** 有答案但验收未完成：succeeded + unverified，不按 failed 处理。 */
+    verification?: 'verified' | 'unverified';
+}
+
+/**
+ * 臂结局判定：区分「运行失败」与「有答案但未验收」。
+ * dynamic loop 的 aborted-no-candidates 常发生在预算/重试耗尽但已产出答案，
+ * 这类结果不能当作 failed，否则对照实验会把有产出的臂直接判负。
+ */
+export function classifyArmResult(input: {
+    ok: boolean;
+    answer?: string;
+    loop?: { outcome?: string };
+}): { ok: boolean; verification?: 'verified' | 'unverified'; termination?: string } {
+    const answer = (input.answer ?? '').trim();
+    const outcome = input.loop?.outcome;
+    if (input.ok) return { ok: true, verification: 'verified' };
+    if (
+        answer.length > 0 &&
+        (outcome === 'done-unverified' || outcome === 'aborted-no-candidates')
+    ) {
+        return { ok: true, verification: 'unverified', termination: 'done-unverified' };
+    }
+    return { ok: false };
 }
 
 function stepsOf(snapshot: GoalTreeSnapshot): StepView[] {
@@ -87,6 +111,7 @@ export function collectMetrics(input: MetricsInput): ExperimentMetrics {
         loopMode: input.loop?.mode ?? 'default',
         termination: input.loop?.termination ?? input.reason ?? status,
         ...(input.loop?.nodeCount !== undefined ? { nodeCount: input.loop.nodeCount } : {}),
+        ...(input.verification !== undefined ? { verification: input.verification } : {}),
     };
 }
 

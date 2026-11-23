@@ -157,6 +157,7 @@ function form(partial: Partial<import('../src/scripts/experiments.ts').Experimen
         permissionB: '',
         loopA: 'default',
         loopB: 'dynamic',
+        carryContext: false,
         ...partial,
     };
 }
@@ -186,6 +187,12 @@ describe('buildExperimentSpec（表单 → 实验定义）', () => {
         ]);
         expect(spec?.hypothesis).toBeUndefined();
         expect(spec?.workspace).toBeUndefined();
+        expect(spec?.carryContext).toBe(false);
+    });
+
+    it('carryContext 开关：默认干净上下文，勾选后显式携带', () => {
+        const { spec } = buildExperimentSpec(form({ carryContext: true }));
+        expect(spec?.carryContext).toBe(true);
     });
 
     it('model 自变量：两臂不同模型；可选字段按填写保留', () => {

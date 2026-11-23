@@ -155,5 +155,11 @@ export function validateExperimentSpec(input: unknown): ExperimentSpec {
     if (hypothesis !== undefined) spec.hypothesis = hypothesis;
     const workspace = optionalText(record.workspace);
     if (workspace !== undefined) spec.workspace = workspace;
+    if (record.carryContext !== undefined) {
+        if (typeof record.carryContext !== 'boolean') {
+            throw new ExperimentSpecError('carryContext 必须是布尔值');
+        }
+        spec.carryContext = record.carryContext;
+    }
     return spec;
 }
