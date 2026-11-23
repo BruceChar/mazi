@@ -137,6 +137,23 @@ export { ConsoleSink, DefaultEventBus, newHarnessEvent } from './events/event-bu
 
 // 对照实验（Experiment）：日志 / 折叠复盘 / 指标 / 执行器（docs/AB测试设计.md §5-§7）
 export * from './experiment/index.js';
+// 错误处置层（归一化 + 策略 + 管线；设计 docs/runtime/AHF_RUNTIME_FAULTS.md）
+export {
+    backoffDelay,
+    CODE_TO_KIND,
+    DefaultFaultPipeline,
+    type FaultContext,
+    type FaultDomainPolicy,
+    type FaultEventType,
+    type FaultPipeline,
+    type FaultPipelineDeps,
+    isEscalation,
+    isFatalSeverity,
+    kindFromCode,
+    parseCode,
+    toFault,
+    toFaultFromResult,
+} from './faults/index.js';
 // 特性开关（Feature）：定义持久化 + 运行期解析（docs/AB测试设计.md §3）
 export * from './features/index.js';
 export type {
