@@ -307,7 +307,7 @@ claim_oid = "62d8bfc7b0c654e1"
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "d37a9e9638af522fbbabde6eeb5a708e33e4e323" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "86770897dadf65349dd210dedabcc06b244df0c5" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "5e15611468c96198ec9229cc4e2402769796be9a" },
   { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
@@ -315,7 +315,7 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-23
-claim_oid = "a4685a6c7bdef143"
+claim_oid = "d37dbbd5ae25062b"
 
 [claims.webui-trace-audit-anchor]
 text = "The right-side Trace panel preserves an explicit audit anchor for the selected scope: Step anchors include R/T/S coordinates plus rootGoalId, goalId, taskId, stepId, timestamps and step/task status; Task and run scopes retain their corresponding IDs and timing. Contract, acceptance, context, token, cost and tool facts therefore remain attributable to the exact audited Step even though the conversation surface omits that audit metadata."
