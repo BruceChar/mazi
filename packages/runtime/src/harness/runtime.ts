@@ -1,4 +1,3 @@
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type {
     EventBus,
     Goal,
@@ -7,7 +6,6 @@ import type {
     PermissionLevel,
     Step,
     Task,
-    ToolSchema,
 } from '@mazi/core';
 import { authz, ulid } from '@mazi/core';
 import type { GoalTreeSnapshot, UserBehaviorView, UserQuestionView } from '@mazi/libs';
@@ -58,7 +56,6 @@ import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.j
 import { StepEventEmitter } from '../events/step-events.js';
 import { DefaultFaultPipeline, type FaultPipeline } from '../faults/index.js';
 import { rollupAcceptance } from '../gts/acceptance.js';
-import type { GoalToolInvoker } from '../gts/goal-executor.js';
 import {
     applyNegotiationAnswers,
     baselineConditions,
@@ -127,8 +124,6 @@ import { loadQuestionTaxonomy, type QuestionTaxonomy } from '../question/taxonom
 import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
 import { configureTokenizer } from '../token-estimator.js';
 import { BUILTIN_TOOL_PRESET } from '../tool-gateway/builtin.js';
-import { permissionForTool, RuntimeToolGateway } from '../tool-gateway/permission.js';
-import { RuntimePolicyAuditSink } from '../tool-gateway/policy-audit.js';
 import { RuntimeToolRegistry } from '../tool-gateway/registry.js';
 import { createConditionEnvironment } from '../verifier/environment.js';
 import {
@@ -142,8 +137,9 @@ import { conversationMessages, type FeedbackInput, type RunOptions } from './con
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { SessionIntake } from './session-intake.js';
+import { assertInsideWorkspace } from './tool-configs.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
-import { ToolInvoker } from './tool-invoker.js';
+import { ToolPlane } from './tool-plane.js';
 
 /** 取值兜底：非有限数 → 0（花费回填的 token 字段）。 */
 function numberOf(value: unknown): number {
@@ -268,6 +264,7 @@ export class HarnessRuntime {
     private catalogService?: CatalogService;
     /** 已挂载技能包的工具面（apps/api 注入；缺省 = 无技能）。 */
     private skillProvider?: SkillProvider;
+    private readonly toolPlane: ToolPlane;
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
@@ -397,6 +394,32 @@ export class HarnessRuntime {
         if (config.consoleEnabled ?? false) {
             this.bus.subscribe({}, new ConsoleSink());
         }
+        this.toolPlane = new ToolPlane({
+            config: this.config,
+            toolRegistry: this.toolRegistry,
+            ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
+            hooks: this.hookRunner,
+            faults: this.faultPipeline,
+            bus: this.bus,
+            approvalStore: this.approvalStore,
+            commandPolicy: this.commandPolicy,
+            ...(this.projectWiki !== undefined ? { projectWiki: this.projectWiki } : {}),
+            wiki: this.wiki,
+            blackboard: this.blackboard,
+            delegationRoles: this.delegationRoles,
+            getSkillProvider: () => this.skillProvider,
+            getApprovalSeam: () => this.approvalSeam,
+            execute: (tool, args, ctx, roots) => this.executeEffectful(tool, args, ctx, roots),
+            delegate: (input) =>
+                this.delegateAgents(
+                    input.rootGoalId,
+                    input.parentGoal,
+                    input.args,
+                    input.projectId,
+                    input.userId,
+                    input.delegationDepth,
+                ),
+        });
         this.serviceKernel = new RuntimeKernel();
         this.serviceKernel.provide({ name: 'eventBus', create: () => this.bus });
         this.serviceKernel.provide({
@@ -1004,18 +1027,21 @@ export class HarnessRuntime {
                 : undefined;
         const blackboardFragment =
             board !== undefined ? this.blackboard.promptFragment(board) : undefined;
-        const exec = this.goalExecutionConfig(
+        const exec = this.toolPlane.config({
             rootGoalId,
             goalId,
-            rootGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
-            sessionId,
-            allowedToolsOverride,
-            blackboardContext?.projectId,
-            rootGoal,
-            memoryContext.userId,
+            level:
+                rootGoal?.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only',
+            ...(sessionId !== undefined ? { sessionId } : {}),
+            ...(allowedToolsOverride !== undefined ? { allowedToolsOverride } : {}),
+            ...(blackboardContext?.projectId !== undefined
+                ? { projectId: blackboardContext.projectId }
+                : {}),
+            ...(rootGoal !== undefined ? { parentGoal: rootGoal } : {}),
+            ...(memoryContext.userId !== undefined ? { userId: memoryContext.userId } : {}),
             delegationDepth,
-            skillIds,
-        );
+            ...(skillIds.length > 0 ? { activeSkillIds: skillIds } : {}),
+        });
         const decision = this.superAgent.decide({
             ...(memoryContext.userId !== undefined ? { userId: memoryContext.userId } : {}),
             ...(blackboardContext?.projectId !== undefined
@@ -1618,143 +1644,6 @@ export class HarnessRuntime {
      * ToolSchema/执行器/白名单。supply 视图只暴露当前 permissionCeiling 允许的工具；
      * 白名单缺省 = 全部可见工具；显式空数组 = 纯对话（不注入工具 schema）。
      */
-    private goalExecutionConfig(
-        rootGoalId: string,
-        goalId: string,
-        level: PermissionLevel,
-        sessionId?: string,
-        allowedToolsOverride?: readonly string[],
-        projectId?: string,
-        parentGoal?: Goal,
-        userId?: string,
-        delegationDepth = 0,
-        activeSkillIds: readonly string[] = [],
-    ): {
-        tools: ToolSchema[];
-        invoker: GoalToolInvoker;
-        allowedTools: string[];
-        planTools: PlanTool[];
-        toolsetVersion: number;
-        toolsetDigest: string;
-    } {
-        // Each run pins one registry snapshot; dynamic registration affects future runs.
-        const toolSnapshot = this.toolRegistry.snapshot();
-        const skillReadRoots = this.skillReadRoots(rootGoalId, goalId, activeSkillIds);
-        const merged: ToolConfig[] = toolSnapshot.tools;
-        // Project Wiki is a runtime capability, independent of mounted skills.
-        if (this.projectWiki !== undefined) {
-            merged.push(projectWikiToolConfig(this.projectWiki));
-        } else if (this.wiki.enabled) {
-            merged.push(...wikiToolConfigs(this.wiki));
-        }
-        if (projectId !== undefined && this.workspaceRoot !== undefined) {
-            merged.push(...blackboardToolConfigs(this.blackboard, projectId, this.workspaceRoot));
-        }
-        if (parentGoal !== undefined && delegationDepth < 2) {
-            merged.push(
-                this.delegateToolConfig(rootGoalId, parentGoal, projectId, userId, delegationDepth),
-            );
-        }
-        const gateway = new RuntimeToolGateway({
-            rootGoalId,
-            goalId,
-            taskId: goalId,
-            level,
-            tools: merged,
-            execute: (tool, args, ctx) => this.executeEffectful(tool, args, ctx, skillReadRoots),
-            ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
-            audit: new RuntimePolicyAuditSink({ emit: (event) => this.bus.emit(event) }),
-            ...(this.approvalSeam ? { approval: this.approvalSeam } : {}),
-            approvalStore: this.approvalStore,
-            ...(sessionId !== undefined ? { sessionId } : {}),
-            commandPolicy: this.commandPolicy,
-        });
-        const visible = new Set(gateway.visibleToolNames());
-        const configured = this.config.goal?.allowedTools;
-        const visibleNames = configured === undefined ? merged.map((t) => t.name) : configured;
-        // 运行级白名单只收窄：与配置白名单取交集（显式空数组 = 本次不暴露任何工具）。
-        const names = (
-            allowedToolsOverride === undefined
-                ? visibleNames
-                : visibleNames.filter((name) => allowedToolsOverride.includes(name))
-        ).filter((name) => visible.has(name));
-        const tools: ToolSchema[] = merged
-            .filter((t) => names.includes(t.name))
-            .map((t) => ({
-                name: t.name,
-                description: t.description,
-                parameters: (t.parameters ?? undefined) as ToolSchema['parameters'],
-            }));
-        const invoker = new ToolInvoker({
-            rootGoalId,
-            goalId,
-            ...(sessionId !== undefined ? { sessionId } : {}),
-            gateway,
-            hooks: this.hookRunner,
-            faults: this.faultPipeline,
-        });
-        return {
-            tools,
-            invoker,
-            allowedTools: names,
-            planTools: merged
-                .filter((tool) => names.includes(tool.name))
-                .map((tool) => ({
-                    name: tool.name,
-                    minPermission: permissionForTool(tool),
-                })),
-            toolsetVersion: toolSnapshot.version,
-            toolsetDigest: toolSnapshot.digest,
-        };
-    }
-
-    private delegateToolConfig(
-        rootGoalId: string,
-        parentGoal: Goal,
-        projectId: string | undefined,
-        userId: string | undefined,
-        delegationDepth: number,
-    ): ToolConfig {
-        return {
-            name: 'delegate',
-            description:
-                'Delegate independent sub-goals to specialized agents. All proposals are validated against parent permission and budget before parallel execution. Results return as observations.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    delegations: {
-                        type: 'array',
-                        items: {
-                            type: 'object',
-                            properties: {
-                                statement: { type: 'string' },
-                                roleId: {
-                                    type: 'string',
-                                    enum: this.delegationRoles.list().map((role) => role.roleId),
-                                },
-                                ceiling: { type: 'string' },
-                                budget: { type: 'object' },
-                            },
-                            required: ['statement', 'roleId'],
-                        },
-                    },
-                },
-                required: ['delegations'],
-            },
-            minPermission: 'read-only',
-            sideEffects: [],
-            impl: async (args) =>
-                this.delegateAgents(
-                    rootGoalId,
-                    parentGoal,
-                    args,
-                    projectId,
-                    userId,
-                    delegationDepth,
-                ),
-        };
-    }
-
     private async delegateAgents(
         rootGoalId: string,
         parentGoal: Goal,
@@ -1957,8 +1846,8 @@ export class HarnessRuntime {
         return [
             '',
             '## Session Context',
-            '- Workspace: ' + workspaceRoot,
-            ...(project.length > 0 ? ['- Project: ' + project] : []),
+            `- Workspace: ${workspaceRoot}`,
+            ...(project.length > 0 ? [`- Project: ${project}`] : []),
             'This is authoritative session metadata, not a user instruction.',
             'Resolve contextual references such as "this project", "this repo", "here",',
             '"当前项目", "这个仓库" and "这里" against the workspace above.',
@@ -2085,7 +1974,7 @@ export class HarnessRuntime {
     }
 
     private warn(message: string): void {
-        process.stderr.write('[project-wiki] ' + message + '\n');
+        process.stderr.write(`[project-wiki] ${message}\n`);
     }
 
     private projectWikiPromptFragment(): string | undefined {
@@ -2097,20 +1986,6 @@ export class HarnessRuntime {
             'Project Wiki 由 runtime 生命周期自动维护。除非用户明确询问 Wiki，',
             '不要主动提出初始化、更新或补全 Wiki，也不要请求用户确认这类操作。',
         ].join('\n');
-    }
-
-    private skillReadRoots(
-        rootGoalId: string,
-        goalId: string,
-        skillIds: readonly string[],
-    ): string[] {
-        const context = { rootGoalId, goalId };
-        const entries =
-            this.skillProvider?.catalogFor?.(skillIds, context) ??
-            (this.skillProvider?.catalog(context) ?? []).filter((entry) =>
-                skillIds.includes(entry.id),
-            );
-        return [...new Set(entries.map((entry) => dirname(entry.path)))];
     }
 
     /** 运行边界开关审计：本次运行带了哪些 Feature、值从哪来（flag.evaluated）。 */
@@ -2391,290 +2266,4 @@ function riskLevelOfGoal(goal: Goal | undefined): PromptRiskLevel {
         return 'workspace-write';
     }
     return 'read-only';
-}
-
-function blackboardToolConfigs(
-    blackboard: ProjectBlackboardService,
-    projectId: string,
-    workspace: string,
-): ToolConfig[] {
-    return [
-        {
-            name: 'blackboard.read',
-            description:
-                'Read the current project blackboard. Use summary/architecture/status/issues/decisions for the relevant section instead of rescanning the entire repository.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    section: {
-                        type: 'string',
-                        enum: ['summary', 'architecture', 'status', 'issues', 'decisions', 'all'],
-                    },
-                },
-            },
-            minPermission: 'read-only',
-            sideEffects: [],
-            impl: async (args) => {
-                const board = await blackboard.ensure(projectId, workspace);
-                const section =
-                    args.section === 'summary' ||
-                    args.section === 'architecture' ||
-                    args.section === 'status' ||
-                    args.section === 'issues' ||
-                    args.section === 'decisions'
-                        ? args.section
-                        : 'all';
-                return {
-                    ok: true,
-                    content: blackboard.read(board, section),
-                };
-            },
-        },
-    ];
-}
-
-function projectWikiToolConfig(projectWiki: ProjectWikiService): ToolConfig {
-    return {
-        name: 'project_wiki',
-        description:
-            'Maintain the Git-backed Project Wiki. Use structured actions; claims and oids are computed by runtime. Corrected facts must use claim_correct and removed facts use claim_forget.',
-        parameters: {
-            type: 'object',
-            properties: {
-                action: {
-                    type: 'string',
-                    enum: [
-                        'write_doc',
-                        'claim_add',
-                        'claim_update',
-                        'claim_correct',
-                        'claim_forget',
-                        'claim_verify',
-                        'doctor',
-                        'update_plan',
-                        'checkpoint',
-                    ],
-                },
-                path: {
-                    type: 'string',
-                    description: 'Wiki-relative Markdown path for write_doc.',
-                },
-                content: {
-                    type: 'string',
-                    description: 'Complete Markdown content for write_doc.',
-                },
-                id: {
-                    type: 'string',
-                    description: 'Claim id for claim_update / claim_correct / claim_forget.',
-                },
-                newId: {
-                    type: 'string',
-                    description: 'Replacement claim id for claim_correct.',
-                },
-                text: {
-                    type: 'string',
-                    description: 'Claim text for claim_add / claim_update / claim_correct.',
-                },
-                reason: {
-                    type: 'string',
-                    description: 'Required audit reason for claim_correct / claim_forget.',
-                },
-                evidence: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    description: 'Repository-relative evidence files.',
-                },
-                ids: {
-                    type: 'array',
-                    items: { type: 'string' },
-                    description: 'Claim ids for batched verification.',
-                },
-                all: {
-                    type: 'boolean',
-                    description: 'Verify all active claims.',
-                },
-                changed: {
-                    type: 'boolean',
-                    description: 'Verify claims affected by the current incremental plan.',
-                },
-            },
-            required: ['action'],
-        },
-        minPermission: 'draft',
-        sideEffects: ['fs'],
-        impl: async (args) => {
-            try {
-                const action = typeof args.action === 'string' ? args.action : '';
-                const evidence = Array.isArray(args.evidence)
-                    ? args.evidence.filter(
-                          (item): item is string => typeof item === 'string' && item.length > 0,
-                      )
-                    : [];
-                const ids = Array.isArray(args.ids)
-                    ? args.ids.filter((item): item is string => typeof item === 'string')
-                    : [];
-                if (action === 'write_doc') {
-                    if (typeof args.path !== 'string' || typeof args.content !== 'string') {
-                        return { ok: false, error: 'write_doc 需要 path 和 content' };
-                    }
-                    const result = await projectWiki.writeDoc(args.path, args.content);
-                    return { ok: result.ok, content: result.message };
-                }
-                if (action === 'claim_add') {
-                    const result = await projectWiki.addClaim({
-                        id: typeof args.id === 'string' ? args.id : '',
-                        text: typeof args.text === 'string' ? args.text : '',
-                        evidence: evidence.map((file) => ({ file })),
-                    });
-                    return { ok: result.ok, content: result.message };
-                }
-                if (action === 'claim_update') {
-                    const result = await projectWiki.updateClaim({
-                        id: typeof args.id === 'string' ? args.id : '',
-                        ...(typeof args.text === 'string' ? { text: args.text } : {}),
-                        ...(evidence.length > 0
-                            ? { evidence: evidence.map((file) => ({ file })) }
-                            : {}),
-                    });
-                    return { ok: result.ok, content: result.message };
-                }
-                if (action === 'claim_correct') {
-                    const result = await projectWiki.correctClaim({
-                        oldId: typeof args.id === 'string' ? args.id : '',
-                        newId: typeof args.newId === 'string' ? args.newId : '',
-                        text: typeof args.text === 'string' ? args.text : '',
-                        evidence: evidence.map((file) => ({ file })),
-                        reason: typeof args.reason === 'string' ? args.reason : '',
-                    });
-                    return { ok: result.ok, content: result.message };
-                }
-                if (action === 'claim_forget') {
-                    const result = await projectWiki.forgetClaim({
-                        id: typeof args.id === 'string' ? args.id : '',
-                        reason: typeof args.reason === 'string' ? args.reason : '',
-                    });
-                    return { ok: result.ok, content: result.message };
-                }
-                if (action === 'claim_verify') {
-                    const result = await projectWiki.verifyClaims({
-                        ...(ids.length > 0 ? { ids } : {}),
-                        all: args.all === true,
-                        changed: args.changed === true,
-                    });
-                    return { ok: result.ok, content: result.message };
-                }
-                if (action === 'doctor') {
-                    const report = await projectWiki.doctor();
-                    return { ok: report.missing === 0, content: JSON.stringify(report) };
-                }
-                if (action === 'update_plan') {
-                    const plan = await projectWiki.updatePlan();
-                    return { ok: true, content: JSON.stringify(plan) };
-                }
-                if (action === 'checkpoint') {
-                    const result = await projectWiki.checkpoint();
-                    return { ok: result.ok, content: result.message };
-                }
-                return { ok: false, error: `不支持的 Project Wiki action: ${action}` };
-            } catch (error) {
-                return {
-                    ok: false,
-                    error: error instanceof Error ? error.message : String(error),
-                };
-            }
-        },
-    };
-}
-
-function assertInsideWorkspace(workspaceRoot: string, path: string): void {
-    const root = resolve(workspaceRoot);
-    const target = resolve(isAbsolute(path) ? path : resolve(root, path));
-    const rel = relative(root, target);
-    if (rel.startsWith('..') || isAbsolute(rel)) {
-        throw new Error(`路径越出工作区：${path}`);
-    }
-}
-
-/**
- * 项目 wiki 的内置工具面（设计 §9）：
- * - wiki.read：读快照/变更日志（只读，免审批）；
- * - wiki.update：替换快照 / 追加条目（写能力，走既有判权与审批）。
- */
-function wikiToolConfigs(wiki: WikiService): ToolConfig[] {
-    return [
-        {
-            name: 'wiki.read',
-            description:
-                'Read the project wiki (state snapshot + change log). Prefer this over re-scanning the repository when you need the latest project status.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    section: {
-                        type: 'string',
-                        enum: ['snapshot', 'log', 'all'],
-                        description:
-                            'snapshot = project state (default); log = change entries; all = both',
-                    },
-                    limit: {
-                        type: 'number',
-                        description: 'Max change-log entries to return (default: all)',
-                    },
-                },
-            },
-            minPermission: 'read-only',
-            sideEffects: [],
-            impl: async (args) => {
-                const section = args.section;
-                const result = wiki.readForTool({
-                    ...(section === 'snapshot' || section === 'log' || section === 'all'
-                        ? { section }
-                        : {}),
-                    ...(typeof args.limit === 'number' ? { limit: args.limit } : {}),
-                });
-                return result.ok
-                    ? { ok: true, content: result.content ?? '' }
-                    : { ok: false, error: result.error ?? 'wiki.read failed' };
-            },
-        },
-        {
-            name: 'wiki.update',
-            description:
-                'Update the project wiki: replace the state snapshot and/or append functional-level change entries (one short line each, no file names). Use at the end of a session that changed the project.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    snapshot: {
-                        type: 'string',
-                        description:
-                            'Full markdown snapshot; must contain at least one "## " section (概览/结构与模块/模块职责/进行中的工作/约定与注意)',
-                    },
-                    entries: {
-                        type: 'array',
-                        items: { type: 'string' },
-                        description:
-                            'Functional-level change descriptions, e.g. "新增项目 wiki 的读取与上下文注入"',
-                    },
-                },
-            },
-            minPermission: 'draft',
-            sideEffects: ['fs'],
-            impl: async (args) => {
-                const result = await wiki.updateForTool({
-                    ...(typeof args.snapshot === 'string' ? { snapshot: args.snapshot } : {}),
-                    ...(typeof args.entries === 'string'
-                        ? { entries: args.entries }
-                        : Array.isArray(args.entries)
-                          ? {
-                                entries: args.entries.filter(
-                                    (item): item is string => typeof item === 'string',
-                                ),
-                            }
-                          : {}),
-                });
-                return result.ok
-                    ? { ok: true, content: result.content ?? '' }
-                    : { ok: false, error: result.error ?? 'wiki.update failed' };
-            },
-        },
-    ];
 }
