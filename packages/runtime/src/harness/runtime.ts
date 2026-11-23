@@ -25,7 +25,6 @@ import type { SkillProvider } from '../capabilities/runtime.js';
 import type { RuntimeConfig, ToolCallResult, ToolConfig } from '../config.js';
 import {
     type EffectRecord,
-    type EffectStore,
     effectPathsForTool,
     MemoryEffectStore,
     newEffectRecord,
@@ -35,7 +34,7 @@ import {
 import { emitFault } from '../events/emitters.js';
 import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.js';
 import { StepEventEmitter } from '../events/step-events.js';
-import { DefaultFaultPipeline, type FaultPipeline } from '../faults/index.js';
+import { DefaultFaultPipeline } from '../faults/index.js';
 import { applyNegotiationAnswers } from '../gts/negotiation.js';
 import {
     compileTaskPlan,
@@ -62,7 +61,6 @@ import {
 import {
     type FailureLedgerEntry,
     type FailureLedgerQuery,
-    type FailureLedgerStore,
     SqliteFailureLedger,
 } from '../memory/failure-ledger.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
@@ -101,6 +99,7 @@ import type { FeedbackInput, RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { rollbackGoalEffects } from './rollback.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
+import { createRuntimeContext, type RuntimeContext } from './runtime-context.js';
 import { sessionContextFragment } from './session-context.js';
 import { SessionFactory } from './session-factory.js';
 import { SessionIntake } from './session-intake.js';
@@ -134,124 +133,68 @@ function _goalRunSummary(result: GoalRunResult): string {
  */
 /** 允许 hook patch 传入的纯记录（拒绝数组 / null）。 */
 export class HarnessRuntime {
-    private readonly bus: DefaultEventBus;
-    /** 控制面入口：钩子注册与调用（事件审计由 HookRunner 统一落盘）。 */
-    private readonly hookRunner: HookRunner;
-    /** 服务装配容器：注册/依赖顺序/可逆 effect（docs/.../§5）。 */
-    private readonly serviceKernel: RuntimeKernel;
-    /** 能力接入点登记表：宿主 setter 与插件都经此登记。 */
-    private readonly ports = new RuntimePorts();
-    /** 插件宿主：能力以插件形式装入/卸下（memory 为首个插件）。 */
-    private readonly plugins: PluginHost;
-    /** rootGoalId → conversationId（事件会话归因；进程内保留，量级=运行过的轮次）。 */
-    private readonly sessionIds = new Map<string, string>();
-    /** 会话/轮次生命周期（事件 + 钩子边界）。 */
-    private readonly lifecycle: SessionLifecycle;
-    private readonly goalStoreDb: GoalStore;
-    private readonly resolver: ModelResolver;
-    /** LLM provider 池（triage 无显式模型时取第一个可用 provider 的默认模型）。 */
-    private readonly stepEvents: StepEventEmitter;
-    private readonly roundRunner: RoundRunner;
-    /** Runtime-native Git-backed Project Wiki lifecycle. */
-    private readonly projectWiki: ProjectWikiService | undefined;
-    /** Legacy MAZI_HOME wiki retained only for compatibility with non-project runs. */
-    private readonly wiki: WikiService;
-    /** TOC/Iterations 独立存储与编排（不进 Goal 坐标系） */
-    /** 分析栈：TOC 冻结分析与 Iterations 记录（独立于 Goal 坐标系）。 */
-    private readonly analysis: AnalysisStack;
-    private readonly config: RuntimeConfig;
-    private readonly workspaceRoot?: string;
-    /** Human-in-the-loop approval seam; absent → runtime gateway uses the standing ceiling approval. */
-    private approvalSeam?: authz.ApprovalSeam;
-    /** 进程级 session/workspace 审批授权：绑定具体操作，跨 run 复用。 */
-    private readonly approvalStore = new authz.InMemoryApprovalStore();
-    /** 命令分类规则（运行时从配置加载；未命中规则走 shell.run 默认）。 */
-    private readonly commandPolicy: authz.CommandPolicy;
-    /** Versioned catalogue; each run pins one immutable snapshot. */
-    private readonly toolRegistry: RuntimeToolRegistry;
-    private readonly promptPacks: PromptPackRegistry;
-    private readonly superAgent: SuperAgent;
-    private readonly verifier: IndependentVerifier;
-    /** 委派栈：角色注册表 + 委派记录 + 协调器。 */
-    private readonly delegation: DelegationStack;
-    private replanPlanner?: ReplanPlanner;
-    private taskPlanner?: TaskPlanner;
-    private taskPlanningByDefault: boolean;
-    private maxReplans = 2;
-    /** 长期记忆调度组合根（有 dbPath 时跨进程持久化）。 */
-    private readonly memoryManager: MemoryManager;
-    private readonly personalMemory: PersonalMemoryService;
-    /** Reversible workspace effect journal (snapshots only explicitly scoped file writes). */
-    private readonly effectStore: EffectStore;
-    private readonly blackboard: ProjectBlackboardService;
-    /** 用户行为流权威库（SQLite；缺 dbPath 时进程内）。 */
-    /** 用户行为指令记录器（输入/反馈/审批；行为流 append-only）。 */
-    private readonly behaviorRecorder: BehaviorRecorder;
-    /** 用户问题与标签存储（问题实体 + 标签；与行为库同一 DB 文件）。 */
-    private readonly questionService: QuestionService;
-    /** 问题标注器（规则同步 + LLM 精标 seam）。 */
-    /** 问题标签分类法（注册表）。 */
-    /** 失败分类账（Task 终态失败事实；只追加）。 */
-    private readonly failureLedger: FailureLedgerStore;
-    /** 会话输入侧状态（create → execute 之间传递；见 session-intake）。 */
-    private readonly intake = new SessionIntake();
-    /** 错误处置层（唯一入口；见 docs/runtime/AHF_RUNTIME_FAULTS.md）。 */
-    private readonly faultPipeline: FaultPipeline;
-
-    /** 运行中的 Goal 树 → 协作式停止控制器（stop 生效、进程内互斥）。 */
-    private readonly running = new Map<string, AbortController>();
-    /** JSONL→DB 迁移单飞（构造器与显式调用共享同一 Promise）。 */
-    /** 接入后的目录账本（花费回填等一次性遍历用）。 */
-    private catalogService?: CatalogService;
-    /** 已挂载技能包的工具面（apps/api 注入；缺省 = 无技能）。 */
-    private skillProvider?: SkillProvider;
-    private readonly toolPlane: ToolPlane;
-    private readonly sessions: SessionFactory;
-    private readonly turns: TurnEngine;
+    /**
+     * 按平面分组的运行时对象图（观测/智能/工具/会话/记忆/分析/委派/装配）。
+     * 所有协作者与运行期接入点都从这里取，本类不再逐项持有。
+     */
+    private readonly ctx: RuntimeContext;
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
-        this.config = config;
-        this.commandPolicy = loadCommandPolicy(
+        this.ctx = createRuntimeContext();
+        this.ctx.session.sessionIds = new Map<string, string>();
+        this.ctx.session.intake = new SessionIntake();
+        this.ctx.session.running = new Map<string, AbortController>();
+        this.ctx.assembly.ports = new RuntimePorts();
+        this.ctx.assembly.approvalStore = new authz.InMemoryApprovalStore();
+        this.ctx.assembly.maxReplans = 2;
+        this.ctx.assembly.config = config;
+        this.ctx.assembly.commandPolicy = loadCommandPolicy(
             config.authCommandPolicyFile ?? maziPaths().authCommandPolicyFile,
         ).policy;
-        this.toolRegistry = new RuntimeToolRegistry([...BUILTIN_TOOL_PRESET, ...config.tools]);
-        this.promptPacks = new PromptPackRegistry(
+        this.ctx.tools.registry = new RuntimeToolRegistry([
+            ...BUILTIN_TOOL_PRESET,
+            ...config.tools,
+        ]);
+        this.ctx.assembly.promptPacks = new PromptPackRegistry(
             undefined,
             config.dbPath !== undefined
                 ? new SqlitePromptPackStore(config.dbPath)
                 : new MemoryPromptPackStore(),
         );
-        this.superAgent = new SuperAgent(this.promptPacks);
-        this.verifier = new IndependentVerifier({
+        this.ctx.intelligence.superAgent = new SuperAgent(this.ctx.assembly.promptPacks);
+        this.ctx.intelligence.verifier = new IndependentVerifier({
             // Lazy workspace lookup: the root is assigned a few lines below.
-            environment: createConditionEnvironment(() => this.workspaceRoot),
+            environment: createConditionEnvironment(() => this.ctx.assembly.workspaceRoot),
         });
-        this.delegation = new DelegationStack(config);
+        this.ctx.delegation = new DelegationStack(config);
         configureTokenizer(config.tokenizerEncoding);
-        this.workspaceRoot = options.workspaceRoot;
-        this.taskPlanner = options.taskPlanner;
-        this.taskPlanningByDefault =
+        this.ctx.assembly.workspaceRoot = options.workspaceRoot;
+        this.ctx.assembly.taskPlanner = options.taskPlanner;
+        this.ctx.assembly.taskPlanningByDefault =
             options.taskPlanning === true || options.taskPlanner !== undefined;
-        this.bus = new DefaultEventBus({
+        this.ctx.observability.bus = new DefaultEventBus({
             eventDir: config.eventDir,
-            sessionOf: (rootGoalId) => this.sessionIds.get(rootGoalId),
+            sessionOf: (rootGoalId) => this.ctx.session.sessionIds.get(rootGoalId),
         });
-        this.hookRunner = new HookRunner({ emit: (event) => this.bus.emit(event) });
-        this.lifecycle = new SessionLifecycle({
-            bus: this.bus,
-            hooks: this.hookRunner,
-            sessionIds: this.sessionIds,
+        this.ctx.observability.hookRunner = new HookRunner({
+            emit: (event) => this.ctx.observability.bus.emit(event),
         });
-        this.faultPipeline = new DefaultFaultPipeline({
-            emit: (type, fault, recovery) => emitFault(this.bus, type, fault, recovery),
+        this.ctx.observability.lifecycle = new SessionLifecycle({
+            bus: this.ctx.observability.bus,
+            hooks: this.ctx.observability.hookRunner,
+            sessionIds: this.ctx.session.sessionIds,
+        });
+        this.ctx.observability.faultPipeline = new DefaultFaultPipeline({
+            emit: (type, fault, recovery) =>
+                emitFault(this.ctx.observability.bus, type, fault, recovery),
         });
         // 问题/行为统一入 SQLite 权威库；JSONL 目录降级为导出/迁移来源。
         const behaviorStore =
             config.dbPath !== undefined
                 ? new SqliteBehaviorStore(config.dbPath)
                 : new MemoryBehaviorStore();
-        this.behaviorRecorder = new BehaviorRecorder(behaviorStore);
-        this.questionService = new QuestionService({
+        this.ctx.memory.behaviorRecorder = new BehaviorRecorder(behaviorStore);
+        this.ctx.memory.questionService = new QuestionService({
             ...(config.dbPath !== undefined ? { dbPath: config.dbPath } : {}),
             taxonomyFile: config.questionTaxonomyFile ?? maziPaths().questionTaxonomyFile,
         });
@@ -260,13 +203,13 @@ export class HarnessRuntime {
                 process.stderr.write(`behavior migration error: ${String(error)}\n`);
             });
         }
-        this.failureLedger = new SqliteFailureLedger(config.dbPath ?? ':memory:');
-        this.bus.subscribe(
+        this.ctx.memory.failureLedger = new SqliteFailureLedger(config.dbPath ?? ':memory:');
+        this.ctx.observability.bus.subscribe(
             { types: ['approval.requested', 'approval.granted', 'approval.cancelled'] },
             {
                 id: 'behavior-recorder',
                 handle: (event) => {
-                    void this.behaviorRecorder
+                    void this.ctx.memory.behaviorRecorder
                         .handleApprovalEvent(event)
                         .catch((error: unknown) => {
                             process.stderr.write(`behavior capture error: ${String(error)}\n`);
@@ -274,78 +217,89 @@ export class HarnessRuntime {
                 },
             },
         );
-        this.goalStoreDb = new SqliteGoalStore(config.dbPath ?? ':memory:');
-        this.memoryManager = new MemoryManager(
+        this.ctx.memory.goalStore = new SqliteGoalStore(config.dbPath ?? ':memory:');
+        this.ctx.memory.memoryManager = new MemoryManager(
             config.dbPath !== undefined ? { store: new SqliteMemoryStore(config.dbPath) } : {},
         );
-        this.personalMemory = new PersonalMemoryService(this.memoryManager);
-        this.effectStore =
+        this.ctx.memory.personalMemory = new PersonalMemoryService(this.ctx.memory.memoryManager);
+        this.ctx.memory.effectStore =
             config.dbPath !== undefined
                 ? new SqliteEffectStore(config.dbPath)
                 : new MemoryEffectStore();
-        this.blackboard = new ProjectBlackboardService(
+        this.ctx.memory.blackboard = new ProjectBlackboardService(
             config.dbPath !== undefined
                 ? new SqliteBlackboardStore(config.dbPath)
                 : new MemoryBlackboardStore(),
         );
-        this.resolver = new ModelResolver(config, buildLlmProviders(config, options));
-        this.stepEvents = new StepEventEmitter(this.bus);
-        this.wiki = new WikiService({
+        this.ctx.intelligence.resolver = new ModelResolver(
+            config,
+            buildLlmProviders(config, options),
+        );
+        this.ctx.observability.stepEvents = new StepEventEmitter(this.ctx.observability.bus);
+        this.ctx.memory.wiki = new WikiService({
             home: maziHome(),
             ...(options.workspaceRoot !== undefined ? { workspace: options.workspaceRoot } : {}),
             ...(config.wiki ?? {}),
         });
-        this.projectWiki =
+        this.ctx.memory.projectWiki =
             options.workspaceRoot !== undefined
                 ? new ProjectWikiService({ workspace: options.workspaceRoot })
                 : undefined;
-        this.roundRunner = new RoundRunner({
-            bus: this.bus,
+        this.ctx.intelligence.roundRunner = new RoundRunner({
+            bus: this.ctx.observability.bus,
             executor: new RoundExecutor(),
-            resolver: this.resolver,
+            resolver: this.ctx.intelligence.resolver,
         });
-        this.analysis = new AnalysisStack({
+        this.ctx.analysis = new AnalysisStack({
             ...(config.dbPath !== undefined ? { dbPath: config.dbPath } : {}),
             snapshotOf: (rootGoalId) => this.goalSnapshot(rootGoalId),
             requestRound: (rootGoalId, ctx, reasoningLevel) =>
-                this.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel),
-            resolveModelChoice: (modelId) => this.resolver.resolveModelChoice(modelId),
+                this.ctx.intelligence.roundRunner.requestRound(rootGoalId, ctx, reasoningLevel),
+            resolveModelChoice: (modelId) =>
+                this.ctx.intelligence.resolver.resolveModelChoice(modelId),
             systemPrompt: this.agentPrompt('iteration-analysis'),
         });
         if (config.consoleEnabled ?? false) {
-            this.bus.subscribe({}, new ConsoleSink());
+            this.ctx.observability.bus.subscribe({}, new ConsoleSink());
         }
-        this.sessions = new SessionFactory({
-            intake: this.intake,
-            sessionIds: this.sessionIds,
+        this.ctx.session.factory = new SessionFactory({
+            intake: this.ctx.session.intake,
+            sessionIds: this.ctx.session.sessionIds,
             beginSession: (sessionId) => this.beginSession(sessionId),
-            ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
-            config: this.config,
-            blackboard: this.blackboard,
-            memoryManager: this.memoryManager,
-            goalStoreDb: this.goalStoreDb,
-            behaviorRecorder: this.behaviorRecorder,
-            labelQuestion: (questionId, text) => this.questionService.label(questionId, text),
-            bus: this.bus,
-            resolver: this.resolver,
-            roundRunner: this.roundRunner,
+            ...(this.ctx.assembly.workspaceRoot !== undefined
+                ? { workspaceRoot: this.ctx.assembly.workspaceRoot }
+                : {}),
+            config: this.ctx.assembly.config,
+            blackboard: this.ctx.memory.blackboard,
+            memoryManager: this.ctx.memory.memoryManager,
+            goalStoreDb: this.ctx.memory.goalStore,
+            behaviorRecorder: this.ctx.memory.behaviorRecorder,
+            labelQuestion: (questionId, text) =>
+                this.ctx.memory.questionService.label(questionId, text),
+            bus: this.ctx.observability.bus,
+            resolver: this.ctx.intelligence.resolver,
+            roundRunner: this.ctx.intelligence.roundRunner,
             intentPrompt: () => this.agentPrompt('intent'),
         });
-        this.toolPlane = new ToolPlane({
-            config: this.config,
-            toolRegistry: this.toolRegistry,
-            ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
-            hooks: this.hookRunner,
-            faults: this.faultPipeline,
-            bus: this.bus,
-            approvalStore: this.approvalStore,
-            commandPolicy: this.commandPolicy,
-            ...(this.projectWiki !== undefined ? { projectWiki: this.projectWiki } : {}),
-            wiki: this.wiki,
-            blackboard: this.blackboard,
-            delegationRoles: this.delegation.roles,
-            getSkillProvider: () => this.skillProvider,
-            getApprovalSeam: () => this.approvalSeam,
+        this.ctx.tools.plane = new ToolPlane({
+            config: this.ctx.assembly.config,
+            toolRegistry: this.ctx.tools.registry,
+            ...(this.ctx.assembly.workspaceRoot !== undefined
+                ? { workspaceRoot: this.ctx.assembly.workspaceRoot }
+                : {}),
+            hooks: this.ctx.observability.hookRunner,
+            faults: this.ctx.observability.faultPipeline,
+            bus: this.ctx.observability.bus,
+            approvalStore: this.ctx.assembly.approvalStore,
+            commandPolicy: this.ctx.assembly.commandPolicy,
+            ...(this.ctx.memory.projectWiki !== undefined
+                ? { projectWiki: this.ctx.memory.projectWiki }
+                : {}),
+            wiki: this.ctx.memory.wiki,
+            blackboard: this.ctx.memory.blackboard,
+            delegationRoles: this.ctx.delegation.roles,
+            getSkillProvider: () => this.ctx.assembly.skillProvider,
+            getApprovalSeam: () => this.ctx.assembly.approvalSeam,
             execute: (tool, args, ctx, roots) => this.executeEffectful(tool, args, ctx, roots),
             delegate: (input) =>
                 this.delegateAgents(
@@ -358,43 +312,43 @@ export class HarnessRuntime {
                 ),
         });
         const self = this;
-        this.turns = new TurnEngine({
-            bus: this.bus,
-            config: this.config,
-            intake: this.intake,
-            goalStoreDb: this.goalStoreDb,
-            memoryManager: this.memoryManager,
-            failureLedger: this.failureLedger,
-            lifecycle: this.lifecycle,
-            stepEvents: this.stepEvents,
-            superAgent: this.superAgent,
-            verifier: this.verifier,
-            resolver: this.resolver,
-            roundRunner: this.roundRunner,
-            wiki: this.wiki,
-            blackboard: this.blackboard,
-            sessions: this.sessions,
-            toolPlane: this.toolPlane,
+        this.ctx.session.turns = new TurnEngine({
+            bus: this.ctx.observability.bus,
+            config: this.ctx.assembly.config,
+            intake: this.ctx.session.intake,
+            goalStoreDb: this.ctx.memory.goalStore,
+            memoryManager: this.ctx.memory.memoryManager,
+            failureLedger: this.ctx.memory.failureLedger,
+            lifecycle: this.ctx.observability.lifecycle,
+            stepEvents: this.ctx.observability.stepEvents,
+            superAgent: this.ctx.intelligence.superAgent,
+            verifier: this.ctx.intelligence.verifier,
+            resolver: this.ctx.intelligence.resolver,
+            roundRunner: this.ctx.intelligence.roundRunner,
+            wiki: this.ctx.memory.wiki,
+            blackboard: this.ctx.memory.blackboard,
+            sessions: this.ctx.session.factory,
+            toolPlane: this.ctx.tools.plane,
             get workspaceRoot() {
-                return self.workspaceRoot;
+                return self.ctx.assembly.workspaceRoot;
             },
             get projectWiki() {
-                return self.projectWiki;
+                return self.ctx.memory.projectWiki;
             },
             get skillProvider() {
-                return self.skillProvider;
+                return self.ctx.assembly.skillProvider;
             },
             get replanPlanner() {
-                return self.replanPlanner;
+                return self.ctx.assembly.replanPlanner;
             },
             get maxReplans() {
-                return self.maxReplans;
+                return self.ctx.assembly.maxReplans;
             },
             get taskPlanningByDefault() {
-                return self.taskPlanningByDefault;
+                return self.ctx.assembly.taskPlanningByDefault;
             },
             get running() {
-                return self.running;
+                return self.ctx.session.running;
             },
             completeDirectGoal: (goal, answer) => self.completeDirectGoal(goal, answer),
             generateTaskPlan: (rootGoalId, goal, model, reasoningLevel, history, tools, fragment) =>
@@ -413,71 +367,90 @@ export class HarnessRuntime {
             projectWikiPromptFragment: () => self.projectWikiPromptFragment(),
             ensureProjectWikiInitialized: () => self.ensureProjectWikiInitialized(),
         });
-        this.serviceKernel = new RuntimeKernel();
-        this.serviceKernel.provide({ name: 'eventBus', create: () => this.bus });
-        this.serviceKernel.provide({
+        this.ctx.assembly.kernel = new RuntimeKernel();
+        this.ctx.assembly.kernel.provide({
+            name: 'eventBus',
+            create: () => this.ctx.observability.bus,
+        });
+        this.ctx.assembly.kernel.provide({
             name: 'faults',
             requires: ['eventBus'],
-            create: () => this.faultPipeline,
+            create: () => this.ctx.observability.faultPipeline,
         });
-        this.serviceKernel.provide({
+        this.ctx.assembly.kernel.provide({
             name: 'hooks',
             requires: ['eventBus'],
-            create: () => this.hookRunner,
+            create: () => this.ctx.observability.hookRunner,
         });
-        this.serviceKernel.provide({
+        this.ctx.assembly.kernel.provide({
             name: 'tools',
             requires: ['eventBus'],
-            create: () => this.toolRegistry,
+            create: () => this.ctx.tools.registry,
         });
-        this.plugins = new PluginHost({
-            kernel: this.serviceKernel,
-            hooks: this.hookRunner,
-            ports: this.ports,
-            eventBus: this.bus,
+        this.ctx.assembly.plugins = new PluginHost({
+            kernel: this.ctx.assembly.kernel,
+            hooks: this.ctx.observability.hookRunner,
+            ports: this.ctx.assembly.ports,
+            eventBus: this.ctx.observability.bus,
         });
-        void this.plugins.install(memoryPlugin(this.personalMemory)).catch((error) => {
-            this.warn(`memory 插件安装失败：${error instanceof Error ? error.message : error}`);
-        });
-        this.serviceKernel.provide({
+        void this.ctx.assembly.plugins
+            .install(memoryPlugin(this.ctx.memory.personalMemory))
+            .catch((error) => {
+                this.warn(`memory 插件安装失败：${error instanceof Error ? error.message : error}`);
+            });
+        this.ctx.assembly.kernel.provide({
             name: 'memoryManager',
             requires: ['memory'],
-            create: () => this.memoryManager,
+            create: () => this.ctx.memory.memoryManager,
         });
-        this.serviceKernel.provide({ name: 'goalStore', create: () => this.goalStoreDb });
-        this.serviceKernel.provide({
+        this.ctx.assembly.kernel.provide({
+            name: 'goalStore',
+            create: () => this.ctx.memory.goalStore,
+        });
+        this.ctx.assembly.kernel.provide({
             name: 'behavior',
             requires: ['eventBus'],
-            create: () => this.behaviorRecorder,
+            create: () => this.ctx.memory.behaviorRecorder,
         });
-        this.serviceKernel.provide({
+        this.ctx.assembly.kernel.provide({
             name: 'wiki',
             requires: ['eventBus'],
-            create: () => this.wiki,
+            create: () => this.ctx.memory.wiki,
         });
-        this.serviceKernel.provide({ name: 'verifier', create: () => this.verifier });
-        this.serviceKernel.provide({ name: 'planner', create: () => this.sessions });
-        this.serviceKernel.provide({
+        this.ctx.assembly.kernel.provide({
+            name: 'verifier',
+            create: () => this.ctx.intelligence.verifier,
+        });
+        this.ctx.assembly.kernel.provide({
+            name: 'planner',
+            create: () => this.ctx.session.factory,
+        });
+        this.ctx.assembly.kernel.provide({
             name: 'toolPlane',
             requires: ['eventBus', 'hooks', 'faults'],
-            create: () => this.toolPlane,
+            create: () => this.ctx.tools.plane,
         });
-        this.serviceKernel.provide({ name: 'ports', create: () => this.ports });
-        this.serviceKernel.start();
+        this.ctx.assembly.kernel.provide({ name: 'ports', create: () => this.ctx.assembly.ports });
+        this.ctx.assembly.kernel.start();
     }
 
     get eventBus(): EventBus {
-        return this.bus;
+        return this.ctx.observability.bus;
     }
 
     /** 钩子宿主（插件/宿主可注册；注册返回撤销函数）。 */
     get hooks(): HookRunner {
-        return this.hookRunner;
+        return this.ctx.observability.hookRunner;
     }
 
-    /** 装配容器（服务注册 / 依赖顺序 / 可逆 effect）。 */
+    /** 能力接入点（插件/宿主登记与读取；运行期 setter 的唯一落点）。 */
+    get ports(): RuntimePorts {
+        return this.ctx.assembly.ports;
+    }
+
+    /** 装配容器（服务注册 / 依赖顺序 / 生命周期释放）。 */
     get kernel(): RuntimeKernel {
-        return this.serviceKernel;
+        return this.ctx.assembly.kernel;
     }
 
     /**
@@ -485,24 +458,24 @@ export class HarnessRuntime {
      * 因此会话级事件不依赖当时是否已有 rootGoal。
      */
     async beginSession(sessionId: string): Promise<void> {
-        await this.lifecycle.begin(sessionId);
+        await this.ctx.observability.lifecycle.begin(sessionId);
     }
 
     async endSession(sessionId: string, reason = 'session-ended'): Promise<void> {
-        await this.lifecycle.end(sessionId, reason);
+        await this.ctx.observability.lifecycle.end(sessionId, reason);
     }
 
     /** 接入目录与账本：此后每轮 LLM 调用按钉死的 offering 价目追加 UsageRecord。 */
     setCatalog(service: CatalogService): void {
-        this.catalogService = service;
-        this.ports.set('catalog', service);
-        this.roundRunner.setCatalog(service);
+                this.ctx.assembly.catalogService = service;
+        this.ctx.assembly.ports.set('catalog', service);
+        this.ctx.intelligence.roundRunner.setCatalog(service);
     }
 
     /** 接入已挂载技能包：工具并入每次 Goal 的执行工具面，档位按包 ceiling 收敛。 */
     setSkillProvider(provider?: SkillProvider): void {
-        this.skillProvider = provider;
-        this.ports.set('skillProvider', provider);
+                this.ctx.assembly.skillProvider = provider;
+        this.ctx.assembly.ports.set('skillProvider', provider);
     }
 
     /**
@@ -510,10 +483,10 @@ export class HarnessRuntime {
      * 凭证 id = `bf:<stepId>`，重复调用幂等；目录未收录/无价的模型跳过（目录是权威）。
      */
     async backfillUsage(): Promise<{ recorded: number; skipped: number }> {
-        const service = this.catalogService;
+        const service = this.ctx.assembly.catalogService;
         if (service === undefined) return { recorded: 0, skipped: 0 };
         const existing = new Set((await service.usageRecords()).map((record) => record.id));
-        const steps = await this.goalStoreDb.listAllSteps();
+        const steps = await this.ctx.memory.goalStore.listAllSteps();
         let recorded = 0;
         let skipped = 0;
         for (const step of steps) {
@@ -549,63 +522,63 @@ export class HarnessRuntime {
 
     /** 接入模型恢复：模型名被厂商拒绝时重同步并换模重试一次（llm.error 事件后自愈）。 */
     setModelRecovery(fn: ModelRecoveryFn): void {
-        this.ports.set('modelRecovery', fn);
-        this.roundRunner.setRecovery(fn);
+        this.ctx.assembly.ports.set('modelRecovery', fn);
+        this.ctx.intelligence.roundRunner.setRecovery(fn);
     }
 
     /** 接入人审审批 seam；缺省时运行时网关回退到 ceiling 常设授权。 */
     setApprovalSeam(seam: authz.ApprovalSeam): void {
-        this.approvalSeam = seam;
-        this.ports.set('approvalSeam', seam);
+                this.ctx.assembly.approvalSeam = seam;
+        this.ctx.assembly.ports.set('approvalSeam', seam);
     }
 
     /** 问题标签分类法（注册表；GET /api/question-taxonomy 消费）。 */
     getQuestionTaxonomy(): QuestionTaxonomy {
-        return this.questionService.taxonomyView();
+        return this.ctx.memory.questionService.taxonomyView();
     }
 
     /** 对某问题重跑 LLM 精标（需已注入分类器）；返回是否命中该问题。 */
     async classifyQuestion(questionId: string): Promise<boolean> {
-        return this.questionService.classify(questionId);
+        return this.ctx.memory.questionService.classify(questionId);
     }
 
     /** 注入 LLM 问题分类器（可选；不注入则仅规则预标注）。输出经注册表校验后落库。 */
     setQuestionClassifier(classifier: QuestionClassifier): void {
-        this.questionService.setClassifier(classifier);
+        this.ctx.memory.questionService.setClassifier(classifier);
     }
 
     /** Goal/Task/Step 存储（Goal 会话审计/级联删除） */
     get goalStore(): GoalStore {
-        return this.goalStoreDb;
+        return this.ctx.memory.goalStore;
     }
 
     /** TOC 冻结、独立分析、反馈与 Iterations 聚合（独立于 Goal 坐标系） */
     get tocAnalyst(): TocAnalyst {
-        return this.analysis.toc;
+        return this.ctx.analysis.toc;
     }
 
     /** 系统迭代记录（分析报告 → 系统改动闭环；版本快照由 API 层注入）。 */
     get iterationTracker(): IterationTracker {
-        return this.analysis.iterations;
+        return this.ctx.analysis.iterations;
     }
 
     get currentWorkspaceRoot(): string | undefined {
-        return this.workspaceRoot;
+        return this.ctx.assembly.workspaceRoot;
     }
 
     async close(): Promise<void> {
-        await this.plugins.uninstallAll();
-        this.serviceKernel.dispose();
-        this.goalStoreDb.close();
-        this.memoryManager.close();
-        this.effectStore.close();
-        this.blackboard.close();
-        this.promptPacks.close();
-        this.delegation.close();
-        this.analysis.close();
-        this.behaviorRecorder.close();
-        this.questionService.close();
-        this.failureLedger.close();
+        await this.ctx.assembly.plugins.uninstallAll();
+        this.ctx.assembly.kernel.dispose();
+        this.ctx.memory.goalStore.close();
+        this.ctx.memory.memoryManager.close();
+        this.ctx.memory.effectStore.close();
+        this.ctx.memory.blackboard.close();
+        this.ctx.assembly.promptPacks.close();
+        this.ctx.delegation.close();
+        this.ctx.analysis.close();
+        this.ctx.memory.behaviorRecorder.close();
+        this.ctx.memory.questionService.close();
+        this.ctx.memory.failureLedger.close();
     }
 
     /** 创建 Goal 会话：委托 SessionFactory（创建立即返回，triage 异步增强）。 */
@@ -613,7 +586,7 @@ export class HarnessRuntime {
         input: string,
         opts: RunOptions = {},
     ): Promise<{ rootGoalId: string; goalId: string }> {
-        return this.sessions.create(input, opts);
+        return this.ctx.session.factory.create(input, opts);
     }
 
     /**
@@ -624,7 +597,7 @@ export class HarnessRuntime {
         rootGoalId: string,
         answers: readonly NegotiationAnswer[],
     ): Promise<{ goalId: string; revision: number; resolved: boolean }> {
-        const goal = await this.goalStoreDb.loadGoal(rootGoalId);
+        const goal = await this.ctx.memory.goalStore.loadGoal(rootGoalId);
         if (goal === undefined) throw new Error(`Goal 不存在：${rootGoalId}`);
         const current = goal.negotiation;
         if (
@@ -637,8 +610,8 @@ export class HarnessRuntime {
         goal.contract = { ...goal.contract, successConditions: applied.conditions };
         goal.negotiation = applied.negotiation;
         if (goal.status === 'blocked') goal.status = 'active';
-        await this.goalStoreDb.saveGoal(goal);
-        this.bus.emit(
+        await this.ctx.memory.goalStore.saveGoal(goal);
+        this.ctx.observability.bus.emit(
             newHarnessEvent({
                 type: 'goal.contract-revised',
                 rootGoalId,
@@ -657,7 +630,7 @@ export class HarnessRuntime {
                 },
             }),
         );
-        await this.bus.flush();
+        await this.ctx.observability.bus.flush();
         return {
             goalId: goal.goalId,
             revision: applied.negotiation.revision,
@@ -674,15 +647,15 @@ export class HarnessRuntime {
         rootGoalId: string,
         options: { resume?: boolean } = {},
     ): Promise<GoalRunResult> {
-        return this.turns.run(rootGoalId, options);
+        return this.ctx.session.turns.run(rootGoalId, options);
     }
 
     private async completeDirectGoal(goal: Goal, answer: string): Promise<void> {
-        const latest = (await this.goalStoreDb.loadGoal(goal.goalId)) ?? goal;
+        const latest = (await this.ctx.memory.goalStore.loadGoal(goal.goalId)) ?? goal;
         latest.status = 'succeeded';
         latest.endedAt = Date.now();
-        await this.goalStoreDb.saveGoal(latest);
-        this.bus.emit(
+        await this.ctx.memory.goalStore.saveGoal(latest);
+        this.ctx.observability.bus.emit(
             newHarnessEvent({
                 type: 'goal.ended',
                 rootGoalId: goal.goalId,
@@ -691,12 +664,12 @@ export class HarnessRuntime {
                 },
             }),
         );
-        await this.bus.flush();
+        await this.ctx.observability.bus.flush();
     }
 
     /** 请求停止运行中的 Goal 树；返回是否命中在跑的运行（不改变已落库事实）。 */
     stopGoalTree(rootGoalId: string): boolean {
-        const controller = this.running.get(rootGoalId);
+        const controller = this.ctx.session.running.get(rootGoalId);
         if (controller === undefined) return false;
         controller.abort();
         return true;
@@ -704,7 +677,7 @@ export class HarnessRuntime {
 
     /** 该 Goal 树当前是否在本实例执行中。 */
     isGoalRunning(rootGoalId: string): boolean {
-        return this.running.has(rootGoalId);
+        return this.ctx.session.running.has(rootGoalId);
     }
 
     /**
@@ -725,32 +698,34 @@ export class HarnessRuntime {
         } = {},
     ): Promise<GoalRunResult> {
         if (options.reasoningLevel !== undefined) {
-            this.intake.pendingReasoning.set(rootGoalId, options.reasoningLevel);
+            this.ctx.session.intake.pendingReasoning.set(rootGoalId, options.reasoningLevel);
         }
         if (options.modelId !== undefined) {
-            this.intake.pendingModel.set(rootGoalId, options.modelId);
+            this.ctx.session.intake.pendingModel.set(rootGoalId, options.modelId);
         }
         // 恢复同样携带运行级覆盖（Feature / 技能 / 工具），保证中断前后条件一致。
         if (options.promptFragment !== undefined && options.promptFragment.length > 0) {
-            this.intake.pendingPromptFragment.set(rootGoalId, options.promptFragment);
+            this.ctx.session.intake.pendingPromptFragment.set(rootGoalId, options.promptFragment);
         }
         if (options.skillIds !== undefined) {
-            this.intake.pendingSkills.set(rootGoalId, options.skillIds);
+            this.ctx.session.intake.pendingSkills.set(rootGoalId, options.skillIds);
         }
         if (options.allowedTools !== undefined) {
-            this.intake.pendingAllowedTools.set(rootGoalId, options.allowedTools);
+            this.ctx.session.intake.pendingAllowedTools.set(rootGoalId, options.allowedTools);
         }
         if (options.flagOverrides !== undefined) {
-            this.intake.pendingFlags.set(rootGoalId, {
+            this.ctx.session.intake.pendingFlags.set(rootGoalId, {
                 values: { ...options.flagOverrides },
                 trace: (options.flagTrace ?? []).map((step) => ({ ...step })),
             });
         }
         if (options.promptPackIds !== undefined) {
-            this.intake.pendingPromptPackIds.set(rootGoalId, options.promptPackIds);
+            this.ctx.session.intake.pendingPromptPackIds.set(rootGoalId, options.promptPackIds);
         }
-        this.bus.emit(newHarnessEvent({ type: 'run.resumed', rootGoalId, payload: {} }));
-        await this.bus.flush();
+        this.ctx.observability.bus.emit(
+            newHarnessEvent({ type: 'run.resumed', rootGoalId, payload: {} }),
+        );
+        await this.ctx.observability.bus.flush();
         return this.executeGoalTree(rootGoalId, { resume: true });
     }
 
@@ -771,26 +746,26 @@ export class HarnessRuntime {
 
     /** 重建 Goal 树四元组快照（审计/展示视图） */
     async goalSnapshot(rootGoalId: string): Promise<GoalTreeSnapshot> {
-        const goals = await this.goalStoreDb.listGoalsByRoot(rootGoalId);
+        const goals = await this.ctx.memory.goalStore.listGoalsByRoot(rootGoalId);
         const tasks: Task[] = [];
         const steps: Step[] = [];
         for (const goal of goals) {
-            const goalTasks = await this.goalStoreDb.listTasks(goal.goalId);
+            const goalTasks = await this.ctx.memory.goalStore.listTasks(goal.goalId);
             tasks.push(...goalTasks);
             for (const task of goalTasks) {
-                steps.push(...(await this.goalStoreDb.listSteps(task.taskId)));
+                steps.push(...(await this.ctx.memory.goalStore.listSteps(task.taskId)));
             }
         }
         const { snapshotGoalTree } = await import('../observability/goal-snapshot.js');
         const snapshot = snapshotGoalTree(rootGoalId, goals, tasks, steps);
-        const behaviors = await this.behaviorRecorder.list(rootGoalId);
+        const behaviors = await this.ctx.memory.behaviorRecorder.list(rootGoalId);
         return behaviors.length > 0 ? { ...snapshot, behaviors } : snapshot;
     }
 
     /** 用户对 root goal 结果的反馈（CLI/调用方显式给出）：先落行为流，再发事件。 */
     async recordFeedback(rootGoalId: string, feedback: FeedbackInput): Promise<void> {
-        await this.behaviorRecorder.recordFeedback(rootGoalId, feedback);
-        this.bus.emit(
+        await this.ctx.memory.behaviorRecorder.recordFeedback(rootGoalId, feedback);
+        this.ctx.observability.bus.emit(
             newHarnessEvent({
                 type: 'user.feedback.captured',
                 rootGoalId,
@@ -798,27 +773,27 @@ export class HarnessRuntime {
                 payload: { feedback },
             }),
         );
-        return this.bus.flush();
+        return this.ctx.observability.bus.flush();
     }
 
     /** 读取会话的用户行为指令（Step 投影输入；见 @mazi/libs projectBehaviorTimeline）。 */
     listBehaviors(rootGoalId: string): Promise<UserBehaviorView[]> {
-        return this.behaviorRecorder.list(rootGoalId);
+        return this.ctx.memory.behaviorRecorder.list(rootGoalId);
     }
 
     /** 问题视图（含有效标签）——apps/api 问题查询消费。 */
     async listQuestions(query: QuestionQuery = {}): Promise<UserQuestionView[]> {
-        return this.questionService.list(query);
+        return this.ctx.memory.questionService.list(query);
     }
 
     /** 单条问题视图（无则 undefined）。 */
     async getQuestion(questionId: string): Promise<UserQuestionView | undefined> {
-        return this.questionService.view(questionId);
+        return this.ctx.memory.questionService.view(questionId);
     }
 
     /** 追加标签（append-only；user 覆盖由 effectiveLabels 合并规则承担）。 */
     addQuestionLabels(questionId: string, labels: readonly QuestionLabelInput[]): Promise<void> {
-        return this.questionService.addLabels(questionId, labels);
+        return this.ctx.memory.questionService.addLabels(questionId, labels);
     }
 
     /**
@@ -826,9 +801,9 @@ export class HarnessRuntime {
      * 启动时构造器已 fire-and-forget 调用一次；测试可直接 await。
      */
     migrateBehaviorStream(): Promise<BehaviorMigrationResult> {
-        const dir = this.config.behaviorDir;
+        const dir = this.ctx.assembly.config.behaviorDir;
         if (dir === undefined) return Promise.resolve({ partitions: 0, imported: 0 });
-        return this.behaviorRecorder.migrateFromJsonl(dir);
+        return this.ctx.memory.behaviorRecorder.migrateFromJsonl(dir);
     }
 
     /** 历史提问回填（采集上线前的 run；写入一条 derived input 并规则标注）。 */
@@ -836,27 +811,27 @@ export class HarnessRuntime {
         rootGoalId: string,
         run: { input: string; createdAt: number },
     ): Promise<UserBehaviorView[]> {
-        const written = await this.behaviorRecorder.backfillInput(rootGoalId, run);
+        const written = await this.ctx.memory.behaviorRecorder.backfillInput(rootGoalId, run);
         const first = written[0];
         if (first !== undefined) {
-            await this.questionService.label(`${rootGoalId}:${first.ts}`, run.input);
+            await this.ctx.memory.questionService.label(`${rootGoalId}:${first.ts}`, run.input);
         }
         return written;
     }
 
     /** 清除某运行会话的行为流（治理删除）。 */
     clearBehaviors(rootGoalId: string): Promise<void> {
-        return this.behaviorRecorder.clear(rootGoalId);
+        return this.ctx.memory.behaviorRecorder.clear(rootGoalId);
     }
 
     /** 失败分类账查询（apps/api GET /api/ledger 消费）。 */
     listFailures(query: FailureLedgerQuery = {}): Promise<FailureLedgerEntry[]> {
-        return this.failureLedger.list(query);
+        return this.ctx.memory.failureLedger.list(query);
     }
 
     /** 级联删除某运行会话的失败记录（Conversation 删除用）。 */
     deleteFailures(rootGoalId: string): Promise<void> {
-        return this.failureLedger.deleteByRoot(rootGoalId);
+        return this.ctx.memory.failureLedger.deleteByRoot(rootGoalId);
     }
 
     /**
@@ -894,12 +869,12 @@ export class HarnessRuntime {
             .filter((item): item is DelegationProposal => item !== undefined);
         if (proposals.length === 0) return { ok: false, error: '缺少有效 delegations' };
 
-        const delegated = await this.delegation.coordinator.delegate(
+        const delegated = await this.ctx.delegation.coordinator.delegate(
             rootGoalId,
             parentGoal,
             proposals,
             async (context) => {
-                this.bus.emit(
+                this.ctx.observability.bus.emit(
                     newHarnessEvent({
                         type: 'delegation.started',
                         rootGoalId,
@@ -915,7 +890,7 @@ export class HarnessRuntime {
                     }),
                 );
                 const roleSkillIds = resolveRoleSkillIds(
-                    this.skillProvider?.mounted() ?? [],
+                    this.ctx.assembly.skillProvider?.mounted() ?? [],
                     context.role.skillIds,
                 );
                 const child = await this.createGoalSession(context.proposal.statement, {
@@ -943,7 +918,7 @@ export class HarnessRuntime {
                 });
                 const result = await this.executeGoalTree(child.rootGoalId);
                 const last = result.tasks.at(-1);
-                this.bus.emit(
+                this.ctx.observability.bus.emit(
                     newHarnessEvent({
                         type: 'delegation.completed',
                         rootGoalId,
@@ -968,7 +943,7 @@ export class HarnessRuntime {
             parentGoal.goalId,
         );
         if (delegated.violations.length > 0) {
-            this.bus.emit(
+            this.ctx.observability.bus.emit(
                 newHarnessEvent({
                     type: 'delegation.rejected',
                     rootGoalId,
@@ -1011,13 +986,13 @@ export class HarnessRuntime {
         const context = { rootGoalId, goalId };
         const entries =
             skillIds === undefined
-                ? (this.skillProvider?.catalog(context) ?? [])
-                : (this.skillProvider?.catalogFor?.(skillIds, context) ??
-                  (this.skillProvider?.catalog(context) ?? []).filter((entry) =>
+                ? (this.ctx.assembly.skillProvider?.catalog(context) ?? [])
+                : (this.ctx.assembly.skillProvider?.catalogFor?.(skillIds, context) ??
+                  (this.ctx.assembly.skillProvider?.catalog(context) ?? []).filter((entry) =>
                       skillIds.includes(entry.id),
                   ));
         const parts = [base];
-        const sessionContext = sessionContextFragment(this.workspaceRoot);
+        const sessionContext = sessionContextFragment(this.ctx.assembly.workspaceRoot);
         if (sessionContext !== undefined) parts.push(sessionContext);
         if (entries.length > 0) {
             const catalog = entries
@@ -1042,7 +1017,7 @@ export class HarnessRuntime {
      * 每轮调用前重新解析，保证「保存后新会话生效」。
      */
     private agentPrompt(id: AgentPromptId): string {
-        return resolveAgentPrompt(id, this.config.agentPrompts);
+        return resolveAgentPrompt(id, this.ctx.assembly.config.agentPrompts);
     }
 
     /** 编码类任务追加编码 Agent 提示：只对 SuperAgent 判定的 coding/debug 任务生效。 */
@@ -1054,7 +1029,10 @@ export class HarnessRuntime {
 
     /** 主执行面基础提示：宿主显式注入 > prompts.main > prompts.default > 内置 GENERAL。 */
     private baseAgentPrompt(): string {
-        return this.config.systemPrompt ?? resolveBaseAgentPrompt(this.config.agentPrompts);
+        return (
+            this.ctx.assembly.config.systemPrompt ??
+            resolveBaseAgentPrompt(this.ctx.assembly.config.agentPrompts)
+        );
     }
 
     /** 项目会话的稳定上下文：所有 triage / plan / ReAct 共享，不写进用户消息。 */
@@ -1079,16 +1057,19 @@ export class HarnessRuntime {
                     : DEFAULT_MAX_PLAN_TASKS,
             ),
         );
-        const sessionContext = [sessionContextFragment(this.workspaceRoot), promptFragment]
+        const sessionContext = [
+            sessionContextFragment(this.ctx.assembly.workspaceRoot),
+            promptFragment,
+        ]
             .filter((part): part is string => part !== undefined && part.trim().length > 0)
             .join('\n\n');
         try {
             const planner =
-                this.taskPlanner ??
+                this.ctx.assembly.taskPlanner ??
                 createLlmTaskPlanner(async (prompt) => {
                     if (model === undefined) throw new Error('没有可用于 Task Planner 的模型');
                     const round = await withTriageTimeout(
-                        this.roundRunner.requestRound(
+                        this.ctx.intelligence.roundRunner.requestRound(
                             rootGoalId,
                             {
                                 model,
@@ -1159,15 +1140,15 @@ export class HarnessRuntime {
     /** SessionStart：runtime 直接确保项目内 Git-backed Project Wiki 骨架存在。 */
     private async ensureProjectWikiInitialized(): Promise<void> {
         if (
-            this.projectWiki === undefined ||
-            !this.projectWiki.hasGitRepository() ||
-            !this.projectWiki.isProjectRoot() ||
-            this.projectWiki.isInitialized()
+            this.ctx.memory.projectWiki === undefined ||
+            !this.ctx.memory.projectWiki.hasGitRepository() ||
+            !this.ctx.memory.projectWiki.isProjectRoot() ||
+            this.ctx.memory.projectWiki.isInitialized()
         ) {
             return;
         }
         try {
-            await this.projectWiki.init();
+            await this.ctx.memory.projectWiki.init();
         } catch (error) {
             this.warn(`Project Wiki 初始化失败：${error instanceof Error ? error.message : error}`);
         }
@@ -1178,8 +1159,8 @@ export class HarnessRuntime {
     }
 
     private projectWikiPromptFragment(): string | undefined {
-        if (this.projectWiki === undefined) return undefined;
-        const fragment = this.projectWiki.promptFragment();
+        if (this.ctx.memory.projectWiki === undefined) return undefined;
+        const fragment = this.ctx.memory.projectWiki.promptFragment();
         return [
             fragment,
             '',
@@ -1197,7 +1178,7 @@ export class HarnessRuntime {
     ): Promise<ToolCallResult> {
         const toolName = tool?.name ?? '';
         if (
-            this.workspaceRoot !== undefined &&
+            this.ctx.assembly.workspaceRoot !== undefined &&
             toolName !== 'shell.run' &&
             toolName !== 'git' &&
             toolName !== 'fs.read'
@@ -1206,7 +1187,7 @@ export class HarnessRuntime {
                 const value = args[key];
                 if (typeof value === 'string' && value.length > 0) {
                     try {
-                        assertInsideWorkspace(this.workspaceRoot, value);
+                        assertInsideWorkspace(this.ctx.assembly.workspaceRoot, value);
                     } catch (error) {
                         return {
                             ok: false,
@@ -1217,19 +1198,19 @@ export class HarnessRuntime {
             }
         }
         if (toolName === 'fs.read') {
-            const res = await fsReadToolImpl(args, this.workspaceRoot, skillReadRoots);
+            const res = await fsReadToolImpl(args, this.ctx.assembly.workspaceRoot, skillReadRoots);
             return res.ok
                 ? { ok: true, content: String(res.content ?? '') }
                 : { ok: false, error: res.error ?? 'tool failed' };
         }
         if (toolName === 'shell.run') {
-            const res = await runShellTool(args, this.workspaceRoot);
+            const res = await runShellTool(args, this.ctx.assembly.workspaceRoot);
             return res.ok
                 ? { ok: true, content: res.content ?? '' }
                 : { ok: false, error: res.error ?? 'tool failed' };
         }
         if (tool?.command) {
-            const res = await runCliTool(tool.command, args, this.workspaceRoot);
+            const res = await runCliTool(tool.command, args, this.ctx.assembly.workspaceRoot);
             return res.ok
                 ? { ok: true, content: res.content ?? '' }
                 : { ok: false, error: res.error ?? 'tool failed' };
@@ -1251,14 +1232,15 @@ export class HarnessRuntime {
         skillReadRoots: readonly string[] = [],
     ): Promise<ToolCallResult> {
         const identifiers = ctx?.identifiers;
-        const paths = this.workspaceRoot !== undefined ? effectPathsForTool(tool, args) : [];
+        const paths =
+            this.ctx.assembly.workspaceRoot !== undefined ? effectPathsForTool(tool, args) : [];
         const before =
-            paths.length > 0 && this.workspaceRoot !== undefined
-                ? snapshotFiles(this.workspaceRoot, paths)
+            paths.length > 0 && this.ctx.assembly.workspaceRoot !== undefined
+                ? snapshotFiles(this.ctx.assembly.workspaceRoot, paths)
                 : [];
         const result = await this.executeToolConfig(tool, args, skillReadRoots);
         if (before.length > 0 && identifiers !== undefined) {
-            await this.effectStore.append(
+            await this.ctx.memory.effectStore.append(
                 newEffectRecord({
                     rootGoalId: identifiers.rootGoalId,
                     goalId: identifiers.goalId,
@@ -1274,88 +1256,88 @@ export class HarnessRuntime {
     }
 
     listEffects(rootGoalId: string): Promise<EffectRecord[]> {
-        return this.effectStore.list(rootGoalId);
+        return this.ctx.memory.effectStore.list(rootGoalId);
     }
 
     async rememberMemory(items: readonly MemoryItem[]): Promise<void> {
-        await this.memoryManager.remember(items);
+        await this.ctx.memory.memoryManager.remember(items);
     }
 
     listMemory(query = {}): Promise<readonly MemoryItem[]> {
-        return this.memoryManager.recall(query);
+        return this.ctx.memory.memoryManager.recall(query);
     }
 
     personalMemoryService(): PersonalMemoryService {
-        return this.personalMemory;
+        return this.ctx.memory.personalMemory;
     }
 
     promptPackRegistry(): PromptPackRegistry {
-        return this.promptPacks;
+        return this.ctx.assembly.promptPacks;
     }
 
     registerPromptPack(pack: PromptPack): void {
-        this.ports.set('promptPack', pack);
-        this.promptPacks.register(pack);
+        this.ctx.assembly.ports.set('promptPack', pack);
+        this.ctx.assembly.promptPacks.register(pack);
     }
 
     previewSuperAgent(input: SuperAgentInput): SuperAgentDecision {
-        return this.superAgent.decide(input);
+        return this.ctx.intelligence.superAgent.decide(input);
     }
 
     agentRoles(): AgentRole[] {
-        return this.delegation.listRoles();
+        return this.ctx.delegation.listRoles();
     }
 
     registerAgentRole(role: AgentRole): void {
-        this.ports.set('agentRole', role);
-        this.delegation.roles.register(role);
+        this.ctx.assembly.ports.set('agentRole', role);
+        this.ctx.delegation.roles.register(role);
     }
 
     removeAgentRole(roleId: string): boolean {
-        return this.delegation.roles.remove(roleId);
+        return this.ctx.delegation.roles.remove(roleId);
     }
 
     delegationEdges(rootGoalId: string): Promise<DelegationEdge[]> {
-        return this.delegation.coordinator.edges(rootGoalId);
+        return this.ctx.delegation.coordinator.edges(rootGoalId);
     }
 
     setSemanticJudge(judge?: SemanticJudge): void {
-        this.ports.set('semanticJudge', judge);
-        this.verifier.setSemanticJudge(judge);
+        this.ctx.assembly.ports.set('semanticJudge', judge);
+        this.ctx.intelligence.verifier.setSemanticJudge(judge);
     }
 
     setReplanPlanner(planner?: ReplanPlanner, maxReplans = 2): void {
-        this.ports.set('replanPlanner', planner);
-        this.replanPlanner = planner;
-        this.maxReplans = Math.max(0, maxReplans);
+        this.ctx.assembly.replanPlanner = planner;
+        this.ctx.assembly.replanPlanner = planner;
+        this.ctx.assembly.maxReplans = Math.max(0, maxReplans);
     }
 
     setTaskPlanner(planner?: TaskPlanner): void {
-        this.ports.set('taskPlanner', planner);
-        this.taskPlanner = planner;
-        if (planner !== undefined) this.taskPlanningByDefault = true;
+        this.ctx.assembly.taskPlanner = planner;
+        this.ctx.assembly.taskPlanner = planner;
+        if (planner !== undefined) this.ctx.assembly.taskPlanningByDefault = true;
     }
 
     verifierInfo(): { id: string; semanticJudge: boolean } {
         return {
-            id: this.verifier.id,
-            semanticJudge: this.verifier.hasSemanticJudge,
+            id: this.ctx.intelligence.verifier.id,
+            semanticJudge: this.ctx.intelligence.verifier.hasSemanticJudge,
         };
     }
 
     async projectBlackboard(projectId: string): Promise<ProjectBlackboard | undefined> {
-        if (this.workspaceRoot === undefined) return undefined;
-        return this.blackboard.ensure(projectId, this.workspaceRoot);
+        if (this.ctx.assembly.workspaceRoot === undefined) return undefined;
+        return this.ctx.memory.blackboard.ensure(projectId, this.ctx.assembly.workspaceRoot);
     }
 
     async reconcileProjectBlackboard(projectId: string): Promise<ProjectBlackboard | undefined> {
-        if (this.workspaceRoot === undefined) return undefined;
-        return this.blackboard.reconcile(projectId, this.workspaceRoot);
+        if (this.ctx.assembly.workspaceRoot === undefined) return undefined;
+        return this.ctx.memory.blackboard.reconcile(projectId, this.ctx.assembly.workspaceRoot);
     }
 
     async exportPortableBundle(rootGoalIds: readonly string[]): Promise<MemoryBundle> {
         const auditTrails = rootGoalIds.map((rootGoalId) => {
-            const verification = this.bus.verifyChain(rootGoalId);
+            const verification = this.ctx.observability.bus.verifyChain(rootGoalId);
             if (!verification.ok) {
                 throw new Error(
                     `拒绝导出被篡改的审计链 ${rootGoalId}: ${verification.reason ?? 'unknown'}`,
@@ -1364,28 +1346,33 @@ export class HarnessRuntime {
             return {
                 rootGoalId,
                 head: verification.head ?? '',
-                events: this.bus.replay(rootGoalId),
+                events: this.ctx.observability.bus.replay(rootGoalId),
             };
         });
-        return exportMemoryBundle(this.memoryManager, Date.now, auditTrails);
+        return exportMemoryBundle(this.ctx.memory.memoryManager, Date.now, auditTrails);
     }
 
     importPortableBundle(bundle: MemoryBundle): Promise<{ imported: number }> {
-        return importMemoryBundle(this.memoryManager, bundle);
+        return importMemoryBundle(this.ctx.memory.memoryManager, bundle);
     }
 
     /** Dynamic registration is pinned at the next run boundary. */
     registerTool(tool: ToolConfig): number {
-        this.ports.set('tool', tool);
-        return this.toolRegistry.register(tool);
+        this.ctx.assembly.ports.set('tool', tool);
+        return this.ctx.tools.registry.register(tool);
     }
 
     unregisterTool(name: string): boolean {
-        return this.toolRegistry.unregister(name);
+        return this.ctx.tools.registry.unregister(name);
     }
 
     /** Restore reversible file effects in reverse execution order. */
     async rollbackGoal(rootGoalId: string): Promise<EffectRecord[]> {
-        return rollbackGoalEffects(this.effectStore, this.bus, this.workspaceRoot, rootGoalId);
+        return rollbackGoalEffects(
+            this.ctx.memory.effectStore,
+            this.ctx.observability.bus,
+            this.ctx.assembly.workspaceRoot,
+            rootGoalId,
+        );
     }
 }
