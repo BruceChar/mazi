@@ -33,10 +33,26 @@ describe('HarnessRuntime × RuntimeKernel（§5 接线）', () => {
             expect(runtime.kernel.stateOf('hooks')).toBe('active');
             expect(runtime.kernel.get('hooks')).toBe(runtime.hooks);
             expect(runtime.kernel.get('eventBus')).toBe(runtime.eventBus);
+            for (const name of [
+                'faults',
+                'tools',
+                'memory',
+                'memoryManager',
+                'goalStore',
+                'behavior',
+                'wiki',
+                'verifier',
+                'planner',
+                'toolPlane',
+                'ports',
+            ]) {
+                expect(runtime.kernel.stateOf(name)).toBe('active');
+            }
         } finally {
             await runtime.close();
         }
         expect(runtime.kernel.stateOf('hooks')).toBe('disposed');
+        expect(runtime.kernel.stateOf('toolPlane')).toBe('disposed');
         expect(() => runtime.kernel.get('hooks')).toThrow(/disposed/);
     });
 });

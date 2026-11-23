@@ -70,6 +70,7 @@ import {
 } from '../gts/task-planner.js';
 import { HookRunner, SessionLifecycle } from '../hooks/index.js';
 import { RuntimeKernel } from '../kernel/index.js';
+import { RuntimePorts } from '../kernel/ports.js';
 import {
     type BehaviorMigrationResult,
     type BehaviorStore,
@@ -160,6 +161,8 @@ export class HarnessRuntime {
     private readonly hookRunner: HookRunner;
     /** 服务装配容器：注册/依赖顺序/可逆 effect（docs/.../§5）。 */
     private readonly serviceKernel: RuntimeKernel;
+    /** 能力接入点登记表：宿主 setter 与插件都经此登记。 */
+    private readonly ports = new RuntimePorts();
     /** rootGoalId → conversationId（事件会话归因；进程内保留，量级=运行过的轮次）。 */
     private readonly sessionIds = new Map<string, string>();
     /** 会话/轮次生命周期（事件 + 钩子边界）。 */
@@ -481,6 +484,30 @@ export class HarnessRuntime {
             create: () => this.toolRegistry,
         });
         this.serviceKernel.provide({ name: 'memory', create: () => this.personalMemory });
+        this.serviceKernel.provide({
+            name: 'memoryManager',
+            requires: ['memory'],
+            create: () => this.memoryManager,
+        });
+        this.serviceKernel.provide({ name: 'goalStore', create: () => this.goalStoreDb });
+        this.serviceKernel.provide({
+            name: 'behavior',
+            requires: ['eventBus'],
+            create: () => this.behaviorRecorder,
+        });
+        this.serviceKernel.provide({
+            name: 'wiki',
+            requires: ['eventBus'],
+            create: () => this.wiki,
+        });
+        this.serviceKernel.provide({ name: 'verifier', create: () => this.verifier });
+        this.serviceKernel.provide({ name: 'planner', create: () => this.sessions });
+        this.serviceKernel.provide({
+            name: 'toolPlane',
+            requires: ['eventBus', 'hooks', 'faults'],
+            create: () => this.toolPlane,
+        });
+        this.serviceKernel.provide({ name: 'ports', create: () => this.ports });
         this.serviceKernel.start();
     }
 
@@ -513,12 +540,14 @@ export class HarnessRuntime {
     /** 接入目录与账本：此后每轮 LLM 调用按钉死的 offering 价目追加 UsageRecord。 */
     setCatalog(service: CatalogService): void {
         this.catalogService = service;
+        this.ports.set('catalog', service);
         this.roundRunner.setCatalog(service);
     }
 
     /** 接入已挂载技能包：工具并入每次 Goal 的执行工具面，档位按包 ceiling 收敛。 */
     setSkillProvider(provider?: SkillProvider): void {
         this.skillProvider = provider;
+        this.ports.set('skillProvider', provider);
     }
 
     /**
@@ -565,12 +594,14 @@ export class HarnessRuntime {
 
     /** 接入模型恢复：模型名被厂商拒绝时重同步并换模重试一次（llm.error 事件后自愈）。 */
     setModelRecovery(fn: ModelRecoveryFn): void {
+        this.ports.set('modelRecovery', fn);
         this.roundRunner.setRecovery(fn);
     }
 
     /** 接入人审审批 seam；缺省时运行时网关回退到 ceiling 常设授权。 */
     setApprovalSeam(seam: authz.ApprovalSeam): void {
         this.approvalSeam = seam;
+        this.ports.set('approvalSeam', seam);
     }
 
     /** 问题标签分类法（注册表；GET /api/question-taxonomy 消费）。 */
@@ -1330,6 +1361,7 @@ export class HarnessRuntime {
     }
 
     registerPromptPack(pack: PromptPack): void {
+        this.ports.set('promptPack', pack);
         this.promptPacks.register(pack);
     }
 
@@ -1342,6 +1374,7 @@ export class HarnessRuntime {
     }
 
     registerAgentRole(role: AgentRole): void {
+        this.ports.set('agentRole', role);
         this.delegationRoles.register(role);
     }
 
@@ -1354,15 +1387,18 @@ export class HarnessRuntime {
     }
 
     setSemanticJudge(judge?: SemanticJudge): void {
+        this.ports.set('semanticJudge', judge);
         this.verifier.setSemanticJudge(judge);
     }
 
     setReplanPlanner(planner?: ReplanPlanner, maxReplans = 2): void {
+        this.ports.set('replanPlanner', planner);
         this.replanPlanner = planner;
         this.maxReplans = Math.max(0, maxReplans);
     }
 
     setTaskPlanner(planner?: TaskPlanner): void {
+        this.ports.set('taskPlanner', planner);
         this.taskPlanner = planner;
         if (planner !== undefined) this.taskPlanningByDefault = true;
     }
@@ -1407,6 +1443,7 @@ export class HarnessRuntime {
 
     /** Dynamic registration is pinned at the next run boundary. */
     registerTool(tool: ToolConfig): number {
+        this.ports.set('tool', tool);
         return this.toolRegistry.register(tool);
     }
 
