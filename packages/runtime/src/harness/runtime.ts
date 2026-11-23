@@ -47,7 +47,6 @@ import {
     effectPathsForTool,
     MemoryEffectStore,
     newEffectRecord,
-    rollbackEffects,
     SqliteEffectStore,
     snapshotFiles,
 } from '../effects/effect-store.js';
@@ -129,6 +128,7 @@ import {
 import { ProjectWikiService, WikiService } from '../wiki/index.js';
 import type { FeedbackInput, RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
+import { rollbackGoalEffects } from './rollback.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { sessionContextFragment } from './session-context.js';
 import { SessionFactory } from './session-factory.js';
@@ -1895,32 +1895,7 @@ export class HarnessRuntime {
 
     /** Restore reversible file effects in reverse execution order. */
     async rollbackGoal(rootGoalId: string): Promise<EffectRecord[]> {
-        if (this.workspaceRoot === undefined) {
-            throw new Error('回滚需要工作区根路径');
-        }
-        const effects = await rollbackEffects(this.effectStore, rootGoalId, this.workspaceRoot);
-        for (const effect of effects) {
-            this.bus.emit(
-                newHarnessEvent({
-                    type: 'rollback.executed',
-                    rootGoalId,
-                    goalId: effect.goalId,
-                    taskId: effect.taskId,
-                    stepId: effect.stepId,
-                    attributes: {
-                        'harness.level': effect.status === 'rolled-back' ? 'info' : 'error',
-                    },
-                    payload: {
-                        effectId: effect.effectId,
-                        status: effect.status,
-                        paths: effect.before.map((item) => item.path),
-                        ...(effect.error !== undefined ? { error: effect.error } : {}),
-                    },
-                }),
-            );
-        }
-        await this.bus.flush();
-        return effects;
+        return rollbackGoalEffects(this.effectStore, this.bus, this.workspaceRoot, rootGoalId);
     }
 }
 /**
