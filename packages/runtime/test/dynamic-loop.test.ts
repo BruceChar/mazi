@@ -56,6 +56,9 @@ describe('dynamic loop（节点驱动）', () => {
         expect(result.loop?.nodeTrail?.filter((node) => node.kind === 'selected')).toHaveLength(
             result.loop?.nodes ?? 0,
         );
+        const selected = result.loop?.nodeTrail?.filter((node) => node.kind === 'selected') ?? [];
+        expect(selected[0]?.reason).toBe('start→think');
+        expect(selected.some((node) => /^(\w+)→\1$/.test(node.reason ?? ''))).toBe(false);
         expect(result.loop?.nodeTrail?.at(-1)?.kind).toBe('terminated');
         for (const item of result.tasks) {
             expect((await store.loadTask(item.task.taskId))?.status).toBe('succeeded');

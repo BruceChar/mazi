@@ -403,6 +403,8 @@ export async function executeTask(
 
     // 死循环护栏：连续相同工具调用达 3 轮视为未收敛（不烧完剩余轮次）
     let prevCallKey: string | undefined = replayed.lastCallKey;
+    /** 最近一次真实工具动作失败后，重放旧结果不能当作“任务完成”，必须先看到新的成功动作。 */
+    let recoveryPending = false;
     let repeatCount = 0;
     // 本轮的 deliberation step 引用；确定性收尾时回填渲染后的最终答案
     let deliberationStep: Step | undefined;
@@ -729,6 +731,12 @@ export async function executeTask(
                 deps.onStep?.(toolStep);
             }
 
+            if (outputs.some((item) => item.isError)) {
+                recoveryPending = true;
+            } else if (outputs.some((item) => !item.replayed)) {
+                recoveryPending = false;
+            }
+
             // 确定性收尾：模型同轮给出答案模板 + 工具调用，且全部成功、占位符可填满时，
             // 直接用模板与结果渲染最终答案，不再请求 LLM。
             const decision = decideFinalize(round.text, outputs);
@@ -757,6 +765,7 @@ export async function executeTask(
             if (
                 outputs.length > 0 &&
                 outputs.every((item) => item.replayed) &&
+                !recoveryPending &&
                 round.text.trim().length === 0
             ) {
                 const finalMessage = finalizeReplayedOutputs(outputs);

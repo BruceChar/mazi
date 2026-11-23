@@ -390,6 +390,79 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(calls).toBe(1);
     });
 
+    it('工具失败后重放旧读取结果不当作完成，继续等到模型给出最终答案', async () => {
+        const store = new MemoryGoalStore();
+        let roundIndex = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['fs.read', 'shell.run'],
+                invoker: {
+                    invoke: async (toolName) => {
+                        if (toolName === 'shell.run') {
+                            return { ok: false, error: 'pattern did not match' };
+                        }
+                        return { ok: true, content: 'MAIN_RS_CONTENT' };
+                    },
+                },
+                requestRound: async () => {
+                    roundIndex += 1;
+                    if (roundIndex === 1) {
+                        return {
+                            text: '',
+                            reasoning: '',
+                            toolCalls: [
+                                { callId: 'c1', toolName: 'fs.read', arguments: { path: 'a' } },
+                            ],
+                            finishReason: 'tool_calls',
+                            ttftMs: 0,
+                            totalMs: 1,
+                        };
+                    }
+                    if (roundIndex === 2) {
+                        return {
+                            text: '',
+                            reasoning: '',
+                            toolCalls: [
+                                { callId: 'c2', toolName: 'shell.run', arguments: { cmd: 'edit' } },
+                            ],
+                            finishReason: 'tool_calls',
+                            ttftMs: 0,
+                            totalMs: 1,
+                        };
+                    }
+                    if (roundIndex === 3) {
+                        return {
+                            text: '',
+                            reasoning: '',
+                            toolCalls: [
+                                { callId: 'c3', toolName: 'fs.read', arguments: { path: 'a' } },
+                            ],
+                            finishReason: 'tool_calls',
+                            ttftMs: 0,
+                            totalMs: 1,
+                        };
+                    }
+                    return {
+                        text: '已修复并完成。',
+                        reasoning: '',
+                        toolCalls: [],
+                        finishReason: 'stop',
+                        ttftMs: 0,
+                        totalMs: 1,
+                    };
+                },
+                maxSteps: 50,
+            },
+            task(),
+            goal(),
+        );
+        expect(outcome.ok).toBe(true);
+        expect(outcome.reason).toBe('final-answer');
+        expect(outcome.finalMessage).toBe('已修复并完成。');
+        expect(roundIndex).toBe(4);
+    });
+
     it('空成功输出带 [ok] 状态：模型可见且 Step 记录一致', async () => {
         const store = new MemoryGoalStore();
         const t = task();

@@ -119,7 +119,7 @@ export class WorkflowRunner {
                 next: node.role,
                 nodeId: node.id,
                 role: node.role,
-                reason: `${state.phase}→${node.role}`,
+                reason: `${last ?? 'start'}→${node.role}`,
                 at: this.now(),
             });
             if (last !== undefined) assertTransition(last, node.role);

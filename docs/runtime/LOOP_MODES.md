@@ -62,8 +62,12 @@ Think（选任务）→ Act（executeTask + 验收）→ Observe（pending→fac
 - `termination`：`done / done-unverified / aborted-budget / aborted-no-progress / aborted-no-candidates / failed`；
 - `nodeCount`：dynamic 实际执行的节点数；
 - `loopNodes`：dynamic 的真实节点轨迹（`selected / failed / terminated` + role + nodeId + reason + at）。
-- 展示口径：`loopNodes` 是 workflow 节点（Task 粒度）；工具调用属于 Act 节点内部，不是节点，
-  在 Trace 里 dynamic 模式下标 `Acting`，default 模式仍标「工具」。
+- 展示口径：`loopNodes` 是真实 workflow 节点，按 `Thinking / Acting / Observing / Planning /
+  Verifying / Reflecting` 展示；工具调用属于 Act 节点内部，不是独立节点。Step 的
+  `deliberation / invocation` 在 dynamic 下分别显示为 `Thinking / Acting`，default 模式仍保留
+  「模型 / 工具」语义。
+- 收尾保护：真实工具动作失败后，如果模型只是重放此前已经成功的读取结果，不能把旧输出当作
+  Task 最终答案；必须出现新的成功动作或模型给出最终回答。
 
 比较时先看 `termination` 分布，再看 `step / toolCalls / tokens / costUsd / durationMs`；只看
 `ok` 会把「验收缺失导致的 done-unverified」误判成成功。
