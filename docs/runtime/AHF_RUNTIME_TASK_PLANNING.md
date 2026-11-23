@@ -70,14 +70,16 @@ triage 完成前不得生成计划，计划图校验通过后必须先把当前�
 | `rg` 无匹配（exit 1） | 被当作命令失败 → 误触发验收失败/replan | 工具 spec 声明 `noMatchExitCodes:[1]` → `ok:true`，内容 `(no matches)`；exit 2 仍是真实错误 |
 | `fd` 传入 glob（如 `*.md`） | 按正则解析报错 → 失败 | `globFlag:'--glob'`：含 glob 元字符且非法 regex 时自动加 `--glob`；合法 regex 语义不变 |
 
-> 2026-11-08 修订：一次真实运行（`项目有代办吗`）中大量 `rg` 无匹配与 `fd *.md` 被误判为失败 Step，
-> 触发 `no-failed-steps` 验收失败并进入 replan 循环。工具层现已显式区分「无结果」与「真实错误」，
-> 避免 false-failure 驱动无意义 replan。
+> 2026-11-08 修订：一次真实运行（`项目有代办吗`）中大量 `rg` 无匹配与 `fd *.md` 被误判为失败 Step。
+> 工具层现已显式区分「无结果」与「真实错误」。
+>
+> 2026-11-24 修订：验收不再检查 `no-failed-steps`，只在最终答案层判定。历史契约若仍带该条款，
+> 评估器返回 `unchecked`，不参与 `evaluated`，也不影响最终结论。
 
 ## 5. 验收（与 P2 机械检查联动）
 
 - 机械检查词表见 docs/core/AHF_CORE_GTS.md「机械检查词表（v2）」：
-  `final-answer` / `no-failed-steps` / `file-exists` / `file-contains` /
+  `final-answer` / `file-exists` / `file-contains` /
   `git-has-commit` / `command-output-contains`。
 - 需要人判/模型判的条款保持 `semantic`；未接 `SemanticJudge` 时一律 `unchecked`，不冒充通过。
 - Task 验收范围来自规划时的 `Task.acceptance.conditions`（规划前置契约完整后即包含全部条款）。

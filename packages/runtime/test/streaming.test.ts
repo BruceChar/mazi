@@ -174,7 +174,7 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
         }
     });
 
-    it('工具失败：step.ended payload 带错误内容；run 结束后 Goal 状态落定为 succeeded/failed', async () => {
+    it('工具失败但产出最终答案：step.ended 带错误内容，验收按最终答案通过', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'mazi-stream-'));
         dirs.push(dir);
 
@@ -229,11 +229,11 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
         try {
             const created = await runtime.createGoalSession('fail run');
             const result = await runtime.executeGoalTree(created.rootGoalId);
-            // 工具失败 → no-failed-steps 机械验收失败 → Goal 不再记为成功。
-            expect(result.ok).toBe(false);
+            // 验收只看最终答案：中间一次工具失败不再一票否决。
+            expect(result.ok).toBe(true);
 
             const snapshot = await runtime.goalSnapshot(created.rootGoalId);
-            expect(snapshot.goals.every((goal) => goal.status === 'failed')).toBe(true);
+            expect(snapshot.goals.every((goal) => goal.status === 'succeeded')).toBe(true);
 
             const failedTool = stepEvents.find(
                 (event) =>

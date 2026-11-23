@@ -350,7 +350,6 @@ export interface StepView {
 /** 条款级机械检查规格（wire 视图；与 core ConditionCheck 同形）。 */
 export type ContractConditionCheck =
     | { kind: 'final-answer' }
-    | { kind: 'no-failed-steps' }
     | { kind: 'file-exists'; path: string }
     | { kind: 'file-contains'; path: string; text: string }
     | { kind: 'git-has-commit' }

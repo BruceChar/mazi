@@ -109,14 +109,15 @@ describe('acceptance（评估器：机械判定，判不到就标 unchecked）',
         expect(result.passed).toBe(false);
     });
 
-    it('no-failed-steps 条款：有失败 Step → failed；无失败 → passed', () => {
+    it('历史 no-failed-steps 条款不再参与判定（unchecked，不影响最终答案）', () => {
+        const id = ulid();
         const goal = goalWith([
-            { id: ulid(), checkType: 'deterministic', check: { kind: 'no-failed-steps' } },
+            { id, checkType: 'deterministic', check: { kind: 'no-failed-steps' } } as never,
         ]);
-        expect(evaluateAcceptance(goal, outcome({ steps: [step('succeeded')] })).passed).toBe(true);
-        const bad = evaluateAcceptance(goal, outcome({ steps: [step('failed')] }));
-        expect(bad.passed).toBe(false);
-        expect(bad.conditions[0]?.detail).toContain('失败 Step 1');
+        const result = evaluateAcceptance(goal, outcome({ steps: [step('failed')] }));
+        expect(result.conditions[0]).toMatchObject({ conditionId: id, status: 'unchecked' });
+        expect(result.evaluated).toBe(0);
+        expect(result.passed).toBe(true);
     });
 
     it('语义条款与缺省 check 的确定性条款 → unchecked，不计入 evaluated', () => {

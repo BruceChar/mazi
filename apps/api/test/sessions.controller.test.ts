@@ -122,14 +122,14 @@ describe('sessions（Goal 坐标系：sessionId = rootGoalId）', () => {
         expect(goal.contract.budget.maxCostUsd).toBe(0.5);
         expect(goal.contract.terminationPolicy.maxSteps).toBe(8);
         // 默认条款全部机械可判（健康度 100%）
-        expect(goal.contract.successConditions).toHaveLength(2);
+        expect(goal.contract.successConditions).toHaveLength(1);
         expect(goal.contract.successConditions[0].check).toEqual({ kind: 'final-answer' });
         expect(goal.contract.deterministicRatio).toBe(1);
         // Task 验收锚定条款，评估器已产出判定事实
         const task = goal.tasks[0];
-        expect(task.acceptance.conditions).toHaveLength(2);
-        expect(task.acceptanceResult.total).toBe(2);
-        expect(task.acceptanceResult.evaluated).toBe(2);
+        expect(task.acceptance.conditions).toHaveLength(1);
+        expect(task.acceptanceResult.total).toBe(1);
+        expect(task.acceptanceResult.evaluated).toBe(1);
         expect(task.acceptanceResult.conditions.every((item) => item.status !== 'unchecked')).toBe(
             true,
         );

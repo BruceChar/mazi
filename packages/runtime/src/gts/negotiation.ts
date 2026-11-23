@@ -68,7 +68,6 @@ function textList(value: unknown): string[] | undefined {
 function cloneCheck(check: ConditionCheck): ConditionCheck {
     switch (check.kind) {
         case 'final-answer':
-        case 'no-failed-steps':
         case 'git-has-commit':
             return { kind: check.kind };
         case 'file-exists':
@@ -223,12 +222,6 @@ export function baselineConditions(): CheckableCondition[] {
             checkType: 'deterministic',
             description: '产出最终回答',
             check: { kind: 'final-answer' },
-        },
-        {
-            id: ulid(),
-            checkType: 'deterministic',
-            description: '执行过程无失败步骤',
-            check: { kind: 'no-failed-steps' },
         },
     ];
 }

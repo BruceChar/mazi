@@ -141,7 +141,7 @@ describe('HarnessRuntime × Task Planner 上下文与 triage 顺序', () => {
             expect(goal?.negotiation?.route).toBe('confirmed');
             const conditions = goal?.contract.successConditions ?? [];
             // 两条基线 + triage 的 goals（1 条）+ constraints（2 条，其中一条带机械检查）。
-            expect(conditions).toHaveLength(5);
+            expect(conditions).toHaveLength(4);
             expect(
                 conditions.some(
                     (condition) =>

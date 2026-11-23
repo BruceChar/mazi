@@ -114,19 +114,6 @@ function judge(
                 detail: `executor:${outcome.reason}`,
             };
         }
-        case 'no-failed-steps': {
-            const failedSteps = outcome.steps.filter(
-                (step) =>
-                    step.status === 'failed' ||
-                    step.status === 'error' ||
-                    step.status === 'blocked',
-            ).length;
-            return {
-                conditionId: condition.id,
-                status: failedSteps === 0 ? 'passed' : 'failed',
-                detail: failedSteps === 0 ? '无失败 Step' : `失败 Step ${failedSteps} 个`,
-            };
-        }
         case 'file-exists': {
             if (environment === undefined) return uncheckedWithoutEnvironment(condition);
             const exists = environment.fileExists(check.path);
@@ -181,6 +168,9 @@ function judge(
                     : `command-output-contains:${check.commandPattern} 未命中已执行命令输出`,
             };
         }
+        default:
+            // 历史契约可能仍带已废弃的 check（如 no-failed-steps）：不判、不影响结论。
+            return { conditionId: condition.id, status: 'unchecked', detail: UNCHECKED_DETAIL };
     }
 }
 

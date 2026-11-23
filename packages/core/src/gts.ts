@@ -32,8 +32,6 @@ export interface RawPayload {
 export type ConditionCheck =
     /** Task 以最终回答收尾（executor outcome.reason === 'final-answer'） */
     | { kind: 'final-answer' }
-    /** 该 Task 没有任何失败 Step */
-    | { kind: 'no-failed-steps' }
     /** The file at this workspace-relative path exists. */
     | { kind: 'file-exists'; path: string }
     /** The file at this workspace-relative path contains `text` (case-sensitive literal). */
@@ -70,7 +68,6 @@ export function isConditionCheck(value: unknown): value is ConditionCheck {
     const record = value as Record<string, unknown>;
     switch (record.kind) {
         case 'final-answer':
-        case 'no-failed-steps':
         case 'git-has-commit':
             return true;
         case 'file-exists':

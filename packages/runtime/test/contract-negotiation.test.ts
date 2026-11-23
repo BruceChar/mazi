@@ -159,7 +159,7 @@ describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () =
             // 创建请求不等 triage：先拿到 Goal + 基线契约（用户消息立刻可见的前提）
             const immediate = await runtime.goalSnapshot(created.rootGoalId);
             expect(immediate.goals[0]?.status).toBe('active');
-            expect(immediate.goals[0]?.contract?.successConditions).toHaveLength(2);
+            expect(immediate.goals[0]?.contract?.successConditions).toHaveLength(1);
 
             await waitForTriage(runtime, created.rootGoalId);
             expect(calls).toHaveLength(1);
@@ -173,9 +173,9 @@ describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () =
             expect(goal?.negotiation?.resolved).toBe(false);
             expect(goal?.negotiation?.triggers).toEqual(['missing information']);
             expect(goal?.negotiation?.questions).toHaveLength(1);
-            // 基线 2 条机械条款 + defaultPath 1 条语义条款
-            expect(goal?.contract?.successConditions).toHaveLength(3);
-            expect(goal?.contract?.deterministicRatio).toBeCloseTo(2 / 3, 6);
+            // 基线 1 条机械条款 + defaultPath 1 条语义条款
+            expect(goal?.contract?.successConditions).toHaveLength(2);
+            expect(goal?.contract?.deterministicRatio).toBeCloseTo(1 / 2, 6);
 
             const result = await runtime.executeGoalTree(created.rootGoalId);
             expect(result.ok).toBe(true);
@@ -185,15 +185,15 @@ describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () =
             const evaluation = observed.find((event) => event.type === 'goal.contract-evaluated');
             expect(evaluation?.payload).toMatchObject({
                 state: 'partial',
-                total: 3,
-                evaluated: 2,
+                total: 2,
+                evaluated: 1,
                 failed: 0,
             });
             const done = await runtime.goalSnapshot(created.rootGoalId);
             const task = done.goals[0]?.tasks[0];
             expect(task?.status).toBe('succeeded');
-            expect(task?.acceptanceResult?.total).toBe(3);
-            expect(task?.acceptanceResult?.evaluated).toBe(2);
+            expect(task?.acceptanceResult?.total).toBe(2);
+            expect(task?.acceptanceResult?.evaluated).toBe(1);
 
             // 事后答复：手写答案升格为条款，契约版本 +1
             const revised = await runtime.negotiateGoal(created.rootGoalId, [
@@ -203,7 +203,7 @@ describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () =
             expect(revised.resolved).toBe(true);
             const after = await runtime.goalSnapshot(created.rootGoalId);
             const goalAfter = after.goals[0];
-            expect(goalAfter?.contract?.successConditions).toHaveLength(4);
+            expect(goalAfter?.contract?.successConditions).toHaveLength(3);
             expect(goalAfter?.contract?.successConditions.at(-1)?.description).toBe(
                 '在 ~/Downloads/photos，只改 IMG_*.jpg',
             );
@@ -268,7 +268,7 @@ describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () =
             expect(state.triageStarted).toBe(true);
             const pending = await runtime.goalSnapshot(created.rootGoalId);
             expect(pending.goals[0]?.negotiation).toBeUndefined();
-            expect(pending.goals[0]?.contract?.successConditions).toHaveLength(2);
+            expect(pending.goals[0]?.contract?.successConditions).toHaveLength(1);
 
             releaseTriage?.();
             await waitForTriage(runtime, created.rootGoalId);
@@ -288,7 +288,7 @@ describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () =
             const snap = await runtime.goalSnapshot(created.rootGoalId);
             // 未开启 triage：不记录协商、不调用模型，路径与改造前一致
             expect(snap.goals[0]?.negotiation).toBeUndefined();
-            expect(snap.goals[0]?.contract?.successConditions).toHaveLength(2);
+            expect(snap.goals[0]?.contract?.successConditions).toHaveLength(1);
             expect(snap.goals[0]?.status).toBe('active');
         } finally {
             await runtime.close();
@@ -469,8 +469,8 @@ describe('结构化 constraint → 机械条款（P2）', () => {
             ]),
         );
         const { conditions } = planNegotiation(parsed);
-        // 基线 2 + goals 1 + constraints 3
-        expect(conditions).toHaveLength(6);
+        // 基线 1 + goals 1 + constraints 3
+        expect(conditions).toHaveLength(5);
         const byDescription = (text: string) =>
             conditions.find((item) => item.description === text);
 
@@ -501,12 +501,12 @@ describe('结构化 constraint → 机械条款（P2）', () => {
             }),
         );
         const { conditions } = planNegotiation(parsed);
-        expect(conditions).toHaveLength(3);
-        expect(conditions[2]).toMatchObject({
+        expect(conditions).toHaveLength(2);
+        expect(conditions[1]).toMatchObject({
             checkType: 'semantic',
             description: '先只写 README',
         });
-        expect(conditions[2]?.check).toBeUndefined();
+        expect(conditions[1]?.check).toBeUndefined();
     });
 
     it('旧字符串 constraints 兼容：原样解析为 string，全部落成语义条款', () => {
@@ -514,7 +514,7 @@ describe('结构化 constraint → 机械条款（P2）', () => {
         expect(parsed?.blocks[0]?.constraints).toEqual(['约束一', '约束二']);
         const { conditions } = planNegotiation(parsed);
         expect(conditions.filter((item) => item.checkType === 'semantic')).toHaveLength(3);
-        expect(conditions.filter((item) => item.checkType === 'deterministic')).toHaveLength(2);
+        expect(conditions.filter((item) => item.checkType === 'deterministic')).toHaveLength(1);
     });
 
     it('triage 结构化 constraint → planNegotiation → wire 投影：check 不丢失（库层端到端）', () => {
@@ -554,7 +554,7 @@ describe('结构化 constraint → 机械条款（P2）', () => {
         );
         expect(viaCheck?.checkType).toBe('deterministic');
         expect(viaCheck?.check).toEqual({ kind: 'file-exists', path: 'README.md' });
-        // 基线 2 条 + file-exists 1 条 = 3 / 总 4（goals 1 条 + constraints 1 条）
-        expect(view?.deterministicRatio).toBeCloseTo(3 / 4, 6);
+        // 基线 1 条 + file-exists 1 条 = 2 / 总 3（goals 1 条 + constraints 1 条）
+        expect(view?.deterministicRatio).toBeCloseTo(2 / 3, 6);
     });
 });

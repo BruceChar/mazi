@@ -63,7 +63,7 @@ describe('negotiation（契约协商的机械侧）', () => {
         expect(negotiation.triggers).toEqual(['parser-unavailable']);
         expect(negotiation.resolved).toBe(true);
         expect(negotiation.at).toBe(7);
-        expect(conditions).toHaveLength(2);
+        expect(conditions).toHaveLength(1);
         expect(conditions.every((item) => item.checkType === 'deterministic')).toBe(true);
     });
 
@@ -72,8 +72,8 @@ describe('negotiation（契约协商的机械侧）', () => {
         expect(plan.negotiation.route).toBe('confirmed');
         expect(plan.negotiation.classifiedBy).toBe('parser');
         expect(plan.negotiation.resolved).toBe(true);
-        // 基线 2 条机械条款 + 1 goal + 2 constraints
-        expect(plan.conditions).toHaveLength(5);
+        // 基线 1 条机械条款 + 1 goal + 2 constraints
+        expect(plan.conditions).toHaveLength(4);
         const semantic = plan.conditions.filter((item) => item.checkType === 'semantic');
         expect(semantic.map((item) => item.description)).toEqual([
             '批量重命名 /tmp/photos 下的图片',
@@ -99,7 +99,7 @@ describe('negotiation（契约协商的机械侧）', () => {
         expect(plan.negotiation.resolved).toBe(false);
         expect(plan.negotiation.questions).toHaveLength(1);
         expect(plan.negotiation.defaultPath).toEqual(['停止；未识别文件集前不重命名']);
-        expect(plan.conditions[2]?.description).toBe('停止；未识别文件集前不重命名');
+        expect(plan.conditions[1]?.description).toBe('停止；未识别文件集前不重命名');
     });
 
     it('direct → 直答且不执行；escalate → 升级待人决', () => {
@@ -110,7 +110,7 @@ describe('negotiation（契约协商的机械侧）', () => {
         );
         expect(direct.negotiation.directAnswer).toBe('巴黎。');
         expect(direct.negotiation.resolved).toBe(true);
-        expect(direct.conditions).toHaveLength(2);
+        expect(direct.conditions).toHaveLength(1);
 
         const escalate = planNegotiation(
             parseGoalParserOutput(

@@ -167,7 +167,7 @@ export interface GoalContract {
 
 ### 4.1 机械检查词表（v2）
 
-基线两型（`final-answer` / `no-failed-steps`）之外，v2 新增四种可由评估器机械判定的形状。check 只允许出现在 `checkType: 'deterministic'` 的条款上；语义条款必须不带 check（不把 judge 伪装成机械判定）。
+基线只有 `final-answer` 一型（“是否产出最终回答”）；`no-failed-steps` 已移除，执行过程中的失败 Step 不再否决最终答案。v2 另有四种可由评估器机械判定的形状。check 只允许出现在 `checkType: 'deterministic'` 的条款上；语义条款必须不带 check（不把 judge 伪装成机械判定）。
 
 | kind | 字段 | 判定口径 | 依赖 |
 |---|---|---|---|
