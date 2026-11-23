@@ -56,13 +56,7 @@ import { ConsoleSink, DefaultEventBus, newHarnessEvent } from '../events/index.j
 import { StepEventEmitter } from '../events/step-events.js';
 import { DefaultFaultPipeline, type FaultPipeline } from '../faults/index.js';
 import { rollupAcceptance } from '../gts/acceptance.js';
-import {
-    applyNegotiationAnswers,
-    baselineConditions,
-    type ParsedGoalPlan,
-    parseGoalParserOutput,
-    planNegotiation,
-} from '../gts/negotiation.js';
+import { applyNegotiationAnswers } from '../gts/negotiation.js';
 import {
     compileTaskPlan,
     effectiveGoalLimits,
@@ -93,7 +87,7 @@ import {
     SqliteFailureLedger,
 } from '../memory/failure-ledger.js';
 import { type GoalStore, SqliteGoalStore } from '../memory/goal-store.js';
-import { MemoryManager, turnsToMemory } from '../memory/memory.js';
+import { MemoryManager } from '../memory/memory.js';
 import { PersonalMemoryService } from '../memory/personal-memory.js';
 import {
     type QuestionLabelInput,
@@ -133,14 +127,16 @@ import {
     type VerificationReport,
 } from '../verifier/index.js';
 import { ProjectWikiService, WikiService } from '../wiki/index.js';
-import { conversationMessages, type FeedbackInput, type RunOptions } from './conversation.js';
+import type { FeedbackInput, RunOptions } from './conversation.js';
 import { buildLlmProviders, ModelResolver } from './model-resolver.js';
 import { type ModelRecoveryFn, RoundRunner } from './round-runner.js';
 import { sessionContextFragment } from './session-context.js';
+import { SessionFactory } from './session-factory.js';
 import { SessionIntake } from './session-intake.js';
 import { assertInsideWorkspace } from './tool-configs.js';
 import { fsReadToolImpl, runCliTool, runShellTool } from './tool-executor.js';
 import { ToolPlane } from './tool-plane.js';
+import { TRIAGE_TIMEOUT_MS, withTriageTimeout } from './triage-support.js';
 
 /** 取值兜底：非有限数 → 0（花费回填的 token 字段）。 */
 function numberOf(value: unknown): number {
@@ -164,28 +160,6 @@ function goalRunSummary(result: GoalRunResult): string {
  * 本类只负责生命周期编排与 collaborator 组装；轮次执行归 RoundRunner，
  * 模型/计价解析归 ModelResolver，Step 事件归 StepEventEmitter，工具执行归 tool-executors。
  */
-/** triage 超时上限：协商是增强能力，绝不能拖住创建会话（进而拖住主会话输出）。 */
-const TRIAGE_TIMEOUT_MS = 10_000;
-
-/** goal.phase 的阶段：执行前置的内部模型工作（triage / 规划）与执行开始。 */
-
-/** 给 promise 加超时；超时或失败都返回 undefined（调用方回落 fallback，不抛错）。 */
-function withTriageTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
-    return new Promise((resolve) => {
-        const timer = setTimeout(() => resolve(undefined), ms);
-        promise.then(
-            (value) => {
-                clearTimeout(timer);
-                resolve(value);
-            },
-            () => {
-                clearTimeout(timer);
-                resolve(undefined);
-            },
-        );
-    });
-}
-
 /** 允许 hook patch 传入的纯记录（拒绝数组 / null）。 */
 export class HarnessRuntime {
     private readonly bus: DefaultEventBus;
@@ -266,6 +240,7 @@ export class HarnessRuntime {
     /** 已挂载技能包的工具面（apps/api 注入；缺省 = 无技能）。 */
     private skillProvider?: SkillProvider;
     private readonly toolPlane: ToolPlane;
+    private readonly sessions: SessionFactory;
 
     constructor(config: RuntimeConfig, options: RunOptions = {}) {
         this.config = config;
@@ -395,6 +370,23 @@ export class HarnessRuntime {
         if (config.consoleEnabled ?? false) {
             this.bus.subscribe({}, new ConsoleSink());
         }
+        this.sessions = new SessionFactory({
+            intake: this.intake,
+            sessionIds: this.sessionIds,
+            beginSession: (sessionId) => this.beginSession(sessionId),
+            ...(this.workspaceRoot !== undefined ? { workspaceRoot: this.workspaceRoot } : {}),
+            config: this.config,
+            blackboard: this.blackboard,
+            memoryManager: this.memoryManager,
+            goalStoreDb: this.goalStoreDb,
+            behaviorRecorder: this.behaviorRecorder,
+            questionLabeler: this.questionLabeler,
+            bus: this.bus,
+            resolver: this.resolver,
+            llmProviders: this.llmProviders,
+            roundRunner: this.roundRunner,
+            intentPrompt: () => this.agentPrompt('intent'),
+        });
         this.toolPlane = new ToolPlane({
             config: this.config,
             toolRegistry: this.toolRegistry,
@@ -584,269 +576,12 @@ export class HarnessRuntime {
         this.failureLedger.close();
     }
 
-    /** 创建 Goal 会话（单 Goal：user intent 直接产 Goal）并持久化；发 goal.started */
+    /** 创建 Goal 会话：委托 SessionFactory（创建立即返回，triage 异步增强）。 */
     async createGoalSession(
         input: string,
         opts: RunOptions = {},
     ): Promise<{ rootGoalId: string; goalId: string }> {
-        const rootGoalId = ulid();
-        if (opts.conversationId !== undefined) {
-            this.intake.pendingSessionId.set(rootGoalId, opts.conversationId);
-            this.sessionIds.set(rootGoalId, opts.conversationId);
-            await this.beginSession(opts.conversationId);
-        }
-        const workspaceId = opts.workspaceRoot ?? this.workspaceRoot;
-        const projectId =
-            opts.projectId ??
-            (workspaceId !== undefined ? projectIdForWorkspace(workspaceId) : undefined);
-        const memoryContext = {
-            ...(opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {}),
-            ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
-            ...(workspaceId !== undefined ? { workspaceId } : {}),
-            ...(projectId !== undefined ? { projectId } : {}),
-        };
-        this.intake.pendingMemoryContext.set(rootGoalId, memoryContext);
-        if (projectId !== undefined && workspaceId !== undefined) {
-            if (opts.projectId !== undefined) {
-                this.intake.pendingProjectContext.set(rootGoalId, { workspace: workspaceId });
-            }
-            this.intake.pendingBlackboard.set(rootGoalId, {
-                projectId,
-                workspace: workspaceId,
-            });
-            await this.blackboard.ensure(projectId, workspaceId);
-        }
-        if (opts.history !== undefined && opts.history.length > 0) {
-            await this.memoryManager.remember(
-                turnsToMemory(opts.history, {
-                    rootGoalId,
-                    ...memoryContext,
-                    provenance: { source: 'user', confidence: 'confirmed', trustTier: 'T1' },
-                }),
-            );
-            // Planner needs the same conversation context triage gets: a short input
-            // such as "A" is only meaningful relative to the previous turns.
-            this.intake.pendingHistory.set(
-                rootGoalId,
-                opts.history.map((turn) => ({ role: turn.role, text: turn.text })),
-            );
-        }
-        if (opts.reasoningLevel) {
-            this.intake.pendingReasoning.set(rootGoalId, opts.reasoningLevel);
-        }
-        if (opts.modelId) {
-            this.intake.pendingModel.set(rootGoalId, opts.modelId);
-        }
-        if (opts.promptFragment !== undefined && opts.promptFragment.length > 0) {
-            this.intake.pendingPromptFragment.set(rootGoalId, opts.promptFragment);
-        }
-        if (opts.skillIds !== undefined) {
-            this.intake.pendingSkills.set(rootGoalId, opts.skillIds);
-        }
-        if (opts.allowedTools !== undefined) {
-            this.intake.pendingAllowedTools.set(rootGoalId, opts.allowedTools);
-        }
-        if (opts.planProposal !== undefined) {
-            this.intake.pendingPlanProposal.set(
-                rootGoalId,
-                opts.planProposal.map((task) => ({
-                    ...task,
-                    goalId: task.goalId ?? (rootGoalId as NonNullable<typeof task.goalId>),
-                })),
-            );
-        }
-        if (opts.taskPlanning !== undefined) {
-            this.intake.pendingTaskPlanning.set(rootGoalId, opts.taskPlanning);
-        }
-        if (opts.promptPackIds !== undefined) {
-            this.intake.pendingPromptPackIds.set(rootGoalId, opts.promptPackIds);
-        }
-        this.intake.pendingDelegationDepth.set(rootGoalId, Math.max(0, opts.delegationDepth ?? 0));
-        if (opts.flagOverrides !== undefined) {
-            this.intake.pendingFlags.set(rootGoalId, {
-                values: { ...opts.flagOverrides },
-                trace: (opts.flagTrace ?? []).map((step) => ({ ...step })),
-            });
-        }
-        const ceiling =
-            opts.permissionCeiling ?? this.config.goal?.permissionCeiling ?? 'read-only';
-        // 运行设置 → 契约：预算与终止策略在冻结时刻落进 GoalContract，执行期由
-        // runGoalTree/executeTask 读取（UI 的「预算 / 最大步数」不再是空控件）。
-        const budgetAllocation =
-            opts.maxCostUsd !== undefined ? { maxCostUsd: opts.maxCostUsd } : {};
-        const terminationPolicy = opts.maxSteps !== undefined ? { maxSteps: opts.maxSteps } : {};
-        // 契约先按基线冻结并立即建会话：triage 是"增强"，绝不占用创建请求的关键路径
-        // （否则用户消息要等一次模型轮次才显示，主会话看起来卡住）。
-        const goal: Goal = {
-            goalId: rootGoalId,
-            origin: { kind: 'human' },
-            statement: input,
-            contract: {
-                // 基线条款机械可判（check 由评估器执行）；triage 落地后追加语义条款
-                successConditions: baselineConditions(),
-                failureConditions: [],
-                forbiddenResources: [],
-                budget: budgetAllocation,
-                terminationPolicy,
-                riskProfile: {
-                    hasIrreversibleActions: false,
-                    touchesNetwork: false,
-                    touchesExternalApi: false,
-                },
-            },
-            permissionCeiling: ceiling,
-            budget: budgetAllocation,
-            status: 'active',
-            createdAt: Date.now(),
-        };
-        await this.goalStoreDb.saveGoal(goal);
-        const recorded = await this.behaviorRecorder.recordInput(rootGoalId, input, {
-            ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
-            ...(opts.conversationId !== undefined ? { conversationId: opts.conversationId } : {}),
-        });
-        const question = recorded[0];
-        if (question !== undefined) {
-            await this.questionLabeler.label(`${rootGoalId}:${question.ts}`, input);
-        }
-        this.bus.emit(
-            newHarnessEvent({
-                type: 'goal.started',
-                rootGoalId,
-                goalId: rootGoalId,
-                attributes: {},
-                payload: {
-                    rawInput: input,
-                    inputTimestamp: Date.now(),
-                    userId: opts.userId ?? undefined,
-                },
-            }),
-        );
-        await this.bus.flush();
-        // 异步 triage：创建请求不等待；执行入口会 await 尚未落地的 triage，保证
-        // Task Planner 看到的是完整契约（含 goals/constraints 与 route）。
-        if (opts.parseIntent === true) {
-            // 可观测性：triage 是首个 Step 之前的一次模型轮次，先让 UI 进入「理解任务」阶段。
-            await emitGoalPhase(this.bus, rootGoalId, rootGoalId, 'intake', '正在理解任务');
-            this.intake.pendingTriage.set(
-                rootGoalId,
-                this.scheduleIntentTriage(rootGoalId, input, opts),
-            );
-        }
-        return { rootGoalId, goalId: rootGoalId };
-    }
-
-    /** 异步 triage：失败/超时只是不协商，绝不影响会话创建与执行。 */
-    private scheduleIntentTriage(
-        rootGoalId: string,
-        statement: string,
-        opts: RunOptions,
-    ): Promise<void> {
-        const task = this.applyIntentTriage(rootGoalId, statement, opts)
-            .catch(() => undefined)
-            .finally(() => {
-                // 完成后即可移除：契约已落库，execute 重新加载 Goal 就能看到。
-                this.intake.pendingTriage.delete(rootGoalId);
-            });
-        return task;
-    }
-
-    /**
-     * triage 结果落地：读改写当前 Goal，只在尚未有协商结论时合并（幂等）。
-     * 追加的语义条款是纯增量，不会让已生成的 Task.acceptance / Step 归因失效。
-     */
-    private async applyIntentTriage(
-        rootGoalId: string,
-        statement: string,
-        opts: RunOptions,
-    ): Promise<void> {
-        const parsed = await this.parseIntent(statement, rootGoalId, opts);
-        const plan = planNegotiation(parsed);
-        const goal = await this.goalStoreDb.loadGoal(rootGoalId);
-        if (goal === undefined || goal.negotiation !== undefined) return;
-        // 基线两条机械条款在创建时已冻结；triage 只会新增：
-        // - semantic 条款（需 judge），
-        // - 带结构化 check 的 deterministic 条款（P2：file/git/命令输出可机械判定）。
-        // 不能只留 semantic，否则 triage 产出的机械检查会被静默丢弃。
-        const added = plan.conditions.filter(
-            (condition) =>
-                condition.checkType === 'semantic' ||
-                (condition.check !== undefined &&
-                    condition.check.kind !== 'final-answer' &&
-                    condition.check.kind !== 'no-failed-steps'),
-        );
-        goal.contract = {
-            ...goal.contract,
-            successConditions: [...goal.contract.successConditions, ...added],
-        };
-        goal.negotiation = plan.negotiation;
-        await this.goalStoreDb.saveGoal(goal);
-        if (plan.negotiation.route !== 'negotiate' && plan.negotiation.route !== 'escalate') return;
-        this.bus.emit(
-            newHarnessEvent({
-                type: 'goal.negotiation.requested',
-                rootGoalId,
-                goalId: rootGoalId,
-                payload: {
-                    route: plan.negotiation.route,
-                    triggers: plan.negotiation.triggers,
-                    questions: plan.negotiation.questions,
-                    defaultPath: plan.negotiation.defaultPath ?? [],
-                    ...(plan.negotiation.escalation !== undefined
-                        ? { escalation: plan.negotiation.escalation }
-                        : {}),
-                },
-            }),
-        );
-        await this.bus.flush();
-    }
-
-    /**
-     * triage：把用户输入交给 goal-parser 模板判定路由（direct / confirmed / negotiate / escalate）。
-     * 没有可用 provider 时返回 undefined（调用方走 fallback），不额外制造失败噪声。
-     */
-    private async parseIntent(
-        statement: string,
-        rootGoalId: string,
-        opts: RunOptions,
-    ): Promise<ParsedGoalPlan | undefined> {
-        if (opts.parseIntent !== true) return undefined;
-        const model = this.resolver.resolveModelChoice(opts.modelId) ?? this.triageModel();
-        if (model === undefined) return undefined;
-        // triage 是"增强"，不能成为主流程的阻塞点：超时/失败/无输出一律回落默认执行
-        const round = await withTriageTimeout(
-            this.roundRunner.requestRound(
-                rootGoalId,
-                {
-                    model,
-                    messages: [
-                        ...conversationMessages(opts.history),
-                        { role: 'user', content: [{ type: 'text', text: statement }] },
-                    ],
-                    systemPrompt:
-                        this.agentPrompt('intent') +
-                        (sessionContextFragment(opts.workspaceRoot ?? this.workspaceRoot) ?? ''),
-                    tools: [],
-                },
-                opts.reasoningLevel,
-            ),
-            TRIAGE_TIMEOUT_MS,
-        );
-        if (round === undefined) return undefined;
-        return parseGoalParserOutput(round.text);
-    }
-
-    /**
-     * triage 用的模型：无显式 modelId 时取 provider 池里第一个有默认模型的 provider。
-     * 没有任何可用 provider 时返回 undefined（不协商，走 fallback）。
-     */
-    private triageModel(): { providerId: string; modelId: string } | undefined {
-        for (const [providerId, provider] of this.llmProviders) {
-            const modelId = provider.defaultModel || provider.models?.[0]?.id;
-            if (modelId !== undefined && modelId.length > 0) {
-                return { providerId, modelId };
-            }
-        }
-        return undefined;
+        return this.sessions.create(input, opts);
     }
 
     /**
@@ -1124,7 +859,7 @@ export class HarnessRuntime {
                 ? await this.generateTaskPlan(
                       rootGoalId,
                       rootGoal,
-                      model ?? this.triageModel(),
+                      model ?? this.sessions.defaultModelChoice(),
                       reasoningLevel,
                       history,
                       exec.planTools,
