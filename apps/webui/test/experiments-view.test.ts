@@ -156,7 +156,8 @@ function form(partial: Partial<import('../src/scripts/experiments.ts').Experimen
         permissionB: '',
         loopA: 'default',
         loopB: 'dynamic',
-        carryContext: false,
+        contextExperimentId: '',
+        contextArmLabel: 'A',
         ...partial,
     };
 }
@@ -186,12 +187,15 @@ describe('buildExperimentSpec（表单 → 实验定义）', () => {
         ]);
         expect(spec?.hypothesis).toBeUndefined();
         expect(spec?.workspace).toBeUndefined();
-        expect(spec?.carryContext).toBe(false);
+        expect(spec?.contextExperimentId).toBeUndefined();
+        expect(spec?.contextArmLabel).toBeUndefined();
     });
 
-    it('carryContext 开关：默认干净上下文，勾选后显式携带', () => {
-        const { spec } = buildExperimentSpec(form({ carryContext: true }));
-        expect(spec?.carryContext).toBe(true);
+    it('关联实验：不关联 = 干净上下文，关联后带上实验 id 与臂', () => {
+        const { spec } = buildExperimentSpec(form({ contextExperimentId: ' exp-1 ', contextArmLabel: 'B' }));
+        expect(spec?.contextExperimentId).toBe('exp-1');
+        expect(spec?.contextArmLabel).toBe('B');
+        expect(spec?.carryContext).toBeUndefined();
     });
 
     it('model 自变量：两臂不同模型；工作区保留', () => {

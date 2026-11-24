@@ -318,8 +318,10 @@ export interface ExperimentFormState {
     /** 两臂执行 loop：default / dynamic。 */
     loopA: string;
     loopB: string;
-    /** 是否把上一次运行的上下文带入两臂；默认 false = 干净上下文。 */
-    carryContext: boolean;
+    /** 关联实验：把该实验该臂的结果作为两臂共用的历史上下文；空 = 干净上下文。 */
+    contextExperimentId: string;
+    /** 关联臂（'A' / 'B'）；仅 contextExperimentId 非空时生效。 */
+    contextArmLabel: string;
 }
 
 export interface ExperimentSpecDraft {
@@ -398,7 +400,11 @@ export function buildExperimentSpec(form: ExperimentFormState): ExperimentSpecDr
         arms: [armA, armB],
     };
     if (form.workspace.trim().length > 0) spec.workspace = form.workspace.trim();
-    spec.carryContext = form.carryContext;
+    const contextExperimentId = form.contextExperimentId.trim();
+    if (contextExperimentId.length > 0) {
+        spec.contextExperimentId = contextExperimentId;
+        spec.contextArmLabel = form.contextArmLabel;
+    }
     return { spec };
 }
 

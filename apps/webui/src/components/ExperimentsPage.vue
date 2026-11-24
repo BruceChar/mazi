@@ -98,12 +98,59 @@ const form = reactive({
     permissionB: 'draft',
     loopA: 'default',
     loopB: 'dynamic',
-    carryContext: false,
+    /** 关联实验（历史上下文）：空 = 干净实验。 */
+    contextExperimentId: '',
+    contextArmLabel: 'A',
 });
+
+/** 页面模式：create = 展开新建表单；detail = 只看选中实验（右下角保留新建入口）。 */
+const pageMode = ref('detail');
 
 const selected = computed(() => {
     const id = selectedId.value;
     return id ? (experimentViews[id] ?? null) : null;
+});
+
+/** 可作为历史上下文的历史实验：至少一臂跑出最终答案（没跑完的没有上下文可继承）。 */
+const contextOptions = computed(() =>
+    experiments.value
+        .filter((item) => item.arms.some((arm) => arm.status === 'completed'))
+        .map((item) => ({
+            id: item.experimentId,
+            label: item.title + '（' + new Date(item.createdAt).toLocaleDateString() + '）',
+        })),
+);
+
+/** 关联实验里能取到答案的臂；关联臂只在选了实验时出现。 */
+const contextArmOptions = computed(() => {
+    const linked = experiments.value.find(
+        (item) => item.experimentId === form.contextExperimentId,
+    );
+    return (linked?.arms ?? [])
+        .filter((arm) => arm.status === 'completed')
+        .map((arm) => ({ label: arm.label, hint: arm.label === 'A' ? '基线' : '处理' }));
+});
+
+/** 切换关联实验时，把臂回落到该实验第一个有答案的臂。 */
+watch(
+    contextArmOptions,
+    (options) => {
+        if (options.length === 0) return;
+        if (!options.some((option) => option.label === form.contextArmLabel)) {
+            form.contextArmLabel = options[0]?.label ?? 'A';
+        }
+    },
+    { immediate: true },
+);
+
+/** 详情页的上下文来源：关联哪次实验哪一臂，或「干净」。 */
+const contextSummary = computed(() => {
+    const view = selected.value;
+    const id = view?.contextExperimentId;
+    if (id === undefined) return '干净';
+    const title = experiments.value.find((item) => item.experimentId === id)?.title ?? id;
+    const arm = view?.contextArmLabel;
+    return '关联「' + title + '」' + (arm !== undefined ? ' · ' + arm + ' 臂' : '');
 });
 
 const pendingArms = computed(
@@ -175,6 +222,8 @@ onMounted(async () => {
     } else if (selectedId.value) {
         await activateSelected(selectedId.value);
     }
+    // 有历史就先进详情（新建收在右下角），一条实验都没有才直接展开新建表单。
+    pageMode.value = selectedId.value ? 'detail' : 'create';
 });
 
 onBeforeUnmount(closeAllArms);
@@ -235,6 +284,15 @@ async function activateSelected(experimentId) {
 /** 选择只改共享选中态，装载统一走 watch，保证左栏点选与内部跳转只有一条路径。 */
 function select(experimentId) {
     selectedId.value = experimentId;
+    pageMode.value = 'detail';
+}
+
+/** 右下角「新建 AB 实验」：展开新建表单，详情暂时收起。 */
+function startCreate() {
+    pageMode.value = 'create';
+}
+function cancelCreate() {
+    pageMode.value = 'detail';
 }
 
 watch(selectedId, (experimentId) => {
@@ -273,6 +331,7 @@ async function submit() {
         select(planned.experimentId);
         await startRun(planned.experimentId, planned.arms);
         await activateSelected(planned.experimentId);
+        pageMode.value = 'detail';
         notice.value = '实验完成：' + planned.experimentId;
     } catch (err) {
         error.value = String(err);
@@ -290,6 +349,7 @@ async function resumeSelected() {
     try {
         await startRun(view.experimentId, pendingArms.value);
         await activateSelected(view.experimentId);
+        pageMode.value = 'detail';
         notice.value = '实验完成：' + view.experimentId;
     } catch (err) {
         error.value = String(err);
@@ -308,6 +368,7 @@ async function rerun() {
         select(next.experimentId);
         await startRun(next.experimentId, next.arms);
         await activateSelected(next.experimentId);
+        pageMode.value = 'detail';
         notice.value = '已重跑为新实验：' + next.experimentId;
     } catch (err) {
         error.value = String(err);
@@ -435,10 +496,14 @@ function isLive(label) {
 
 <template>
     <div class="experiments-page">
+        <div class="main-wrap">
         <section class="main">
-                <!-- 新建 -->
-                <div class="card create">
-                    <div class="card-head">新建对照实验</div>
+                <!-- 新建：仅在 create 模式展开，平时收成右下角按钮 -->
+                <div v-if="pageMode === 'create'" class="card create">
+                    <div class="card-head">
+                        新建对照实验
+                        <button v-if="selected" class="link-btn" @click="cancelCreate">返回详情</button>
+                    </div>
                     <div class="grid two">
                         <label>标题<input v-model="form.title" placeholder="Feature 增益：简洁作答" /></label>
                         <label>工作区
@@ -562,11 +627,31 @@ function isLive(label) {
                         <span class="hint">点运行后左右两窗同时前台执行；审批会实时弹出，不会卡在后台。</span>
                         <div class="create-run">
                             <label
-                                class="check-line"
-                                title="默认关闭：两臂各自从干净上下文开始，不注入历史黑板/摘要"
+                                class="context-line"
+                                title="关联历史实验：把它的输入与该臂最终答案作为两臂共用的历史上下文；不关联 = 干净实验"
                             >
-                                <input v-model="form.carryContext" type="checkbox" />
-                                带上上次上下文
+                                从关联实验继续
+                                <select v-model="form.contextExperimentId">
+                                    <option value="">不关联（干净上下文）</option>
+                                    <option
+                                        v-for="item in contextOptions"
+                                        :key="item.id"
+                                        :value="item.id"
+                                    >{{ item.label }}</option>
+                                    <option v-if="contextOptions.length === 0" value="" disabled>
+                                        暂无可用历史实验
+                                    </option>
+                                </select>
+                            </label>
+                            <label v-if="form.contextExperimentId" class="context-line">
+                                关联臂
+                                <select v-model="form.contextArmLabel">
+                                    <option
+                                        v-for="arm in contextArmOptions"
+                                        :key="arm.label"
+                                        :value="arm.label"
+                                    >{{ arm.label }} · {{ arm.hint }}</option>
+                                </select>
                             </label>
                             <button class="btn primary" :disabled="experimentRunning" @click="submit">
                                 <LineIcon name="play" size="13" />{{ experimentRunning ? '运行中…' : '运行对照实验' }}
@@ -578,9 +663,11 @@ function isLive(label) {
                 <div v-if="error" class="notice error">{{ error }}</div>
                 <div v-else-if="notice" class="notice ok">{{ notice }}</div>
 
-                <div v-if="!selected" class="card empty-card">从右侧历史列表选择一次实验，或在上方新建。</div>
+                <div v-if="pageMode === 'detail' && !selected" class="card empty-card">
+                    从右侧历史列表选择一次实验，或点右下角新建。
+                </div>
 
-                <template v-else>
+                <template v-else-if="pageMode === 'detail' && selected">
                     <div class="card">
                         <div class="detail-head">
                             <div class="title-row">
@@ -611,7 +698,7 @@ function isLive(label) {
                             <span>{{ new Date(selected.createdAt).toLocaleString() }}</span>
                             <span v-if="selected.endedAt">· 用时 {{ formatMetric(selected.endedAt - selected.createdAt, 'ms') }}</span>
                             <span v-if="selected.workspace">· 工作区 {{ selected.workspace }}</span>
-                            <span>· 上下文 {{ selected.carryContext ? '携带上一轮' : '干净' }}</span>
+                            <span>· 上下文 {{ contextSummary }}</span>
                         </div>
                         <div class="input-line">输入：{{ selected.input }}</div>
                         <div class="variables">
@@ -843,6 +930,10 @@ function isLive(label) {
                     </div>
                 </template>
         </section>
+        <button v-if="pageMode === 'detail'" class="fab" @click="startCreate">
+            <LineIcon name="plus" size="14" />新建 AB 实验
+        </button>
+        </div>
         <ExperimentHistoryPanel
             :experiments="experiments"
             :selected-id="selectedId"
@@ -855,6 +946,36 @@ function isLive(label) {
 
 <style scoped>
 /* 主区 + 右侧历史栏：历史栏自带滚动、可收起，不与左栏导航抢空间。 */
+.main-wrap {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+/* 新建入口常驻右下角：详情页不展开新建卡片，需要时再点开。 */
+.fab {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: var(--shadow-lg);
+}
+.fab:hover {
+    background: var(--accent-hover);
+}
 .experiments-page {
     display: flex;
     flex-direction: row;
@@ -934,10 +1055,8 @@ input:disabled {
     gap: 10px;
     flex: 0 0 auto;
 }
-.create-run .check-line {
-    margin-top: 0;
-    cursor: pointer;
-    white-space: nowrap;
+.create-run .context-line {
+    max-width: 300px;
 }
 .variable-hint {
     display: flex;
@@ -1092,16 +1211,18 @@ input:disabled {
     white-space: pre-wrap;
     word-break: break-word;
 }
-.check-line {
+/* 关联实验（历史上下文）选择：一行两个下拉，紧挨运行按钮。 */
+.context-line {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: 8px;
     font-size: 12px;
     color: var(--fg-secondary);
+    white-space: nowrap;
 }
-.check-line input {
-    margin: 0;
+.context-line select {
+    min-width: 0;
+    max-width: 100%;
 }
 .live-steps {
     list-style: none;
