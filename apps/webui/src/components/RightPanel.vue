@@ -337,6 +337,8 @@ const routerEntries = computed(() =>
         (entry) => entry.routing !== null || entry.negotiation?.route === 'direct',
     ),
 );
+/** Router 决策整卡默认收起：它只是路由判定摘要，展开会挤掉下面的契约/步骤。 */
+const routerExpanded = ref(false);
 /** 契约默认折叠：只展开用户点开的 Goal。 */
 const expandedContracts = ref(new Set());
 function toggleContract(goalId) {
@@ -735,11 +737,18 @@ watch(
 
                 <!-- Router 决策：workflow 首个节点落审计；独立成区避免被契约折叠藏住。 -->
                 <section v-if="routerEntries.length > 0" class="audit-section router-section">
-                    <div class="audit-section-title">
-                        <span>Router 决策</span>
+                    <div
+                        class="audit-section-title collapsible"
+                        @click="routerExpanded = !routerExpanded"
+                    >
+                        <span>
+                            <span class="contract-caret">{{ routerExpanded ? '−' : '+' }}</span>
+                            Router 决策
+                        </span>
                         <span class="audit-pct">{{ routerEntries.length }} goal</span>
                     </div>
-                    <div v-for="entry in routerEntries" :key="entry.goalId" class="router-goal">
+                    <div v-if="routerExpanded" class="router-body">
+                        <div v-for="entry in routerEntries" :key="entry.goalId" class="router-goal">
                         <div class="router-goal-head">
                             <span class="router-goal-title">{{ entry.statement }}</span>
                             <span class="contract-goal-status">{{ entry.goalStatus }}</span>
@@ -798,6 +807,7 @@ watch(
                         </div>
                         <div v-if="!entry.routing" class="contract-note router-reason">
                             直答路径：由 triage 直接回答，未进入 Router / Think-Act，因此没有工具/规划决策。
+                        </div>
                         </div>
                     </div>
                 </section>
@@ -2439,6 +2449,13 @@ watch(
     border-radius: var(--radius-sm);
     padding: 8px 10px;
     background: var(--bg-panel);
+}
+.audit-section-title.collapsible {
+    cursor: pointer;
+    user-select: none;
+}
+.audit-section-title.collapsible:hover {
+    color: var(--fg-secondary);
 }
 .audit-section-title {
     display: flex;
