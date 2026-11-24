@@ -114,7 +114,7 @@ retracted_reason = "Goal and Task planning are serial phases; executing must not
 text = "Goal contracts support deterministic checks final-answer/no-failed-steps/file-exists/file-contains/git-has-commit/command-output-contains; triage can emit structured checks and the verifier evaluates them through an injected ConditionEnvironment."
 status = "active"
 evidence = [
-  { file = "packages/core/src/gts.ts", oid = "0184284879407402d185423d9d0628a8a250ff2f" },
+  { file = "packages/core/src/gts.ts", oid = "ad110602090df16b5ff55928e928221ce271ae47" },
   { file = "packages/runtime/src/gts/acceptance.ts", oid = "4385a64a9fcc40164c39a1e5773c5efe08b406e3" },
   { file = "packages/runtime/src/templates/prompts/goal-parser.prompt.ts", oid = "b72a1b406f0f2738726ab4acda0e039df5ee5a4e" },
   { file = "docs/core/AHF_CORE_GTS.md", oid = "603406813e97be466ff48fb5b2b9d7b7f0866401" },
