@@ -607,11 +607,7 @@ function latencyText() {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.session-time {
-    font-size: 11px;
-    color: var(--fg-tertiary);
-    margin-top: 1px;
-}
+/* 时间浮层的样式统一在 style/layout.css：hover 时绝对定位浮出，不占行高。 */
 .session-menu-wrap {
     position: absolute;
     top: 4px;

@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import LineIcon from '../assets/LineIcon.vue';
-import { isLabTabId, LAB_TABS } from '../scripts/lab-tabs.ts';
+import { isLabTabId } from '../scripts/lab-tabs.ts';
 import EvalDashboardPage from './EvalDashboardPage.vue';
 import EvalLabPage from './EvalLabPage.vue';
 import ExperimentsPage from './ExperimentsPage.vue';
@@ -14,21 +13,12 @@ const props = defineProps({
 });
 const emit = defineEmits(['open-trace']);
 
+// 分类名与说明由左侧导航的选中态表达，主区不再重复一层标题。
 const activeTab = computed(() => (isLabTabId(props.tab) ? props.tab : 'ab'));
-const activeMeta = computed(
-    () => LAB_TABS.find((item) => item.id === activeTab.value) ?? LAB_TABS[0],
-);
 </script>
 
 <template>
     <section class="lab-page">
-        <header class="lab-head">
-            <div class="lab-title">
-                <LineIcon :name="activeMeta.icon" :size="17" />
-                <strong>{{ activeMeta.label }}</strong>
-                <span>{{ activeMeta.hint }}</span>
-            </div>
-        </header>
         <div class="lab-body">
             <EvalDashboardPage
                 v-if="activeTab === 'evals'"
@@ -53,23 +43,6 @@ const activeMeta = computed(
     height: 100%;
     min-height: 0;
     overflow: hidden;
-}
-.lab-head,
-.lab-title {
-    display: flex;
-    align-items: center;
-}
-.lab-head {
-    justify-content: space-between;
-    gap: 10px;
-    padding: 10px 16px 0;
-}
-.lab-title {
-    gap: 8px;
-}
-.lab-title span {
-    color: var(--fg-tertiary);
-    font-size: 11px;
 }
 .lab-body {
     flex: 1;
