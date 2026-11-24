@@ -10,6 +10,7 @@ import {
     contractsForRun,
     pendingNegotiationOf,
     routerModeLabel,
+    routerReasonGroups,
 } from '../src/scripts/contract-view.ts';
 
 function contract(over: Partial<ContractView> = {}): ContractView {
@@ -165,6 +166,11 @@ describe('contract-view（契约与验收的展示投影）', () => {
         expect(entry?.routing?.promptPackIds).toEqual(['coding']);
         expect(routerModeLabel(entry?.routing)).toBe('dynamic');
         expect(routerModeLabel({ route: 'direct', loopMode: 'direct' })).toBe('direct');
+        expect(routerReasonGroups(['route:workflow', 'task:coding', 'coding:tools:fs.read'])).toEqual([
+            { key: 'route', label: '路由去向', items: ['workflow'] },
+            { key: 'task', label: '任务分类', items: ['coding'] },
+            { key: 'pack:coding', label: '策略包 · coding', items: ['tools:fs.read'] },
+        ]);
         expect(entry?.negotiation?.revision).toBe(1);
         expect(entry?.conditions.map((row) => row.status)).toEqual(['passed', 'unchecked']);
         expect(entry?.failureConditions).toEqual(['覆盖了非目标文件']);

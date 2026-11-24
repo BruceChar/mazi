@@ -4,7 +4,16 @@
  * 无 toolCalls → 最终回答。Step 归因 taskId/goalId，全部经 GoalStore 持久化。
  */
 
-import type { Goal, Step, StepAgentRole, StepKind, StepRole, Task, ToolSchema } from '@mazi/core';
+import type {
+    Goal,
+    ObservedCall,
+    Step,
+    StepAgentRole,
+    StepKind,
+    StepRole,
+    Task,
+    ToolSchema,
+} from '@mazi/core';
 import { ulid } from '@mazi/core';
 import {
     type ContextContribution,
@@ -373,6 +382,25 @@ export interface ActOutput {
     replayed: boolean;
 }
 
+/**
+ * Observe 输入的可读投影：不再只把工具原文塞给 UI，而是给出状态、体量和首行结果。
+ * 完整原文仍保留在 invocation.payload.output，二者通过 callId 关联。
+ */
+function observedCallOf(item: ActOutput): ObservedCall {
+    const clean = item.output.replace(/^\[error\]\s*/, '').trim();
+    const lines = clean.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    const status = item.isError ? 'failed' : item.replayed ? 'replayed' : 'succeeded';
+    const statusLabel =
+        status === 'failed' ? '失败' : status === 'replayed' ? '复用已有结果' : '成功';
+    const preview = (lines[0] ?? '(空输出)').slice(0, 120);
+    return {
+        callId: item.callId,
+        toolName: item.toolName,
+        status,
+        summary: `${statusLabel} · ${lines.length} 行 · ${Buffer.byteLength(clean, 'utf8')}B · ${preview}`,
+    };
+}
+
 type ReasonOutcome = 'tools' | 'final' | 'failed' | 'empty';
 type ActOutcome = 'observed' | 'failed' | 'empty';
 type ObserveOutcome = 'continue' | 'final' | 'failed';
@@ -492,7 +520,9 @@ export class TaskExecutionContext {
     }
 
     private defaultRole(kind: StepKind): StepRole {
-        return kind === 'deliberation' ? 'think' : 'act';
+        if (kind === 'deliberation') return 'think';
+        if (kind === 'observation') return 'observe';
+        return 'act';
     }
 
     private defaultProvenance(
@@ -504,12 +534,18 @@ export class TaskExecutionContext {
         nodeRole: StepRole;
         agentRole: StepAgentRole;
     } {
-        const node = kind === 'deliberation' ? 'think' : 'act';
+        const node =
+            kind === 'deliberation' ? 'think' : kind === 'observation' ? 'observe' : 'act';
         return {
             nodeRunId: `${node}:${this.task.taskId}:${round + 1}`,
             nodeId: node,
             nodeRole: node,
-            agentRole: kind === 'deliberation' ? 'reasoner' : 'executor',
+            agentRole:
+                kind === 'deliberation'
+                    ? 'reasoner'
+                    : kind === 'observation'
+                      ? 'observer'
+                      : 'executor',
         };
     }
 
@@ -888,9 +924,38 @@ export class TaskExecutionContext {
         return outputs.length > 0 ? 'observed' : 'empty';
     }
 
+    /** Observe 也要有显式 Step：输入是本轮工具结果，输出是 continue / final 的结论。 */
+    private async recordObservation(
+        outputs: readonly ActOutput[],
+        disposition: 'continue' | 'final',
+        startedAt: number,
+        result?: string,
+    ): Promise<void> {
+        const round = Math.max(0, this.roundIndex - 1);
+        const step: Step = {
+            stepId: ulid(),
+            taskId: this.task.taskId,
+            goalId: this.task.goalId,
+            ...this.stepMeta('observation', round),
+            kind: 'observation',
+            payload: {
+                observations: outputs.map(observedCallOf),
+                disposition,
+                ...(result !== undefined && result.trim().length > 0 ? { result } : {}),
+            },
+            status: 'succeeded',
+            startedAt,
+            endedAt: this.now(),
+        };
+        this.steps.push(step);
+        await this.deps.store.saveStep(step);
+        this.deps.onStep?.(step);
+    }
+
     /** 工具结果回注上下文，并判定确定性收尾。 */
     async observe(): Promise<ObserveOutcome> {
         if (this.terminalState !== undefined) return 'failed';
+        const observeStartedAt = this.now();
         const outputs = this.outputs ?? [];
         this.outputs = undefined;
         if (outputs.length === 0) return 'continue';
@@ -904,6 +969,7 @@ export class TaskExecutionContext {
             this.deliberationStep.payload.answerTemplate = this.lastText;
             await this.deps.store.saveStep(this.deliberationStep);
             this.deps.onStep?.(this.deliberationStep);
+            await this.recordObservation(outputs, 'final', observeStartedAt, decision.finalMessage);
             await this.markFinal(decision.finalMessage);
             return 'final';
         }
@@ -920,6 +986,7 @@ export class TaskExecutionContext {
                 await this.deps.store.saveStep(this.deliberationStep);
                 this.deps.onStep?.(this.deliberationStep);
             }
+            await this.recordObservation(outputs, 'final', observeStartedAt, final);
             await this.markFinal(final);
             return 'final';
         }
@@ -949,6 +1016,12 @@ export class TaskExecutionContext {
         ) {
             this.context.compactHistory();
         }
+        await this.recordObservation(
+            outputs,
+            'continue',
+            observeStartedAt,
+            `已回注 ${outputs.length} 条工具结果，继续推理`,
+        );
         return 'continue';
     }
 

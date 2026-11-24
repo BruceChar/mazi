@@ -140,7 +140,7 @@ const { state, outcome, events } = await runner.run(initialState);
 
 ## 八点五、Step 归属与 Router 审计
 
-Step 除 `kind`（deliberation / invocation）和 `role`（语义阶段）外，还记录真实执行归属：
+Step 除 `kind`（deliberation / invocation / observation）和 `role`（语义阶段）外，还记录真实执行归属：
 
 ```ts
 Step.nodeRunId?: string;   // 实际节点执行 span，例如 act:<taskId>

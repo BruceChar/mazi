@@ -88,7 +88,14 @@ function kindLabel(kind, role) {
     if (role && ROLE_LABELS[role]) return ROLE_LABELS[role];
     if (kind === 'deliberation') return 'Thinking';
     if (kind === 'invocation') return 'Acting';
+    if (kind === 'observation') return 'Observing';
     return kind || '-';
+}
+/** Step kind → 左侧图标。 */
+function stepIcon(kind) {
+    if (kind === 'deliberation') return 'lightbulb';
+    if (kind === 'observation') return 'observation';
+    return 'hammer';
 }
 function stepRoleLabel(step) {
     return kindLabel(step?.kind, step?.role);
@@ -135,6 +142,11 @@ function formatToolArgs(toolName, args) {
 function stepToRow(step, idx) {
     const durationMs = step.endedAt && step.startedAt ? step.endedAt - step.startedAt : null;
     const isDeliberation = step.kind === 'deliberation';
+    const isObservation = step.kind === 'observation';
+    const observationText = isObservation
+        ? step.observationResult ||
+          (step.observations || []).map((item) => `${item.toolName}：${item.summary}`).join('\n')
+        : '';
     return {
         key: 'step-' + step.stepId,
         stepId: step.stepId,
@@ -156,9 +168,12 @@ function stepToRow(step, idx) {
         commandText: step.toolArguments ? formatToolArgs(step.toolName, step.toolArguments) : '',
         // deliberation：thinking 为可展开正文，answer 为内联正文（intentText，不用代码框）。
         // invocation：工具输出单独成体（text），与旧 tool_call 一致。
-        text: isDeliberation ? step.thinking || '' : step.toolOutput || '',
+        text: isDeliberation ? step.thinking || '' : isObservation ? observationText : step.toolOutput || '',
         intentText: isDeliberation ? step.answer || '' : '',
-        outputText: step.toolOutput || '',
+        outputText: isObservation ? '' : step.toolOutput || '',
+        observations: step.observations || [],
+        observationDisposition: step.observationDisposition || '',
+        observationResult: step.observationResult || '',
         endedAt: step.endedAt || null,
         durationMs,
         duration: durationMs != null ? formatDuration(durationMs) : '',
@@ -583,13 +598,13 @@ watch(
                         >
                             <LineIcon
                                 class="kind-icon"
-                                :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'"
+                                :name="stepIcon(entry.step.kind)"
                                 size="16"
                             />
                             <span class="toggle-mark">{{ liveCollapsed.has(entry.step.stepId) ? '+' : '−' }}</span>
                         </button>
                         <span v-else-if="entry.step.status === 'active'" class="exec-spinner"></span>
-                        <LineIcon v-else :name="entry.step.kind === 'deliberation' ? 'lightbulb' : 'hammer'" size="16" />
+                        <LineIcon v-else :name="stepIcon(entry.step.kind)" size="16" />
                         <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
                         <span class="exec-step-name">
                             {{ stepRoleLabel(entry.step) }}<span
@@ -741,14 +756,14 @@ watch(
                                 >
                                     <LineIcon
                                         class="kind-icon"
-                                        :name="row.kind === 'deliberation' ? 'lightbulb' : 'hammer'"
+                                        :name="stepIcon(row.kind)"
                                         size="16"
                                     />
                                     <span class="toggle-mark">{{ isStepCollapsed(row) ? '+' : '−' }}</span>
                                 </button>
                                 <LineIcon
                                     v-else
-                                    :name="row.kind === 'deliberation' ? 'lightbulb' : 'hammer'"
+                                    :name="stepIcon(row.kind)"
                                     size="16"
                                 />
                                 <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
@@ -785,6 +800,20 @@ watch(
                             </div>
                             <div v-if="isStepExpanded(row) && row.text" class="exec-step-code">
                                 <div v-if="row.kind === 'invocation'" class="exec-role-caption">Observing</div>
+                                <div v-if="row.kind === 'observation'" class="exec-observation-input">
+                                    <div class="exec-observation-input-title">Observe 输入</div>
+                                    <div
+                                        v-for="(observed, obsIdx) in row.observations"
+                                        :key="observed.callId || obsIdx"
+                                        class="exec-observation-item"
+                                        :class="observed.status"
+                                    >
+                                        <span class="exec-observation-tool">{{ observed.toolName }}</span>
+                                        <span class="exec-observation-summary">{{ observed.summary }}</span>
+                                    </div>
+                                    <div v-if="!row.observations.length" class="exec-role-caption">（无输入）</div>
+                                    <div class="exec-observation-input-title">Observe 输出</div>
+                                </div>
                                 <pre class="exec-step-code-inner">{{ row.text }}</pre>
                             </div>
                             <!-- 同轮 intent（模型输出）：紧贴 reasoning 下方，正文呈现（非代码框） -->
@@ -1243,6 +1272,37 @@ watch(
     font-weight: 600;
     letter-spacing: 0.02em;
     color: var(--fg-tertiary);
+}
+.exec-observation-input {
+    padding: 6px 10px 0;
+}
+.exec-observation-input-title {
+    margin: 2px 0 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-tertiary);
+}
+.exec-observation-item {
+    display: flex;
+    gap: 6px;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 4px;
+    font-size: 11px;
+}
+.exec-observation-item.failed {
+    border-color: var(--error);
+    color: var(--error);
+}
+.exec-observation-tool {
+    flex: none;
+    font-family: ui-monospace, monospace;
+}
+.exec-observation-summary {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
 }
 .exec-step-code-inner {
     margin: 0;

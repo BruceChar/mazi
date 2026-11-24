@@ -188,6 +188,57 @@ export function routerModeLabel(
     return routing.route === 'direct' ? 'direct' : routing.loopMode;
 }
 
+/** Router 决策依据的一组：同一来源的规则命中归到一起，避免一行长 chips。 */
+export interface RouterReasonGroup {
+    key: string;
+    label: string;
+    items: string[];
+}
+
+const ROUTER_REASON_LABELS: Record<string, string> = {
+    route: '路由去向',
+    triage: 'Triage 判定',
+    task: '任务分类',
+    risk: '风险判定',
+};
+
+/**
+ * 把扁平 `reason[]` 分组为结构化决策链。
+ * 形如 `coding:task:coding` 的条目按 `coding` 归入「策略包」组。
+ */
+export function routerReasonGroups(reason?: readonly string[] | null): RouterReasonGroup[] {
+    const groups = new Map<string, RouterReasonGroup>();
+    const push = (key: string, label: string, item: string): void => {
+        const group = groups.get(key) ?? { key, label, items: [] };
+        if (!group.items.includes(item)) group.items.push(item);
+        groups.set(key, group);
+    };
+    for (const raw of reason ?? []) {
+        const text = raw.trim();
+        if (text.length === 0) continue;
+        const colon = text.indexOf(':');
+        if (colon <= 0) {
+            push('other', '其他依据', text);
+            continue;
+        }
+        const prefix = text.slice(0, colon);
+        const rest = text.slice(colon + 1);
+        const builtin = ROUTER_REASON_LABELS[prefix];
+        if (builtin !== undefined) {
+            push(prefix, builtin, rest);
+        } else {
+            push(`pack:${prefix}`, `策略包 · ${prefix}`, rest);
+        }
+    }
+    const order = ['route', 'triage', 'task', 'risk'];
+    return [...groups.values()].sort((a, b) => {
+        const ai = order.indexOf(a.key);
+        const bi = order.indexOf(b.key);
+        if (ai >= 0 || bi >= 0) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+        return a.key.localeCompare(b.key);
+    });
+}
+
 /** 满足度色调（用于徽标着色）。 */
 export function contractStateTone(state?: string | null): 'ok' | 'fail' | 'muted' {
     if (state === 'satisfied') return 'ok';

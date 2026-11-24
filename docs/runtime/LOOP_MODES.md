@@ -68,8 +68,8 @@ Think（final / 失败）→ Verify（Task 终态）→ Think / done
 - 展示口径：主会话不再单独渲染 workflow 节点框。节点语义落到 `Step.role`，按
   `think / plan / act / observe / verify / reflect` 展示为
   `Thinking / Planning / Acting / Observing / Verifying / Reflecting`；没有 role 的 default
-  loop 按 kind 回退为 Thinking / Acting。`Step.kind` 仍是 deliberation / invocation，
-  只负责 payload 与重放。
+  loop 按 kind 回退为 Thinking / Acting。`Step.kind` 是 deliberation / invocation /
+  observation，负责 payload 与重放；observation 是 Observe 节点的输入归并与结果，不是工具原文副本。
 - Step 归属：`kind` 是技术判别式，`role` 是语义阶段，`nodeRunId / nodeId / agentRole` 是实际 node/agent
   归属；旧数据缺省，展示层按 kind 回退。
 - Router 审计：SuperAgent 的 route / taskKind / risk / promptPack / planner / verifier / loopMode

@@ -34,6 +34,15 @@ export interface LiveStep {
     answer?: string;
     /** invocation：工具输出。 */
     output?: string;
+    /** observation：本轮输入结果与结论。 */
+    observations?: Array<{
+        callId?: string;
+        toolName: string;
+        status: 'succeeded' | 'failed' | 'replayed';
+        summary: string;
+    }>;
+    observationDisposition?: 'continue' | 'final';
+    observationResult?: string;
     title: string;
     content: string;
     status: string;
@@ -106,6 +115,27 @@ export function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
               ? payload.tool
               : '';
     const toolArguments = argumentsFromPayload(payload, content, toolName);
+    const observations = Array.isArray(payload.observations)
+        ? payload.observations.flatMap((item) => {
+              if (item === null || typeof item !== 'object') return [];
+              const value = item as Record<string, unknown>;
+              const summary = typeof value.summary === 'string' ? value.summary : '';
+              const name = typeof value.toolName === 'string' ? value.toolName : '';
+              const status: 'succeeded' | 'failed' | 'replayed' =
+                  value.status === 'failed' || value.status === 'replayed'
+                      ? value.status
+                      : 'succeeded';
+              if (name.length === 0 && summary.length === 0) return [];
+              return [
+                  {
+                      ...(typeof value.callId === 'string' ? { callId: value.callId } : {}),
+                      toolName: name,
+                      status,
+                      summary,
+                  },
+              ];
+          })
+        : undefined;
     return {
         stepId: String(event.stepId ?? ''),
         taskId: String(event.taskId ?? ''),
@@ -120,6 +150,11 @@ export function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
         thinking: typeof payload.thinking === 'string' ? payload.thinking : undefined,
         answer: typeof payload.answer === 'string' ? payload.answer : undefined,
         output: typeof payload.output === 'string' ? payload.output : undefined,
+        ...(observations !== undefined && observations.length > 0 ? { observations } : {}),
+        ...(payload.disposition === 'continue' || payload.disposition === 'final'
+            ? { observationDisposition: payload.disposition }
+            : {}),
+        ...(typeof payload.result === 'string' ? { observationResult: payload.result } : {}),
         title: stepTitleOf({
             kind: String(payload.kind ?? 'step'),
             toolName,

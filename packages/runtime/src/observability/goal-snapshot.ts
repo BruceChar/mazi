@@ -105,12 +105,21 @@ function acceptanceViewOf(task: Task): AcceptanceView {
 
 /** Step payload → 可读文本摘要（按 kind 投影；长内容截断） */
 function payloadTextOf(step: Step): string | undefined {
-    const text =
-        step.kind === 'deliberation'
-            ? [step.payload.thinking ?? '', step.payload.answer ?? '']
-                  .filter((part) => part.length > 0)
-                  .join(' ')
-            : `${step.payload.toolName} ${JSON.stringify(step.payload.arguments ?? {})}`;
+    let text: string;
+    if (step.kind === 'deliberation') {
+        text = [step.payload.thinking ?? '', step.payload.answer ?? '']
+            .filter((part) => part.length > 0)
+            .join(' ');
+    } else if (step.kind === 'observation') {
+        text = [
+            ...step.payload.observations.map((item) => `${item.toolName}:${item.summary}`),
+            step.payload.result ?? '',
+        ]
+            .filter((part) => part.length > 0)
+            .join(' ');
+    } else {
+        text = `${step.payload.toolName} ${JSON.stringify(step.payload.arguments ?? {})}`;
+    }
     return text.length > 240 ? `${text.slice(0, 240)}…` : text;
 }
 
@@ -161,19 +170,34 @@ export function snapshotGoalTree(
                                       ? { answer: step.payload.answer }
                                       : {}),
                               }
-                            : {
-                                  ...(step.payload.output !== undefined
-                                      ? { content: step.payload.output }
-                                      : {}),
-                                  toolName: step.payload.toolName,
-                                  toolArguments: step.payload.arguments,
-                                  ...(step.payload.cwd !== undefined
-                                      ? { toolCwd: step.payload.cwd }
-                                      : {}),
-                                  ...(step.payload.output !== undefined
-                                      ? { toolOutput: step.payload.output }
-                                      : {}),
-                              };
+                            : step.kind === 'observation'
+                              ? {
+                                    ...(step.payload.result !== undefined
+                                        ? {
+                                              content: step.payload.result,
+                                              observationResult: step.payload.result,
+                                          }
+                                        : {
+                                              content: step.payload.observations
+                                                  .map((item) => `${item.toolName}:${item.summary}`)
+                                                  .join('\n'),
+                                          }),
+                                    observations: step.payload.observations,
+                                    observationDisposition: step.payload.disposition,
+                                }
+                              : {
+                                    ...(step.payload.output !== undefined
+                                        ? { content: step.payload.output }
+                                        : {}),
+                                    toolName: step.payload.toolName,
+                                    toolArguments: step.payload.arguments,
+                                    ...(step.payload.cwd !== undefined
+                                        ? { toolCwd: step.payload.cwd }
+                                        : {}),
+                                    ...(step.payload.output !== undefined
+                                        ? { toolOutput: step.payload.output }
+                                        : {}),
+                                };
                     return {
                         stepId: step.stepId,
                         goalId: step.goalId,

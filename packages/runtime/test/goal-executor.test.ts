@@ -111,6 +111,20 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect(invocation?.nodeId).toBe('act');
         expect(invocation?.agentRole).toBe('executor');
         expect(invocation?.nodeRunId?.startsWith('act:')).toBe(true);
+        const observation = steps.find((step) => step.kind === 'observation');
+        expect(observation?.role).toBe('observe');
+        expect(observation?.nodeId).toBe('observe');
+        expect(observation?.agentRole).toBe('observer');
+        expect(observation?.nodeRunId?.startsWith('observe:')).toBe(true);
+        if (observation?.kind === 'observation') {
+            expect(observation.payload.disposition).toBe('continue');
+            expect(observation.payload.observations[0]).toMatchObject({
+                callId: 'c1',
+                toolName: 'fs.read',
+                status: 'succeeded',
+            });
+            expect(observation.payload.observations[0]?.summary).toContain('成功');
+        }
     });
 
     it('roleForStep 按 StepKind 写入节点角色；不改 kind 判别式', async () => {

@@ -4,7 +4,7 @@
  * 时间线 / Context 两种视图的条几何、过滤器。无副作用，不依赖 Vue，便于单测。
  */
 
-import type { AuditDiffPart, AuditStepRow, AuditTaskRow } from './audit.ts';
+import type { AuditDiffPart, AuditStepRow, AuditTaskRow, ObservationView } from './audit.ts';
 import { kindLabel, roleLabel } from './audit.ts';
 
 /** span 在两种视图中的最小可见条宽（%）：极短 span 也要能点到。 */
@@ -72,6 +72,10 @@ export interface TraceSpan {
     toolCommand: string;
     toolOutput: string;
     toolCwd: string;
+    /** observation：输入结果与结论。 */
+    observations?: ObservationView[];
+    observationDisposition?: 'continue' | 'final';
+    observationResult?: string;
     diffParts: AuditDiffPart[];
     /** 该模型步产生的工具调用（工具 span 恒为空） */
     children: TraceSpan[];
@@ -344,6 +348,13 @@ function toSpan(row: AuditStepRow, geometry: SpanGeometry): TraceSpan {
         toolCommand: row.toolCommand,
         toolOutput: row.toolOutput,
         toolCwd: row.toolCwd,
+        ...(row.observations !== undefined ? { observations: row.observations } : {}),
+        ...(row.observationDisposition !== undefined
+            ? { observationDisposition: row.observationDisposition }
+            : {}),
+        ...(row.observationResult !== undefined
+            ? { observationResult: row.observationResult }
+            : {}),
         diffParts: row.diffParts ?? [],
         children: [],
     };

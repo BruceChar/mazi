@@ -86,7 +86,12 @@ describe('goal-executor 中断/恢复（IR-B）', () => {
         expect(outcome.reason).toBe('aborted');
         expect(invoked).toBe(1);
         const steps = await store.listSteps(t.taskId);
-        expect(steps.map((step) => step.kind)).toEqual(['deliberation', 'invocation']);
+        // 中断发生在工具返回后：Act 已落库，Observe 也记录了这次结果再收到 aborted。
+        expect(steps.map((step) => step.kind)).toEqual([
+            'deliberation',
+            'invocation',
+            'observation',
+        ]);
         expect((await store.loadTask(t.taskId))?.status).toBe('aborted');
     });
 

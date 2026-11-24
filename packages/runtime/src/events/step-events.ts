@@ -8,6 +8,11 @@ function stepText(step: Step): string {
     if (step.kind === 'deliberation') {
         const { thinking, answer } = step.payload;
         text = [thinking ?? '', answer ?? ''].filter((part) => part.length > 0).join('\n\n');
+    } else if (step.kind === 'observation') {
+        text = step.payload.observations
+            .map((item) => `${item.toolName}: ${item.summary}`)
+            .join('\n');
+        if (step.payload.result !== undefined) text += `\n→ ${step.payload.result}`;
     } else {
         const { toolName, arguments: args, output } = step.payload;
         text = `${toolName} ${JSON.stringify(args ?? {})}`;
@@ -50,6 +55,10 @@ export class StepEventEmitter {
             if (step.payload.thinking !== undefined) payload.thinking = step.payload.thinking;
             if (step.payload.answer !== undefined) payload.answer = step.payload.answer;
             if (step.payload.toolCalls !== undefined) payload.toolCalls = step.payload.toolCalls;
+        } else if (step.kind === 'observation') {
+            payload.observations = step.payload.observations;
+            payload.disposition = step.payload.disposition;
+            if (step.payload.result !== undefined) payload.result = step.payload.result;
         } else {
             payload.toolName = step.payload.toolName;
             if (step.payload.output !== undefined) payload.output = step.payload.output;

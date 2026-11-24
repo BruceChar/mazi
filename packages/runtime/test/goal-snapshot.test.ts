@@ -185,6 +185,37 @@ describe('goal-snapshot（C3f：四元组层级投影）', () => {
         expect(view?.content).toBe('total 0');
     });
 
+    it('observation 投影：输入结果与 continue/final 结论都可见', () => {
+        const root = ulid();
+        const work = goal(ulid(), root);
+        const t = task(ulid(), work.goalId);
+        const s: Step = {
+            ...step(ulid(), t.taskId, work.goalId),
+            role: 'observe',
+            kind: 'observation',
+            payload: {
+                observations: [
+                    {
+                        callId: 'c1',
+                        toolName: 'shell.run',
+                        status: 'succeeded',
+                        summary: '成功 · 2 行 · 20B · total 0',
+                    },
+                ],
+                disposition: 'continue',
+                result: '已回注 1 条工具结果，继续推理',
+            },
+        };
+        const snap = snapshotGoalTree(root, [work], [t], [s]);
+        const view = snap.goals[0]?.tasks[0]?.steps[0];
+        expect(view?.kind).toBe('observation');
+        expect(view?.observations?.[0]?.toolName).toBe('shell.run');
+        expect(view?.observations?.[0]?.summary).toContain('成功');
+        expect(view?.observationDisposition).toBe('continue');
+        expect(view?.observationResult).toBe('已回注 1 条工具结果，继续推理');
+        expect(view?.content).toBe('已回注 1 条工具结果，继续推理');
+    });
+
     it('usage 投影：roundId 透传（deliberation 轮聚合去重用）', () => {
         const root = ulid();
         const work = goal(ulid(), root);

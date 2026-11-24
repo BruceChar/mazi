@@ -32,6 +32,7 @@ import {
     contractStateTone,
     contractsForRun,
     routerModeLabel,
+    routerReasonGroups,
 } from '../scripts/contract-view.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { buildRunFailureView } from '../scripts/run-failure.ts';
@@ -740,26 +741,53 @@ watch(
                         <div class="router-goal-head">
                             <span class="router-goal-title">{{ entry.statement }}</span>
                             <span class="contract-goal-status">{{ entry.goalStatus }}</span>
-                        </div>
-                        <div class="contract-negotiation">
-                            <span class="contract-chip route">
-                                {{ entry.routing ? 'Router' : 'Triage' }} ·
+                            <span class="router-route-badge">
                                 {{ entry.routing ? routerModeLabel(entry.routing) : 'direct' }}
                             </span>
-                            <template v-if="entry.routing">
-                                <span class="contract-chip">by:{{ entry.routing.routedBy }}</span>
-                                <span class="contract-chip">task:{{ entry.routing.taskKind }}</span>
-                                <span class="contract-chip">risk:{{ entry.routing.riskLevel }}</span>
-                                <span v-for="pack in entry.routing.promptPackIds" :key="pack" class="contract-chip">pack:{{ pack }}</span>
-                                <span class="contract-chip">planner:{{ entry.routing.plannerId }}</span>
-                                <span class="contract-chip">verifier:{{ entry.routing.verifierId }}</span>
-                            </template>
                         </div>
-                        <div v-if="entry.routing && entry.routing.reason.length > 0" class="contract-note router-reason">
-                            决策依据：{{ entry.routing.reason.join(' · ') }}
+                        <div v-if="entry.routing" class="router-facts">
+                            <div class="router-fact">
+                                <span class="router-fact-label">分类</span>
+                                <span class="router-fact-value">{{ entry.routing.taskKind }}</span>
+                            </div>
+                            <div class="router-fact">
+                                <span class="router-fact-label">风险</span>
+                                <span class="router-fact-value">{{ entry.routing.riskLevel }}</span>
+                            </div>
+                            <div class="router-fact">
+                                <span class="router-fact-label">策略包</span>
+                                <span class="router-fact-value">{{ entry.routing.promptPackIds.join(', ') || '无' }}</span>
+                            </div>
+                            <div class="router-fact">
+                                <span class="router-fact-label">Planner</span>
+                                <span class="router-fact-value">{{ entry.routing.plannerId }}</span>
+                            </div>
+                            <div class="router-fact">
+                                <span class="router-fact-label">Verifier</span>
+                                <span class="router-fact-value">{{ entry.routing.verifierId }}</span>
+                            </div>
+                            <div class="router-fact">
+                                <span class="router-fact-label">决策者</span>
+                                <span class="router-fact-value">{{ entry.routing.routedBy }}</span>
+                            </div>
+                        </div>
+                        <div
+                            v-if="entry.routing && entry.routing.reason.length > 0"
+                            class="router-decision-chain"
+                        >
+                            <div
+                                v-for="group in routerReasonGroups(entry.routing.reason)"
+                                :key="group.key"
+                                class="router-reason-group"
+                            >
+                                <div class="router-reason-label">{{ group.label }}</div>
+                                <ul class="router-reason-items">
+                                    <li v-for="item in group.items" :key="item">{{ item }}</li>
+                                </ul>
+                            </div>
                         </div>
                         <div v-if="!entry.routing" class="contract-note router-reason">
-                            直答路径：由 triage 直接回答，未进入 Router / Think-Act。
+                            直答路径：由 triage 直接回答，未进入 Router / Think-Act，因此没有工具/规划决策。
                         </div>
                     </div>
                 </section>
@@ -1024,10 +1052,31 @@ watch(
                                       <span v-if="item.span.nodeRunId"> · span={{ item.span.nodeRunId }}</span>
                                     </div>
                                     <template v-if="item.span.isTool">
-                                        <div class="ctx-diff-label">命令 / 参数</div>
+                                        <div class="ctx-diff-label">输入 · 命令 / 参数</div>
                                         <pre class="seg-content">{{ item.span.toolLine || '(无)' }}</pre>
-                                        <div class="ctx-diff-label">输出</div>
+                                        <div class="ctx-diff-label">输出 · 工具结果</div>
                                         <pre class="seg-content">{{ item.span.toolOutput || '(空)' }}</pre>
+                                    </template>
+                                    <template v-else-if="item.span.kind === 'observation'">
+                                        <div class="ctx-diff-label">Observe 输入</div>
+                                        <div class="trace-observation-list">
+                                            <div
+                                                v-for="(observed, obsIdx) in item.span.observations || []"
+                                                :key="observed.callId || obsIdx"
+                                                class="trace-observation"
+                                                :class="observed.status"
+                                            >
+                                                <span class="trace-observation-tool">{{ observed.toolName }}</span>
+                                                <span class="trace-observation-status">{{ observed.status }}</span>
+                                                <span class="trace-observation-summary">{{ observed.summary }}</span>
+                                            </div>
+                                            <div v-if="!(item.span.observations || []).length" class="audit-muted">（无输入）</div>
+                                        </div>
+                                        <div class="ctx-diff-label">Observe 输出</div>
+                                        <div class="trace-observation-result">
+                                            <span class="contract-chip route">{{ item.span.observationDisposition === 'final' ? 'final' : 'continue' }}</span>
+                                            <span>{{ item.span.observationResult || '已回注上下文，继续推理' }}</span>
+                                        </div>
                                     </template>
                                     <template v-else>
                                         <template v-for="part in item.span.diffParts" :key="part.key">
@@ -2792,6 +2841,50 @@ watch(
     color: var(--fg-secondary);
     font-family: ui-monospace, monospace;
 }
+.trace-observation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.trace-observation {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.trace-observation.failed {
+    border-color: var(--warn);
+    color: var(--warn);
+}
+.trace-observation-tool {
+    flex: none;
+    font-family: ui-monospace, monospace;
+    color: var(--fg);
+}
+.trace-observation-status {
+    flex: none;
+    font-size: 10px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+.trace-observation-summary {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+}
+.trace-observation-result {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--fg-secondary);
+}
 .audit-section-sub {
     margin: 8px 0 4px;
     font-size: 11px;
@@ -3371,6 +3464,77 @@ watch(
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.router-route-badge {
+    flex: none;
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 0 5px;
+    color: var(--accent);
+    font-size: 10px;
+}
+.router-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 10px;
+    margin-top: 6px;
+}
+.router-fact {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+    font-size: 11px;
+}
+.router-fact-label {
+    flex: none;
+    color: var(--fg-tertiary);
+}
+.router-fact-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg-secondary);
+    font-family: ui-monospace, monospace;
+}
+.router-decision-chain {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px solid var(--border);
+}
+.router-reason-group {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+}
+.router-reason-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-secondary);
+}
+.router-reason-items {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--fg-secondary);
+}
+.router-reason-items li {
+    position: relative;
+    padding-left: 10px;
+    word-break: break-word;
+}
+.router-reason-items li::before {
+    content: '·';
+    position: absolute;
+    left: 0;
+    color: var(--fg-tertiary);
 }
 .router-reason {
     line-height: 1.45;

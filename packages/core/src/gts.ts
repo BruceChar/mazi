@@ -267,7 +267,9 @@ export type StepKind =
     // LLM intrinsic：一次模型输出（推理 / 回答 / 提议的工具调用）
     | 'deliberation'
     // Extrinsic：一次对外部世界的实际调用（tool / http / shell 等）
-    | 'invocation';
+    | 'invocation'
+    // Observe：对一批 invocation 结果的归并、判定与回注
+    | 'observation';
 
 /** Step 所属 workflow 节点角色；缺省表示未运行在节点驱动的 loop 中。 */
 export type StepRole = 'think' | 'plan' | 'act' | 'observe' | 'verify' | 'reflect';
@@ -304,7 +306,24 @@ export interface InvocationPayload {
     output?: string;
 }
 
-export type StepPayload = DeliberationPayload | InvocationPayload;
+/** Observe 的一条输入：Act 产出的工具结果。 */
+export interface ObservedCall {
+    callId?: string;
+    toolName: string;
+    status: 'succeeded' | 'failed' | 'replayed';
+    /** 面向人阅读的结果摘要；完整原文仍在 invocation.payload.output。 */
+    summary: string;
+}
+
+/** Observe 的输入（一批已终态调用）与输出（继续推理还是收尾）。 */
+export interface ObservationPayload {
+    observations: ObservedCall[];
+    disposition: 'continue' | 'final';
+    /** final 时写回 Task 的结果；continue 时为回注摘要。 */
+    result?: string;
+}
+
+export type StepPayload = DeliberationPayload | InvocationPayload | ObservationPayload;
 
 export interface StepError {
     code: string;
@@ -342,6 +361,7 @@ export type Step = StepBase &
     (
         | { kind: 'deliberation'; payload: DeliberationPayload }
         | { kind: 'invocation'; payload: InvocationPayload }
+        | { kind: 'observation'; payload: ObservationPayload }
     );
 
 // ============================================================

@@ -22,6 +22,14 @@ export interface AuditDiffPart {
     text: string;
 }
 
+/** Observe 行的一条输入结果。 */
+export interface ObservationView {
+    callId?: string;
+    toolName: string;
+    status: 'succeeded' | 'failed' | 'replayed';
+    summary: string;
+}
+
 /**
  * Context 分段的两个轴（三段工具相关段落互不重叠）：
  *  - 请求固定开销：systemPrompt、toolSchema（每轮原样重发，不随历史增长）
@@ -74,6 +82,10 @@ export interface AuditLiveStep {
     content: string;
     /** invocation：工具输出（step-events payload.output）。 */
     output?: string;
+    /** observation：输入结果与结论。 */
+    observations?: ObservationView[];
+    observationDisposition?: 'continue' | 'final';
+    observationResult?: string;
     status: string;
     startedAt: number;
     endedAt: number | null;
@@ -204,6 +216,12 @@ export interface AuditStepRow {
     toolLine: string;
     /** 工具完整输出（Context 面板单击展开；非工具步为 ''） */
     toolOutput: string;
+    /** Observe 的输入条目（每条 Act 结果的状态与摘要）。 */
+    observations?: ObservationView[];
+    /** Observe 的结论：继续推理 / 确定性收尾。 */
+    observationDisposition?: 'continue' | 'final';
+    /** Observe 输出：final 结果或回注摘要。 */
+    observationResult?: string;
     /** 步骤状态：pending/active/succeeded/failed/error/blocked/aborted… */
     status: string;
     /** 所属 Task 的当前状态：succeeded/aborted/failed…（审计面板任务状态展示用） */
@@ -435,6 +453,10 @@ interface ResolvedStep {
     toolCwd: string | null;
     /** tool_call：完整输出 */
     toolOutput: string | null;
+    /** observation：输入结果与结论。 */
+    observations?: ObservationView[];
+    observationDisposition?: 'continue' | 'final';
+    observationResult?: string;
     /** 相对上一轮新增的上下文内容（截断，合并） */
     diffContent: string;
     /** 相对上一轮各段新增内容（截断） */
@@ -971,6 +993,15 @@ function collectSnapshotSteps(
                     toolArguments: step.toolArguments ?? null,
                     toolCwd: step.toolCwd ?? null,
                     toolOutput: step.toolOutput ?? null,
+                    ...(step.observations !== undefined
+                        ? { observations: step.observations }
+                        : {}),
+                    ...(step.observationDisposition !== undefined
+                        ? { observationDisposition: step.observationDisposition }
+                        : {}),
+                    ...(step.observationResult !== undefined
+                        ? { observationResult: step.observationResult }
+                        : {}),
                     status: step.status,
                     taskStatus: task.status,
                     startedAt: step.startedAt ?? 0,
@@ -1054,6 +1085,13 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             toolArguments: null,
             toolCwd: null,
             toolOutput: step.kind === 'invocation' ? step.output || step.content || null : null,
+            ...(step.observations !== undefined ? { observations: step.observations } : {}),
+            ...(step.observationDisposition !== undefined
+                ? { observationDisposition: step.observationDisposition }
+                : {}),
+            ...(step.observationResult !== undefined
+                ? { observationResult: step.observationResult }
+                : {}),
             status: step.status,
             startedAt: step.startedAt,
             endedAt: step.endedAt,
@@ -1157,6 +1195,13 @@ function toRow(step: ResolvedStep, selectedId: string): AuditStepRow {
         toolCwd: shortenHome(step.toolCwd),
         toolLine: toolLineOf(step.toolName, step.toolCwd, step.toolArguments),
         toolOutput: step.toolOutput ?? '',
+        ...(step.observations !== undefined ? { observations: step.observations } : {}),
+        ...(step.observationDisposition !== undefined
+            ? { observationDisposition: step.observationDisposition }
+            : {}),
+        ...(step.observationResult !== undefined
+            ? { observationResult: step.observationResult }
+            : {}),
         status: step.status,
         taskStatus: step.taskStatus,
         durationMs: step.durationMs,
@@ -1768,12 +1813,14 @@ export function roleLabel(role: string | undefined, kind: string): string {
         reflect: 'Reflecting',
     };
     if (role && labels[role]) return labels[role];
+    if (kind === 'observation') return 'Observing';
     return kind === 'deliberation' ? 'Thinking' : kind === 'invocation' ? 'Acting' : kind || '-';
 }
 
 export function kindLabel(kind: string): string {
     if (kind === 'invocation') return 'tool';
     if (kind === 'deliberation') return 'model';
+    if (kind === 'observation') return 'observation';
     return kind || '-';
 }
 

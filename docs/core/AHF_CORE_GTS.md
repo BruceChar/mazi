@@ -7,7 +7,7 @@
 ```
 Goal（意图单元）── 意图片段的契约化：冻结验收 + 归因 + 治理上限
   └─ Task（目标单元）── 验收锚定唯一 Goal 的执行单元
-       └─ Step（归因原子）── deliberation | invocation
+       └─ Step（归因原子）── deliberation | invocation | observation
 ```
 
 归因三维度与审计问题的对应（坐标系的存在理由）：
@@ -83,13 +83,13 @@ export interface Task {
 
 ### 3.3 Step
 
-StepKind 只有两个值，按**事实来源**二分：`deliberation`（LLM 内在，一次模型输出）与 `invocation`（外在实际，一次对外部世界的调用）。决策链的三个环节（思考 / 回答与提议 / 执行与结果）落在二者的字段上，而不是各自成为一个 kind。
+StepKind 有三个值，按**事实来源**三分：`deliberation`（LLM 内在，一次模型输出）、`invocation`（外在实际，一次对外部世界的调用）与 `observation`（harness 对一批调用结果的归并，不调模型、不碰外部世界）。`observation` 是 Observe 节点的审计结果：输入是上一批 Act 的 `callId/toolName/status/summary`，输出是 `continue/final` 与结论；它不复制工具原文，完整原文仍留在 invocation，通过 `callId` 关联。
 
-节点语义不进入 `StepKind`，由可选的 `Step.role` 表达：`think / plan / act / observe / verify / reflect`。dynamic loop 写入该字段，UI 按 role 展示 Thinking / Planning / Acting / Observing / Verifying / Reflecting；default loop 缺省 role，展示层按 kind 回退为 Thinking / Acting。`kind` 仍是 payload 收窄与历史重放的唯一判别式。
+`Step.role` 仍表达节点语义：`think / plan / act / observe / verify / reflect`。但 Observe 现在同时有独立 `kind='observation'`，UI 不再依赖 role 猜结果。`kind` 仍是 payload 收窄与历史重放的唯一判别式。
 
 ```ts
 // ═══ step.ts ═══
-export type StepKind = 'deliberation' | 'invocation';
+export type StepKind = 'deliberation' | 'invocation' | 'observation';
 
 /** 模型一次输出的决策事实：推理、回答、提议的工具调用（三者可并存） */
 export interface DeliberationPayload {
@@ -110,7 +110,22 @@ export interface InvocationPayload {
   output?: string;
 }
 
-export type StepPayload = DeliberationPayload | InvocationPayload;
+export interface ObservedCall {
+  callId?: string;
+  toolName: string;
+  status: 'succeeded' | 'failed' | 'replayed';
+  /** 结果摘要：成功/失败/复用 · 行数/字节 · 首行预览；完整原文留在 invocation */
+  summary: string;
+}
+
+/** Observe 节点的输入归并 + 输出结论 */
+export interface ObservationPayload {
+  observations: ObservedCall[];
+  disposition: 'continue' | 'final';
+  result?: string;
+}
+
+export type StepPayload = DeliberationPayload | InvocationPayload | ObservationPayload;
 
 /** 失败事实：四源标签（model|tool|context|policy）；工具/策略失败不再在 payload 上编码 */
 export interface StepError {
@@ -140,17 +155,19 @@ export type Step = StepBase &
   (
     | { kind: 'deliberation'; payload: DeliberationPayload }
     | { kind: 'invocation'; payload: InvocationPayload }
+    | { kind: 'observation'; payload: ObservationPayload }
   );
 ```
 
-**为什么是二分而非三/四分**（最小抽象）：
+**为什么是三分而非二分**（最小但可审计）：
 
-- 三/四分法把同一来源的不同**字段**提升成 kind：thinking 与 intent 都是模型的一次输出，observation 只是 invocation 的结果。字段能表达的不再增设 kind。
+- thinking / answer / toolCalls 仍是模型一次输出的字段，不拆成多个 kind；invocation 仍同时承载参数与工具原文。
+- observation 不再只是 invocation 的附属字段：它按批归并 N 个调用、给出 continue/final 与结论，是独立的一次节点动作。塞进 invocation 会导致"这条结果属于哪个调用、下一轮为什么继续"只能靠 UI 猜。
 - kind 是**唯一判别式**：`Step` 是可判别联合，`step.kind` 唯一决定 `step.payload` 的类型，不存在 kind 与 payload.type 的双真相源。
-- 决策链重建仍完整：deliberation 回答"模型看到什么后决定了什么（推理 / 回答 / 提议了哪些调用）"，invocation 回答"实际执行了什么、环境返回什么"；两者通过 `callId` 配对，模型看到 → 决定 → 执行 → 结果全程可追。
+- 决策链重建仍完整：deliberation 回答"模型看到什么后决定了什么"，invocation 回答"实际执行了什么、环境返回什么"，observation 回答"这批结果意味着什么、下一步 continue 还是收尾"；三段通过 callId 串起来。
 - **失败是一等事实**：工具 / 策略失败由 `status` + `error.source` 表达，不再用 payload 上的 `isError` 布尔或 `structured` 旁路字段（默认工具调用桥只返回 string 结果，结构化旁路无消费者）。
 
-**用户行为不进 Step（v2.0，见 docs/用户行为流设计文档.md §10）**：用户的问题、反馈、授权行为与审批发起锚点记录在独立的 append-only 用户行为流，经只读纯函数 `projectBehaviorTimeline` 投影到 Step 时间线展示；**不新增 StepKind、不写入 `goal_steps`**。Step 二分会破坏的唯一判别式是归因原子，而用户行为是跨运行可携带的用户资产，二者生命周期与消费者不同，不合并。
+**用户行为仍不进 Step（v2.0，见 docs/用户行为流设计文档.md §10）**：用户的问题、反馈、授权行为与审批发起锚点记录在独立的 append-only 用户行为流，经只读纯函数 `projectBehaviorTimeline` 投影到 Step 时间线展示；**不新增用户行为 StepKind、不写入 `goal_steps`**。用户行为是跨运行可携带的用户资产，与归因原子生命周期不同，不合并。
 
 ## 4. GoalContract（Goal 的契约载荷）
 
@@ -223,7 +240,7 @@ export interface GoalContract {
 | `Goal.statement / sourceSpan`                | 切分决策不可回溯，转写忠实度不可比对                                                                               | 留                           |
 | `Goal.kind: 'intake' \| 'work'`               | **无断裂**：可执行性由 status=active 判定；Goal 直接承载 rawPayload 与解析 Step                              | **取消（最小抽象）**   |
 | `Task.goalId` 唯一归属                       | 验收锚定多义，反思反馈无法锚定条款                                                                                 | 留（编译期强制）             |
-| `StepKind` 二分（deliberation / invocation） | **无断裂**：决策链三环节坍缩为字段（推理/回答/提议、执行/结果），按来源而非环节分类；字段可表达的不增设 kind | **二分（最小抽象）**   |
+| `StepKind` 三分（deliberation / invocation / observation） | **无断裂**：模型输出、外部调用、结果归并各是一条可审计事实；观察不再藏在 invocation 字段里 | **三分（最小可审计）**   |
 | Delegation 独立实体                            | **无断裂**：职能由委托事件 + Goal 字段（origin/budget/permissionCeiling）承担                                | **解散（D6）**         |
 | IntentSlice 独立类型                           | **无断裂**：statement/sourceSpan 并入 Goal，解析归因由树表达                                                 | **坍缩（D7）**         |
 | `children` / `siblingGroup` 反向字段       | **无断裂**：树语义已取消，无需反向字段（扁平模型天然无双重真相源）                                           | **不设**               |

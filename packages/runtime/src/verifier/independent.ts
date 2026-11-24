@@ -18,8 +18,12 @@ function evidenceOf(outcome: TaskOutcome): string[] {
             evidence.push(
                 `tool:${step.payload.toolName}:${step.status}:${(step.payload.output ?? '').slice(0, 500)}`,
             );
-        } else if (step.payload.answer !== undefined) {
+        } else if (step.kind === 'deliberation' && step.payload.answer !== undefined) {
             evidence.push(`answer:${step.payload.answer.slice(0, 500)}`);
+        } else if (step.kind === 'observation') {
+            evidence.push(
+                `observation:${step.payload.disposition}:${(step.payload.result ?? '').slice(0, 500)}`,
+            );
         }
     }
     if (outcome.errorMessage !== undefined) evidence.push(`error:${outcome.errorMessage}`);

@@ -133,7 +133,7 @@ export interface ConfigOverview {
 // ============================================================
 
 /** Step kind (aligned with core StepKind). */
-export type SnapshotStepKind = 'deliberation' | 'invocation';
+export type SnapshotStepKind = 'deliberation' | 'invocation' | 'observation';
 
 /** 厂商层 token 用量（core VendorUsage 的线协议投影）。 */
 export interface StepVendorUsage {
@@ -348,6 +348,17 @@ export interface StepView {
     toolCwd?: string;
     /** Tool call output text (for invocation steps). */
     toolOutput?: string;
+    /** Observe 的输入条目（每条 Act 结果的状态与摘要）。 */
+    observations?: Array<{
+        callId?: string;
+        toolName: string;
+        status: 'succeeded' | 'failed' | 'replayed';
+        summary: string;
+    }>;
+    /** Observe 的结论：继续推理 / 确定性收尾。 */
+    observationDisposition?: 'continue' | 'final';
+    /** Observe 输出：final 结果或回注摘要。 */
+    observationResult?: string;
     /** Payload summary (≤240 chars) for audit/log display. */
     payloadText?: string;
     /** Token usage (vendor + runtime). */

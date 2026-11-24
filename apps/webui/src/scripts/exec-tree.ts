@@ -42,6 +42,8 @@ export interface LiveStepBodyLike {
     thinking?: string | null;
     answer?: string | null;
     output?: string | null;
+    observationResult?: string | null;
+    observations?: ReadonlyArray<{ toolName: string; summary: string }> | null;
 }
 
 /** Body slots of one live step; an empty string means "nothing in this slot". */
@@ -63,6 +65,16 @@ export function liveStepBodies(step: LiveStepBodyLike): LiveStepBodies {
     }
     if (step.kind === 'invocation') {
         return { thinking: '', answer: '', output: step.output ?? '' };
+    }
+    if (step.kind === 'observation') {
+        const observed = (step.observations ?? [])
+            .map((item) => `${item.toolName}：${item.summary}`)
+            .join('\n');
+        return {
+            thinking: '',
+            answer: '',
+            output: step.observationResult || observed,
+        };
     }
     return { thinking: '', answer: '', output: '' };
 }

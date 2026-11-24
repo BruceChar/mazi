@@ -18,7 +18,7 @@
 ```text
 think   一次 LLM 推理，产出 toolCalls 或 final answer
 act     执行 think 产出的工具调用，不调用模型
-observe 工具结果回注上下文，并转成 workflow facts
+observe 归并上一批工具结果、落 observation Step，回注上下文并判定 continue/final
 verify  Task 终态：验收、状态落库
 ```
 
@@ -35,6 +35,24 @@ think ──final/失败──> verify ──> think | terminal
   选下一个 Task。
 - `think` 只做当前 Task 的推理；选 Task 仍由调度侧确定性完成。
 - 一个 `think` 只允许一轮模型调用，一个 `act` 只处理这一轮产出的工具调用。
+- `observe` 必须有显式 Step：输入是 Act 产出的 `callId/toolName/status/summary`，输出是
+  `disposition=continue|final` 与 `result`；完整工具原文仍留在 invocation Step，二者通过 callId 关联。
+
+### Plan 当前不是 runner 节点
+
+`plan` 不是 `executeTask` / dynamic loop 的 workflow 节点，而是 run 前的规划阶段：
+
+```text
+planProposal 缺省
+ && 不是 resume
+ && taskPlanning（配置了 TaskPlanner 或默认开启）
+ && 工具集非空
+ && negotiation.route !== 'direct'
+```
+
+满足时调用 Task Planner，一次产出 1–6 个 Task；简单目标允许 1 个 Task。模型返回单 Task、
+但 Goal 成功条件含至少两个独立产物检查时，会再以 `strictSplit` 重试一次。计划无效或超限时
+回退单 Task。也就是说，Plan 的触发不是“复杂度阈值”，而是“非直答且可执行”。
 
 ## 三、状态划分
 
@@ -75,7 +93,7 @@ dynamic 暂不支持 resume，因此进程内上下文无需序列化；默认 l
 | --- | --- | --- | --- |
 | think | `think` | `reasoner` | `think:<taskId>:<round>` |
 | act | `act` | `executor` | `act:<taskId>:<round>` |
-| observe | `observe` | `observer` | 由 NodeRun span 记录 |
+| observe | `observe` | `observer` | `observe:<taskId>:<round>` |
 | verify | `verify` | `verifier` | 由 NodeRun span 记录 |
 
 不再出现 `Thinking` 挂在 `node=act` 的错位。旧 Step 没有 provenance 时按 `kind` 回退。
