@@ -42,6 +42,21 @@ CREATE INDEX IF NOT EXISTS idx_events_root    ON events(root_goal_id, seq);
 - `seq` 可空（legacy 无链事件）；主键 `(root_goal_id, seq)` 对空 seq 需用 event_id 兜底，
   实际插入以 `event_id` 为唯一去重键，seq 仅作链序号。
 
+## 3.1 持久化过滤与裁剪（容量治理，先于入库）
+
+454MB 实测构成：`llm.stream_event` 62.2 万行 / 345MB（97.7% 行，逐 token 碎片），
+`step.started/ended` 1.03 万行 / 103MB（单行 ~12KB，重复全文 content），真正权限事件
+仅 ~2200 条 / <2.5MB。过滤与裁剪只作用于**持久化层**，不影响内存订阅与 SSE/UI 实时流。
+
+- **不落盘**：`llm.stream_event`。它是 provider 流式回调碎片，最终文本已落在 step 结果里，
+  审计/复盘不需要；内存分发照常（实时 UI 渲染仍可收到）。
+- **裁剪落盘**：`step.started` / `step.ended` 入库时剥离大文本（content/thinking/answer/
+  output/observations.result），只保留结构化元数据：kind/status/goalId/taskId/stepId/
+  nodeId/usage/error。实时消费方从内存事件拿全文，持久化副本只用于审计索引。
+- 其余事件（policy.* / approval.* / goal.* / tool.* 等）原样落盘。
+
+该规则由独立纯函数实现（测试先行），持久化层（入库 / 退役前的 JSONL）共用，emit 源头不改。
+
 ## 4. 存储接口（runtime 内部，测试先行）
 
 ```ts
