@@ -126,7 +126,7 @@ applyTheme(theme.value);
 
 export interface UiState {
     /** 主区视图：对话 / 系统设置 / 用户中心整页 / 实验与分析页面。 */
-    view: 'chat' | 'system-settings' | 'user-center' | 'wiki' | 'evals' | 'lab';
+    view: 'chat' | 'system-settings' | 'user-center' | 'wiki' | 'lab';
     rightOpen: boolean;
     sidebar: boolean;
     eventTypes: string;
@@ -1573,6 +1573,11 @@ export const experiments = ref<ExperimentSummaryView[]>([]);
 export const experimentViews = reactive<Record<string, ExperimentView>>({});
 /** 是否有实验正在执行（POST 同步执行，期间禁用重复提交）。 */
 export const experimentRunning = ref(false);
+/**
+ * 当前选中的实验：Lab 左栏历史列表与主区详情共享同一选择，
+ * 避免列表在左栏、选中态却留在主区组件内部。
+ */
+export const selectedExperimentId = ref('');
 
 export async function loadExperiments(): Promise<void> {
     try {

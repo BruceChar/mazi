@@ -2,8 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LineIcon from './assets/LineIcon.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
-import EvalDashboardPage from './components/EvalDashboardPage.vue';
 import LabPage from './components/LabPage.vue';
+import LabSidebar from './components/LabSidebar.vue';
 import SettingsPage from './components/SettingsPage.vue';
 import SettingsSidebar from './components/SettingsSidebar.vue';
 import RightPanel from './components/RightPanel.vue';
@@ -19,7 +19,6 @@ import { defaultConversations, projectConversations } from './scripts/conversati
 import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
 import { SETTINGS_TABS } from './scripts/settings-tabs.ts';
-import { LAB_TABS } from './scripts/lab-tabs.ts';
 import { DEFAULT_USER_CENTER_TAB, userCenterTabOf } from './scripts/user-center.ts';
 import { wikiWorkspaceFor } from './scripts/wiki.ts';
 import { readViewState, saveViewState, workspaceTabsVisible } from './scripts/view-state.ts';
@@ -45,6 +44,9 @@ import {
     loadRunDetail,
     events,
     liveSteps,
+    experiments,
+    loadExperiments,
+    selectedExperimentId,
     loadConfig,
     loadConversations,
     authCommands,
@@ -253,7 +255,6 @@ const activeConversation = computed(() =>
 
 /** 顶部栏会话名称：最多 12 个字符，超出以省略号截断。 */
 const headerTitle = computed(() => {
-    if (ui.view === 'evals') return '评测';
     if (ui.view === 'lab') return 'Lab';
     if (ui.view === 'wiki') return '项目 Wiki';
     const title = conversationTitle(activeConversation.value) || '';
@@ -682,7 +683,6 @@ function onKeydown(event) {
     if (
         ui.view === 'user-center' ||
         ui.view === 'system-settings' ||
-        ui.view === 'evals' ||
         ui.view === 'lab' ||
         ui.view === 'wiki'
     ) {
@@ -872,6 +872,12 @@ function openSettings() {
     void loadAuthCommands();
 }
 
+/** Lab 整页：首次进入拉一次历史实验列表，左栏与主区共享选中态。 */
+function openLab() {
+    ui.view = 'lab';
+    void loadExperiments();
+}
+
 function startResize(e) {
     e.preventDefault();
     document.body.style.userSelect = 'none';
@@ -1011,11 +1017,12 @@ onBeforeUnmount(() => {
             </template>
             <!-- Lab mode: same full-screen nav rail as settings, no conversation list -->
             <template v-else-if="ui.view === 'lab'">
-                <SettingsSidebar
-                    :tabs="LAB_TABS"
+                <LabSidebar
                     :active-tab="labTab"
-                    back-label="返回主菜单"
+                    :experiments="experiments"
+                    :selected-id="selectedExperimentId"
                     @update:active-tab="labTab = $event"
+                    @select-experiment="selectedExperimentId = $event"
                     @back="backToChat"
                 />
             </template>
@@ -1039,8 +1046,7 @@ onBeforeUnmount(() => {
                 @archive-conversation="archiveConversation"
                 @remove-conversation="removeConversation"
                 @open-settings="openSettings"
-                @open-evals="ui.view = 'evals'"
-                @open-lab="ui.view = 'lab'"
+                @open-lab="openLab"
                 @open-wiki="openProjectWiki"
             />
             </template>
@@ -1145,17 +1151,12 @@ onBeforeUnmount(() => {
                 />
             </template>
 
-            <EvalDashboardPage
-                v-else-if="ui.view === 'evals'"
-                @open-trace="openEvaluationTrace"
-                @close="backToChat"
-            />
-
             <LabPage
                 v-else-if="ui.view === 'lab'"
                 :tab="labTab"
                 :models="modelOptions"
                 :workspace="headerWorkspace"
+                @open-trace="openEvaluationTrace"
             />
 
             <WikiPage

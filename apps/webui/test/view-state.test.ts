@@ -62,7 +62,6 @@ describe('主会话窗口视图 tab（会话 / 项目 Wiki）', () => {
     it('其它整页视图不显示主会话 tab', () => {
         expect(workspaceTabsVisible('user-center', '/Users/bruce/nodejs/mazi')).toBe(false);
         expect(workspaceTabsVisible('system-settings', '/Users/bruce/nodejs/mazi')).toBe(false);
-        expect(workspaceTabsVisible('evals', '/Users/bruce/nodejs/mazi')).toBe(false);
         expect(workspaceTabsVisible('lab', '/Users/bruce/nodejs/mazi')).toBe(false);
     });
 });

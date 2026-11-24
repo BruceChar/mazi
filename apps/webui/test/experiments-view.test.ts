@@ -142,7 +142,6 @@ describe('实验台展示投影', () => {
 function form(partial: Partial<import('../src/scripts/experiments.ts').ExperimentFormState> = {}) {
     return {
         title: '对照实验',
-        hypothesis: '',
         input: '同一输入',
         workspace: '',
         kind: 'feature' as const,
@@ -195,9 +194,9 @@ describe('buildExperimentSpec（表单 → 实验定义）', () => {
         expect(spec?.carryContext).toBe(true);
     });
 
-    it('model 自变量：两臂不同模型；可选字段按填写保留', () => {
+    it('model 自变量：两臂不同模型；工作区保留', () => {
         const { spec } = buildExperimentSpec(
-            form({ kind: 'model', modelA: 'm1', modelB: 'm2', hypothesis: ' m2 更省 ', workspace: '/w' }),
+            form({ kind: 'model', modelA: 'm1', modelB: 'm2', workspace: '/w' }),
         );
         expect(spec?.arms).toEqual([
             { label: 'A', modelId: 'm1' },
@@ -206,7 +205,7 @@ describe('buildExperimentSpec（表单 → 实验定义）', () => {
         expect(spec?.variables).toEqual([
             { kind: 'model', label: '模型', baseline: 'm1', treatment: 'm2' },
         ]);
-        expect(spec?.hypothesis).toBe('m2 更省');
+        expect(spec?.hypothesis).toBeUndefined();
         expect(spec?.workspace).toBe('/w');
     });
 

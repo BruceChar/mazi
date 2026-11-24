@@ -16,14 +16,7 @@ export interface PersistedViewState {
 }
 
 const VIEW_STATE_KEY = 'mazi.web.view-state';
-const VIEWS: readonly AppView[] = [
-    'chat',
-    'system-settings',
-    'user-center',
-    'wiki',
-    'evals',
-    'lab',
-];
+const VIEWS: readonly AppView[] = ['chat', 'system-settings', 'user-center', 'wiki', 'lab'];
 
 function isAppView(value: unknown): value is AppView {
     return typeof value === 'string' && (VIEWS as readonly string[]).includes(value);

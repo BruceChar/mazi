@@ -302,7 +302,6 @@ export const EXPERIMENT_KIND_LABELS: Record<ExperimentVariableKind, string> = {
 /** 实验台「新建实验」表单状态（两臂取值按 kind 取用对应字段）。 */
 export interface ExperimentFormState {
     title: string;
-    hypothesis: string;
     input: string;
     workspace: string;
     kind: ExperimentVariableKind;
@@ -398,7 +397,6 @@ export function buildExperimentSpec(form: ExperimentFormState): ExperimentSpecDr
         ],
         arms: [armA, armB],
     };
-    if (form.hypothesis.trim().length > 0) spec.hypothesis = form.hypothesis.trim();
     if (form.workspace.trim().length > 0) spec.workspace = form.workspace.trim();
     spec.carryContext = form.carryContext;
     return { spec };

@@ -9,7 +9,7 @@
  *   4. 结束后刷新折叠视图：指标、Trace、输出并排 diff、复盘。
  */
 import { diffText } from '@mazi/libs';
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { API_BASE } from '../api.js';
 import LineIcon from '../assets/LineIcon.vue';
 import {
@@ -57,12 +57,14 @@ import {
     rerunExperiment,
     respondApproval,
     reviewExperiment,
+    selectedExperimentId,
     skillOptions,
     stopExperiment,
     workspaceRoot,
 } from '../scripts/store.js';
 
-const selectedId = ref('');
+/** 选中态由 Lab 左栏历史与主区共享（store 单一来源）。 */
+const selectedId = selectedExperimentId;
 const traces = reactive({});
 /** label -> ArmLive（实时投影，见 arm-live.ts）。 */
 const live = reactive({});
@@ -79,7 +81,6 @@ const VERDICTS = ['inconclusive', 'A', 'B', 'tie'];
 
 const form = reactive({
     title: '',
-    hypothesis: '',
     input: '',
     workspace: '',
     kind: 'feature',
@@ -165,7 +166,12 @@ onMounted(async () => {
     form.featureId = features.value[0]?.id || '';
     form.modelA = modelOptions.value[0]?.id || '';
     form.modelB = modelOptions.value[1]?.id || modelOptions.value[0]?.id || '';
-    if (experiments.value[0]) await select(experiments.value[0].experimentId);
+    if (!selectedId.value && experiments.value[0]) {
+        // 首次挂载默认选最近一次；已有选择（例如上次停在某次实验）保持不动。
+        selectedId.value = experiments.value[0].experimentId;
+    } else if (selectedId.value) {
+        await activateSelected(selectedId.value);
+    }
 });
 
 onBeforeUnmount(closeAllArms);
@@ -210,14 +216,27 @@ function closeAllArms() {
     for (const label of Object.keys(sources)) closeArm(label);
 }
 
-async function select(experimentId) {
-    if (experimentId !== selectedId.value) closeAllArms();
-    selectedId.value = experimentId;
+/** 装载选中实验的详情与两臂 Trace；选择可能来自左栏历史。 */
+let activationToken = 0;
+async function activateSelected(experimentId) {
+    const token = ++activationToken;
+    closeAllArms();
     error.value = '';
     notice.value = '';
+    if (!experimentId) return;
     if (!experimentViews[experimentId]) await loadExperimentDetail(experimentId);
+    if (token !== activationToken) return;
     await loadTraces();
 }
+
+/** 选择只改共享选中态，装载统一走 watch，保证左栏点选与内部跳转只有一条路径。 */
+function select(experimentId) {
+    selectedId.value = experimentId;
+}
+
+watch(selectedId, (experimentId) => {
+    void activateSelected(experimentId);
+});
 
 async function loadTraces() {
     for (const key of Object.keys(traces)) delete traces[key];
@@ -248,9 +267,9 @@ async function submit() {
     }
     try {
         const planned = await planExperiment(draft.spec);
-        await select(planned.experimentId);
+        select(planned.experimentId);
         await startRun(planned.experimentId, planned.arms);
-        await select(planned.experimentId);
+        await activateSelected(planned.experimentId);
         notice.value = '实验完成：' + planned.experimentId;
     } catch (err) {
         error.value = String(err);
@@ -267,7 +286,7 @@ async function resumeSelected() {
     notice.value = '';
     try {
         await startRun(view.experimentId, pendingArms.value);
-        await select(view.experimentId);
+        await activateSelected(view.experimentId);
         notice.value = '实验完成：' + view.experimentId;
     } catch (err) {
         error.value = String(err);
@@ -283,9 +302,9 @@ async function rerun() {
     notice.value = '';
     try {
         const next = await rerunExperiment(view.experimentId);
-        await select(next.experimentId);
+        select(next.experimentId);
         await startRun(next.experimentId, next.arms);
-        await select(next.experimentId);
+        await activateSelected(next.experimentId);
         notice.value = '已重跑为新实验：' + next.experimentId;
     } catch (err) {
         error.value = String(err);
@@ -305,6 +324,7 @@ async function stopAll() {
             ? '已请求终止：臂 ' + labels.join('、') + '（Step 边界停止）'
             : '没有正在运行的臂（已停止/幂等）';
         await loadExperimentDetail(view.experimentId);
+        await loadExperiments();
     } catch (err) {
         error.value = String(err);
     }
@@ -321,6 +341,7 @@ async function stopArm(arm) {
             ? '已请求终止臂 ' + arm.label
             : '臂 ' + arm.label + ' 未在运行';
         await loadExperimentDetail(view.experimentId);
+        await loadExperiments();
     } catch (err) {
         error.value = String(err);
     }
@@ -358,6 +379,7 @@ async function submitReview() {
     error.value = '';
     try {
         await reviewExperiment(view.experimentId, reviewNote.value.trim(), reviewVerdict.value);
+        await loadExperiments();
         reviewNote.value = '';
         notice.value = '复盘已记录';
     } catch (err) {
@@ -410,49 +432,12 @@ function isLive(label) {
 
 <template>
     <div class="experiments-page">
-        <div class="layout">
-            <!-- 历史实验 -->
-            <aside class="history">
-                <div class="history-head">历史实验（{{ experiments.length }}）</div>
-                <ul>
-                    <li
-                        v-for="item in experiments"
-                        :key="item.experimentId"
-                        :class="{ active: item.experimentId === selectedId }"
-                        @click="select(item.experimentId)"
-                    >
-                        <div class="row-top">
-                            <span class="hist-title">{{ item.title }}</span>
-                            <span class="badge" :class="item.status">{{ experimentStatusLabel(item.status) }}</span>
-                        </div>
-                        <div class="hist-input">{{ item.input }}</div>
-                        <div class="hist-meta">
-                            {{ new Date(item.createdAt).toLocaleString() }} ·
-                            {{ item.arms.map((arm) => arm.label + ':' + armStatusLabel(arm.status)).join(' / ') }}
-                            <template v-if="item.reviewCount"> · 复盘 {{ item.reviewCount }}</template>
-                        </div>
-                    </li>
-                    <li v-if="!experiments.length" class="empty">暂无实验</li>
-                </ul>
-            </aside>
-
-            <section class="main">
+        <section class="main">
                 <!-- 新建 -->
                 <div class="card create">
                     <div class="card-head">新建对照实验</div>
                     <div class="grid two">
                         <label>标题<input v-model="form.title" placeholder="Feature 增益：简洁作答" /></label>
-                        <label>假设（可选）<input v-model="form.hypothesis" placeholder="打开开关可降低输出长度" /></label>
-                    </div>
-                    <label class="full">两臂共用的输入
-                        <textarea v-model="form.input" rows="3" placeholder="同一个任务描述，两臂收到完全相同的输入" />
-                    </label>
-                    <div class="grid two">
-                        <label>自变量
-                            <select v-model="form.kind">
-                                <option v-for="[kind, label] in kindOptions" :key="kind" :value="kind">{{ label }}</option>
-                            </select>
-                        </label>
                         <label>工作区
                             <select v-model="form.workspace">
                                 <option v-for="option in workspaceOptions" :key="option.value" :value="option.value">
@@ -462,6 +447,19 @@ function isLive(label) {
                         </label>
                     </div>
                     <div class="hint workspace-hint">本次实验工作区：{{ resolvedWorkspace }}</div>
+                    <label class="full">两臂共用的输入
+                        <textarea v-model="form.input" rows="3" placeholder="同一个任务描述，两臂收到完全相同的输入" />
+                    </label>
+                    <div class="grid two">
+                        <label>自变量
+                            <select v-model="form.kind">
+                                <option v-for="[kind, label] in kindOptions" :key="kind" :value="kind">{{ label }}</option>
+                            </select>
+                        </label>
+                        <div class="variable-hint">
+                            <span class="hint">同一输入下只改这一个变量，A/B 两臂其余配置保持一致。</span>
+                        </div>
+                    </div>
 
                     <!-- Skill 自变量：从已发现列表多选（两臂独立，不用手输） -->
                     <div v-if="form.kind === 'skill'" class="skill-picker">
@@ -557,24 +555,27 @@ function isLive(label) {
                             </select>
                         </label>
                     </div>
-                    <label class="check-line">
-                        <input v-model="form.carryContext" type="checkbox" />
-                        带上上一次运行的上下文
-                        <span class="muted">（默认关闭：两臂各自从干净上下文开始，不注入历史黑板/摘要）</span>
-                    </label>
-
                     <div class="create-actions">
                         <span class="hint">点运行后左右两窗同时前台执行；审批会实时弹出，不会卡在后台。</span>
-                        <button class="btn primary" :disabled="experimentRunning" @click="submit">
-                            <LineIcon name="play" size="13" />{{ experimentRunning ? '运行中…' : '运行对照实验' }}
-                        </button>
+                        <div class="create-run">
+                            <label
+                                class="check-line"
+                                title="默认关闭：两臂各自从干净上下文开始，不注入历史黑板/摘要"
+                            >
+                                <input v-model="form.carryContext" type="checkbox" />
+                                带上上次上下文
+                            </label>
+                            <button class="btn primary" :disabled="experimentRunning" @click="submit">
+                                <LineIcon name="play" size="13" />{{ experimentRunning ? '运行中…' : '运行对照实验' }}
+                            </button>
+                        </div>
                     </div>
                 </div>
 
                 <div v-if="error" class="notice error">{{ error }}</div>
                 <div v-else-if="notice" class="notice ok">{{ notice }}</div>
 
-                <div v-if="!selected" class="card empty-card">从左侧选择一次实验，或在上方新建。</div>
+                <div v-if="!selected" class="card empty-card">从左侧历史列表选择一次实验，或在上方新建。</div>
 
                 <template v-else>
                     <div class="card">
@@ -609,7 +610,6 @@ function isLive(label) {
                             <span v-if="selected.workspace">· 工作区 {{ selected.workspace }}</span>
                             <span>· 上下文 {{ selected.carryContext ? '携带上一轮' : '干净' }}</span>
                         </div>
-                        <div v-if="selected.hypothesis" class="hypothesis">假设：{{ selected.hypothesis }}</div>
                         <div class="input-line">输入：{{ selected.input }}</div>
                         <div class="variables">
                             <span v-for="variable in selected.variables" :key="variable.kind" class="setting-badge">
@@ -840,7 +840,6 @@ function isLive(label) {
                     </div>
                 </template>
             </section>
-        </div>
     </div>
 </template>
 
@@ -854,73 +853,8 @@ function isLive(label) {
     gap: 10px;
     overflow: hidden;
 }
-.layout {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: 280px 1fr;
-    gap: 12px;
-}
-.history {
-    border: 1px solid var(--border-soft);
-    border-radius: var(--radius);
-    background: var(--bg-panel);
-    overflow-y: auto;
-    min-height: 0;
-}
-.history-head {
-    position: sticky;
-    top: 0;
-    padding: 8px 10px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--fg-secondary);
-    background: var(--bg-panel);
-    border-bottom: 1px solid var(--border-soft);
-}
-.history ul {
-    list-style: none;
-    margin: 0;
-    padding: 6px;
-}
-.history li {
-    padding: 7px 8px;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-}
-.history li:hover {
-    background: var(--bg-hover);
-}
-.history li.active {
-    background: var(--bg-active);
-}
-.row-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-}
-.hist-title {
-    font-size: 13px;
-    color: var(--fg);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.hist-input {
-    margin-top: 3px;
-    font-size: 12px;
-    color: var(--fg-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.hist-meta {
-    margin-top: 3px;
-    font-size: 11px;
-    color: var(--fg-tertiary);
-}
 .main {
+    flex: 1;
     overflow-y: auto;
     min-height: 0;
     display: flex;
@@ -978,7 +912,24 @@ input:disabled {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
     margin-top: 10px;
+}
+.create-run {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+}
+.create-run .check-line {
+    margin-top: 0;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.variable-hint {
+    display: flex;
+    align-items: center;
 }
 .hint {
     font-size: 11px;
@@ -1064,7 +1015,6 @@ input:disabled {
     justify-content: flex-end;
 }
 .detail-meta,
-.hypothesis,
 .input-line {
     margin-top: 6px;
     font-size: 12px;

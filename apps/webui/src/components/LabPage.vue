@@ -1,7 +1,8 @@
 <script setup>
 import { computed } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
-import { LAB_TABS } from '../scripts/lab-tabs.ts';
+import { isLabTabId, LAB_TABS } from '../scripts/lab-tabs.ts';
+import EvalDashboardPage from './EvalDashboardPage.vue';
 import EvalLabPage from './EvalLabPage.vue';
 import ExperimentsPage from './ExperimentsPage.vue';
 
@@ -11,8 +12,9 @@ const props = defineProps({
     /** 当前分类由左侧整页导航持有，本页只负责渲染内容。 */
     tab: { type: String, default: 'ab' },
 });
+const emit = defineEmits(['open-trace']);
 
-const activeTab = computed(() => (props.tab === 'benchmark' ? 'benchmark' : 'ab'));
+const activeTab = computed(() => (isLabTabId(props.tab) ? props.tab : 'ab'));
 const activeMeta = computed(
     () => LAB_TABS.find((item) => item.id === activeTab.value) ?? LAB_TABS[0],
 );
@@ -24,15 +26,16 @@ const activeMeta = computed(
             <div class="lab-title">
                 <LineIcon :name="activeMeta.icon" :size="17" />
                 <strong>{{ activeMeta.label }}</strong>
-                <span>{{
-                    activeTab === 'ab'
-                        ? '受控 A/B 对照：同一任务分两臂执行，比较差异'
-                        : '固定任务集回归：模型或 Prompt 改动后的基线校验'
-                }}</span>
+                <span>{{ activeMeta.hint }}</span>
             </div>
         </header>
         <div class="lab-body">
-            <ExperimentsPage v-if="activeTab === 'ab'" />
+            <EvalDashboardPage
+                v-if="activeTab === 'evals'"
+                embedded
+                @open-trace="emit('open-trace', $event)"
+            />
+            <ExperimentsPage v-else-if="activeTab === 'ab'" />
             <EvalLabPage
                 v-else
                 embedded

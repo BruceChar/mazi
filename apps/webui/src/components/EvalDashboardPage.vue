@@ -3,6 +3,10 @@ import { computed, onMounted, ref } from 'vue';
 import { api } from '../api.js';
 import LineIcon from '../assets/LineIcon.vue';
 
+defineProps({
+    /** 嵌在 Lab 全屏工作区时隐藏自身页头，刷新入口并入工具栏。 */
+    embedded: { type: Boolean, default: false },
+});
 const emit = defineEmits(['close', 'open-trace']);
 
 const records = ref([]);
@@ -160,7 +164,7 @@ function statusLabel(record) {
 
 <template>
     <section class="eval-dashboard">
-        <header class="eval-head">
+        <header v-if="!embedded" class="eval-head">
             <div class="eval-title">
                 <LineIcon name="observation" :size="17" />
                 <strong>评测</strong>
@@ -189,6 +193,9 @@ function statusLabel(record) {
                 <option value="session">普通会话</option>
                 <option value="ab">AB 实验</option>
             </select>
+            <button v-if="embedded" type="button" :disabled="loading" @click="refreshAll">
+                {{ loading ? '加载中…' : '刷新' }}
+            </button>
         </div>
 
         <section class="eval-kpis">
@@ -379,6 +386,19 @@ function statusLabel(record) {
 }
 .eval-toolbar input {
     flex: 1;
+}
+.eval-toolbar button {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-panel);
+    color: var(--fg);
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.eval-toolbar button:disabled {
+    opacity: 0.6;
+    cursor: default;
 }
 .eval-kpis {
     display: grid;
