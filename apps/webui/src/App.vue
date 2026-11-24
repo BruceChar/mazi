@@ -16,7 +16,6 @@ import FeedbackModal from './components/FeedbackModal.vue';
 import NegotiationDialog from './components/NegotiationDialog.vue';
 import PromptDialog from './components/PromptDialog.vue';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
-import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
 import { SETTINGS_TABS } from './scripts/settings-tabs.ts';
 import { DEFAULT_USER_CENTER_TAB, userCenterTabOf } from './scripts/user-center.ts';
@@ -76,11 +75,8 @@ import {
     isRunQueued,
     refreshPricing,
     sendFeedback,
-    sessionPermission,
     setApiKey,
-    setPermissionCeiling,
     setPricingSource,
-    setSessionPermission,
     setTheme,
     short,
     statusLabel,
@@ -729,7 +725,7 @@ async function openConversation(conversation) {
     feedbackSent.value = false;
 }
 
-async function createAndRunGoal({ statement, permissionCeiling, maxCostUsd, maxSteps, userId, loopMode }, workspacePath, conversationId, exec) {
+async function createAndRunGoal({ statement, maxCostUsd, maxSteps, userId, loopMode }, workspacePath, conversationId, exec) {
     const text = String(statement ?? '').trim();
     if (!text) return null;
     const rootGoalId = await createRun({
@@ -739,7 +735,6 @@ async function createAndRunGoal({ statement, permissionCeiling, maxCostUsd, maxS
         conversationId,
         exec,
         goal: {
-            permissionCeiling,
             maxCostUsd,
             maxSteps,
             loopMode,
@@ -766,7 +761,7 @@ async function submitPrompt() {
         ? activeConversation.value?.workspace || undefined
         : workspaceRoot.value || undefined;
     await createAndRunGoal(
-        goalFromRunSettings(text, sessionPermission.value),
+        goalFromRunSettings(text),
         workspacePath,
         currentConversation.value || undefined,
         true,
@@ -1089,8 +1084,6 @@ onBeforeUnmount(() => {
                     :selected-model="selectedModel"
                     :reasoning-level="reasoningLevel"
                     :reasoning-levels="REASONING_LEVELS"
-                    :permission="sessionPermission"
-                    :permission-levels="PERMISSION_LEVELS"
                     :resumable="currentResumable"
                     :approvals="approvals"
                     :task-count="taskCount"
@@ -1111,7 +1104,6 @@ onBeforeUnmount(() => {
                     @exit-workspace="exitWorkspace"
                     @update:selected-model="setSelectedModel"
                     @update:reasoning-level="setReasoningLevel"
-                    @update:permission="setSessionPermission"
                     @respond-approval="onApprovalResponse"
                 />
             </template>
@@ -1127,7 +1119,6 @@ onBeforeUnmount(() => {
                     :syncing="syncingModels"
                     :pricing-syncing="syncingPricing"
                     :free-chat-workspace="freeChatWorkspace"
-                    :permission-ceiling="cfg?.permissionCeiling || 'read-only'"
                     :pricing-source-url="cfg?.pricingSourceUrl || ''"
                     :pricing-sources="cfg?.pricingSources || {}"
                     :pricing-sync-state="cfg?.pricingSyncState || {}"
@@ -1143,7 +1134,6 @@ onBeforeUnmount(() => {
                     @sync-models="syncModels"
                     @save-free-workspace="onSaveFreeChatWorkspace"
                     @pick-free-workspace="onPickFreeChatWorkspace"
-                    @save-permission="setPermissionCeiling"
                     @save-pricing-source="onSavePricingSource"
                     @refresh-pricing="refreshPricingNow"
                 />

@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import VoiceWaveform from './VoiceWaveform.vue';
 import { shouldSubmitOnEnter } from '../scripts/composer-keys.ts';
-import { PERMISSION_META } from '../scripts/goal-contract.ts';
 import { queueSendVisible } from '../scripts/run-control.ts';
 
 const props = defineProps({
@@ -18,9 +17,6 @@ const props = defineProps({
     selectedModel: { type: String, default: '' },
     reasoningLevel: { type: String, default: 'high' },
     reasoningLevels: { type: Array, default: () => [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }] },
-    /** 当前工作区会话权限（覆盖系统默认）。 */
-    permission: { type: String, default: 'read-only' },
-    permissionLevels: { type: Array, default: () => [] },
     /** 语音状态机阶段（VoiceController.state.phase）。 */
     voiceState: { type: String, default: 'off' },
     /** 语音是否可用（secure context + 麦克风可采集）。 */
@@ -40,29 +36,12 @@ const emit = defineEmits([
     'exit-workspace',
     'update:selectedModel',
     'update:reasoningLevel',
-    'update:permission',
     'toggle-voice',
 ]);
 
 /* Internal UI state */
 const workspaceMenu = ref(false);
-const permMenu = ref(false);
 const pickerType = ref(null); // 'model' | 'reasoning' | null
-
-/** 权限档位展示（中文标签 + 说明），元数据在 goal-contract。 */
-function permissionLabel() {
-    return PERMISSION_META[props.permission]?.label || props.permission || '权限';
-}
-function permissionText(level) {
-    return PERMISSION_META[level]?.label || level;
-}
-function permissionHint(level) {
-    return PERMISSION_META[level]?.hint || '';
-}
-function selectPermission(level) {
-    emit('update:permission', level);
-    permMenu.value = false;
-}
 
 /* Computed labels */
 function currentModelLabel() {
@@ -277,35 +256,6 @@ function doExitWorkspace() {
                                 <button v-if="workspaceRoot" class="ws-menu-item danger" @click="doExitWorkspace">
                                     <LineIcon name="close" size="13" />
                                     <span>Exit workspace</span>
-                                </button>
-                            </div>
-                        </div>
-                        <!-- 权限：当前工作区会话（覆盖系统默认；系统默认在 设置→General） -->
-                        <div class="ws-picker-wrap">
-                            <div v-if="permMenu" class="picker-backdrop" @click="permMenu = false"></div>
-                            <button
-                                class="ws-btn perm-btn"
-                                :class="{ active: permMenu }"
-                                title="当前工作区会话权限"
-                                @click="permMenu = !permMenu"
-                            >
-                                <LineIcon name="shield" size="13" />
-                                <span>{{ permissionLabel() }}</span>
-                            </button>
-                            <div v-if="permMenu" class="ws-menu">
-                                <div class="ws-menu-section">当前工作区权限</div>
-                                <button
-                                    v-for="level in permissionLevels"
-                                    :key="level"
-                                    class="ws-menu-item perm-option"
-                                    :class="{ active: level === permission }"
-                                    @click="selectPermission(level)"
-                                >
-                                    <LineIcon name="shield" size="13" />
-                                    <span class="perm-option-text">
-                                        <span class="perm-option-title">{{ permissionText(level) }}</span>
-                                        <span class="perm-option-hint">{{ permissionHint(level) }}</span>
-                                    </span>
                                 </button>
                             </div>
                         </div>
