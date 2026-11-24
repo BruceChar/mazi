@@ -48,11 +48,13 @@ CREATE INDEX IF NOT EXISTS idx_events_root    ON events(root_goal_id, seq);
 `step.started/ended` 1.03 万行 / 103MB（单行 ~12KB，重复全文 content），真正权限事件
 仅 ~2200 条 / <2.5MB。过滤与裁剪只作用于**持久化层**，不影响内存订阅与 SSE/UI 实时流。
 
-- **不落盘**：`llm.stream_event`。它是 provider 流式回调碎片，最终文本已落在 step 结果里，
-  审计/复盘不需要；内存分发照常（实时 UI 渲染仍可收到）。
-- **裁剪落盘**：`step.started` / `step.ended` 入库时剥离大文本（content/thinking/answer/
-  output/observations.result），只保留结构化元数据：kind/status/goalId/taskId/stepId/
-  nodeId/usage/error。实时消费方从内存事件拿全文，持久化副本只用于审计索引。
+- **不落盘**：`llm.stream_event`。它是 provider 逐 token 流式回调碎片，审计/复盘不需要；
+  实际最终内容由 `step.ended` 承载落盘。内存分发照常（实时 UI 渲染仍可收到碎片）。
+- **`step.started` 只存元数据**：首见通知，实际内容与 `step.ended` 重复，落盘时丢弃
+  content/thinking/answer/output/result，保留 kind/status/goalId/taskId/stepId/nodeId/usage。
+- **`step.ended` 保留实际内容 + 元数据**：最终回复/工具结果原样保留，单个超长文本字段
+  截断到 4000 字封顶（避免同一 step 反复存 12KB 全文），元数据（kind/status/ID/usage/error）
+  全部保留。
 - 其余事件（policy.* / approval.* / goal.* / tool.* 等）原样落盘。
 
 该规则由独立纯函数实现（测试先行），持久化层（入库 / 退役前的 JSONL）共用，emit 源头不改。
