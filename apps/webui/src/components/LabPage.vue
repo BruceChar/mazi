@@ -1,43 +1,38 @@
 <script setup>
-import { ref } from 'vue';
+import { computed } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
+import { LAB_TABS } from '../scripts/lab-tabs.ts';
 import EvalLabPage from './EvalLabPage.vue';
 import ExperimentsPage from './ExperimentsPage.vue';
 
-defineProps({
+const props = defineProps({
     models: { type: Array, default: () => [] },
     workspace: { type: String, default: '' },
+    /** 当前分类由左侧整页导航持有，本页只负责渲染内容。 */
+    tab: { type: String, default: 'ab' },
 });
-const emit = defineEmits(['close']);
-const tab = ref('ab');
+
+const activeTab = computed(() => (props.tab === 'benchmark' ? 'benchmark' : 'ab'));
+const activeMeta = computed(
+    () => LAB_TABS.find((item) => item.id === activeTab.value) ?? LAB_TABS[0],
+);
 </script>
 
 <template>
     <section class="lab-page">
         <header class="lab-head">
             <div class="lab-title">
-                <LineIcon name="hammer" :size="17" />
-                <strong>Lab</strong>
-                <span>受控实验与固定回归是两个独立子集</span>
-            </div>
-            <div class="lab-actions">
-                <div class="lab-tabs">
-                    <button type="button" :class="{ on: tab === 'ab' }" @click="tab = 'ab'">
-                        AB 实验
-                    </button>
-                    <button
-                        type="button"
-                        :class="{ on: tab === 'benchmark' }"
-                        @click="tab = 'benchmark'"
-                    >
-                        Benchmark
-                    </button>
-                </div>
-                <button type="button" @click="emit('close')">返回对话</button>
+                <LineIcon :name="activeMeta.icon" :size="17" />
+                <strong>{{ activeMeta.label }}</strong>
+                <span>{{
+                    activeTab === 'ab'
+                        ? '受控 A/B 对照：同一任务分两臂执行，比较差异'
+                        : '固定任务集回归：模型或 Prompt 改动后的基线校验'
+                }}</span>
             </div>
         </header>
         <div class="lab-body">
-            <ExperimentsPage v-if="tab === 'ab'" />
+            <ExperimentsPage v-if="activeTab === 'ab'" />
             <EvalLabPage
                 v-else
                 embedded
@@ -57,9 +52,7 @@ const tab = ref('ab');
     overflow: hidden;
 }
 .lab-head,
-.lab-title,
-.lab-actions,
-.lab-tabs {
+.lab-title {
     display: flex;
     align-items: center;
 }
@@ -74,32 +67,6 @@ const tab = ref('ab');
 .lab-title span {
     color: var(--fg-tertiary);
     font-size: 11px;
-}
-.lab-actions,
-.lab-tabs {
-    gap: 7px;
-}
-.lab-tabs {
-    padding: 2px;
-    border: 1px solid var(--border-soft);
-    border-radius: var(--radius-sm);
-}
-.lab-actions button {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-panel);
-    color: var(--fg);
-    padding: 5px 10px;
-    font-size: 12px;
-    cursor: pointer;
-}
-.lab-tabs button {
-    border: none;
-    background: transparent;
-}
-.lab-tabs button.on {
-    background: var(--bg-active);
-    color: var(--fg);
 }
 .lab-body {
     flex: 1;

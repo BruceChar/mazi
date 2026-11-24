@@ -19,6 +19,7 @@ import { defaultConversations, projectConversations } from './scripts/conversati
 import { PERMISSION_LEVELS } from './scripts/goal-contract.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
 import { SETTINGS_TABS } from './scripts/settings-tabs.ts';
+import { LAB_TABS } from './scripts/lab-tabs.ts';
 import { DEFAULT_USER_CENTER_TAB, userCenterTabOf } from './scripts/user-center.ts';
 import { wikiWorkspaceFor } from './scripts/wiki.ts';
 import { readViewState, saveViewState, workspaceTabsVisible } from './scripts/view-state.ts';
@@ -507,6 +508,8 @@ async function openEvaluationTrace(record) {
 /** Whether the right panel is maximized over the workspace. */
 const panelMaximized = ref(false);
 const settingsTab = ref('general');
+/** Lab 整页视图的当前分类：与设置页共用左侧导航骨架。 */
+const labTab = ref('ab');
 function togglePanelMax() {
     panelMaximized.value = !panelMaximized.value;
 }
@@ -1006,6 +1009,16 @@ onBeforeUnmount(() => {
                     @back="backToChat"
                 />
             </template>
+            <!-- Lab mode: same full-screen nav rail as settings, no conversation list -->
+            <template v-else-if="ui.view === 'lab'">
+                <SettingsSidebar
+                    :tabs="LAB_TABS"
+                    :active-tab="labTab"
+                    back-label="返回主菜单"
+                    @update:active-tab="labTab = $event"
+                    @back="backToChat"
+                />
+            </template>
             <!-- Chat mode: conversation list -->
             <template v-else>
             <Sidebar
@@ -1140,9 +1153,9 @@ onBeforeUnmount(() => {
 
             <LabPage
                 v-else-if="ui.view === 'lab'"
+                :tab="labTab"
                 :models="modelOptions"
                 :workspace="headerWorkspace"
-                @close="backToChat"
             />
 
             <WikiPage

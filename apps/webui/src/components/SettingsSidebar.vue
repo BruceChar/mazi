@@ -4,6 +4,8 @@ import LineIcon from '../assets/LineIcon.vue';
 defineProps({
     tabs: { type: Array, required: true },
     activeTab: { type: String, default: 'general' },
+    /** 底部返回按钮文案；Lab 与设置页共用同一整页导航骨架。 */
+    backLabel: { type: String, default: 'Back to app' },
 });
 const emit = defineEmits(['update:activeTab', 'back']);
 </script>
@@ -25,7 +27,7 @@ const emit = defineEmits(['update:activeTab', 'back']);
         <div class="settings-back">
             <button class="settings-back-btn" @click="emit('back')">
                 <LineIcon name="chevronLeft" size="15" />
-                <span>Back to app</span>
+                <span>{{ backLabel }}</span>
             </button>
         </div>
     </div>
