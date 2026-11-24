@@ -17,7 +17,8 @@ interface WorkflowNode {
 
 interface NodeResult {
     delta?: Partial<WorkflowState>;   // 只写增量
-    next: Phase;                       // 必须在合法转移表内
+    next?: Phase;                      // 正常转移，必须在合法转移表内
+    terminal?: Outcome;                // 显式终止；优先于 next
 }
 ```
 
@@ -50,7 +51,7 @@ const TRANSITIONS = {
 | Plan | `host.plan` 存在，且（无计划 ∨ 无开放任务 ∨ `plan.staleBy === 'reflect'` ∨ `actedSincePlan > 0`） |
 | Act | `host.act` 存在 |
 | Observe | `pending.length > 0`（必须有待吸收的结果） |
-| Verify | 验收标准非空 ∧ 无开放任务 ∧ `host.verify` 存在 |
+| Verify | `awaitingVerify` ∨（验收标准非空 ∧ 无开放任务 ∧ `host.verify` 存在） |
 | Reflect | `failures ≥ 2` |
 | Think | 恒可用（最后兜底） |
 
@@ -62,14 +63,15 @@ const TRANSITIONS = {
 
 | 节点 | 实现 | 说明 |
 | --- | --- | --- |
-| `think` | `host.think` | 决策：下一步做什么 / 是否完成 |
-| `act` | `host.act` | 工具执行，写出 `pending` 原始结果（可含多条 tool call） |
-| `observe` | **确定性内置** | `pending` → `facts`，逐条标注 ok/error，按 `maxFacts` 截断，清空 `pending` |
+| `think` | `host.think` | 一次 LLM 推理：产出 toolCalls 或 final answer |
+| `act` | `host.act` | 只执行工具，写出 `pending` 原始结果（可含多条 tool call） |
+| `observe` | `host.observe` 钩子 + **确定性内置** | 先回注上下文，再把 `pending` → `facts`，逐条标注 ok/error，按 `maxFacts` 截断 |
 | `plan` | `host.plan` | 产出任务清单；不可用则节点不进候选，自动退化为 think-act |
 | `verify` | `host.verify`，缺省规则版 | 无验收标准时直接通过；有标准但无实现时不可用 |
 | `reflect` | **规则内置** | 失败归因：计划存在 → 置 `staleBy='reflect'` 并 next=plan；否则 next=think |
 
-`host.think` / `host.act` 是必需项；`plan` / `verify` 缺失即降级，不是开关。
+`host.think` / `host.act` 是必需项；`observe` 钩子可选，缺省只做 facts 收敛；`plan` / `verify`
+缺失即降级，不是开关。
 
 ## 五、流转与选择
 
@@ -144,7 +146,7 @@ Step 除 `kind`（deliberation / invocation）和 `role`（语义阶段）外，
 Step.nodeRunId?: string;   // 实际节点执行 span，例如 act:<taskId>
 Step.nodeId?: string;      // 例如 act
 Step.nodeRole?: Phase;     // 实际节点角色
-Step.agentRole?: 'planner' | 'router' | 'executor' | 'observer' | 'verifier' | 'reflector' | 'deterministic';
+Step.agentRole?: 'planner' | 'reasoner' | 'router' | 'executor' | 'observer' | 'verifier' | 'reflector' | 'deterministic';
 ```
 
 - `kind` 仍是 payload 与重放的判别式；

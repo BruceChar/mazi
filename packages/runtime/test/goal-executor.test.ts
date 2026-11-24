@@ -73,6 +73,46 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         expect((await store.loadTask(t.taskId))?.status).toBe('succeeded');
     });
 
+    it('默认归属：deliberation 属于 think/reasoner，工具调用属于 act/executor', async () => {
+        const store = new MemoryGoalStore();
+        let roundIndex = 0;
+        const outcome = await executeTask(
+            {
+                store,
+                allowedTools: ['fs.read'],
+                invoker: { invoke: async () => ({ ok: true, content: 'A' }) },
+                requestRound: async () => {
+                    roundIndex += 1;
+                    return roundIndex === 1
+                        ? {
+                              text: '',
+                              reasoning: '先读文件',
+                              toolCalls: [
+                                  { callId: 'c1', toolName: 'fs.read', arguments: { path: 'a' } },
+                              ],
+                              finishReason: 'tool_calls',
+                              ttftMs: 0,
+                              totalMs: 1,
+                          }
+                        : okRound;
+                },
+            },
+            task(),
+            goal(),
+        );
+        const steps = await store.listSteps(outcome.task.taskId);
+        const deliberation = steps.find((step) => step.kind === 'deliberation');
+        const invocation = steps.find((step) => step.kind === 'invocation');
+        expect(deliberation?.role).toBe('think');
+        expect(deliberation?.nodeId).toBe('think');
+        expect(deliberation?.agentRole).toBe('reasoner');
+        expect(deliberation?.nodeRunId?.startsWith('think:')).toBe(true);
+        expect(invocation?.role).toBe('act');
+        expect(invocation?.nodeId).toBe('act');
+        expect(invocation?.agentRole).toBe('executor');
+        expect(invocation?.nodeRunId?.startsWith('act:')).toBe(true);
+    });
+
     it('roleForStep 按 StepKind 写入节点角色；不改 kind 判别式', async () => {
         const store = new MemoryGoalStore();
         let roundIndex = 0;

@@ -52,7 +52,9 @@ describe('dynamic loop（节点驱动）', () => {
         expect(result.loop?.nodes).toBeGreaterThan(0);
         // 节点轨迹是真实 workflow 节点，不是“一步一思考”
         expect(result.loop?.nodeTrail?.some((node) => node.role === 'think')).toBe(true);
-        expect(result.loop?.nodeTrail?.some((node) => node.role === 'act')).toBe(true);
+        expect(result.loop?.nodeTrail?.some((node) => node.role === 'verify')).toBe(true);
+        // 无工具调用：Think 产出最终回答后直接 Verify，不应虚报 Act。
+        expect(result.loop?.nodeTrail?.some((node) => node.role === 'act')).toBe(false);
         expect(result.loop?.nodeTrail?.filter((node) => node.kind === 'selected')).toHaveLength(
             result.loop?.nodes ?? 0,
         );
@@ -66,10 +68,54 @@ describe('dynamic loop（节点驱动）', () => {
         const steps = await store.listSteps(result.tasks[0]!.task.taskId);
         expect(steps.length).toBeGreaterThan(0);
         expect(steps.every((step) => step.role === 'think')).toBe(true);
-        expect(steps.every((step) => step.nodeId === 'act')).toBe(true);
-        expect(steps.every((step) => step.nodeRole === 'act')).toBe(true);
-        expect(steps.every((step) => step.agentRole === 'executor')).toBe(true);
-        expect(steps.every((step) => step.nodeRunId?.startsWith('act:'))).toBe(true);
+        expect(steps.every((step) => step.nodeId === 'think')).toBe(true);
+        expect(steps.every((step) => step.nodeRole === 'think')).toBe(true);
+        expect(steps.every((step) => step.agentRole === 'reasoner')).toBe(true);
+        expect(steps.every((step) => step.nodeRunId?.startsWith('think:'))).toBe(true);
+    });
+
+    it('工具轮：think → act → observe → think → verify，Step 归属真实节点', async () => {
+        const store = new MemoryGoalStore();
+        const a = goal(ulid());
+        await store.saveGoal(a);
+        let round = 0;
+        const result = await runGoalTreeDynamic(
+            {
+                store,
+                allowedTools: ['fs.read'],
+                invoker: { invoke: async () => ({ ok: true, content: 'CONTENT' }) },
+                requestRound: async () => {
+                    round += 1;
+                    if (round === 1) {
+                        return {
+                            text: '',
+                            reasoning: '先读文件',
+                            toolCalls: [
+                                { callId: 'c1', toolName: 'fs.read', arguments: { path: 'a' } },
+                            ],
+                            finishReason: 'tool_calls',
+                            ttftMs: 0,
+                            totalMs: 1,
+                        };
+                    }
+                    return okRound;
+                },
+            },
+            [a],
+        );
+        expect(result.ok).toBe(true);
+        const roles = (result.loop?.nodeTrail ?? [])
+            .filter((node) => node.kind === 'selected')
+            .map((node) => node.role);
+        expect(roles.slice(0, 4)).toEqual(['think', 'act', 'observe', 'think']);
+        expect(roles).toContain('verify');
+        const steps = await store.listSteps(result.tasks[0]!.task.taskId);
+        const deliberation = steps.find((step) => step.kind === 'deliberation');
+        const invocation = steps.find((step) => step.kind === 'invocation');
+        expect(deliberation?.nodeId).toBe('think');
+        expect(deliberation?.agentRole).toBe('reasoner');
+        expect(invocation?.nodeId).toBe('act');
+        expect(invocation?.agentRole).toBe('executor');
     });
 
     it('计划被存储，且 onPlan 只触发一次', async () => {
@@ -124,7 +170,7 @@ describe('dynamic loop（节点驱动）', () => {
             [a],
         );
         expect(roles).toContain('think');
-        expect(roles).toContain('act');
+        expect(roles).toContain('verify');
     });
 
     it('resume 明确拒绝（v1 不支持）', async () => {

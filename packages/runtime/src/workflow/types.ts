@@ -60,6 +60,8 @@ export interface WorkflowState extends RunState {
     phase: Phase;
     /** 上次 Plan 之后执行的 Act 数：防止 Plan→Think→Plan 零执行空转。 */
     actedSincePlan: number;
+    /** Task 级执行完成、等待 verify 收口；旧 workflow 缺省。 */
+    awaitingVerify?: boolean;
     /** 点对点交接，≤200 token，仅本 loop 有效。 */
     handoff?: string;
     readonly startedAt: number;
@@ -76,7 +78,10 @@ export interface ContextView {
 
 export interface NodeResult {
     delta?: Partial<WorkflowState>;
-    next: Phase;
+    /** 正常转移目标；terminal 存在时可省略。 */
+    next?: Phase;
+    /** 节点显式终止 loop；优先级高于 next。 */
+    terminal?: Outcome;
 }
 
 /**

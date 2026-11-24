@@ -119,6 +119,55 @@ describe('内置节点', () => {
         );
     });
 
+    it('宿主 observe 钩子在 facts 收敛前执行', async () => {
+        const observed: number[] = [];
+        const nodes = createBuiltinNodes(
+            {
+                ...host,
+                observe: async (state) => {
+                    observed.push(state.pending.length);
+                },
+            },
+            DEFAULT_LIMITS,
+        );
+        const observe = nodes.find((node) => node.id === 'observe');
+        const state = makeState({
+            pending: [{ callId: 'a', ok: true, text: 'ok' }],
+        });
+        const result = await observe?.run(state, buildContextView(state, 'observe', SECTIONS, 12));
+        expect(observed).toEqual([1]);
+        expect(result?.delta?.pending).toEqual([]);
+    });
+
+    it('awaitingVerify 让 Verify 在当前 Task 尚未关闭时也可执行', async () => {
+        const nodes = createBuiltinNodes(
+            { ...host, verify: async () => ({ delta: { verdict: 'passed' }, next: 'think' }) },
+            DEFAULT_LIMITS,
+        );
+        const verify = nodes.find((node) => node.id === 'verify');
+        const state = makeState({
+            awaitingVerify: true,
+            plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
+        });
+        expect(verify?.requires(state)).toBe(true);
+    });
+
+    it('terminal 立即结束 loop，不再要求 next 或合法转移', async () => {
+        const nodes: WorkflowNode[] = [
+            {
+                id: 'think',
+                role: 'think',
+                priority: 1,
+                requires: () => true,
+                run: async () => ({ terminal: 'failed' }),
+            },
+        ];
+        const result = await makeRunner(nodes).run(makeState());
+        expect(result.outcome).toBe('failed');
+        expect(result.state.usage.steps).toBe(1);
+        expect(result.events.at(-1)?.reason).toBe('failed');
+    });
+
     it('缺 Verify 且验收非空时只落到 done-unverified', async () => {
         const runner = makeRunner(createBuiltinNodes(host, DEFAULT_LIMITS));
         const result = await runner.run(makeState({ acceptance: ['tests pass'] }));

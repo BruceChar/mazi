@@ -11,6 +11,8 @@ import type {
 export interface WorkflowHost {
     think(state: WorkflowState, view: ContextView): Promise<NodeResult>;
     act(state: WorkflowState, view: ContextView): Promise<NodeResult>;
+    /** 可选：在确定性 facts 收敛之前执行副作用，并可指定下一步或终止。 */
+    observe?(state: WorkflowState, view: ContextView): Promise<NodeResult | undefined>;
     plan?(state: WorkflowState, view: ContextView): Promise<NodeResult>;
     verify?(state: WorkflowState, view: ContextView): Promise<NodeResult>;
 }
@@ -46,19 +48,22 @@ export function createBuiltinNodes(host: WorkflowHost, limits: WorkflowLimits): 
             role: 'observe',
             priority: 6,
             requires: (state) => state.pending.length > 0,
-            run: (state) => {
+            run: async (state, view) => {
+                const observed = await host.observe?.(state, view);
+                if (observed?.terminal !== undefined) return observed;
                 const facts = state.pending.map((item, index) => ({
                     id: `${item.callId}:${index}`,
                     kind: item.ok ? ('tool' as const) : ('error' as const),
                     text: item.text,
                 }));
-                return Promise.resolve({
+                return {
                     delta: {
+                        ...observed?.delta,
                         facts: [...state.facts, ...facts].slice(-limits.maxFacts),
                         pending: [],
                     },
-                    next: 'think',
-                });
+                    next: observed?.next ?? 'think',
+                };
             },
         },
         {
@@ -98,9 +103,10 @@ export function createBuiltinNodes(host: WorkflowHost, limits: WorkflowLimits): 
             role: 'verify',
             priority: 3,
             requires: (state) =>
-                state.acceptance.length > 0 &&
-                openTaskCount(state) === 0 &&
-                state.pending.length === 0,
+                state.awaitingVerify === true ||
+                (state.acceptance.length > 0 &&
+                    openTaskCount(state) === 0 &&
+                    state.pending.length === 0),
             run: (state, view) => verify(state, view),
         });
     }

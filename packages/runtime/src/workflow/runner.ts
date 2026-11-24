@@ -1,8 +1,9 @@
 import { buildContextView, type PromptSections } from './context-view.js';
 import { openTaskCount } from './nodes.js';
-import { assertTransition, canEnterPhase } from './transitions.js';
+import { assertTransition } from './transitions.js';
 import {
     DEFAULT_LIMITS,
+    type NodeResult,
     type Outcome,
     PHASES,
     type WorkflowEvent,
@@ -125,7 +126,7 @@ export class WorkflowRunner {
             if (last !== undefined) assertTransition(last, node.role);
 
             const view = buildContextView(state, node.role, this.sections, this.limits.maxFacts);
-            let result: { delta?: Partial<WorkflowState>; next: WorkflowState['phase'] };
+            let result: NodeResult;
             try {
                 result = await node.run(state, view);
             } catch (error) {
@@ -140,12 +141,15 @@ export class WorkflowRunner {
                 });
                 return { state, outcome: 'failed', events };
             }
-            assertTransition(node.role, result.next);
-            last = node.role;
-
-            state = applyDelta({ ...state, phase: result.next }, result.delta);
+            state = applyDelta({ ...state, phase: result.next ?? state.phase }, result.delta);
             state.usage.steps += 1;
             state.usage.elapsedMs = this.now() - state.startedAt;
+            if (result.terminal !== undefined) return terminate(result.terminal);
+            if (result.next === undefined) {
+                return terminate('aborted-no-candidates');
+            }
+            assertTransition(node.role, result.next);
+            last = node.role;
 
             const nextSignature = progressSignature(state);
             if (nextSignature === signature) noProgress += 1;

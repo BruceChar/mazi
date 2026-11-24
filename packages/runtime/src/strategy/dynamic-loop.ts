@@ -10,13 +10,16 @@
 
 import type { ExperimentLoopNode, Goal, Task } from '@mazi/core';
 import { evaluateAcceptance } from '../gts/acceptance.js';
-import { executeTask, type TaskOutcome } from '../gts/goal-executor.js';
+import {
+    type GoalExecutorDeps,
+    TaskExecutionContext,
+    type TaskOutcome,
+} from '../gts/goal-executor.js';
 import { planGoalTree } from '../gts/goal-planner.js';
 import { type PlanTool, topologicalTaskOrder, validatePlanGraph } from '../gts/plan-graph.js';
 import type { ContextContribution } from '../harness/context-manager.js';
 import type { VerificationReport } from '../verifier/index.js';
 import {
-    type ActRawResult,
     createBuiltinNodes,
     DEFAULT_LIMITS,
     type NodeResult,
@@ -78,8 +81,7 @@ function taskDeps(
     goal: Goal,
     outcomes: readonly TaskOutcome[],
     contributions: readonly ContextContribution[],
-    nodeRunId: string,
-): Parameters<typeof executeTask>[0] {
+): GoalExecutorDeps {
     return {
         store: deps.store,
         requestRound: deps.requestRound,
@@ -91,13 +93,6 @@ function taskDeps(
         ...(deps.workspaceRoot !== undefined ? { workspaceRoot: deps.workspaceRoot } : {}),
         ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
         ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
-        roleForStep: (kind) => (kind === 'deliberation' ? 'think' : 'act'),
-        provenanceForStep: () => ({
-            nodeRunId,
-            nodeId: 'act',
-            nodeRole: 'act',
-            agentRole: 'executor',
-        }),
         ...limitsOf(deps, task, goal),
         contributions,
         ...(task.dependsOn !== undefined && task.dependsOn.length > 0
@@ -168,9 +163,7 @@ export async function runGoalTreeDynamic(
     const order = topologicalTaskOrder(tasks);
     const goalById = new Map(executable.map((goal) => [goal.goalId, goal]));
     const facts: ObserveFact[] = [];
-    let current: Task | undefined;
     const startedAt = Date.now();
-    const verifications = new Map<string, VerificationReport>();
     const acceptance = [
         ...new Set(
             executable.flatMap((goal) =>
@@ -178,7 +171,6 @@ export async function runGoalTreeDynamic(
             ),
         ),
     ];
-
     let state: WorkflowState = {
         goalId: rootGoalId,
         statement: goals[0]?.statement ?? '',
@@ -200,94 +192,172 @@ export async function runGoalTreeDynamic(
                 currentState.plan?.tasks.find((item) => item.id === task.taskId)?.status === 'open',
         );
 
-    /** Think：选择下一个可执行 Task（拓扑序 + 依赖已成功）。 */
-    const think = async (currentState: WorkflowState): Promise<NodeResult> => {
-        current = undefined;
+    let current: TaskExecutionContext | undefined;
+
+    const openTask = (currentState: WorkflowState): Task | undefined => {
         for (const task of openOf(currentState)) {
             const depsReady = (task.dependsOn ?? []).every((depId) => {
                 const item = currentState.plan?.tasks.find((candidate) => candidate.id === depId);
                 return item?.status === 'done';
             });
-            if (!depsReady) continue;
-            current = task;
-            return { next: 'act' };
+            if (depsReady) return task;
         }
-        // 没有可执行 Task（依赖失败）：把所有剩余 open 标 failed，交给 runner 收尾。
-        const remaining = openOf(currentState);
-        if (remaining.length === 0) return { next: 'act' };
+        return undefined;
+    };
+
+    const active = (): TaskExecutionContext => {
+        if (current === undefined) throw new Error('dynamic: 当前没有 Task 执行上下文');
+        return current;
+    };
+
+    const updateTaskPlan = (
+        currentState: WorkflowState,
+        taskId: string,
+        status: 'done' | 'failed',
+    ): NonNullable<WorkflowState['plan']> => ({
+        version: currentState.plan?.version ?? 1,
+        tasks:
+            currentState.plan?.tasks.map((item) =>
+                item.id === taskId ? { ...item, status } : item,
+            ) ?? [],
+    });
+
+    const accepted = (outcome: TaskOutcome): boolean =>
+        outcome.ok && (outcome.task.acceptanceResult?.passed ?? true);
+
+    const think = async (currentState: WorkflowState): Promise<NodeResult> => {
+        if (current === undefined) {
+            const task = openTask(currentState);
+            if (task === undefined) {
+                // 剩余 open 的 Task 依赖失败：全部失败收口，不再空转。
+                if (openOf(currentState).length > 0) {
+                    return {
+                        delta: {
+                            plan: {
+                                version: currentState.plan?.version ?? 1,
+                                tasks:
+                                    currentState.plan?.tasks.map((item) =>
+                                        item.status === 'open'
+                                            ? { ...item, status: 'failed' as const }
+                                            : item,
+                                    ) ?? [],
+                            },
+                            failures: currentState.failures + 1,
+                        },
+                        terminal: 'failed',
+                    };
+                }
+                return { terminal: 'done' as const };
+            }
+            const goal = goalById.get(task.goalId);
+            if (goal === undefined) throw new Error(`Task ${task.taskId} 的 Goal 不在可执行集合`);
+            current = new TaskExecutionContext(
+                taskDeps(deps, task, goal, outcomes, [{ id: 'none' }]),
+                task,
+                goal,
+            );
+            await current.start();
+            if (current.isTerminal) {
+                return { delta: { awaitingVerify: true }, next: 'verify' };
+            }
+        }
+        const result = await active().reason();
+        if (result === 'failed') {
+            return { delta: { awaitingVerify: true }, next: 'verify' as const };
+        }
+        if (result === 'final') {
+            return { delta: { awaitingVerify: true }, next: 'verify' as const };
+        }
+        return { next: 'act' as const };
+    };
+
+    const act = async (): Promise<NodeResult> => {
+        const result = await active().act();
+        if (result === 'failed') {
+            return { delta: { awaitingVerify: true }, next: 'verify' as const };
+        }
         return {
             delta: {
-                plan: {
-                    version: currentState.plan?.version ?? 1,
-                    tasks:
-                        currentState.plan?.tasks.map((item) =>
-                            item.status === 'open' ? { ...item, status: 'failed' as const } : item,
-                        ) ?? [],
-                },
-                failures: currentState.failures + 1,
+                pending: active().lastOutputs.map((item) => ({
+                    callId: item.callId,
+                    ok: !item.isError,
+                    text: item.output.slice(0, 2000),
+                })),
             },
-            next: 'act',
+            next: 'observe' as const,
         };
     };
 
-    /** Act：执行当前 Task（含独立验收），把结果收敛为 pending 交给 Observe。 */
-    const act = async (currentState: WorkflowState): Promise<NodeResult> => {
-        const task = current;
-        current = undefined;
-        if (task === undefined) {
-            return { delta: { pending: [] }, next: 'observe' };
+    const observe = async (): Promise<NodeResult> => {
+        const result = await active().observe();
+        if (result === 'failed') return { next: 'verify' as const };
+        if (result === 'final') {
+            return { delta: { awaitingVerify: true }, next: 'verify' as const };
         }
-        const goal = goalById.get(task.goalId);
-        if (goal === undefined) throw new Error(`Task ${task.taskId} 的 Goal 不在可执行集合`);
-        const contribution: ContextContribution = { id: 'none' };
-        const outcome = await executeTask(
-            taskDeps(deps, task, goal, outcomes, [contribution], `act:${task.taskId}`),
-            task,
-            goal,
-        );
-        let report: VerificationReport | undefined;
-        if (deps.verifier !== undefined) {
-            report = await deps.verifier.verify(goal, outcome);
-            outcome.task.acceptanceResult = report.acceptance;
-            verifications.set(task.taskId, report);
-            deps.onVerification?.(report, outcome);
-        } else {
-            outcome.task.acceptanceResult = evaluateAcceptance(goal, outcome);
-        }
-        if (outcome.ok && outcome.task.acceptanceResult?.passed === false) {
-            outcome.task.status = 'failed';
-        }
-        await deps.store.saveTask(outcome.task);
-        outcomes.push(outcome);
+        return { next: 'think' as const };
+    };
 
-        const passed = outcome.ok && (outcome.task.acceptanceResult?.passed ?? true);
-        const planStatus = passed ? ('done' as const) : ('failed' as const);
-        const raw: ActRawResult = {
-            callId: task.taskId,
-            ok: passed,
-            text: (outcome.finalMessage ?? outcome.errorMessage ?? outcome.reason).slice(0, 2000),
-        };
+    const verify = async (currentState: WorkflowState): Promise<NodeResult> => {
+        const ctx = current;
+        if (ctx === undefined) {
+            return { delta: { awaitingVerify: false }, next: 'think' as const };
+        }
+        const task = ctx.task;
+        const goal = ctx.goal;
+        let outcome: TaskOutcome;
+        if (ctx.isTerminal) {
+            outcome = ctx.outcome();
+        } else {
+            await ctx.finishSuccess();
+            outcome = ctx.outcome();
+            if (deps.verifier !== undefined) {
+                const report: VerificationReport = await deps.verifier.verify(goal, outcome);
+                outcome.task.acceptanceResult = report.acceptance;
+                deps.onVerification?.(report, outcome);
+            } else {
+                outcome.task.acceptanceResult = evaluateAcceptance(goal, outcome);
+            }
+            if (outcome.ok && outcome.task.acceptanceResult?.passed === false) {
+                outcome.task.status = 'failed';
+            }
+            await ctx.applyAcceptance(outcome.task.status);
+        }
+        outcomes.push(outcome);
+        current = undefined;
+        const taskOk = accepted(outcome);
+        const nextPlan = updateTaskPlan(currentState, task.taskId, taskOk ? 'done' : 'failed');
+        const remaining = nextPlan.tasks.some((item) => item.status === 'open');
+        const allOk = [...outcomes].every(accepted);
+        if (!remaining) {
+            return {
+                delta: {
+                    plan: nextPlan,
+                    awaitingVerify: false,
+                    failures: currentState.failures + (taskOk ? 0 : 1),
+                    ...(allOk ? { verdict: 'passed' as const } : { verdict: 'failed' as const }),
+                },
+                terminal: allOk ? ('done' as const) : ('done-unverified' as const),
+            };
+        }
         return {
             delta: {
-                plan: {
-                    version: currentState.plan?.version ?? 1,
-                    tasks:
-                        currentState.plan?.tasks.map((item) =>
-                            item.id === task.taskId ? { ...item, status: planStatus } : item,
-                        ) ?? [],
-                },
-                pending: [raw],
-                failures: currentState.failures + (passed ? 0 : 1),
-                actedSincePlan: currentState.actedSincePlan + 1,
-                ...(passed ? {} : { verdict: 'failed' as const }),
+                plan: nextPlan,
+                awaitingVerify: false,
+                failures: currentState.failures + (taskOk ? 0 : 1),
+                ...(taskOk ? {} : { verdict: 'failed' as const }),
             },
-            next: 'observe',
+            next: 'think' as const,
         };
     };
 
     const nodes = createBuiltinNodes(
-        { think: (currentState) => think(currentState), act: (currentState) => act(currentState) },
-        DEFAULT_LIMITS,
+        {
+            think,
+            act,
+            observe,
+            verify,
+        },
+        { ...DEFAULT_LIMITS, maxNoProgress: 6 },
     );
     const runner = new WorkflowRunner(
         nodes,
@@ -303,8 +373,8 @@ export async function runGoalTreeDynamic(
     state = run.state;
     facts.push(...run.state.facts.slice(facts.length));
 
-    const ok = outcomes.every((item) => item.ok && (item.task.acceptanceResult?.passed ?? true));
-    const accepted = run.outcome === 'done' || run.outcome === 'done-unverified';
+    const ok = outcomes.every(accepted);
+    const acceptedRun = run.outcome === 'done' || run.outcome === 'done-unverified';
     const nodeTrail: ExperimentLoopNode[] = run.events.map((event: WorkflowEvent) => ({
         kind:
             event.type === 'node.selected'
@@ -326,8 +396,8 @@ export async function runGoalTreeDynamic(
     return {
         rootGoalId,
         tasks: outcomes,
-        ok: ok && accepted,
-        ...(accepted ? {} : { rejected: [run.outcome] }),
+        ok: ok && acceptedRun,
+        ...(acceptedRun ? {} : { rejected: [run.outcome] }),
         loop,
     };
 }

@@ -272,6 +272,7 @@ export type StepRole = 'think' | 'plan' | 'act' | 'observe' | 'verify' | 'reflec
 /** 实际承担该 Step 的执行角色；deterministic 表示没有模型参与。 */
 export type StepAgentRole =
     | 'planner'
+    | 'reasoner'
     | 'router'
     | 'executor'
     | 'observer'
