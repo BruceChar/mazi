@@ -291,7 +291,7 @@ retracted_reason = "The message surface no longer duplicates contract, route, ac
 text = "ExecStream renders bare-code answers as one code block; zero-execution direct answers are ordinary assistant Markdown without direct/route/contract chrome; the conversation renders Task-to-Step execution in plan order while contract, acceptance and plan metadata stay in the right Trace panel. TaskBoard shows only the highest planVersion, but the settled Goal tree retains superseded Tasks that started, contain Steps or reached failed/aborted/timeout and shows their recorded Step sequence before the current plan, with plan-version and terminal-status badges. Completed settled steps remain expanded while live rows are expandable/collapsible, and approval/authorization behavior rows stay inline with the gated tool Step."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/ExecStream.vue", oid = "f9257a8aa871dd21ea3d3b2e3a6bd03636ebe1be" },
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "022bc1ab2479df2e5216eb4c50c601df24024bfe" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "ee582d7e51c31153c6569256e8b329bcdb6817c7" },
   { file = "apps/webui/src/scripts/plan-view.ts", oid = "63716115f0d2ff8fff346c1d3317d48e84721b4a" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
@@ -301,7 +301,7 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-24
-claim_oid = "78168fd7bf8cfd37"
+claim_oid = "7f9af2ddfbb78142"
 
 [claims.runtime-goal-plan-execution-serial-v2]
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
