@@ -5,6 +5,7 @@
  * 之间的调度——召回什么、按什么预算裁剪、以什么形态注入 ContextManager。
  */
 
+import { createHash } from 'node:crypto';
 import type { LLMMessage } from '@mazi/core';
 import { ulid } from '@mazi/core';
 
@@ -42,7 +43,18 @@ export function recentMemoryPolicy(opts: RecentMemoryPolicyOptions = {}): Memory
             for (const item of [...items].sort((a, b) => a.createdAt - b.createdAt)) {
                 byId.set(item.id, item);
             }
-            const ordered = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
+            // 同一内容只保留最新一条：历史轮次被重复回写会产生多条同文记忆，
+            // 不去重会白占 limit 与 token 预算，把别的记忆挤出去。
+            const byContent = new Map<string, MemoryItem>();
+            for (const item of byId.values()) {
+                // 老数据（turn）没有 contentHash：用 kind|role|text 兜底，照样折叠重复。
+                const key = item.contentHash ?? `${item.kind}|${item.role ?? ''}|${item.text}`;
+                const existing = byContent.get(key);
+                if (existing === undefined || existing.createdAt < item.createdAt) {
+                    byContent.set(key, item);
+                }
+            }
+            const ordered = [...byContent.values()].sort((a, b) => a.createdAt - b.createdAt);
             const limit = input.limit ?? maxItems;
             const budget = input.budgetTokens;
             const queryText = input.queryText?.trim().toLowerCase();
@@ -141,6 +153,19 @@ export interface TurnsToMemoryOptions {
     id?: (index: number) => string;
 }
 
+/**
+ * 会话轮次的稳定 id：同会话、同角色、同文本 → 同 id。
+ * 续聊每轮都会把此前历史重新回写一次，稳定 id 让 store 按 id upsert，
+ * 而不是每次都追加一份内容相同的新记忆。
+ */
+function turnIdOf(conversationId: string, turn: MemoryTurn): string {
+    const digest = createHash('sha256')
+        .update(`${conversationId}\u0000${turn.role}\u0000${turn.text}`)
+        .digest('hex')
+        .slice(0, 40);
+    return `turn-${digest}`;
+}
+
 /** Conversation 轮次 -> MemoryItem，按输入顺序给出递增 createdAt，id 保证唯一。 */
 export function turnsToMemory(
     turns: readonly MemoryTurn[],
@@ -149,7 +174,9 @@ export function turnsToMemory(
     const now = opts.now ?? Date.now;
     const base = now();
     return turns.map((turn, index) => ({
-        id: opts.id?.(index) ?? ulid(),
+        id:
+            opts.id?.(index) ??
+            (opts.conversationId !== undefined ? turnIdOf(opts.conversationId, turn) : ulid()),
         kind: 'turn' as const,
         role: turn.role,
         text: turn.text,
@@ -206,14 +233,18 @@ export class MemoryManager {
             if (input.conversationId !== undefined) {
                 queries.push({ conversationId: input.conversationId, status: input.status });
             }
+            // user/workspace/project 是跨会话共享的长期资产（summary/fact/preference）。
+            // 对话轮次（turn）只属于某个会话：必须在宽作用域里排除，否则同工作区的
+            // 别的会话的问答会被当成“历史”注入当前上下文（线上曾把天气问答漏进无关会话）。
+            const wideScope = { status: input.status, excludeKinds: ['turn'] as const };
             if (input.userId !== undefined) {
-                queries.push({ userId: input.userId, status: input.status });
+                queries.push({ ...wideScope, userId: input.userId });
             }
             if (input.workspaceId !== undefined) {
-                queries.push({ workspaceId: input.workspaceId, status: input.status });
+                queries.push({ ...wideScope, workspaceId: input.workspaceId });
             }
             if (input.projectId !== undefined) {
-                queries.push({ projectId: input.projectId, status: input.status });
+                queries.push({ ...wideScope, projectId: input.projectId });
             }
             if (queries.length === 0) queries.push({ status: input.status });
             const byId = new Map<string, MemoryItem>();

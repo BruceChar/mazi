@@ -84,6 +84,31 @@ describe('recentMemoryPolicy', () => {
 });
 
 describe('turnsToMemory', () => {
+    it('同一会话的同一轮重复回写只有同一个 id（upsert 而不是追加副本）', () => {
+        const opts = { conversationId: 'c1', now: () => 1000 };
+        const first = turnsToMemory(
+            [
+                { role: 'user', text: '执行ls' },
+                { role: 'assistant', text: '空目录' },
+            ],
+            opts,
+        );
+        const again = turnsToMemory(
+            [
+                { role: 'user', text: '执行ls' },
+                { role: 'assistant', text: '空目录' },
+            ],
+            { ...opts, now: () => 2000 },
+        );
+        expect(again.map((item) => item.id)).toEqual(first.map((item) => item.id));
+        expect(first[0]?.id).not.toBe(first[1]?.id);
+        // 不同会话的同一句话仍是不同记忆。
+        const otherConversation = turnsToMemory([{ role: 'user', text: '执行ls' }], {
+            conversationId: 'c2',
+        });
+        expect(otherConversation[0]?.id).not.toBe(first[0]?.id);
+    });
+
     it('maps turns in order with increasing timestamps and unique ids', () => {
         const items = turnsToMemory(
             [
@@ -130,6 +155,44 @@ describe('MemoryManager', () => {
         context.appendUser('current');
         expect(context.baseMessageCount()).toBe(1);
         expect(context.messages().map((message) => message.role)).toEqual(['user', 'user']);
+    });
+
+    it('unionScope 下 turn 只在所属会话内召回：别处会话的问答不会漏进上下文', async () => {
+        const store = new InMemoryMemoryStore();
+        await store.append([
+            {
+                // 同 workspace / project 的另一个会话：天气问答（复现线上 39k 输入污染）
+                ...turn('weather', '两个都已经查到了，数据来自 Open-Meteo', 1, 'assistant'),
+                conversationId: 'c-weather',
+                workspaceId: '/w1',
+                projectId: 'p1',
+            },
+            { ...note('ws-fact', '本项目约定：提交前跑 pnpm test', 2), workspaceId: '/w1' },
+            { ...note('proj-fact', '项目事实', 3), projectId: 'p1' },
+            // 本会话自己的轮次要召回（续聊上下文就靠它）
+            { ...turn('own', '家庭教育的本质是什么', 4), conversationId: 'c1' },
+        ]);
+        const memory = new MemoryManager({ store });
+        const recalled = await memory.recall({
+            conversationId: 'c1',
+            workspaceId: '/w1',
+            projectId: 'p1',
+            unionScope: true,
+            queryText: '执行ls',
+        });
+        expect(recalled.map((item) => item.id).sort()).toEqual(['own', 'proj-fact', 'ws-fact']);
+    });
+
+    it('同一内容的多条记忆只占一个名额（contentHash 去重，避免重复轮次吃满预算）', () => {
+        const policy = recentMemoryPolicy();
+        const duplicated = [
+            turn('a1', '同一条回答', 1, 'assistant'),
+            turn('a2', '同一条回答', 2, 'assistant'),
+            turn('b1', '另一条回答', 3, 'assistant'),
+        ].map((item, index) => ({ ...item, contentHash: index === 0 || index === 1 ? 'h-same' : 'h-other' }));
+        const selected = policy.select(duplicated, { limit: 3 });
+        // 同一 contentHash 只保留最新那条（a2），名额让给下一条不同内容。
+        expect(selected.map((item) => item.id)).toEqual(['a2', 'b1']);
     });
 
     it('unions user/workspace/conversation scopes while excluding expired or tombstoned memory', async () => {

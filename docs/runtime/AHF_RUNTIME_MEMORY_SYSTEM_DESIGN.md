@@ -180,7 +180,7 @@ Agent 长期记忆不是在上下文窗口之外无限堆叠对话，而是在�
 
 | 缺口 | 当前影响 | 等级 |
 | --- | --- | --- |
-| `unionScope` 按字段独立查询后求并集 | 共享项目可能串入其他用户记录 | 阻断 |
+| `unionScope` 按字段独立查询后求并集 | 共享项目仍可能串入其他用户记录（多用户隔离未做） | 阻断（跨会话轮次串味已修，见下） |
 | `pending_confirmation` 记录仍为 active 并可召回 | 未确认推断可能进入上下文 | 阻断 |
 | Runtime 未设置 MemoryManager token 预算 | 最多 20 条原文，但 token 无上限保证 | 高 |
 | 自动写入没有抽取门控 | Goal、回答、工具事实直接成为长期记忆 | 高 |
@@ -194,6 +194,19 @@ Agent 长期记忆不是在上下文窗口之外无限堆叠对话，而是在�
 | TOC 与用户认知边界未显式区分 | 存在把模型思维链误当用户画像的风险 | 高 |
 | 没有反思与程序性记忆 | 情景经验无法压缩成可复用规则 | 中 |
 | 记忆评测指标没有实际生产者 | 无法证明质量改善 | 高 |
+
+#### 5.2.1 已修复：跨会话轮次串味（2026-11-24）
+
+线上现象：随心聊某会话续聊「执行 ls」，input token 异常高，Trace 里 assistant 历史出现**同工作区另一个会话的天气问答**。
+
+- 根因：`unionScope` 把 `userId / workspaceId / projectId` 三个宽作用域也当召回源，而记忆库里存着**会话轮次（`turn`）**，
+  于是同工作区的其它会话问答被当成“历史”注入；`queryText` 只做排序（`执行ls` 与任何历史词法重合都为 0），
+  排序实际由 recency/importance 决定，长回答被优先选中。
+- 修复后的召回规则：**`turn` 只在所属 `conversationId`（及本 `rootGoalId`）内召回**；
+  宽作用域（user/workspace/project）只召回 `summary / fact / preference` 等长期资产（`MemoryQuery.excludeKinds`）。
+- 顺带修掉两个放大器：会话轮次改为**稳定 id**（`conversationId + role + text` 哈希）后按 id upsert，续聊不再每轮追加一份副本；
+  策略层按 `contentHash`（老数据回退 `kind|role|text`）折叠同文记忆，重复内容不再占 `limit` 与 token 预算。
+- 静态抑制后的实测（同一 run、同一份库）：召回 20 条 → 14 条，27.7k 字符 → 4.8k 字符，且全部属于本会话 + 用户偏好 + 本 run 工具事实。
 
 ### 5.3 当前判断
 

@@ -71,6 +71,11 @@ export interface MemoryQuery {
     unionScope?: boolean;
     /** 召回条数上限；token 预算由 memory 策略处理。 */
     limit?: number;
+    /**
+     * 排除的 kind。对话轮次（`turn`）只属于某个会话，工作区/用户级宽作用域召回
+     * 必须排除它，否则别的会话的问答会漏进当前上下文（见 memory.ts recall）。
+     */
+    excludeKinds?: readonly MemoryKind[];
 }
 
 /** 记忆持久化端口：SQLite / JSON / 向量库等实现。 */
@@ -97,6 +102,9 @@ function matches(item: MemoryItem, query: MemoryQuery, now = Date.now()): boolea
     if (query.tags !== undefined) {
         const itemTags = new Set(item.tags ?? []);
         if (!query.tags.every((tag) => itemTags.has(tag))) return false;
+    }
+    if (query.excludeKinds !== undefined && query.excludeKinds.includes(item.kind)) {
+        return false;
     }
     return true;
 }
