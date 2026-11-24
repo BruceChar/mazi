@@ -68,4 +68,38 @@ describe('feedback（NG-5 契约对齐旧 node:http）', () => {
             .find((e: { type: string }) => e.type === 'user.feedback.captured');
         expect(captured.payload.feedback.type).toBe('output_rating');
     });
+
+    it('点赞/踩（rating 5/1）落行为流，且反馈引用该 run 的首条提问', async () => {
+        const created = await h.fastify.inject({
+            method: 'POST',
+            url: '/api/sessions',
+            headers: { 'content-type': 'application/json' },
+            payload: { input: '帮我总结这份设计文档' },
+        });
+        const sessionId = created.json().sessionId;
+
+        const res = await h.fastify.inject({
+            method: 'POST',
+            url: `/api/sessions/${sessionId}/feedback`,
+            headers: { 'content-type': 'application/json' },
+            payload: { type: 'output_rating', rating: 5 },
+        });
+        expect(res.statusCode).toBe(200);
+
+        const timeline = await h.fastify.inject({
+            method: 'GET',
+            url: `/api/sessions/${sessionId}/timeline`,
+        });
+        const behaviors = timeline.json().behaviors as Array<{
+            ts: number;
+            type: string;
+            ref?: { ts: number };
+            data: Record<string, unknown>;
+        }>;
+        const input = behaviors.find((behavior) => behavior.type === 'input');
+        const feedback = behaviors.find((behavior) => behavior.type === 'feedback');
+        expect(input).toBeDefined();
+        expect(feedback?.data).toEqual({ kind: 'rating', rating: 5 });
+        expect(feedback?.ref?.ts).toBe(input?.ts);
+    });
 });

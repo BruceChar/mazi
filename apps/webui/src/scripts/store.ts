@@ -1357,7 +1357,7 @@ export async function deleteConversationById(conversationId: string): Promise<vo
 
 export async function sendFeedback(
     rootGoalId: string,
-    rating: string,
+    rating: number | string,
     content?: string,
 ): Promise<void> {
     await api(`/api/sessions/${rootGoalId}/feedback`, {

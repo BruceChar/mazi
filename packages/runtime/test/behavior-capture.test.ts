@@ -54,6 +54,23 @@ describe('用户行为指令记录（UB-C）', () => {
         ]);
     });
 
+    it('feedbackBehaviorRecords：带 inputTs 时每条反馈都引用该 input', () => {
+        expect(
+            feedbackBehaviorRecords({ type: 'output_rating', rating: 1, timestamp: 2 }, { inputTs: 10 }),
+        ).toEqual([
+            { type: 'feedback', ref: { ts: 10 }, data: { kind: 'rating', rating: 1 } },
+        ]);
+        expect(
+            feedbackBehaviorRecords(
+                { type: 'output_rating', rating: 5, content: '赞', timestamp: 3 },
+                { inputTs: 10 },
+            ),
+        ).toEqual([
+            { type: 'feedback', ref: { ts: 10 }, data: { kind: 'rating', rating: 5 } },
+            { type: 'feedback', ref: { ts: 10 }, data: { kind: 'text', text: '赞' } },
+        ]);
+    });
+
     it('审批发起 → approval 锚点；用户授权 → authorization（含 latency 与 ref）', async () => {
         const store = new MemoryBehaviorStore(() => 1000);
         const recorder = new BehaviorRecorder(store);
@@ -150,6 +167,8 @@ describe('用户行为指令记录（UB-C）', () => {
             ]);
             expect(behaviors[0]?.data.text).toBe('用户的问题');
             expect(behaviors[1]?.data).toEqual({ kind: 'text', text: '太啰嗦' });
+            // 反馈引用该 run 的首条提问：画像的「评分 × anchor」才能挂回具体输入。
+            expect(behaviors[1]?.ref?.ts).toBe(behaviors[0]?.ts);
         } finally {
             await runtime.close();
         }

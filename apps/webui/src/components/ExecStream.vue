@@ -18,7 +18,8 @@ import {
     planViewOf,
 } from '../scripts/plan-view.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
-import { current, runPlans } from '../scripts/store.ts';
+import { current, runPlans, sendFeedback } from '../scripts/store.ts';
+import { voteRating } from '../scripts/vote-feedback.ts';
 
 const props = defineProps({
     runDetail: { type: Object, default: null },
@@ -33,6 +34,25 @@ const props = defineProps({
 });
 /** Open the right-side audit panel for the clicked Step/Task/Behavior. */
 const emit = defineEmits(['select-step', 'select-task', 'select-behavior']);
+
+/** 👍/👎 已投的那一档（append-only：再点另一档会追加一条新反馈）。 */
+const voted = ref('');
+const voteBusy = ref(false);
+
+/** 点赞/踩 → 行为流（rating 5 / 1）；落库后 store 会刷新时间线，反馈行立即出现。 */
+async function vote(kind) {
+    const rootGoalId = props.runDetail?.rootGoalId;
+    if (!rootGoalId || voteBusy.value) return;
+    voteBusy.value = true;
+    try {
+        await sendFeedback(rootGoalId, voteRating(kind));
+        voted.value = kind;
+    } catch (error) {
+        console.warn('feedback failed', error);
+    } finally {
+        voteBusy.value = false;
+    }
+}
 
 /** Click a behavior row → show its approval/authorization details in Trace. */
 function selectBehavior(behavior) {
@@ -847,8 +867,24 @@ watch(
         <!-- Per-run stats + feedback -->
         <div class="exec-stats">
             <div class="exec-stats-fb">
-                <button class="fb-btn" title="点赞"><LineIcon name="like" size="13" /></button>
-                <button class="fb-btn" title="踩"><LineIcon name="dislike" size="13" /></button>
+                <button
+                    class="fb-btn"
+                    :class="{ on: voted === 'up' }"
+                    title="点赞"
+                    :disabled="voteBusy"
+                    @click="vote('up')"
+                >
+                    <LineIcon name="like" size="13" />
+                </button>
+                <button
+                    class="fb-btn"
+                    :class="{ on: voted === 'down' }"
+                    title="踩"
+                    :disabled="voteBusy"
+                    @click="vote('down')"
+                >
+                    <LineIcon name="dislike" size="13" />
+                </button>
             </div>
             <span>|</span>
             <span>{{ stats.totalTime }}</span>
@@ -1433,6 +1469,14 @@ watch(
 .fb-btn:hover {
     background: var(--bg-hover);
     color: var(--accent);
+}
+.fb-btn.on {
+    color: var(--accent);
+    background: var(--bg-hover);
+}
+.fb-btn:disabled {
+    cursor: default;
+    opacity: 0.6;
 }
 
 /* ---------- Markdown-rendered model output ---------- */

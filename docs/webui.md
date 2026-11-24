@@ -316,7 +316,7 @@
 
 | 元素    | 说明                                                                 |
 | ------- | -------------------------------------------------------------------- |
-| 👍 / 👎 | 点赞/点踩，记录`UserFeedback.type: output_rating`                  |
+| 👍 / 👎 | 点赞/点踩 → `POST /api/sessions/:id/feedback`（rating 5 / 1），落行为流后立即出现在该 run 的时间线与用户中心行为链 |
 | 📋 复制 | 复制消息内容到剪贴板                                                 |
 | 用量    | `Step.usage.vendor.inputTokens + outputTokens` 汇总，格式化（K/M） |
 | 用时    | `Step.endedAt - Step.startedAt`，格式化（秒/分/时）                |

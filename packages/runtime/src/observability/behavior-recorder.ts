@@ -6,7 +6,7 @@
  */
 
 import type { HarnessEvent } from '@mazi/core';
-import type { UserBehaviorView } from '@mazi/libs';
+import type { UserBehaviorRef, UserBehaviorView } from '@mazi/libs';
 import type { FeedbackInput } from '../harness/conversation.js';
 import {
     type BehaviorMigrationResult,
@@ -33,25 +33,42 @@ function numberOf(value: unknown): number | undefined {
     return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+/** 反馈可携带的引用上下文：所属 input 的 ts（画像的「评分 × anchor」靠它挂回提问）。 */
+export interface FeedbackRefContext {
+    inputTs?: number;
+}
+
 /**
  * 反馈载荷 → 行为记录：rating 与 text 各自单独成条（验收 UB-1）；
  * 两者都缺失时保留一条占位（kind 为 rating/text），不丢用户行为。
+ * 带 `inputTs` 时每条都引用该 input（设计文档 §10.5）。
  */
-export function feedbackBehaviorRecords(feedback: FeedbackInput): BehaviorRecordInput[] {
+export function feedbackBehaviorRecords(
+    feedback: FeedbackInput,
+    context: FeedbackRefContext = {},
+): BehaviorRecordInput[] {
+    const ref: UserBehaviorRef | undefined =
+        context.inputTs !== undefined ? { ts: context.inputTs } : undefined;
+    const refField = ref !== undefined ? { ref } : {};
     const records: BehaviorRecordInput[] = [];
     if (feedback.rating !== undefined) {
-        records.push({ type: 'feedback', data: { kind: 'rating', rating: feedback.rating } });
+        records.push({
+            type: 'feedback',
+            ...refField,
+            data: { kind: 'rating', rating: feedback.rating },
+        });
     }
     const text =
         feedback.content !== undefined && feedback.content.length > 0
             ? feedback.content
             : undefined;
     if (text !== undefined) {
-        records.push({ type: 'feedback', data: { kind: 'text', text } });
+        records.push({ type: 'feedback', ...refField, data: { kind: 'text', text } });
     }
     if (records.length === 0) {
         records.push({
             type: 'feedback',
+            ...refField,
             data: { kind: feedback.type === 'output_rating' ? 'rating' : 'text' },
         });
     }
@@ -87,8 +104,19 @@ export class BehaviorRecorder {
         ]);
     }
 
-    recordFeedback(rootGoalId: string, feedback: FeedbackInput): Promise<UserBehaviorView[]> {
-        return this.store.append(rootGoalId, feedbackBehaviorRecords(feedback));
+    /** 反馈落行为流；引用该 run 的首条提问（无提问行时不带 ref）。 */
+    async recordFeedback(rootGoalId: string, feedback: FeedbackInput): Promise<UserBehaviorView[]> {
+        const inputTs = await this.firstInputTs(rootGoalId);
+        return this.store.append(
+            rootGoalId,
+            feedbackBehaviorRecords(feedback, inputTs !== undefined ? { inputTs } : {}),
+        );
+    }
+
+    /** 该 run 首条 `input` 的 ts（含历史回填行）；没有则 undefined。 */
+    private async firstInputTs(rootGoalId: string): Promise<number | undefined> {
+        const behaviors = await this.store.list(rootGoalId);
+        return behaviors.find((behavior) => behavior.type === 'input')?.ts;
     }
 
     /** 审批事件 → 行为流（approval 发起锚点 / authorization 用户授权）。 */
