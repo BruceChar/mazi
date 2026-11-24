@@ -2,7 +2,12 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { PermissionLevel } from '@mazi/core';
 import type { ProviderOverview, ProviderPricingView } from '@mazi/libs';
 import { builtinModelsFor } from '@mazi/provider';
-import type { ProviderConfig, RuntimeConfig, ToolConfig } from '../config.js';
+import type {
+    ProviderConfig,
+    RuntimeConfig,
+    RuntimeWebSearchConfig,
+    ToolConfig,
+} from '../config.js';
 import { ensureMaziDirs, maziPaths } from '../paths.js';
 import { type AgentPromptOverrides, isAgentPromptId } from '../prompts/agent-prompts.js';
 import type { WikiRuntimeOptions } from '../wiki/index.js';
@@ -43,6 +48,8 @@ export interface RuntimeSettingsFile {
     };
     /** 项目 wiki 开关与参数（见 docs/项目wiki设计.md §12）。 */
     wiki?: WikiRuntimeOptions;
+    /** 检索后端配置；与聊天 provider 分开。 */
+    webSearch?: RuntimeWebSearchConfig;
     /**
      * Agent 系统提示覆盖：id → 提示全文。配置优先于代码内置默认，
      * 空白值等价于未配置（恢复默认）。
@@ -72,6 +79,7 @@ export interface FileRuntimeConfig {
     tools: ToolConfig[];
     goal?: RuntimeSettingsFile['goal'];
     wiki?: RuntimeSettingsFile['wiki'];
+    webSearch?: RuntimeSettingsFile['webSearch'];
     agentPrompts?: AgentPromptOverrides;
 }
 
@@ -100,6 +108,7 @@ export function loadRuntimeConfig(configDir?: string): FileRuntimeConfig {
         tools: toolsJson?.tools ?? [],
         ...(settingsJson?.goal ? { goal: settingsJson.goal } : {}),
         ...(settingsJson?.wiki ? { wiki: settingsJson.wiki } : {}),
+        ...(settingsJson?.webSearch ? { webSearch: settingsJson.webSearch } : {}),
         ...(settingsJson?.prompts !== undefined
             ? { agentPrompts: normalizeAgentPrompts(settingsJson.prompts) }
             : {}),
@@ -145,6 +154,23 @@ function mergeAgentPrompts(
 }
 
 /** 写入 settings.json（与既有内容合并；goal 与 permissions 各自浅合并）。 */
+const WEB_SEARCH_SECTIONS = ['deepseek', 'exa', 'perplexity', 'bing'] as const;
+
+/** settings 增量保存：顶层与 provider 段都做浅合并，避免局部更新丢掉其他字段。 */
+function mergeWebSearchSettings(
+    current: RuntimeWebSearchConfig | undefined,
+    incoming: RuntimeWebSearchConfig,
+): RuntimeWebSearchConfig {
+    const merged: RuntimeWebSearchConfig = { ...current, ...incoming };
+    for (const section of WEB_SEARCH_SECTIONS) {
+        const existing = current?.[section];
+        const next = incoming[section];
+        if (existing === undefined && next === undefined) continue;
+        (merged as Record<string, unknown>)[section] = { ...existing, ...next };
+    }
+    return merged;
+}
+
 export function saveRuntimeSettings(settings: RuntimeSettingsFile, configDir?: string): void {
     const home = configDir && configDir.length > 0 ? configDir : undefined;
     const paths = home ? maziPaths(home) : ensureMaziDirs();
@@ -157,6 +183,9 @@ export function saveRuntimeSettings(settings: RuntimeSettingsFile, configDir?: s
             : {}),
         ...(settings.prompts
             ? { prompts: mergeAgentPrompts(current.prompts, settings.prompts) }
+            : {}),
+        ...(settings.webSearch
+            ? { webSearch: mergeWebSearchSettings(current.webSearch, settings.webSearch) }
             : {}),
         ...(settings.pricing
             ? {

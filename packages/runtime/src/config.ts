@@ -99,6 +99,38 @@ export interface ProviderConfig {
     costWeight?: number;
 }
 
+/** 独立于聊天 model provider 的检索后端配置。 */
+export interface RuntimeWebSearchConfig {
+    /** 显式指定 provider id；缺省自动选择唯一可用的主 provider，最后才用 Bing。 */
+    provider?: string;
+    deepseek?: {
+        baseUrl?: string;
+        model?: string;
+        maxUses?: number;
+        /** 默认读 DEEPSEEK_SEARCH_API_KEY；未配置时复用 deepseek 聊天 provider 的 Key。 */
+        apiKeyEnv?: string;
+    };
+    exa?: {
+        baseUrl?: string;
+        searchType?: 'auto' | 'keyword' | 'neural';
+        highlightsPerResult?: number;
+        /** 默认读 EXA_API_KEY。 */
+        apiKeyEnv?: string;
+    };
+    perplexity?: {
+        baseUrl?: string;
+        model?: string;
+        maxTokens?: number;
+        /** 默认读 PERPLEXITY_API_KEY。 */
+        apiKeyEnv?: string;
+    };
+    bing?: {
+        baseUrl?: string;
+        /** 显式关闭无 Key 的 HTML 兜底。 */
+        enabled?: boolean;
+    };
+}
+
 export interface RuntimeConfig {
     /** Provider JSON（driver.type=pi-ai，由 @mazi/provider 解释） */
     providers: ProviderConfig[];
@@ -117,6 +149,8 @@ export interface RuntimeConfig {
         /** Task 允许的工具白名单（缺省 = 放行全部已配置工具；空数组 = 纯对话） */
         allowedTools?: string[];
     };
+    /** 检索后端配置；与 providers（聊天模型）完全独立。 */
+    webSearch?: RuntimeWebSearchConfig;
     systemPrompt?: string;
     /**
      * 各 Agent 的系统提示覆盖（settings.json 的 prompts 段；config 优先于内置默认）。

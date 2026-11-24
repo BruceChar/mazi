@@ -41,6 +41,28 @@ describe('system settings (settings.json)', () => {
         expect(config.goal?.allowedTools).toEqual(['fs.read']);
     });
 
+    it('loads an independent web-search provider config', () => {
+        const dir = tmp();
+        saveRuntimeSettings(
+            {
+                webSearch: {
+                    provider: 'exa',
+                    exa: { baseUrl: 'https://exa.example', searchType: 'keyword' },
+                },
+            },
+            dir,
+        );
+        expect(loadRuntimeConfig(dir).webSearch).toEqual({
+            provider: 'exa',
+            exa: { baseUrl: 'https://exa.example', searchType: 'keyword' },
+        });
+        saveRuntimeSettings({ webSearch: { exa: { searchType: 'neural' } } }, dir);
+        expect(loadRuntimeSettings(dir).webSearch).toEqual({
+            provider: 'exa',
+            exa: { baseUrl: 'https://exa.example', searchType: 'neural' },
+        });
+    });
+
     it('keeps workspace and conversation overrides independent', () => {
         const dir = tmp();
         saveRuntimeSettings({ permissions: { 'workspace:/p/a': 'read-only' } }, dir);

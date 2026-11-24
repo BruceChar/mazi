@@ -13,7 +13,7 @@ import type { RuntimeToolRegistry } from '../tool-gateway/registry.js';
 import type { ProjectWikiService, WikiService } from '../wiki/index.js';
 import { projectWikiToolConfig, wikiToolConfigs } from './tool-configs.js';
 import { ToolInvoker } from './tool-invoker.js';
-import { deepseekSearchOptions, webSearchToolConfig } from './web-search.js';
+import { webSearchToolConfig } from './web-search.js';
 
 /**
  * ToolPlane —— 工具面装配（从 HarnessRuntime 抽出）。
@@ -97,14 +97,6 @@ export class ToolPlane {
         return typeof dep === 'function' ? dep() : dep;
     }
 
-    private webSearchOptions(): { deepseek?: ReturnType<typeof deepseekSearchOptions> } {
-        for (const provider of this.deps.config.providers) {
-            const deepseek = deepseekSearchOptions(provider);
-            if (deepseek !== undefined) return { deepseek };
-        }
-        return {};
-    }
-
     private projectWiki(): ProjectWikiService | undefined {
         const dep = this.deps.projectWiki;
         return typeof dep === 'function' ? dep() : dep;
@@ -122,7 +114,14 @@ export class ToolPlane {
             input.activeSkillIds ?? [],
         );
         const merged: ToolConfig[] = toolSnapshot.tools;
-        merged.push(webSearchToolConfig(this.webSearchOptions()));
+        merged.push(
+            webSearchToolConfig({
+                ...(this.deps.config.webSearch !== undefined
+                    ? { config: this.deps.config.webSearch }
+                    : {}),
+                chatProviders: this.deps.config.providers,
+            }),
+        );
         const projectWiki = this.projectWiki();
         if (projectWiki !== undefined) {
             merged.push(projectWikiToolConfig(projectWiki));
