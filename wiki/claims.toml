@@ -428,3 +428,14 @@ evidence = [
 ]
 established = 2026-11-10
 verified = 2026-11-24
+
+[claims.runtime-unified-replan-policy-v1]
+text = "Product Goal sessions run one unified workflow: Router decides direct vs planned execution and needsPlan, Plan creates the Task contract, and Task/verifier failure can request a Replan only when a host injects a ReplanPlanner; aborted, budget-exceeded, max-steps and timeout never trigger Replan. Replan preserves the frozen GoalContract and remaining Tasks, while permission, budget, dependency and contract violations remain fail-closed."
+status = "active"
+evidence = [
+  { file = "docs/runtime/UNIFIED_WORKFLOW.md", oid = "36e939fd0ba786f32d07f911611a96403da661a7" },
+  { file = "packages/runtime/src/strategy/dynamic-loop.ts", oid = "602699f965df40e5ce21a1cae0279a125860b199" },
+  { file = "packages/runtime/test/unified-workflow.test.ts", oid = "973204264842f0a6ea3990ba5685e93ed702406d" },
+]
+established = 2026-11-24
+verified = 2026-11-24
