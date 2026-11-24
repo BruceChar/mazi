@@ -67,7 +67,7 @@ const TRANSITIONS = {
 | `act` | `host.act` | 只执行工具，写出 `pending` 原始结果（可含多条 tool call） |
 | `observe` | `host.observe` 钩子 + **确定性内置** | 先回注上下文，再把 `pending` → `facts`，逐条标注 ok/error，按 `maxFacts` 截断 |
 | `plan` | `host.plan` | 产出任务清单；不可用则节点不进候选，自动退化为 think-act |
-| `verify` | `host.verify`，缺省规则版 | 无验收标准时直接通过；有标准但无实现时不可用 |
+| `verify` | `host.verify`，缺省规则版 | 无验收标准时直接通过；有标准但无实现时不可用。判定由契约层 Verifier 负责，节点只做调度与落账 |
 | `reflect` | **规则内置** | 失败归因：计划存在 → 置 `staleBy='reflect'` 并 next=plan；否则 next=think |
 
 `host.think` / `host.act` 是必需项；`observe` 钩子可选，缺省只做 facts 收敛；`plan` / `verify`

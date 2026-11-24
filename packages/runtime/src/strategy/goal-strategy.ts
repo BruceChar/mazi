@@ -8,7 +8,6 @@
  */
 
 import { type ExperimentLoopNode, type Goal, type Step, type Task, ulid } from '@mazi/core';
-import { evaluateAcceptance } from '../gts/acceptance.js';
 import type { GoalExecutorDeps, GoalToolInvoker, TaskOutcome } from '../gts/goal-executor.js';
 import { executeTask } from '../gts/goal-executor.js';
 import { planGoalTree } from '../gts/goal-planner.js';
@@ -25,6 +24,7 @@ import {
     type ReplanOption,
     type ReplanRequest,
 } from '../gts/replan.js';
+import { verifyTaskOutcome } from '../gts/verification-step.js';
 import type { ContextContribution } from '../harness/context-manager.js';
 import type { GoalStore } from '../memory/goal-store.js';
 import {
@@ -288,16 +288,16 @@ export async function runGoalTree(deps: GoalRunDeps, goals: Goal[]): Promise<Goa
             task,
             goal,
         );
-        // 验收判定：评估器独立于 executor 产出事实并随 Task 落库（裁决 D8）
-        let verificationReport: VerificationReport | undefined;
-        if (deps.verifier !== undefined) {
-            const report = await deps.verifier.verify(goal, outcome);
-            verificationReport = report;
-            outcome.task.acceptanceResult = report.acceptance;
-            deps.onVerification?.(report, outcome);
-        } else {
-            outcome.task.acceptanceResult = evaluateAcceptance(goal, outcome);
-        }
+        // 验收判定：评估器独立于 executor 产出事实并随 Task 落库（裁决 D8）。
+        // 判定与 verify Step 走统一入口，default loop 的终态结果也能看到验收事实。
+        const verificationReport = await verifyTaskOutcome({
+            goal,
+            outcome,
+            store: deps.store,
+            ...(deps.verifier !== undefined ? { verifier: deps.verifier } : {}),
+            ...(deps.onVerification !== undefined ? { onVerification: deps.onVerification } : {}),
+            ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
+        });
         // 契约机械验收失败 = 这个 Task 没有完成，不能以 executor 的 final-answer 冒充成功。
         // 被用户停止（aborted）的任务保持 aborted，保证仍可 resume。
         if (outcome.ok && outcome.task.acceptanceResult?.passed === false) {

@@ -77,6 +77,17 @@ describe('Runtime independent verifier integration', () => {
                 semanticJudgeId: 'judge-test',
                 state: 'passed',
             });
+            const verifyStep = result.tasks[0]?.steps.find((step) => step.role === 'verify');
+            expect(verifyStep).toMatchObject({
+                kind: 'observation',
+                nodeId: 'verify',
+                nodeRole: 'verify',
+                agentRole: 'verifier',
+                status: 'succeeded',
+            });
+            expect(
+                verifyStep?.kind === 'observation' ? verifyStep.payload.result : '',
+            ).toContain('验收通过');
             expect(runtime.verifierInfo()).toEqual({
                 id: 'independent-default',
                 semanticJudge: true,

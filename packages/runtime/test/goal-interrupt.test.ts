@@ -205,7 +205,9 @@ describe('goal-strategy 恢复（IR-C）', () => {
         const tasks = await store.listTasks(g.goalId);
         expect(tasks).toHaveLength(1);
         expect(tasks[0]?.taskId).toBe(t.taskId);
-        expect(await store.listSteps(t.taskId)).toHaveLength(2);
+        const steps = await store.listSteps(t.taskId);
+        expect(steps).toHaveLength(3);
+        expect(steps.filter((step) => step.role === 'verify')).toHaveLength(1);
         expect((await store.loadTask(t.taskId))?.status).toBe('succeeded');
     });
 

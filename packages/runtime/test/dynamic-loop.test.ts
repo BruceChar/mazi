@@ -67,11 +67,23 @@ describe('dynamic loop（节点驱动）', () => {
         }
         const steps = await store.listSteps(result.tasks[0]!.task.taskId);
         expect(steps.length).toBeGreaterThan(0);
-        expect(steps.every((step) => step.role === 'think')).toBe(true);
-        expect(steps.every((step) => step.nodeId === 'think')).toBe(true);
-        expect(steps.every((step) => step.nodeRole === 'think')).toBe(true);
-        expect(steps.every((step) => step.agentRole === 'reasoner')).toBe(true);
-        expect(steps.every((step) => step.nodeRunId?.startsWith('think:'))).toBe(true);
+        const verifySteps = steps.filter((step) => step.role === 'verify');
+        expect(verifySteps).toHaveLength(1);
+        expect(verifySteps[0]).toMatchObject({
+            kind: 'observation',
+            nodeId: 'verify',
+            nodeRole: 'verify',
+            agentRole: 'verifier',
+            status: 'succeeded',
+        });
+        expect(
+            verifySteps[0]?.kind === 'observation' ? verifySteps[0].payload.result : '',
+        ).toContain('验收通过');
+        const reasoningSteps = steps.filter((step) => step.role !== 'verify');
+        expect(reasoningSteps.every((step) => step.role === 'think')).toBe(true);
+        expect(reasoningSteps.every((step) => step.nodeId === 'think')).toBe(true);
+        expect(reasoningSteps.every((step) => step.agentRole === 'reasoner')).toBe(true);
+        expect(reasoningSteps.every((step) => step.nodeRunId?.startsWith('think:'))).toBe(true);
     });
 
     it('工具轮：think → act → observe → think → verify，Step 归属真实节点', async () => {

@@ -33,6 +33,21 @@ think ──final/失败──> verify ──> think | terminal
   验收仍由调用它的 `goal-strategy` 负责。
 - dynamic loop 在同一个 runner 上跑多 Task，并额外挂 `verify`；`verify` 完成后回到 `think`
   选下一个 Task。
+
+### 契约 Verifier 与 workflow verify node 的分层
+
+二者不是两套验收：
+
+| 层 | 是什么 | 谁调用 | 产出 |
+| --- | --- | --- | --- |
+| 契约层 `TaskVerifier` | 判定能力：机械条款 + 可选语义 judge，独立于 executor | `goal-strategy`（default）或 `verify` node（dynamic） | `VerificationReport` / `acceptanceResult` |
+| workflow `verify` node | 调度相位：在 dynamic loop 中把 Task 推进到终态 | `WorkflowRunner` | 调用同一个 Verifier、回写 Task 状态、落一条 verify Step |
+
+因此同一个 Task 只验收一次：default loop 没有 `verify` node，由 `goal-strategy` 调用 Verifier；
+dynamic loop 由 `verify` node 调用 Verifier。两条路径都通过 `recordVerificationStep` 落一条
+`role=verify` 的 Step（`kind=observation`，`nodeId/nodeRole=verify`，`agentRole=verifier`），
+`payload.result` 形如「验收通过 · independent-default · 2/2 项已检查 · 证据 3 条」，结果树与
+Trace 都能看到验收事实，不再只藏在 `Task.acceptanceResult` 里。
 - `think` 只做当前 Task 的推理；选 Task 仍由调度侧确定性完成。
 - 一个 `think` 只允许一轮模型调用，一个 `act` 只处理这一轮产出的工具调用。
 - `observe` 必须有显式 Step：输入是 Act 产出的 `callId/toolName/status/summary`，输出是
@@ -109,6 +124,6 @@ dynamic 暂不支持 resume，因此进程内上下文无需序列化；默认 l
 | think | `think` | `reasoner` | `think:<taskId>:<round>` |
 | act | `act` | `executor` | `act:<taskId>:<round>` |
 | observe | `observe` | `observer` | `observe:<taskId>:<round>` |
-| verify | `verify` | `verifier` | 由 NodeRun span 记录 |
+| verify | `verify` | `verifier` | `verify:<taskId>`；Step kind 仍是 `observation`，`payload.result` 存验收摘要 |
 
 不再出现 `Thinking` 挂在 `node=act` 的错位。旧 Step 没有 provenance 时按 `kind` 回退。

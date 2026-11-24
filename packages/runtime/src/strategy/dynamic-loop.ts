@@ -9,7 +9,6 @@
  */
 
 import type { ExperimentLoopNode, Goal, Task } from '@mazi/core';
-import { evaluateAcceptance } from '../gts/acceptance.js';
 import {
     type GoalExecutorDeps,
     TaskExecutionContext,
@@ -17,8 +16,8 @@ import {
 } from '../gts/goal-executor.js';
 import { planGoalTree } from '../gts/goal-planner.js';
 import { type PlanTool, topologicalTaskOrder, validatePlanGraph } from '../gts/plan-graph.js';
+import { verifyTaskOutcome } from '../gts/verification-step.js';
 import type { ContextContribution } from '../harness/context-manager.js';
-import type { VerificationReport } from '../verifier/index.js';
 import {
     createBuiltinNodes,
     DEFAULT_LIMITS,
@@ -310,13 +309,16 @@ export async function runGoalTreeDynamic(
         } else {
             await ctx.finishSuccess();
             outcome = ctx.outcome();
-            if (deps.verifier !== undefined) {
-                const report: VerificationReport = await deps.verifier.verify(goal, outcome);
-                outcome.task.acceptanceResult = report.acceptance;
-                deps.onVerification?.(report, outcome);
-            } else {
-                outcome.task.acceptanceResult = evaluateAcceptance(goal, outcome);
-            }
+            await verifyTaskOutcome({
+                goal,
+                outcome,
+                store: deps.store,
+                ...(deps.verifier !== undefined ? { verifier: deps.verifier } : {}),
+                ...(deps.onVerification !== undefined
+                    ? { onVerification: deps.onVerification }
+                    : {}),
+                ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
+            });
             if (outcome.ok && outcome.task.acceptanceResult?.passed === false) {
                 outcome.task.status = 'failed';
             }
