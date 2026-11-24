@@ -180,6 +180,10 @@ export interface GoalRouting {
     loopMode: 'default' | 'dynamic' | 'direct';
     /** 路由去向；旧数据缺省时按 SuperAgent 决策处理。 */
     route?: 'direct' | 'workflow';
+    /** Router 的问题难度判断；旧数据缺省。 */
+    difficulty?: 'simple' | 'standard' | 'complex' | 'long-horizon';
+    /** Router 是否要求展开 Task 图；false 时仍由 Plan 产出单 Task。 */
+    needsPlan?: boolean;
     routedBy: 'super-agent' | 'triage';
     reason: string[];
     at: number;
@@ -272,7 +276,16 @@ export type StepKind =
     | 'observation';
 
 /** Step 所属 workflow 节点角色；缺省表示未运行在节点驱动的 loop 中。 */
-export type StepRole = 'think' | 'plan' | 'act' | 'observe' | 'verify' | 'reflect';
+export type StepRole =
+    | 'router'
+    | 'plan'
+    | 'negotiate'
+    | 'think'
+    | 'act'
+    | 'observe'
+    | 'verify'
+    | 'replan'
+    | 'reflect';
 
 /** 实际承担该 Step 的执行角色；deterministic 表示没有模型参与。 */
 export type StepAgentRole =

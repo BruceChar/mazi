@@ -21,7 +21,16 @@ export type ExperimentVariableKind =
 export type ExperimentLoopMode = 'default' | 'dynamic';
 
 /** workflow 节点角色（与 workflow Phase 对齐）。 */
-export type ExperimentLoopNodeRole = 'think' | 'act' | 'observe' | 'plan' | 'verify' | 'reflect';
+export type ExperimentLoopNodeRole =
+    | 'router'
+    | 'negotiate'
+    | 'think'
+    | 'act'
+    | 'observe'
+    | 'plan'
+    | 'verify'
+    | 'replan'
+    | 'reflect';
 
 /** dynamic loop 的一次节点轨迹：真实 node 选择/失败/终止，而不是“一步=一思考”。 */
 export interface ExperimentLoopNode {

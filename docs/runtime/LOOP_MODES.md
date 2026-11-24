@@ -1,6 +1,13 @@
-# 执行 Loop：default 与 dynamic
+# 执行 Loop：统一主干与迁移期 legacy
 
-运行时两条可切换的 Goal 执行路径。选择入口 `RunOptions.loopMode`，缺省 `default`。
+> 目标态见 `docs/runtime/UNIFIED_WORKFLOW.md`：Router / Plan / Replan / Negotiate 都是
+> `WorkflowRunner` 节点，随心聊与 project 不再分别决定是否规划。
+>
+> 本文件保留 default 与 dynamic 的能力差异记录，只用于迁移期 A/B 与 resume 回退；
+> 它不再是产品分支的说明。
+
+运行时当前有两条可切换的 Goal 执行路径。选择入口 `RunOptions.loopMode`，缺省 `default`。
+迁移期 `dynamic` 正在接入统一编排；`default` 只保留为 resume 回退与对照基线。
 
 ## 一、两条路径
 

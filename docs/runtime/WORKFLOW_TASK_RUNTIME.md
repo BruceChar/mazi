@@ -68,21 +68,16 @@ Trace 都能看到验收事实，不再只藏在 `Task.acceptanceResult` 里。
    最后才落 `turn.ended`，不能只发 turn 事件。
 4. 收尾写库失败不得覆盖原始异常；原始异常仍向上抛给 API 层。
 
-### Plan 当前不是 runner 节点
+### Plan 是 Goal 级 runner 节点
 
-`plan` 不是 `executeTask` / dynamic loop 的 workflow 节点，而是 run 前的规划阶段：
+Goal 级统一编排见 `docs/runtime/UNIFIED_WORKFLOW.md`。`router`、`plan`、`negotiate`、
+`replan` 都是 `WorkflowRunner` 节点；`plan` 不再是 run 前的旁路阶段。
 
-```text
-planProposal 缺省
- && 不是 resume
- && taskPlanning（配置了 TaskPlanner 或默认开启）
- && 工具集非空
- && negotiation.route !== 'direct'
-```
-
-满足时调用 Task Planner，一次产出 1–6 个 Task；简单目标允许 1 个 Task。模型返回单 Task、
-但 Goal 成功条件含至少两个独立产物检查时，会再以 `strictSplit` 重试一次。计划无效或超限时
-回退单 Task。也就是说，Plan 的触发不是“复杂度阈值”，而是“非直答且可执行”。
+- `router` 判定问题类型与 `needsPlan`；`direct` 直接终止，不生成 Task。
+- `plan` 决定是否契约协商，并按实际产出生成 1–6 个 Task 或单 Task。
+- Task 级 `executeTask` 仍只注册 `think/act/observe`，不重复创建 `router/plan/replan`；
+  Goal 级编排只发生在最外层 runner。
+- `resume` 在迁移完成前仍走旧串行路径；它只负责重放已落库 Task/Step。
 
 ## 三、状态划分
 

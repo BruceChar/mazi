@@ -9,11 +9,17 @@ import type {
 
 /** 宿主执行器：能力注入的唯一入口（缺 plan/verify 即降级，不是开关）。 */
 export interface WorkflowHost {
+    /** 可选：统一入口的问题判定；缺失时从 plan 或 think 开始（Task 级 runner 不创建）。 */
+    router?(state: WorkflowState, view: ContextView): Promise<NodeResult>;
     think(state: WorkflowState, view: ContextView): Promise<NodeResult>;
     act(state: WorkflowState, view: ContextView): Promise<NodeResult>;
     /** 可选：在确定性 facts 收敛之前执行副作用，并可指定下一步或终止。 */
     observe?(state: WorkflowState, view: ContextView): Promise<NodeResult | undefined>;
     plan?(state: WorkflowState, view: ContextView): Promise<NodeResult>;
+    /** 可选：Plan 决定协商后，落 blocked 并终止本轮等待答复。 */
+    negotiate?(state: WorkflowState, view: ContextView): Promise<NodeResult>;
+    /** 可选：run 内重规划；缺失时失败不自动改写计划。 */
+    replan?(state: WorkflowState, view: ContextView): Promise<NodeResult>;
     verify?(state: WorkflowState, view: ContextView): Promise<NodeResult>;
 }
 
@@ -71,17 +77,32 @@ export function createBuiltinNodes(host: WorkflowHost, limits: WorkflowLimits): 
             role: 'reflect',
             priority: 2,
             requires: (state) => state.failures >= 2,
-            run: (state): Promise<NodeResult> =>
-                Promise.resolve(
+            run: (state): Promise<NodeResult> => {
+                const next = host.replan !== undefined ? 'replan' : 'plan';
+                return Promise.resolve(
                     hasPlan(state) && state.plan.staleBy !== 'reflect'
                         ? {
-                              delta: { plan: { ...state.plan, staleBy: 'reflect' } },
-                              next: 'plan',
+                              delta: {
+                                  plan: { ...state.plan, staleBy: 'reflect' },
+                                  ...(next === 'replan' ? { replanRequested: true } : {}),
+                              },
+                              next,
                           }
-                        : { next: 'think' },
-                ),
+                        : { next: host.replan !== undefined ? 'replan' : 'think' },
+                );
+            },
         },
     ];
+    if (host.router !== undefined) {
+        const router = host.router;
+        nodes.push({
+            id: 'router',
+            role: 'router',
+            priority: 0,
+            requires: (state) => state.router === undefined,
+            run: (state, view) => router(state, view),
+        });
+    }
     if (host.plan !== undefined) {
         const plan = host.plan;
         nodes.push({
@@ -94,6 +115,26 @@ export function createBuiltinNodes(host: WorkflowHost, limits: WorkflowLimits): 
                 state.plan?.staleBy === 'reflect' ||
                 state.actedSincePlan > 0,
             run: (state, view) => plan(state, view),
+        });
+    }
+    if (host.negotiate !== undefined) {
+        const negotiate = host.negotiate;
+        nodes.push({
+            id: 'negotiate',
+            role: 'negotiate',
+            priority: 1,
+            requires: (state) => state.awaitingNegotiation === true,
+            run: (state, view) => negotiate(state, view),
+        });
+    }
+    if (host.replan !== undefined) {
+        const replan = host.replan;
+        nodes.push({
+            id: 'replan',
+            role: 'replan',
+            priority: 3,
+            requires: (state) => state.replanRequested === true,
+            run: (state, view) => replan(state, view),
         });
     }
     if (host.verify !== undefined) {

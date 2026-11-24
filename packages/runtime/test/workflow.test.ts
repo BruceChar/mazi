@@ -13,11 +13,14 @@ import {
 const SECTIONS: PromptSections = {
     base: 'BASE',
     byRole: {
+        router: 'ROUTER',
+        negotiate: 'NEGOTIATE',
         think: 'THINK',
         act: 'ACT',
         observe: 'OBSERVE',
         plan: 'PLAN',
         verify: 'VERIFY',
+        replan: 'REPLAN',
         reflect: 'REFLECT',
     },
 };
@@ -344,5 +347,99 @@ describe('WorkflowRunner 循环', () => {
         expect(view.role).toBe('THINK');
         expect(view.workingSet).toContain('fact-4');
         expect(view.workingSet).not.toContain('fact-2');
+    });
+});
+
+describe('编排节点：Router / Negotiate / Replan', () => {
+    it('初始 phase=router 时 Router 先执行，随后进入 Plan', async () => {
+        const nodes = createBuiltinNodes(
+            {
+                router: async () => ({
+                    delta: {
+                        router: {
+                            problemType: 'research',
+                            difficulty: 'complex',
+                            needsPlan: true,
+                            reason: ['multi-source'],
+                        },
+                    },
+                    next: 'plan',
+                }),
+                plan: async () => ({
+                    delta: {
+                        plan: {
+                            version: 1,
+                            tasks: [{ id: 't1', title: 'do', status: 'open' }],
+                        },
+                    },
+                    next: 'think',
+                }),
+                negotiate: async () => ({ terminal: 'awaiting-negotiation' }),
+                verify: async () => ({ next: 'think' }),
+                think: async () => ({ terminal: 'done' }),
+                act: async () => ({ next: 'observe' }),
+            },
+            DEFAULT_LIMITS,
+        );
+        const state = makeState({ phase: 'router', acceptance: ['x'] });
+        const result = await makeRunner(nodes).run(state);
+        const roles = result.events
+            .filter((event) => event.type === 'node.selected')
+            .map((event) => event.role);
+        expect(roles[0]).toBe('router');
+        expect(roles[1]).toBe('plan');
+        expect(roles[2]).toBe('think');
+        expect(result.outcome).toBe('done');
+    });
+
+    it('Plan 决定协商时转到 Negotiate，并以 awaiting-negotiation 终止', async () => {
+        const nodes = createBuiltinNodes(
+            {
+                plan: async () => ({
+                    delta: {
+                        awaitingNegotiation: true,
+                        negotiation: { route: 'negotiate', questions: 1, reason: 'ambiguous' },
+                    },
+                    next: 'negotiate',
+                }),
+                negotiate: async () => ({ terminal: 'awaiting-negotiation' }),
+                verify: async () => ({ next: 'think' }),
+                think: async () => ({ terminal: 'done' }),
+                act: async () => ({ next: 'observe' }),
+            },
+            DEFAULT_LIMITS,
+        );
+        const state = makeState({ phase: 'plan', acceptance: ['x'] });
+        const result = await makeRunner(nodes).run(state);
+        expect(result.outcome).toBe('awaiting-negotiation');
+        expect(result.events.some((event) => event.role === 'negotiate')).toBe(true);
+    });
+
+    it('Replan 只在显式请求时可用；Reflect 请求失败诊断后进入 Replan', async () => {
+        const nodes = createBuiltinNodes(
+            {
+                replan: async () => ({
+                    delta: { replanRequested: false, plan: { version: 2, tasks: [] } },
+                    next: 'think',
+                }),
+                think: async () => ({ terminal: 'done' }),
+                act: async () => ({ next: 'observe' }),
+            },
+            DEFAULT_LIMITS,
+        );
+        const replanNode = nodes.find((node) => node.id === 'replan');
+        const at = makeState({
+            failures: 2,
+            plan: { version: 1, tasks: [{ id: 't1', title: 'do', status: 'open' }] },
+        });
+        expect(replanNode?.requires(at)).toBe(false);
+        const reflect = nodes.find((node) => node.id === 'reflect');
+        const reflected = await reflect?.run(
+            at,
+            buildContextView(at, 'reflect', SECTIONS, 12),
+        );
+        expect(reflected?.next).toBe('replan');
+        expect(reflected?.delta?.replanRequested).toBe(true);
+        expect(replanNode?.requires({ ...at, replanRequested: true })).toBe(true);
     });
 });

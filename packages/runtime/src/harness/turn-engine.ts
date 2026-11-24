@@ -4,14 +4,87 @@ import type { SkillProvider } from '../capabilities/runtime.js';
 import { emitFlagEvent, emitGoalPhase, emitSkillEvent } from '../events/emitters.js';
 import { newHarnessEvent } from '../events/index.js';
 import { rollupAcceptance } from '../gts/acceptance.js';
+import { planGoalTree } from '../gts/goal-planner.js';
+import { type ParsedGoalPlan, planNegotiation } from '../gts/negotiation.js';
 import type { PlannedTask } from '../gts/plan-graph.js';
+import { validatePlanGraph } from '../gts/plan-graph.js';
 import type { ReplanPlanner } from '../gts/replan.js';
 import type { TaskPlannerHistoryEntry } from '../gts/task-planner.js';
 import type { PromptRiskLevel, PromptTaskKind } from '../prompts/index.js';
 import { runGoalTreeDynamic } from '../strategy/dynamic-loop.js';
-import { type GoalRunResult, runGoalTree } from '../strategy/goal-strategy.js';
+import {
+    type GoalOrchestration,
+    type GoalRunResult,
+    runGoalTree,
+} from '../strategy/goal-strategy.js';
 import type { VerificationFailureCategory, VerificationReport } from '../verifier/index.js';
 import type { RuntimeContext } from './runtime-context.js';
+
+/** Router 运行时判定：解析结果优先，缺省才用请求语义做保守回退。 */
+interface RouterFacts {
+    problemType: string;
+    difficulty: 'simple' | 'standard' | 'complex' | 'long-horizon';
+    needsPlan: boolean;
+    reason: string[];
+}
+
+function routerFactsOf(
+    parsed: ParsedGoalPlan | undefined,
+    statement: string,
+    taskKind: string,
+): RouterFacts {
+    const trace = parsed?.trace;
+    const problemType = trace?.taskType ?? taskKind;
+    const difficulty =
+        trace?.difficulty ??
+        (taskKind === 'research' || statement.length > 160
+            ? 'complex'
+            : statement.length > 60
+              ? 'standard'
+              : 'simple');
+    const needsPlan =
+        trace?.needsPlan ??
+        (taskKind === 'research' ||
+            taskKind === 'coding' ||
+            taskKind === 'data' ||
+            taskKind === 'debug' ||
+            statement.length > 120);
+    return {
+        problemType,
+        difficulty,
+        needsPlan,
+        reason: trace?.reason ?? ['fallback: request semantics only'],
+    };
+}
+
+function directAnswerOf(parsed: ParsedGoalPlan | undefined): string | undefined {
+    const answer = parsed?.blocks.find((block) => block.route === 'direct')?.answer?.trim();
+    return answer !== undefined && answer.length > 0 ? answer : undefined;
+}
+
+function negotiationRouteOf(
+    parsed: ParsedGoalPlan | undefined,
+): 'direct' | 'confirmed' | 'negotiate' | 'escalate' | 'fallback' | undefined {
+    return parsed !== undefined ? planNegotiation(parsed).negotiation.route : undefined;
+}
+
+function planSnapshotOf(
+    tasks: readonly { taskId: string; title: string; status: string }[],
+): import('../workflow/types.js').PlanSnapshot {
+    return {
+        version: 1,
+        tasks: tasks.map((task) => ({
+            id: task.taskId,
+            title: task.title,
+            status:
+                task.status === 'succeeded'
+                    ? ('done' as const)
+                    : task.status === 'failed'
+                      ? ('failed' as const)
+                      : ('open' as const),
+        })),
+    };
+}
 
 /**
  * TurnEngine —— Goal 轮次的执行主干（从 HarnessRuntime 的
@@ -77,6 +150,8 @@ export class TurnEngine {
                     },
                     reason: routing.reason,
                     loopMode: routing.loopMode,
+                    ...(routing.difficulty !== undefined ? { difficulty: routing.difficulty } : {}),
+                    ...(routing.needsPlan !== undefined ? { needsPlan: routing.needsPlan } : {}),
                     ...(routing.route !== undefined ? { route: routing.route } : {}),
                     routedBy: routing.routedBy,
                 },
@@ -87,6 +162,52 @@ export class TurnEngine {
         latest.routing = routing;
         await this.h.ctx.memory.goalStore.saveGoal(latest);
         rootGoal.routing = routing;
+    }
+
+    /** Plan 节点/旧 run 前规划共用的 plan.created 事实。 */
+    private recordPlan(
+        rootGoalId: string,
+        goalId: string,
+        taskCount: number,
+        digest: string | undefined,
+        rejected: readonly string[] | undefined,
+        tasks:
+            | readonly {
+                  taskId: string;
+                  title: string;
+                  planVersion?: number;
+                  dependsOn?: readonly string[];
+              }[]
+            | undefined,
+    ): void {
+        const planVersion =
+            tasks !== undefined && tasks.length > 0
+                ? Math.max(...tasks.map((task) => task.planVersion ?? 1))
+                : 1;
+        this.h.ctx.observability.bus.emit(
+            newHarnessEvent({
+                type: rejected === undefined ? 'plan.created' : 'plan.invalid',
+                rootGoalId,
+                goalId,
+                attributes: {
+                    'harness.level': rejected === undefined ? 'info' : 'warn',
+                },
+                payload:
+                    rejected === undefined
+                        ? {
+                              taskCount,
+                              digest,
+                              planVersion,
+                              tasks: (tasks ?? []).map((task) => ({
+                                  taskId: task.taskId,
+                                  title: task.title,
+                                  dependsOn: task.dependsOn ?? [],
+                                  planVersion: task.planVersion ?? planVersion,
+                              })),
+                          }
+                        : { taskCount, rejected },
+            }),
+        );
     }
 
     async run(rootGoalId: string, options: { resume?: boolean } = {}): Promise<GoalRunResult> {
@@ -183,6 +304,12 @@ export class TurnEngine {
             await triage;
             this.h.ctx.session.intake.pendingTriage.delete(rootGoalId);
         }
+        const intentPromise = this.h.ctx.session.intake.pendingIntent.get(rootGoalId);
+        const parsedIntent = intentPromise !== undefined ? await intentPromise : undefined;
+        this.h.ctx.session.intake.pendingIntent.delete(rootGoalId);
+        const unifiedWorkflow =
+            this.h.ctx.session.intake.pendingUnifiedWorkflow.get(rootGoalId) === true;
+        this.h.ctx.session.intake.pendingUnifiedWorkflow.delete(rootGoalId);
         const history = this.h.ctx.session.intake.pendingHistory.get(rootGoalId);
         this.h.ctx.session.intake.pendingHistory.delete(rootGoalId);
         const goals = await this.h.ctx.memory.goalStore.listGoalsByRoot(rootGoalId);
@@ -300,6 +427,11 @@ export class TurnEngine {
                 : {}),
         });
         const promptPackFragment = decision.promptMatch.prompt;
+        const routerFacts = routerFactsOf(
+            parsedIntent,
+            rootGoal?.statement ?? '',
+            decision.taskKind,
+        );
         const routing: GoalRouting = {
             taskKind: decision.taskKind,
             riskLevel: decision.riskLevel,
@@ -308,11 +440,16 @@ export class TurnEngine {
             verifierId: decision.verifierId,
             loopMode,
             route: 'workflow',
+            difficulty: routerFacts.difficulty,
+            needsPlan: routerFacts.needsPlan,
             routedBy: 'super-agent',
-            reason: decision.reason,
+            reason: [...decision.reason, ...routerFacts.reason],
             at: Date.now(),
         };
-        await this.recordRouting(rootGoalId, goalId, rootGoal, routing, decision.memoryPlan);
+        // 统一编排下由 Router 节点落审计；旧路径仍在 run 前记录，保持历史行为。
+        if (!unifiedWorkflow) {
+            await this.recordRouting(rootGoalId, goalId, rootGoal, routing, decision.memoryPlan);
+        }
 
         this.h.ctx.observability.bus.emit(
             newHarnessEvent({
@@ -350,6 +487,7 @@ export class TurnEngine {
             ? this.h.projectWikiPromptFragment()
             : undefined;
         const willGeneratePlan =
+            !unifiedWorkflow &&
             planProposal === undefined &&
             !resume &&
             taskPlanning &&
@@ -401,12 +539,161 @@ export class TurnEngine {
         // 普通会话保持计划稳定：失败不自动改写 Task 图。Replan 只能由宿主显式注入，
         // 用于实验或需要人工确认恢复策略的高级路径。
         const replanPlanner = this.h.ctx.assembly.ports.get<ReplanPlanner>('replanPlanner');
+        const orchestration: GoalOrchestration | undefined = unifiedWorkflow
+            ? {
+                  router: async () => {
+                      const directAnswer = directAnswerOf(parsedIntent);
+                      if (directAnswer !== undefined && rootGoal !== undefined) {
+                          const directRouting: GoalRouting = {
+                              ...routing,
+                              route: 'direct',
+                              loopMode: 'direct',
+                              plannerId: 'none',
+                              verifierId: 'none',
+                              difficulty: routerFacts.difficulty,
+                              needsPlan: false,
+                              routedBy: 'super-agent',
+                          };
+                          await this.recordRouting(
+                              rootGoalId,
+                              goalId,
+                              rootGoal,
+                              directRouting,
+                              decision.memoryPlan,
+                          );
+                          await this.h.completeDirectGoal(rootGoal, directAnswer);
+                          return {
+                              delta: { finalAnswer: directAnswer },
+                              terminal: 'done' as const,
+                          };
+                      }
+                      await this.recordRouting(
+                          rootGoalId,
+                          goalId,
+                          rootGoal,
+                          routing,
+                          decision.memoryPlan,
+                      );
+                      return {
+                          delta: {
+                              router: {
+                                  problemType: routerFacts.problemType,
+                                  difficulty: routerFacts.difficulty,
+                                  needsPlan: routerFacts.needsPlan,
+                                  reason: routerFacts.reason,
+                              },
+                          },
+                          next: 'plan' as const,
+                      };
+                  },
+                  plan: async () => {
+                      const route = negotiationRouteOf(parsedIntent);
+                      if (parsedIntent !== undefined && route !== 'direct') {
+                          // Plan 决定是否把契约问题抛给用户；抛出后仍按默认路径执行，
+                          // 避免协商把本轮输入吞掉（用户答复走 negotiateGoal 修订契约）。
+                          await this.h.ctx.session.factory.applyParsedIntent(
+                              rootGoalId,
+                              parsedIntent,
+                          );
+                      }
+                      const refreshed =
+                          await this.h.ctx.memory.goalStore.listGoalsByRoot(rootGoalId);
+                      const planGoals = refreshed.filter((goal) => goal.status === 'active');
+                      if (planGoals.length === 0) {
+                          return { terminal: 'done' as const };
+                      }
+                      await emitGoalPhase(
+                          this.h.ctx.observability.bus,
+                          rootGoalId,
+                          goalId,
+                          'planning',
+                          '正在制定计划',
+                      );
+                      const proposals =
+                          planProposal ??
+                          (routerFacts.needsPlan && exec.allowedTools.length > 0
+                              ? await this.h.generateTaskPlan(
+                                    rootGoalId,
+                                    planGoals[0] ?? rootGoal,
+                                    model ?? this.h.ctx.session.factory.defaultModelChoice(),
+                                    reasoningLevel,
+                                    history,
+                                    exec.planTools,
+                                    promptFragment,
+                                )
+                              : undefined);
+                      const planned = planGoalTree({
+                          goals: planGoals,
+                          ...(proposals !== undefined ? { proposals } : {}),
+                          availableTools: exec.planTools,
+                      });
+                      if (!planned.validation.ok) {
+                          this.recordPlan(
+                              rootGoalId,
+                              goalId,
+                              0,
+                              undefined,
+                              planned.rejected ?? ['计划无效'],
+                              undefined,
+                          );
+                          return { terminal: 'failed' as const };
+                      }
+                      const validation = validatePlanGraph(
+                          planGoals,
+                          planned.tasks,
+                          exec.planTools,
+                      );
+                      if (!validation.ok) {
+                          this.recordPlan(
+                              rootGoalId,
+                              goalId,
+                              0,
+                              undefined,
+                              validation.rejected,
+                              undefined,
+                          );
+                          return { terminal: 'failed' as const };
+                      }
+                      for (const task of planned.tasks) {
+                          await this.h.ctx.memory.goalStore.saveTask(task);
+                      }
+                      this.recordPlan(
+                          rootGoalId,
+                          goalId,
+                          planned.tasks.length,
+                          planned.graph?.digest,
+                          undefined,
+                          planned.tasks,
+                      );
+                      return {
+                          delta: {
+                              plan: planSnapshotOf(planned.tasks),
+                              acceptance: [
+                                  ...new Set(
+                                      planGoals.flatMap((goal) =>
+                                          goal.contract.successConditions.map(
+                                              (condition) => condition.id,
+                                          ),
+                                      ),
+                                  ),
+                              ],
+                          },
+                          next: 'think' as const,
+                      };
+                  },
+                  negotiate: async () => ({ terminal: 'awaiting-negotiation' as const }),
+              }
+            : undefined;
         const verificationByTask = new Map<string, VerificationReport>();
         const controller = new AbortController();
         this.h.ctx.session.running.set(rootGoalId, controller);
         let result: GoalRunResult;
         try {
-            const runLoop = loopMode === 'dynamic' && !resume ? runGoalTreeDynamic : runGoalTree;
+            const runLoop = unifiedWorkflow
+                ? runGoalTreeDynamic
+                : loopMode === 'dynamic' && !resume
+                  ? runGoalTreeDynamic
+                  : runGoalTree;
             result = await runLoop(
                 {
                     store: this.h.ctx.memory.goalStore,
@@ -443,6 +730,7 @@ export class TurnEngine {
                         ? { planProposal: effectivePlanProposal }
                         : {}),
                     planTools: exec.planTools,
+                    ...(orchestration !== undefined ? { orchestration } : {}),
                     ...(model ? { model } : {}),
                     ...(this.h.ctx.assembly.workspaceRoot !== undefined
                         ? { workspaceRoot: this.h.ctx.assembly.workspaceRoot }
@@ -528,36 +816,7 @@ export class TurnEngine {
                             this.h.ctx.memory.wiki.observeStep(step);
                     },
                     onPlan: (taskCount, digest, rejected, tasks) => {
-                        const planVersion =
-                            tasks !== undefined && tasks.length > 0
-                                ? Math.max(...tasks.map((task) => task.planVersion ?? 1))
-                                : 1;
-                        this.h.ctx.observability.bus.emit(
-                            newHarnessEvent({
-                                type: rejected === undefined ? 'plan.created' : 'plan.invalid',
-                                rootGoalId,
-                                goalId,
-                                attributes: {
-                                    'harness.level': rejected === undefined ? 'info' : 'warn',
-                                },
-                                payload:
-                                    rejected === undefined
-                                        ? {
-                                              taskCount,
-                                              digest,
-                                              // 初始计划 = 1；恢复运行沿用计划自身的版本。
-                                              planVersion,
-                                              // 计划可观测：Task 标题/依赖/版本让 UI 与复盘能审计 TaskPlan。
-                                              tasks: (tasks ?? []).map((task) => ({
-                                                  taskId: task.taskId,
-                                                  title: task.title,
-                                                  dependsOn: task.dependsOn ?? [],
-                                                  planVersion: task.planVersion ?? planVersion,
-                                              })),
-                                          }
-                                        : { taskCount, rejected },
-                            }),
-                        );
+                        this.recordPlan(rootGoalId, goalId, taskCount, digest, rejected, tasks);
                     },
                     onExecutionStart: () =>
                         emitGoalPhase(

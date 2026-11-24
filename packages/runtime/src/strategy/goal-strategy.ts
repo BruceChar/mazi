@@ -34,6 +34,7 @@ import {
     turnsToMemory,
 } from '../memory/index.js';
 import type { TaskVerifier, VerificationReport } from '../verifier/index.js';
+import type { WorkflowHost } from '../workflow/nodes.js';
 
 /** 把一次 Task 的工具执行记录成 memory fact，供后续 Goal/会话判定“已执行过”。 */
 function toolMemoryFacts(steps: readonly Step[], rootGoalId: string): MemoryItem[] {
@@ -46,6 +47,14 @@ function toolMemoryFacts(steps: readonly Step[], rootGoalId: string): MemoryItem
             createdAt: Date.now(),
             rootGoalId,
         }));
+}
+
+/** Goal 级编排能力注入；缺省时保持旧 plan-before-run 行为。 */
+export interface GoalOrchestration {
+    router: NonNullable<WorkflowHost['router']>;
+    plan: NonNullable<WorkflowHost['plan']>;
+    negotiate: NonNullable<WorkflowHost['negotiate']>;
+    replan?: NonNullable<WorkflowHost['replan']>;
 }
 
 export interface GoalRunDeps {
@@ -102,6 +111,8 @@ export interface GoalRunDeps {
     ) => void;
     /** 恢复模式：复用未终结 Task 并从已落库 Step 重放上下文。 */
     resume?: boolean;
+    /** 统一编排：Router/Plan/Replan/Negotiate 节点；缺省保持旧 run 前 plan。 */
+    orchestration?: GoalOrchestration;
     /** 轮次上限覆盖（缺省读 goal.contract.terminationPolicy.maxSteps）。 */
     maxSteps?: number;
     /** 成本上限覆盖 USD（缺省读 goal.contract.budget.maxCostUsd）。 */
@@ -114,6 +125,8 @@ export interface GoalRunResult {
     ok: boolean;
     /** direct 路线没有 Task 承载回答；调用方用它做终态摘要/会话历史。 */
     finalAnswer?: string;
+    /** Plan 判定需要契约协商，本轮已安全停止等待用户答复。 */
+    awaitingNegotiation?: boolean;
     rejected?: string[];
     planRevisions?: PlanRevision[];
     /** 执行 loop 的元信息（loopMode=dynamic 时由节点引擎填写）。 */

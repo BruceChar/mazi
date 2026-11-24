@@ -197,10 +197,20 @@ export class SessionFactory {
 
     /** 异步 triage：失败/超时只是不协商，绝不影响会话创建与执行。 */
     private scheduleTriage(rootGoalId: string, statement: string, opts: RunOptions): Promise<void> {
-        const task = this.applyTriage(rootGoalId, statement, opts)
+        const parsed = this.parseIntent(statement, rootGoalId, opts).catch(() => undefined);
+        this.d.intake.pendingIntent.set(rootGoalId, parsed);
+        this.d.intake.pendingUnifiedWorkflow.set(rootGoalId, opts.deferTriage === true);
+        const task = (async () => {
+            const intent = await parsed;
+            // 兼容旧宿主：未显式延后时，triage 仍在创建阶段落契约。
+            // 产品会话 deferTriage=true：Router/Plan 节点消费解析结果，协商由 Plan 决定。
+            if (intent !== undefined && opts.deferTriage !== true) {
+                await this.applyParsedIntent(rootGoalId, intent);
+            }
+        })()
             .catch(() => undefined)
             .finally(() => {
-                // 完成后即可移除：契约已落库，execute 重新加载 Goal 就能看到。
+                // 完成后即可移除执行等待；pendingIntent 留给 TurnEngine 消费。
                 this.d.intake.pendingTriage.delete(rootGoalId);
             });
         return task;
@@ -208,19 +218,18 @@ export class SessionFactory {
 
     /**
      * triage 结果落地：读改写当前 Goal，只在尚未有协商结论时合并（幂等）。
-     * 追加的语义条款是纯增量，不会让已生成的 Task.acceptance / Step 归因失效。
+     * Plan 节点是协商的决定者；本方法只执行已经决定要落地的解析结果。
      */
-    private async applyTriage(
+    async applyParsedIntent(
         rootGoalId: string,
-        statement: string,
-        opts: RunOptions,
-    ): Promise<void> {
-        const parsed = await this.parseIntent(statement, rootGoalId, opts);
-        // 无可用模型/超时/解析失败：triage 视为未发生，不写任何协商结论。
-        if (parsed === undefined) return;
+        parsed: ParsedGoalPlan,
+    ): Promise<ReturnType<typeof planNegotiation> | undefined> {
         const plan = planNegotiation(parsed);
         const goal = await this.d.goalStoreDb.loadGoal(rootGoalId);
-        if (goal === undefined || goal.negotiation !== undefined) return;
+        if (goal === undefined) return undefined;
+        if (goal.negotiation !== undefined) {
+            return { negotiation: goal.negotiation, conditions: goal.contract.successConditions };
+        }
         // 基线两条机械条款在创建时已冻结；triage 只会新增：
         // - semantic 条款（需 judge），
         // - 带结构化 check 的 deterministic 条款（P2：file/git/命令输出可机械判定）。
@@ -236,7 +245,9 @@ export class SessionFactory {
         };
         goal.negotiation = plan.negotiation;
         await this.d.goalStoreDb.saveGoal(goal);
-        if (plan.negotiation.route !== 'negotiate' && plan.negotiation.route !== 'escalate') return;
+        if (plan.negotiation.route !== 'negotiate' && plan.negotiation.route !== 'escalate') {
+            return plan;
+        }
         this.d.bus.emit(
             newHarnessEvent({
                 type: 'goal.negotiation.requested',
@@ -254,6 +265,7 @@ export class SessionFactory {
             }),
         );
         await this.d.bus.flush();
+        return plan;
     }
 
     /**

@@ -993,9 +993,7 @@ function collectSnapshotSteps(
                     toolArguments: step.toolArguments ?? null,
                     toolCwd: step.toolCwd ?? null,
                     toolOutput: step.toolOutput ?? null,
-                    ...(step.observations !== undefined
-                        ? { observations: step.observations }
-                        : {}),
+                    ...(step.observations !== undefined ? { observations: step.observations } : {}),
                     ...(step.observationDisposition !== undefined
                         ? { observationDisposition: step.observationDisposition }
                         : {}),
@@ -1805,11 +1803,14 @@ export function emptyAuditView(): AuditView {
 
 export function roleLabel(role: string | undefined, kind: string): string {
     const labels: Record<string, string> = {
+        router: 'Routing',
+        negotiate: 'Negotiating',
         think: 'Thinking',
         plan: 'Planning',
         act: 'Acting',
         observe: 'Observing',
         verify: 'Verifying',
+        replan: 'Replanning',
         reflect: 'Reflecting',
     };
     if (role && labels[role]) return labels[role];

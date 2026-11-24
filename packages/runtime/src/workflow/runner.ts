@@ -63,6 +63,8 @@ export class WorkflowRunner {
 
     /** 只由 runner 判定完成：开放任务清零 + 无待吸收结果 + 验收通过（或有标准但无验收能力）。 */
     private completion(state: WorkflowState): Outcome | undefined {
+        // 协商等待是显式停止条件，不能被“开放任务为零”误判成完成。
+        if (state.awaitingNegotiation === true) return undefined;
         if (openTaskCount(state) > 0 || state.pending.length > 0) return undefined;
         // 空验收 + 尚未执行任何节点，不能算完成：否则「还没开始」会被判成「做完了」。
         if (state.acceptance.length === 0) return state.usage.steps > 0 ? 'done' : undefined;
@@ -101,13 +103,18 @@ export class WorkflowRunner {
             if (this.now() - state.startedAt >= this.limits.maxElapsedMs)
                 return terminate('aborted-budget');
 
-            // phase 是「本步要执行的节点角色」。首步优先 Think 做决策；
-            // 进入这一跳由 last → phase 校验，输出那跳由 node → next 校验。
+            // phase 是「本步要执行的节点角色」。首步按初始 phase 选择：
+            // 统一编排放 router，Task 级执行仍是 think。未命中再回退最早可用节点。
             const node =
                 last === undefined
                     ? (this.nodes.find(
+                          (candidate) =>
+                              candidate.role === state.phase && candidate.requires(state),
+                      ) ??
+                      this.nodes.find(
                           (candidate) => candidate.role === 'think' && candidate.requires(state),
-                      ) ?? this.nodes.find((candidate) => candidate.requires(state)))
+                      ) ??
+                      this.nodes.find((candidate) => candidate.requires(state)))
                     : this.nodes.find(
                           (candidate) =>
                               candidate.role === state.phase && candidate.requires(state),

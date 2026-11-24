@@ -35,7 +35,13 @@ materially change outcome, cost, risk, or irreversibility.
 # Output
 
 Strict JSON. Nothing outside the JSON object. One object per input.
-{"trace":{"classification":"command | question | statement | mixed","triggers":["ambiguity" | "missing information" | "contradiction" | "better path" | "high risk"]},"blocks":[{"route":"confirmed","goals":["..."],"constraints":["...",{"text":"...","check":{"kind":"..."}}]}]}
+{"trace":{"classification":"command | question | statement | mixed","taskType":"coding | research | data | debug | memory | security | writing | general","difficulty":"simple | standard | complex | long-horizon","needsPlan":true,"reason":["..."],"triggers":["ambiguity" | "missing information" | "contradiction" | "better path" | "high risk"]},"blocks":[{"route":"confirmed","goals":["..."],"constraints":["...",{"text":"...","check":{"kind":"..."}}]}]}
+
+taskType classifies the problem itself, never the available tools. needsPlan is true
+when the outcome needs multiple dependent steps, evidence gathering, or more than one
+deliverable; a single-shot answer or one atomic action is false. difficulty is a
+judgement of the work, not of the wording. reason is a short list of the concrete
+signals that led to taskType/difficulty/needsPlan.
 
 Block field reference:
 - confirmed: route, goals, constraints?

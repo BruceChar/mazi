@@ -128,7 +128,8 @@ export class SessionsService {
         const sessionConversationId = conversationId ?? ulid();
         // 普通会话按全局 Feature 开关运行（实验台改用运行期 override 走 ExperimentRunner）。
         const featureOptions = await this.featureRunOptions(reasoningLevel);
-        const chatMode = workspace === undefined && projectId === undefined;
+        // 随心聊与 project 不再分别决定是否理解/规划：Router 与 Plan 都是 workflow 节点，
+        // 由实际问题决定是否展开 Task；创建阶段只解析，不提前发协商请求。
         const promptFragment = featureOptions.promptFragment ?? '';
         const created = await this.runtime.harness().createGoalSession(input, {
             userId,
@@ -137,8 +138,9 @@ export class SessionsService {
             ...(permissionCeiling ? { permissionCeiling } : {}),
             ...(maxSteps !== undefined ? { maxSteps } : {}),
             ...(maxCostUsd !== undefined ? { maxCostUsd } : {}),
-            parseIntent: !chatMode,
-            taskPlanning: !chatMode,
+            parseIntent: true,
+            taskPlanning: true,
+            deferTriage: true,
             ...(history.length > 0 ? { history } : {}),
             ...(planProposal !== undefined ? { planProposal } : {}),
             ...(promptPackIds !== undefined ? { promptPackIds } : {}),

@@ -77,11 +77,14 @@ function formatDuration(ms) {
     return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 const ROLE_LABELS = {
+    router: 'Routing',
+    negotiate: 'Negotiating',
     think: 'Thinking',
     plan: 'Planning',
     act: 'Acting',
     observe: 'Observing',
     verify: 'Verifying',
+    replan: 'Replanning',
     reflect: 'Reflecting',
 };
 function kindLabel(kind, role) {

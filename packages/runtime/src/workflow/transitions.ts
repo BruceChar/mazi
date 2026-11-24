@@ -5,12 +5,15 @@ import type { Phase } from './types.js';
  *
  */
 export const TRANSITIONS = {
-    think: ['act', 'plan', 'verify'],
+    router: ['plan', 'think'],
+    plan: ['think', 'act', 'verify', 'negotiate'],
+    negotiate: [],
+    think: ['act', 'plan', 'verify', 'replan'],
     act: ['observe'],
-    observe: ['think', 'verify', 'reflect'],
-    plan: ['think', 'act', 'verify'],
-    verify: ['think', 'reflect'],
-    reflect: ['plan', 'think'],
+    observe: ['think', 'verify', 'reflect', 'replan'],
+    verify: ['think', 'reflect', 'replan'],
+    reflect: ['replan', 'plan', 'think'],
+    replan: ['think', 'plan'],
 } as const satisfies Record<Phase, readonly Phase[]>;
 
 export function canEnterPhase(from: Phase, to: Phase): boolean {

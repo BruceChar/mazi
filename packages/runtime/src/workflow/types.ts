@@ -1,6 +1,25 @@
-export type Phase = 'think' | 'act' | 'observe' | 'plan' | 'verify' | 'reflect';
+export type Phase =
+    | 'router'
+    | 'plan'
+    | 'negotiate'
+    | 'think'
+    | 'act'
+    | 'observe'
+    | 'verify'
+    | 'replan'
+    | 'reflect';
 
-export const PHASES: readonly Phase[] = ['think', 'act', 'observe', 'plan', 'verify', 'reflect'];
+export const PHASES: readonly Phase[] = [
+    'router',
+    'plan',
+    'negotiate',
+    'think',
+    'act',
+    'observe',
+    'verify',
+    'replan',
+    'reflect',
+];
 
 export interface ObserveFact {
     readonly id: string;
@@ -24,8 +43,23 @@ export interface PlanTask {
 export interface PlanSnapshot {
     readonly version: number;
     readonly tasks: readonly PlanTask[];
-    /** 被 Reflect 判定失效，允许重新规划。 */
-    readonly staleBy?: 'reflect';
+    /** 被 Reflect / Verify 判定失效，允许重新规划。 */
+    readonly staleBy?: 'reflect' | 'verify';
+}
+
+/** Router 在 run 内产出的最小问题判定；契约条款不在这里。 */
+export interface RouterSnapshot {
+    readonly problemType: string;
+    readonly difficulty: 'simple' | 'standard' | 'complex' | 'long-horizon';
+    readonly needsPlan: boolean;
+    readonly reason: string[];
+}
+
+/** Plan 的协商决定；negotiate 节点只消费，不重新判定。 */
+export interface NegotiationSnapshot {
+    readonly route: 'negotiate' | 'escalate';
+    readonly questions: number;
+    readonly reason: string;
 }
 
 export interface WorkflowUsage {
@@ -43,6 +77,16 @@ export interface RunState {
     readonly goalId: string;
     readonly statement: string;
     plan?: PlanSnapshot;
+    /** Router 的问题判定；Task 级 runner 缺省。 */
+    router?: RouterSnapshot;
+    /** Plan 决定协商时的路线；仅 negotiate 终态使用。 */
+    negotiation?: NegotiationSnapshot;
+    /** 本轮已安全停止，等待用户答复契约问题。 */
+    awaitingNegotiation?: boolean;
+    /** Verify/Reflect 申请进入 replan 节点。 */
+    replanRequested?: boolean;
+    /** direct 路线回答；无 Task 承载。 */
+    finalAnswer?: string;
     facts: ObserveFact[];
     pending: ActRawResult[];
     acceptance: readonly string[];
@@ -101,6 +145,7 @@ export interface WorkflowNode {
 export type Outcome =
     | 'done'
     | 'done-unverified'
+    | 'awaiting-negotiation'
     | 'aborted-budget'
     | 'aborted-no-progress'
     | 'aborted-no-candidates'

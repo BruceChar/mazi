@@ -27,15 +27,21 @@ interface NodeResult {
 ## 二、相位与合法转移（typestate 的运行时等价）
 
 ```ts
-type Phase = 'think' | 'act' | 'observe' | 'plan' | 'verify' | 'reflect';
+type Phase =
+    | 'router' | 'plan' | 'negotiate'
+    | 'think' | 'act' | 'observe' | 'verify'
+    | 'replan' | 'reflect';
 
 const TRANSITIONS = {
-    think:   ['act', 'plan', 'verify'],
-    act:     ['observe'],
-    observe: ['think', 'verify', 'reflect'],
-    plan:    ['think', 'act', 'verify'],
-    verify:  ['think', 'reflect'],
-    reflect: ['plan', 'think'],
+    router:    ['plan', 'think'],
+    plan:      ['think', 'act', 'verify', 'negotiate'],
+    negotiate: [],
+    think:     ['act', 'plan', 'verify', 'replan'],
+    act:       ['observe'],
+    observe:   ['think', 'verify', 'reflect', 'replan'],
+    verify:    ['think', 'reflect', 'replan'],
+    reflect:   ['replan', 'plan', 'think'],
+    replan:    ['think', 'plan'],
 } as const satisfies Record<Phase, readonly Phase[]>;
 ```
 
@@ -48,7 +54,10 @@ const TRANSITIONS = {
 
 | 节点 | requires 条件 |
 | --- | --- |
+| Router | `host.router` 存在，且 `state.router === undefined`（只在 run 的入口判定一次） |
 | Plan | `host.plan` 存在，且（无计划 ∨ 无开放任务 ∨ `plan.staleBy === 'reflect'` ∨ `actedSincePlan > 0`） |
+| Negotiate | `host.negotiate` 存在，且 `awaitingNegotiation === true` |
+| Replan | `host.replan` 存在，且 `replanRequested === true` |
 | Act | `host.act` 存在 |
 | Observe | `pending.length > 0`（必须有待吸收的结果） |
 | Verify | `awaitingVerify` ∨（验收标准非空 ∧ 无开放任务 ∧ `host.verify` 存在） |
@@ -66,9 +75,12 @@ const TRANSITIONS = {
 | `think` | `host.think` | 一次 LLM 推理：产出 toolCalls 或 final answer |
 | `act` | `host.act` | 只执行工具，写出 `pending` 原始结果（可含多条 tool call） |
 | `observe` | `host.observe` 钩子 + **确定性内置** | 先回注上下文，再把 `pending` → `facts`，逐条标注 ok/error，按 `maxFacts` 截断 |
-| `plan` | `host.plan` | 产出任务清单；不可用则节点不进候选，自动退化为 think-act |
+| `router` | `host.router` | 统一入口：问题类型/难度/`needsPlan`；direct 直接终止 |
+| `plan` | `host.plan` | 决定是否协商、应用契约增量、产出任务清单；不可用则不进候选 |
+| `negotiate` | `host.negotiate` | Plan 显式选择暂停时落 `blocked` 并终止，等待用户答复 |
+| `replan` | `host.replan` | run 内重规划；未注入 ReplanPlanner 时不创建 |
 | `verify` | `host.verify`，缺省规则版 | 无验收标准时直接通过；有标准但无实现时不可用。判定由契约层 Verifier 负责，节点只做调度与落账 |
-| `reflect` | **规则内置** | 失败归因：计划存在 → 置 `staleBy='reflect'` 并 next=plan；否则 next=think |
+| `reflect` | **规则内置** | 失败归因：计划存在 → 置 `staleBy='reflect'`；有 replan 节点时 next=replan，否则 next=plan/think |
 
 `host.think` / `host.act` 是必需项；`observe` 钩子可选，缺省只做 facts 收敛；`plan` / `verify`
 缺失即降级，不是开关。
@@ -166,7 +178,7 @@ Goal.routing?: {
 }
 ```
 
-Trace 面板有独立的「Router 决策」区，展示 route / loopMode、taskKind、risk、prompt pack、planner、verifier 与 `reason`，不依赖契约展开。直答路径也必须写入 `route:'direct'` 的 Router 审计；它没有 NodeRun，也不参与节点步数。`taskKind` 只由用户请求语义分类；`shell.run/sd/git/xh` 等工具可用性不代表任务类型，不能据此把所有请求判成 coding 或 research。
+Trace 面板有独立的「Router 决策」区，展示 route / loopMode、taskKind、difficulty、needsPlan、risk、prompt pack、planner、verifier 与 `reason`，不依赖契约展开。直答路径也必须写入 `route:'direct'` 的 Router 审计；它没有 NodeRun，也不参与节点步数。`taskKind` 只由用户请求语义分类；`shell.run/sd/git/xh` 等工具可用性不代表任务类型，不能据此把所有请求判成 coding 或 research。
 
 ## 九、验收口径
 

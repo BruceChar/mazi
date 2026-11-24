@@ -488,6 +488,10 @@ export function traceSteps(
 /** workflow 节点角色 → 人类可读标签；工具行不伪装成节点。 */
 export function loopNodeRoleLabel(role: string | undefined): string {
     switch (role) {
+        case 'router':
+            return 'Routing';
+        case 'negotiate':
+            return 'Negotiating';
         case 'think':
             return 'Thinking';
         case 'act':
@@ -498,6 +502,8 @@ export function loopNodeRoleLabel(role: string | undefined): string {
             return 'Planning';
         case 'verify':
             return 'Verifying';
+        case 'replan':
+            return 'Replanning';
         case 'reflect':
             return 'Reflecting';
         default:

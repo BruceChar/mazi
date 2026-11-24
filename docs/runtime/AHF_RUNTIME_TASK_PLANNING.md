@@ -1,6 +1,10 @@
 # Runtime Task Planning 与失败信号（P0 修复）
 
 > 状态：已实现（2026-11-09 修订）
+> **2026-11 更新**：产品主干改为统一编排，见 `docs/runtime/UNIFIED_WORKFLOW.md`。
+> `triage → run 前 Plan` 的线性流程只保留为 legacy resume / 对照；新链路为
+> `Router（消费 triage）→ Plan（应用契约 + 协商决定）→ Task`。下文保留为历史故障与
+> 契约完整性背景，不再代表当前节点顺序。
 > 关联：docs/core/AHF_CORE_GTS.md（契约与机械检查词表）、docs/web/观测看板设计.md（plan 可观测）、用户行为流设计无关。
 > 背景故障：run `01M6TJJ57BV20XRC2SS71V0QNX`（用户输入 `A`）只生成 1 个泛化 Task、
 > 17 条语义条款从未判定、模型把文件内容当最终回答即被 `final-answer` 收尾。

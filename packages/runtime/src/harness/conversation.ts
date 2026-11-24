@@ -31,6 +31,11 @@ export interface RunOptions {
     maxCostUsd?: number;
     /** 创建 Goal 时是否跑 triage（契约协商）；缺省 false，调用方显式开启；无可用 provider 自动回落 fallback。 */
     parseIntent?: boolean;
+    /**
+     * triage 只解析、不在创建阶段应用：Router/Plan 节点接管问题判定与协商决定。
+     * 产品会话开启；旧测试/旧宿主缺省 false，保持创建即落契约的兼容行为。
+     */
+    deferTriage?: boolean;
     /** 工作区根路径；文件工具只允许读取该目录内文件 */
     workspaceRoot?: string;
     /** providerId → LLMProvider 覆盖（离线测试注入；优先生效） */

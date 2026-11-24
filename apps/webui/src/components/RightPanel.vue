@@ -731,7 +731,7 @@ watch(
                     </ul>
                 </section>
 
-                <!-- Router 决策：run 级审计，不是 workflow 节点。独立成区避免被契约折叠藏住。 -->
+                <!-- Router 决策：workflow 首个节点落审计；独立成区避免被契约折叠藏住。 -->
                 <section v-if="routerEntries.length > 0" class="audit-section router-section">
                     <div class="audit-section-title">
                         <span>Router 决策</span>
@@ -749,6 +749,14 @@ watch(
                             <div class="router-fact">
                                 <span class="router-fact-label">分类</span>
                                 <span class="router-fact-value">{{ entry.routing.taskKind }}</span>
+                            </div>
+                            <div class="router-fact">
+                                <span class="router-fact-label">难度</span>
+                                <span class="router-fact-value">{{ entry.routing.difficulty ?? '未判定' }}</span>
+                            </div>
+                            <div class="router-fact">
+                                <span class="router-fact-label">需要计划</span>
+                                <span class="router-fact-value">{{ entry.routing.needsPlan === undefined ? '未判定' : entry.routing.needsPlan ? '是' : '否' }}</span>
                             </div>
                             <div class="router-fact">
                                 <span class="router-fact-label">风险</span>

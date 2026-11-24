@@ -93,11 +93,14 @@ export async function executeTask(
         {
             base: '',
             byRole: {
+                router: '',
+                plan: '',
+                negotiate: '',
                 think: '',
                 act: '',
                 observe: '',
-                plan: '',
                 verify: '',
+                replan: '',
                 reflect: '',
             },
         },

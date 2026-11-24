@@ -1,14 +1,13 @@
 /**
- * dynamic-loop —— 节点驱动的 Goal 执行（loopMode='dynamic'）。
+ * dynamic-loop —— 节点驱动的 Goal 执行（统一编排的落点）。
  *
- * 与 default（goal-strategy 的串行 cursor）的区别：任务选择、结果收敛、
- * 失败归因、完成判定都由 WorkflowRunner 的节点与转移表决定，而不是 while+cursor。
- *
- * v1 边界：不支持 resume；不做跨 Task 的 Replan；不做 memory 召回（沿用
- * executeTask 的 Task 内记忆）。这三项在 switch 前必须补齐或明确降级。
+ * 任务选择、结果收敛、失败归因、完成判定都由 `WorkflowRunner` 的节点与转移表决定。
+ * 注入 `GoalRunDeps.orchestration` 后，Router/Plan/Replan/Negotiate 也在同一 runner 上；
+ * 未注入时保持旧行为（run 前 plan + think 起手），供历史调用与对照。
  */
 
-import type { ExperimentLoopNode, Goal, Task } from '@mazi/core';
+import type { ExperimentLoopNode, Goal, Step, Task } from '@mazi/core';
+import { ulid } from '@mazi/core';
 import {
     type GoalExecutorDeps,
     TaskExecutionContext,
@@ -16,9 +15,17 @@ import {
 } from '../gts/goal-executor.js';
 import { planGoalTree } from '../gts/goal-planner.js';
 import { type PlanTool, topologicalTaskOrder, validatePlanGraph } from '../gts/plan-graph.js';
+import {
+    createPlanRevision,
+    failureFromOutcome,
+    type PlanRevision,
+    type ReplanRequest,
+} from '../gts/replan.js';
 import { verifyTaskOutcome } from '../gts/verification-step.js';
 import type { ContextContribution } from '../harness/context-manager.js';
+import { type MemoryItem, MemoryManager, turnsToMemory } from '../memory/index.js';
 import {
+    type ContextView,
     createBuiltinNodes,
     DEFAULT_LIMITS,
     type NodeResult,
@@ -29,6 +36,19 @@ import {
     type WorkflowState,
 } from '../workflow/index.js';
 import type { GoalRunDeps, GoalRunResult } from './goal-strategy.js';
+
+/** 把一次 Task 的工具执行记录成 memory fact，供后续 Task/会话判定“已执行过”。 */
+function toolMemoryFacts(steps: readonly Step[], rootGoalId: string): MemoryItem[] {
+    return steps
+        .filter((step): step is Extract<Step, { kind: 'invocation' }> => step.kind === 'invocation')
+        .map((step) => ({
+            id: ulid(),
+            kind: 'fact' as const,
+            text: `已执行工具 ${step.payload.toolName}(${JSON.stringify(step.payload.arguments ?? {})}) → ${(step.payload.output ?? '(no output)').slice(0, 500)}`,
+            createdAt: Date.now(),
+            rootGoalId,
+        }));
+}
 
 function minDefined(...values: Array<number | undefined>): number | undefined {
     const defined = values.filter((value): value is number => value !== undefined);
@@ -80,6 +100,7 @@ function taskDeps(
     goal: Goal,
     outcomes: readonly TaskOutcome[],
     contributions: readonly ContextContribution[],
+    resumeSteps?: readonly Step[],
 ): GoalExecutorDeps {
     return {
         store: deps.store,
@@ -92,6 +113,7 @@ function taskDeps(
         ...(deps.workspaceRoot !== undefined ? { workspaceRoot: deps.workspaceRoot } : {}),
         ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
         ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
+        ...(resumeSteps !== undefined && resumeSteps.length > 0 ? { resumeSteps } : {}),
         ...limitsOf(deps, task, goal),
         contributions,
         ...(task.dependsOn !== undefined && task.dependsOn.length > 0
@@ -123,14 +145,37 @@ export async function runGoalTreeDynamic(
     deps: GoalRunDeps,
     goals: readonly Goal[],
 ): Promise<GoalRunResult> {
-    if (deps.resume === true) throw new Error('dynamic loop 暂不支持 resume');
+    const unified = deps.orchestration !== undefined;
+    const resume = deps.resume === true;
+    if (resume && !unified) throw new Error('dynamic loop 暂不支持 resume');
+    const memory = deps.memory ?? new MemoryManager();
     const rootGoalId = goals[0]?.goalId ?? '';
-    const executable = goals.filter((goal) => goal.status === 'active');
+    const executable = goals.filter(
+        (goal) => goal.status === 'active' || (resume && goal.status === 'aborted'),
+    );
     const outcomes: TaskOutcome[] = [];
     let tasks: Task[] = [];
     let planDigest: string | undefined;
+    const planRevisions: PlanRevision[] = [];
 
-    if (executable.length > 0) {
+    if (resume) {
+        for (const goal of executable) {
+            for (const task of await deps.store.listTasks(goal.goalId)) {
+                const goalConditions = new Set<string>(
+                    goal.contract.successConditions.map((condition) => condition.id),
+                );
+                if (
+                    !task.acceptance.conditions.some((condition) => goalConditions.has(condition))
+                ) {
+                    task.acceptance.conditions = [...goalConditions];
+                    task.permissionCeiling ??= goal.permissionCeiling;
+                    task.budget ??= goal.budget;
+                    await deps.store.saveTask(task);
+                }
+                tasks.push(task);
+            }
+        }
+    } else if (!unified && executable.length > 0) {
         const planned = planGoalTree({
             goals: executable,
             ...(deps.planProposal !== undefined ? { proposals: deps.planProposal } : {}),
@@ -157,9 +202,9 @@ export async function runGoalTreeDynamic(
         for (const task of tasks) await deps.store.saveTask(task);
         deps.onPlan?.(tasks.length, planDigest, undefined, tasks);
     }
-    if (tasks.length > 0) await deps.onExecutionStart?.();
+    if (!unified && tasks.length > 0) await deps.onExecutionStart?.();
 
-    const order = topologicalTaskOrder(tasks);
+    let order = topologicalTaskOrder(tasks);
     const goalById = new Map(executable.map((goal) => [goal.goalId, goal]));
     const facts: ObserveFact[] = [];
     const startedAt = Date.now();
@@ -173,8 +218,8 @@ export async function runGoalTreeDynamic(
     let state: WorkflowState = {
         goalId: rootGoalId,
         statement: goals[0]?.statement ?? '',
-        phase: 'think',
-        plan: { version: 1, tasks: planTasksOf(tasks) },
+        phase: unified ? (resume && tasks.length > 0 ? 'think' : 'router') : 'think',
+        ...(tasks.length > 0 ? { plan: { version: 1, tasks: planTasksOf(tasks) } } : {}),
         facts,
         pending: [],
         acceptance,
@@ -192,6 +237,19 @@ export async function runGoalTreeDynamic(
         );
 
     let current: TaskExecutionContext | undefined;
+    let currentContribution: ContextContribution = { id: 'none' };
+    let lastOutcome: TaskOutcome | undefined;
+
+    /** Plan/Replan 节点落库后，执行侧从 store 重载 Task 与 Goal（契约可能刚更新）。 */
+    const reloadPlan = async (): Promise<void> => {
+        const refreshed = await deps.store.listGoalsByRoot(rootGoalId);
+        for (const goal of refreshed) goalById.set(goal.goalId, goal);
+        tasks = [];
+        for (const goal of goalById.values()) {
+            tasks.push(...(await deps.store.listTasks(goal.goalId)));
+        }
+        order = topologicalTaskOrder(tasks);
+    };
 
     const openTask = (currentState: WorkflowState): Task | undefined => {
         for (const task of openOf(currentState)) {
@@ -250,8 +308,18 @@ export async function runGoalTreeDynamic(
             }
             const goal = goalById.get(task.goalId);
             if (goal === undefined) throw new Error(`Task ${task.taskId} 的 Goal 不在可执行集合`);
+            currentContribution = await memory.prepareContribution(
+                {
+                    rootGoalId,
+                    queryText: goal.statement,
+                    ...(deps.memoryQuery ?? {}),
+                    unionScope: true,
+                },
+                { id: 'memory' },
+            );
+            const resumeSteps = resume ? await deps.store.listSteps(task.taskId) : undefined;
             current = new TaskExecutionContext(
-                taskDeps(deps, task, goal, outcomes, [{ id: 'none' }]),
+                taskDeps(deps, task, goal, outcomes, [currentContribution], resumeSteps),
                 task,
                 goal,
             );
@@ -309,27 +377,59 @@ export async function runGoalTreeDynamic(
         } else {
             await ctx.finishSuccess();
             outcome = ctx.outcome();
-            await verifyTaskOutcome({
-                goal,
-                outcome,
-                store: deps.store,
-                ...(deps.verifier !== undefined ? { verifier: deps.verifier } : {}),
-                ...(deps.onVerification !== undefined
-                    ? { onVerification: deps.onVerification }
-                    : {}),
-                ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
-            });
-            if (outcome.ok && outcome.task.acceptanceResult?.passed === false) {
-                outcome.task.status = 'failed';
-            }
-            await ctx.applyAcceptance(outcome.task.status);
         }
+        // 验收必须覆盖所有 Task 终态，包括 driver-error / 启动即失败；
+        // 否则 timeline 只有 executor 成败，契约判定缺失。
+        await verifyTaskOutcome({
+            goal,
+            outcome,
+            store: deps.store,
+            ...(deps.verifier !== undefined ? { verifier: deps.verifier } : {}),
+            ...(deps.onVerification !== undefined ? { onVerification: deps.onVerification } : {}),
+            ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
+        });
+        if (outcome.ok && outcome.task.acceptanceResult?.passed === false) {
+            outcome.task.status = 'failed';
+        }
+        await ctx.applyAcceptance(outcome.task.status);
         outcomes.push(outcome);
+        lastOutcome = outcome;
         current = undefined;
+        const items: MemoryItem[] = turnsToMemory(
+            [
+                { role: 'user', text: goal.statement },
+                { role: 'assistant', text: outcome.finalMessage ?? '' },
+            ],
+            {
+                rootGoalId,
+                ...(deps.memoryWriteContext ?? {}),
+                provenance: { source: 'system', confidence: 'confirmed', trustTier: 'T2' },
+            },
+        );
+        items.push(...toolMemoryFacts(outcome.steps, rootGoalId));
+        await memory.remember(items);
         const taskOk = accepted(outcome);
         const nextPlan = updateTaskPlan(currentState, task.taskId, taskOk ? 'done' : 'failed');
         const remaining = nextPlan.tasks.some((item) => item.status === 'open');
         const allOk = [...outcomes].every(accepted);
+        const replanIneligible = new Set(['aborted', 'budget-exceeded', 'max-steps', 'timeout']);
+        const shouldReplan =
+            !taskOk &&
+            deps.orchestration?.replan !== undefined &&
+            !replanIneligible.has(outcome.reason) &&
+            planRevisions.length < (deps.replan?.maxReplans ?? 2);
+        if (shouldReplan) {
+            return {
+                delta: {
+                    plan: nextPlan,
+                    awaitingVerify: false,
+                    failures: currentState.failures + 1,
+                    verdict: 'failed',
+                    replanRequested: true,
+                },
+                next: 'replan' as const,
+            };
+        }
         if (!remaining) {
             return {
                 delta: {
@@ -352,12 +452,127 @@ export async function runGoalTreeDynamic(
         };
     };
 
+    const replan = async (): Promise<NodeResult> => {
+        const outcome = lastOutcome;
+        if (outcome === undefined || deps.replan === undefined) {
+            return { delta: { replanRequested: false }, terminal: 'failed' };
+        }
+        const goal = goalById.get(outcome.task.goalId);
+        if (goal === undefined) {
+            return { delta: { replanRequested: false }, terminal: 'failed' };
+        }
+        const failure = failureFromOutcome(outcome);
+        const executedTaskIds = new Set(outcomes.map((item) => item.task.taskId));
+        const remainingTasks = tasks.filter(
+            (candidate) =>
+                candidate.taskId !== outcome.task.taskId &&
+                !executedTaskIds.has(candidate.taskId) &&
+                (candidate.status === 'pending' || candidate.status === 'active'),
+        );
+        const request: ReplanRequest = {
+            goal,
+            revision: planRevisions.length,
+            completedTasks: outcomes
+                .slice(0, -1)
+                .filter(
+                    (candidate) =>
+                        candidate.ok && (candidate.task.acceptanceResult?.passed ?? true),
+                )
+                .map((candidate) => candidate.task),
+            failedTask: outcome.task,
+            remainingTasks,
+            failureReason: failure.failureReason,
+            ...(failure.failureCategory !== undefined
+                ? { failureCategory: failure.failureCategory }
+                : {}),
+            evidence: failure.evidence,
+            remainingBudget: goal.budget,
+            ...(deps.replan.availableTools !== undefined
+                ? { availableTools: deps.replan.availableTools }
+                : {}),
+        };
+        try {
+            const proposal = await deps.replan.planner(request);
+            if (proposal === undefined) {
+                deps.onReplan?.(undefined, ['ReplanPlanner 未返回计划'], []);
+                return { delta: { replanRequested: false }, terminal: 'done-unverified' };
+            }
+            const revised = await createPlanRevision({
+                request,
+                proposal,
+                ...(deps.replan.availableTools !== undefined
+                    ? { availableTools: deps.replan.availableTools }
+                    : {}),
+                priorDigests: planRevisions.map((revision) => revision.digest),
+            });
+            if (revised.revision === undefined) {
+                deps.onReplan?.(undefined, revised.rejected ?? [], revised.warnings ?? []);
+                return { delta: { replanRequested: false }, terminal: 'done-unverified' };
+            }
+            const revision = revised.revision;
+            planRevisions.push(revision);
+            deps.onReplan?.(revision, undefined, revision.warnings ?? []);
+            for (const task of revision.tasks) await deps.store.saveTask(task);
+            await reloadPlan();
+            return {
+                delta: {
+                    plan: { version: revision.planVersion, tasks: planTasksOf(tasks) },
+                    replanRequested: false,
+                    actedSincePlan: 0,
+                },
+                next: 'think',
+            };
+        } catch (error) {
+            deps.onReplan?.(
+                undefined,
+                [error instanceof Error ? error.message : String(error)],
+                [],
+            );
+            return { delta: { replanRequested: false }, terminal: 'done-unverified' };
+        }
+    };
+
+    const orchestration = deps.orchestration;
+    const planNode = async (
+        currentState: WorkflowState,
+        view: ContextView,
+    ): Promise<NodeResult> => {
+        if (orchestration === undefined) return { terminal: 'failed' };
+        const result = await orchestration.plan(currentState, view);
+        if (result.next === 'think' || result.next === 'act' || result.next === 'verify') {
+            await reloadPlan();
+            if (tasks.length > 0) await deps.onExecutionStart?.();
+        }
+        return {
+            ...result,
+            delta: {
+                ...result.delta,
+                ...(tasks.length > 0
+                    ? {
+                          plan: {
+                              version: currentState.plan?.version ?? 1,
+                              tasks: planTasksOf(tasks),
+                          },
+                      }
+                    : {}),
+            },
+        };
+    };
+
     const nodes = createBuiltinNodes(
         {
             think,
             act,
             observe,
             verify,
+            ...(orchestration !== undefined
+                ? {
+                      router: orchestration.router,
+                      plan: planNode,
+                      negotiate: orchestration.negotiate,
+                      replan: orchestration.replan ?? replan,
+                  }
+                : {}),
         },
         { ...DEFAULT_LIMITS, maxNoProgress: 6 },
     );
@@ -365,7 +580,17 @@ export async function runGoalTreeDynamic(
         nodes,
         {
             base: '',
-            byRole: { think: '', act: '', observe: '', plan: '', verify: '', reflect: '' },
+            byRole: {
+                router: '',
+                plan: '',
+                negotiate: '',
+                think: '',
+                act: '',
+                observe: '',
+                verify: '',
+                replan: '',
+                reflect: '',
+            },
         },
         { ...DEFAULT_LIMITS, maxNoProgress: 6 },
         Date.now,
@@ -409,7 +634,10 @@ export async function runGoalTreeDynamic(
         rootGoalId,
         tasks: outcomes,
         ok: ok && acceptedRun,
+        ...(run.state.finalAnswer !== undefined ? { finalAnswer: run.state.finalAnswer } : {}),
+        ...(run.outcome === 'awaiting-negotiation' ? { awaitingNegotiation: true } : {}),
         ...(acceptedRun ? {} : { rejected: [run.outcome] }),
+        ...(planRevisions.length > 0 ? { planRevisions } : {}),
         loop,
     };
 }

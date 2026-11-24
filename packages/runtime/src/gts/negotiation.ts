@@ -39,7 +39,16 @@ export interface ParsedBlock {
 }
 
 export interface ParsedGoalPlan {
-    trace?: { classification?: string; triggers?: string[] };
+    trace?: {
+        classification?: string;
+        triggers?: string[];
+        /** goal-parser 的问题类型；缺省时 Router 才做保守回退。 */
+        taskType?: string;
+        difficulty?: 'simple' | 'standard' | 'complex' | 'long-horizon';
+        /** 是否需要展开 Task 图；false 时 Plan 仍产出单 Task。 */
+        needsPlan?: boolean;
+        reason?: string[];
+    };
     blocks: ParsedBlock[];
 }
 
@@ -161,6 +170,48 @@ function extractJsonObject(raw: string): string | undefined {
     return undefined;
 }
 
+/** 只收白名单字段，避免模型额外输出扩散到 Router 判定。 */
+function parseTrace(value: unknown): ParsedGoalPlan['trace'] | undefined {
+    if (typeof value !== 'object' || value === null) return undefined;
+    const record = value as Record<string, unknown>;
+    const classification =
+        typeof record.classification === 'string' && record.classification.length > 0
+            ? record.classification
+            : undefined;
+    const triggers = textList(record.triggers);
+    const taskType =
+        typeof record.taskType === 'string' && record.taskType.length > 0
+            ? record.taskType
+            : undefined;
+    const difficulty =
+        record.difficulty === 'simple' ||
+        record.difficulty === 'standard' ||
+        record.difficulty === 'complex' ||
+        record.difficulty === 'long-horizon'
+            ? record.difficulty
+            : undefined;
+    const needsPlan = typeof record.needsPlan === 'boolean' ? record.needsPlan : undefined;
+    const reason = textList(record.reason);
+    if (
+        classification === undefined &&
+        triggers === undefined &&
+        taskType === undefined &&
+        difficulty === undefined &&
+        needsPlan === undefined &&
+        reason === undefined
+    ) {
+        return undefined;
+    }
+    return {
+        ...(classification !== undefined ? { classification } : {}),
+        ...(triggers !== undefined ? { triggers } : {}),
+        ...(taskType !== undefined ? { taskType } : {}),
+        ...(difficulty !== undefined ? { difficulty } : {}),
+        ...(needsPlan !== undefined ? { needsPlan } : {}),
+        ...(reason !== undefined ? { reason } : {}),
+    };
+}
+
 /** 严格解析 goal-parser 的 JSON 输出；无有效 block 返回 undefined（调用方走 fallback）。 */
 export function parseGoalParserOutput(raw: string): ParsedGoalPlan | undefined {
     let value: unknown;
@@ -207,10 +258,7 @@ export function parseGoalParserOutput(raw: string): ParsedGoalPlan | undefined {
         });
     }
     if (blocks.length === 0) return undefined;
-    const trace =
-        typeof record.trace === 'object' && record.trace !== null
-            ? (record.trace as ParsedGoalPlan['trace'])
-            : undefined;
+    const trace = parseTrace(record.trace);
     return { ...(trace !== undefined ? { trace } : {}), blocks };
 }
 

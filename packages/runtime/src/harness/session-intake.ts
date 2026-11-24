@@ -1,3 +1,4 @@
+import type { ParsedGoalPlan } from '../gts/negotiation.js';
 import type { PlannedTask } from '../gts/plan-graph.js';
 import type { TaskPlannerHistoryEntry } from '../gts/task-planner.js';
 
@@ -21,6 +22,10 @@ export class SessionIntake {
     readonly pendingLoopMode = new Map<string, 'default' | 'dynamic'>();
     /** In-flight async triage for a freshly created session (planning must see the full contract). */
     readonly pendingTriage = new Map<string, Promise<void>>();
+    /** 延后到 Plan 节点消费的语义解析结果；创建请求不提前应用契约/协商。 */
+    readonly pendingIntent = new Map<string, Promise<ParsedGoalPlan | undefined>>();
+    /** 本轮是否走统一编排（Router/Plan/Replan 都是 workflow 节点）。 */
+    readonly pendingUnifiedWorkflow = new Map<string, boolean>();
     /** Conversation turns from the previous session, forwarded to the Task Planner. */
     readonly pendingHistory = new Map<string, readonly TaskPlannerHistoryEntry[]>();
     readonly pendingPromptPackIds = new Map<string, readonly string[]>();
@@ -58,6 +63,8 @@ export class SessionIntake {
             this.pendingTaskPlanning,
             this.pendingLoopMode,
             this.pendingTriage,
+            this.pendingIntent,
+            this.pendingUnifiedWorkflow,
             this.pendingHistory,
             this.pendingPromptPackIds,
             this.pendingDelegationDepth,
