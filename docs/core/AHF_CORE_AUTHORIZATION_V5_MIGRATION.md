@@ -7,6 +7,32 @@
 
 ---
 
+## 0. 落地进度（core 决策内核已完成）
+
+已在 `packages/core/src/authz/v5/` 落地纯函数决策内核，全部带测试，未改动 V3 旧导出（旧 158 项 authz 测试无回归）：
+
+| 模块 | 文件 | 对应里程碑 |
+| --- | --- | --- |
+| 七行 decide / B1–B4 / hazard | `v5/decision.ts` | M1 |
+| 命令拆链 / 七类分类 / TOCTOU | `v5/parser.ts`、`v5/classify.ts` | M2 |
+| 指纹记忆（作用域/内容哈希） | `v5/fingerprint.ts`、`v5/memory-store.ts` | M3 |
+| 直通 attest / 红线 | `v5/attest.ts`、`v5/blocked-store.ts` | M4 |
+| 审批响应集合 settle | `v5/approval.ts` | M5（core 契约） |
+| 留痕 / 纠正闭环 / 降档 | `v5/trace-store.ts`、`v5/correction.ts` | M6 |
+| 运行清单 / 非交互 fail-closed | `v5/runbook.ts` | M7 |
+| 强制层放行域矩阵 | `v5/enforce-level.ts` | M8 |
+| 目标轴 routine 模型 | `v5/routine-model.ts` | M9 |
+| 决策审计记录 / 红队 17 项 | `v5/audit.ts`、`test/authz-v5-redteam.test.ts` | M10 |
+
+**待接线（下一阶段，需先写集成测试再改装配）**：
+
+1. runtime：用 `decide()` 替换 `gateway.ts` 九阶段 gated 判定；`grantForPermissionLevel` 六档与 `derive` 档位 meet 删除；`permission-gateway.test.ts` 同步重写。
+2. API：`approvals.controller.ts` 结算字段扩展（拒绝进红线 / typedConfirm / correction）。
+3. WebUI：移除档位选择器；`ApprovalPrompt.vue` 改响应集合；新增"最近自动执行"留痕面板。
+4. 解析器接入真实 git 事实（tracked / dirty / gitignore）与 shell 完整语法。
+
+---
+
 ## 1. 现状与目标对照
 
 ### 1.1 沿用不动（机械骨架）
