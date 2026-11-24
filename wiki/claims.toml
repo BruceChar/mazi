@@ -160,7 +160,7 @@ retracted_reason = "Incremental Project Wiki behavior is now implemented in runt
 text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass. Default product sessions keep the initial Task plan stable and do not automatically Replan after Task or verifier failure; aborted, budget-exceeded, max-steps and timeout never trigger Replan. Dynamic Replan exists only when a host explicitly injects a ReplanPlanner: it must preserve the frozen GoalContract, preserve remaining Tasks, and may remove unregistered requiredTools with auditable warnings while permission, budget, dependency and contract violations remain fail-closed."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "6700464d0fe856b002b925b57405155f06a8cf90" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "1b79feecaaae6da628a2feb4ac1c000401e861b0" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "27fb08d01c50948bbd65c046a35e504329e89d43" },
   { file = "packages/runtime/src/gts/replan.ts", oid = "1a040f04372c287a28fa086b78074a14ead17047" },
   { file = "packages/runtime/test/goal-strategy.test.ts", oid = "7b8f01d2a6a02fb8efa225c809b6aca00750d5f2" },
@@ -169,7 +169,7 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-24
-claim_oid = "47c652a6184c7a09"
+claim_oid = "91e63761b4bb0f2a"
 
 [claims.project-context-lifecycle-runtime]
 text = "Project Context Lifecycle is a runtime-owned subsystem: it assembles task-scoped context packets at SessionStart, anchors long-session compaction in persisted facts and evidence, and asynchronously finalizes SessionEnd with deterministic diff/oid/research preflight plus optional bounded semantic distillation and checkpoint validation."
@@ -291,23 +291,23 @@ retracted_reason = "The message surface no longer duplicates contract, route, ac
 text = "ExecStream renders bare-code answers as one code block; zero-execution direct answers are ordinary assistant Markdown without direct/route/contract chrome; the conversation renders Task-to-Step execution in plan order while contract, acceptance and plan metadata stay in the right Trace panel. TaskBoard shows only the highest planVersion, but the settled Goal tree retains superseded Tasks that started, contain Steps or reached failed/aborted/timeout and shows their recorded Step sequence before the current plan, with plan-version and terminal-status badges. Completed settled steps remain expanded while live rows are expandable/collapsible, and approval/authorization behavior rows stay inline with the gated tool Step."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/ExecStream.vue", oid = "022bc1ab2479df2e5216eb4c50c601df24024bfe" },
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "e4d9a4819be0abdcc4bb30c14e34c28515e121fa" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "ee582d7e51c31153c6569256e8b329bcdb6817c7" },
-  { file = "apps/webui/src/scripts/plan-view.ts", oid = "63716115f0d2ff8fff346c1d3317d48e84721b4a" },
+  { file = "apps/webui/src/scripts/plan-view.ts", oid = "fcf5cf5792032035708a33722360b3e10e94c6c1" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
   { file = "apps/webui/src/scripts/behavior-placement.ts", oid = "8c500d77c8039b573e8d38aab6584e0398dacd11" },
   { file = "apps/webui/test/exec-tree.test.ts", oid = "6bca79412f1cef6608e9b5ef56bcc619df607007" },
-  { file = "apps/webui/test/plan-view.test.ts", oid = "8f8ca54c658a72a537875a53c53748b568ee6a10" },
+  { file = "apps/webui/test/plan-view.test.ts", oid = "d163854a52429e1f68a2c4343e278624178ac243" },
 ]
 established = 2026-11-09
 verified = 2026-11-24
-claim_oid = "7f9af2ddfbb78142"
+claim_oid = "711be50c37b622ad"
 
 [claims.runtime-goal-plan-execution-serial-v2]
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "6700464d0fe856b002b925b57405155f06a8cf90" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "1b79feecaaae6da628a2feb4ac1c000401e861b0" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "27fb08d01c50948bbd65c046a35e504329e89d43" },
   { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
@@ -315,7 +315,7 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-24
-claim_oid = "65ef345bac86c07f"
+claim_oid = "06df5f63fce910c1"
 
 [claims.webui-trace-audit-anchor]
 text = "The right-side Trace panel preserves an explicit audit anchor for the selected scope: Step anchors include R/T/S coordinates plus rootGoalId, goalId, taskId, stepId, timestamps and step/task status; Task and run scopes retain their corresponding IDs and timing. Contract, acceptance, context, token, cost and tool facts therefore remain attributable to the exact audited Step even though the conversation surface omits that audit metadata."
