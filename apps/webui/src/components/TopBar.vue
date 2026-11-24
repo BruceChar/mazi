@@ -52,7 +52,7 @@ const emit = defineEmits(['toggle-sidebar', 'toggle-right', 'open-user-center'])
             <button
                 class="icon-btn account-btn"
                 :class="{ on: userCenterOpen }"
-                title="用户中心（画像 / 问题 / 权限审计 / 账本 / 用户设置）"
+                title="用户中心（画像 / 问题 / 行为链 / 账本 / 用户设置）"
                 @click="emit('open-user-center')"
             >
                 <LineIcon name="user" />

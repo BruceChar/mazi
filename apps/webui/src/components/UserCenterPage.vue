@@ -3,7 +3,7 @@
  * UserCenterPage — 用户中心整页（docs/webui.md §3.2）。
  *
  * 整页接管（与设置页 / Lab 同构）：分类导航由 App 的左栏承担（画像 / 记忆 / 问题 /
- * 权限审计 / 账本 / 用户设置 + 底部 Back to app），本页只渲染当前分类的内容。
+ * 行为链 / 账本 / 用户设置 + 底部 Back to app），本页只渲染当前分类的内容。
  */
 import { computed } from 'vue';
 import { userCenterTabOf } from '../scripts/user-center.ts';
