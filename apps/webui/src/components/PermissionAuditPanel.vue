@@ -70,14 +70,12 @@ const toolOptions = computed(() => {
 const visible = computed(() => [...filtered.value].sort((a, b) => b.at - a.at));
 
 async function reload() {
-    if (!props.rootGoalId) {
-        records.value = [];
-        return;
-    }
     loading.value = true;
     error.value = '';
     try {
-        const params = new URLSearchParams({ rootGoalId: props.rootGoalId });
+        const params = new URLSearchParams();
+        // 无 rootGoalId 时后端全量回放（跨全部历史 run，用户中心全局审计）。
+        if (props.rootGoalId) params.set('rootGoalId', props.rootGoalId);
         const data = await api(`/api/permissions/audit?${params}`);
         records.value = data.records ?? [];
     } catch (e) {
@@ -122,7 +120,6 @@ watch(() => props.rootGoalId, reload, { immediate: true });
         </div>
 
         <div v-if="error" class="empty-hint">{{ error }}</div>
-        <div v-else-if="!rootGoalId" class="empty-hint">当前没有运行中的任务，暂无权限记录</div>
 
         <template v-else>
             <div class="perm-summary">

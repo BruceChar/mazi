@@ -35,9 +35,11 @@
 
 | 模块 | 文件 | 说明 |
 | --- | --- | --- |
-| 审计端点 | `apps/api/src/permissions/permissions.controller.ts` | `GET /api/permissions/audit`，rootGoalId 优先（replay 根流），否则 sessionId（回放锚点流）；actor/result/tool/keyword 筛选 |
+| 审计端点 | `apps/api/src/permissions/permissions.controller.ts` | `GET /api/permissions/audit`，rootGoalId 优先（replay 根流），否则 sessionId（回放锚点流），都缺省则 `replayAll()` 全量回放；actor/result/tool/keyword/from/to 筛选 |
+| 全量回放 | `runtime/src/events/event-bus.ts` `replayAll()` | 扫全部根流（排除 `session-` 锚点），按时间升序，供跨 run 全局审计 |
 | 前端筛选/汇总纯逻辑 | `apps/webui/src/scripts/permission-audit.ts` | 角色/结果/工具/关键词/时间范围过滤 + 计数，带 vitest |
-| 审计面板 | `apps/webui/src/components/PermissionAuditPanel.vue` | 右侧栏「权限」页签：角色（用户/Agent/系统）、结果（批准/拒绝/自动放行/待审批/取消/撤销/命中）、决策依据、作用域、goal/step 锚点，可筛选 |
+| 审计面板（当前 run） | `apps/webui/src/components/PermissionAuditPanel.vue` | 右侧栏「权限」页签：角色（用户/Agent/系统）、结果（批准/拒绝/自动放行/待审批/取消/撤销/命中）、决策依据、作用域、goal/step 锚点，可筛选；无 rootGoalId 时走全量 |
+| 用户中心全局审计 | `apps/webui/src/components/BehaviorPage.vue` | 原行为链位置改为挂载同一审计面板（无参 = 全量回放），跨全部历史 run |
 | 档位选择器下线 | `Composer.vue`、`SettingsPage.vue`、`ChatMain.vue`、`App.vue` | 六档菜单、默认授予 select 及透传 props/emit 全部删除 |
 
 **待接线（下一阶段，需先写集成测试再改装配）**：

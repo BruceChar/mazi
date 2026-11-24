@@ -1027,7 +1027,7 @@ onBeforeUnmount(() => {
                     @back="backToChat"
                 />
             </template>
-            <!-- User center: 画像 / 记忆 / 问题 / 行为链 / 账本 / 用户设置 全部列在左栏 -->
+            <!-- User center: 画像 / 记忆 / 问题 / 权限审计 / 账本 / 用户设置 全部列在左栏 -->
             <template v-else-if="ui.view === 'user-center'">
                 <SettingsSidebar
                     :tabs="USER_CENTER_TABS"

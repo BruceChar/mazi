@@ -3,7 +3,7 @@
  * 纯常量 + 纯函数，供 UserCenterPage / App 与单测共用，避免 IA 规则散落在模板里。
  */
 
-/** 用户中心的 tab：画像 / 记忆 / 问题 / 行为链 / 账本 / 用户设置。 */
+/** 用户中心的 tab：画像 / 记忆 / 问题 / 权限审计 / 账本 / 用户设置。 */
 export type UserCenterTabId =
     | 'profile'
     | 'memory'
@@ -22,7 +22,7 @@ export const USER_CENTER_TABS: readonly UserCenterTab[] = [
     { id: 'profile', label: '画像', icon: 'user' },
     { id: 'memory', label: '记忆', icon: 'lightbulb' },
     { id: 'questions', label: '问题', icon: 'search' },
-    { id: 'behavior', label: '行为链', icon: 'observation' },
+    { id: 'behavior', label: '权限审计', icon: 'observation' },
     { id: 'ledger', label: '账本', icon: 'info' },
     { id: 'preferences', label: '用户设置', icon: 'settings' },
 ];
