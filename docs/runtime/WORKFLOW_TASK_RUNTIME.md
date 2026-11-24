@@ -38,6 +38,21 @@ think ──final/失败──> verify ──> think | terminal
 - `observe` 必须有显式 Step：输入是 Act 产出的 `callId/toolName/status/summary`，输出是
   `disposition=continue|final` 与 `result`；完整工具原文仍留在 invocation Step，二者通过 callId 关联。
 
+### 异常收尾：不允许 active 悬挂
+
+`WorkflowRunner` 的节点上限固定为 **50**，不是 Goal 的 `terminationPolicy.maxSteps`（后者是模型轮次预算）。
+50 个节点大约只够 16 个 `think → act → observe` 轮次，因此长调研会先撞节点保险丝。
+
+一旦 runner 以 `failed` / `aborted-budget` / `aborted-no-progress` 等非完成态退出，收尾必须满足：
+
+1. dynamic loop 若当前 `TaskExecutionContext` 尚未终态，必须落 `failed`（步数耗尽记 `max-steps`，
+   驱动错误记 `driver-error`），不能把 Task 留在 `active`。
+2. 没有 TaskOutcome 的活动 Goal（如 plan 被拒）由 TurnEngine 统一补成 `failed`；
+   用户主动 stop 则记 `aborted`，保持可恢复。
+3. `body()` 抛异常时，`run()` 的 catch 必须先扫描并收尾所有 active Goal/Task，再写 `goal.ended`，
+   最后才落 `turn.ended`，不能只发 turn 事件。
+4. 收尾写库失败不得覆盖原始异常；原始异常仍向上抛给 API 层。
+
 ### Plan 当前不是 runner 节点
 
 `plan` 不是 `executeTask` / dynamic loop 的 workflow 节点，而是 run 前的规划阶段：

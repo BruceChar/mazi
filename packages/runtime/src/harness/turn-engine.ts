@@ -95,9 +95,68 @@ export class TurnEngine {
             await this.finishTurn(rootGoalId, result);
             return result;
         } catch (error) {
+            // 异常路径也必须收尾：不能只写 turn.ended，把 Goal/Task 留在 active。
+            // 收尾失败不覆盖原始异常。
+            try {
+                await this.settleActiveGoals(
+                    rootGoalId,
+                    'failed',
+                    error instanceof Error ? error.message : String(error),
+                );
+            } catch {
+                // 原始异常优先。
+            }
             await this.finishTurn(rootGoalId, undefined, error);
             throw error;
         }
+    }
+
+    /**
+     * 兜底收尾：把本 root 下仍 active、但没有 TaskOutcome 的 Goal 及其未终态 Task
+     * 落成 failed/aborted，并补 goal.ended。用于异常、plan invalid、runner 提前终止。
+     */
+    private async settleActiveGoals(
+        rootGoalId: string,
+        status: 'failed' | 'aborted',
+        summary: string,
+    ): Promise<void> {
+        const goals = await this.h.ctx.memory.goalStore.listGoalsByRoot(rootGoalId);
+        for (const goal of goals) {
+            const latest = (await this.h.ctx.memory.goalStore.loadGoal(goal.goalId)) ?? goal;
+            if (latest.status !== 'active') continue;
+            await this.closeActiveGoal(rootGoalId, latest, status, summary);
+        }
+    }
+
+    private async closeActiveGoal(
+        rootGoalId: string,
+        goal: Goal,
+        status: 'failed' | 'aborted',
+        summary: string,
+        emitEvent = true,
+    ): Promise<void> {
+        for (const task of await this.h.ctx.memory.goalStore.listTasks(goal.goalId)) {
+            if (task.status !== 'pending' && task.status !== 'active') continue;
+            task.status = status;
+            task.endedAt ??= Date.now();
+            await this.h.ctx.memory.goalStore.saveTask(task);
+        }
+        goal.status = status;
+        goal.endedAt ??= Date.now();
+        await this.h.ctx.memory.goalStore.saveGoal(goal);
+        if (!emitEvent) return;
+        this.h.ctx.observability.bus.emit(
+            newHarnessEvent({
+                type: 'goal.ended',
+                rootGoalId,
+                goalId: goal.goalId,
+                payload: {
+                    outcome: { status, summary: summary.slice(0, 2000) },
+                    error: summary,
+                },
+            }),
+        );
+        await this.h.ctx.observability.bus.flush();
     }
 
     /** 轮次收尾：turn.end 钩子（异步副作用点）+ turn.ended 事实事件。 */
@@ -539,18 +598,31 @@ export class TurnEngine {
                 );
             }
         }
-        const aborted = result.tasks.some((outcome) => outcome.reason === 'aborted');
+        const aborted =
+            controller.signal.aborted ||
+            result.tasks.some((outcome) => outcome.reason === 'aborted');
         // Settle the Goal entities so the persisted tree/snapshot no longer reports
         // every active goal as 'active' after the run has finished. Aborted runs stay
         // resumable (Goal.status='aborted') instead of being marked failed.
-        // 没有 TaskOutcome 的 Goal（blocked 待协商 / pending）保持原状态：
-        // 它们根本没进入本次执行，不能被一次「空运行」改写成 succeeded。
+        // 没有 TaskOutcome 的活动 Goal 必须收尾；blocked/pending 未进入本次执行，
+        // 保持原状态，不能被一次「空运行」改写成 succeeded。
         const outcomeByGoal = new Map(
             result.tasks.map((outcome) => [outcome.task.goalId, outcome]),
         );
         for (const goal of goals) {
             const outcome = outcomeByGoal.get(goal.goalId);
-            if (outcome === undefined) continue;
+            if (outcome === undefined) {
+                const latest = (await this.h.ctx.memory.goalStore.loadGoal(goal.goalId)) ?? goal;
+                if (latest.status !== 'active') continue;
+                await this.closeActiveGoal(
+                    rootGoalId,
+                    latest,
+                    aborted ? 'aborted' : 'failed',
+                    '执行结束但没有 TaskOutcome，已收尾',
+                    false,
+                );
+                continue;
+            }
             // 读改写最新行：异步 triage 可能刚把协商结论/语义条款写进同一个 Goal，
             // 不能用运行开始时读到的旧副本整体覆盖。
             const latest = (await this.h.ctx.memory.goalStore.loadGoal(goal.goalId)) ?? goal;
@@ -562,6 +634,7 @@ export class TurnEngine {
                     : outcome.ok && acceptanceOk
                       ? 'succeeded'
                       : 'failed';
+            latest.endedAt ??= Date.now();
             await this.h.ctx.memory.goalStore.saveGoal(latest);
             // 契约满足度落事件：Goal.status 是 executor 的成败，这里才是评估器的机械判定，
             // 两者分开（裁决 D8），审计可据此回答「契约到底被满足了没有」。

@@ -373,8 +373,18 @@ export async function runGoalTreeDynamic(
     state = run.state;
     facts.push(...run.state.facts.slice(facts.length));
 
-    const ok = outcomes.every(accepted);
     const acceptedRun = run.outcome === 'done' || run.outcome === 'done-unverified';
+    if (!acceptedRun && current !== undefined && !current.isTerminal) {
+        const reason =
+            run.outcome === 'aborted-budget' || run.outcome === 'aborted-no-progress'
+                ? 'max-steps'
+                : run.outcome === 'failed'
+                  ? 'driver-error'
+                  : 'aborted';
+        await current.finalizeFailure(reason, `workflow 提前终止（${run.outcome}），未完成验收`);
+        outcomes.push(current.outcome());
+    }
+    const ok = outcomes.every(accepted);
     const nodeTrail: ExperimentLoopNode[] = run.events.map((event: WorkflowEvent) => ({
         kind:
             event.type === 'node.selected'

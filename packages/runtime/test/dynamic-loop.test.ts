@@ -173,6 +173,49 @@ describe('dynamic loop（节点驱动）', () => {
         expect(roles).toContain('verify');
     });
 
+
+    it('节点上限提前终止时当前 Task 落 failed，不能停在 active', async () => {
+        const store = new MemoryGoalStore();
+        const a = goal(ulid());
+        await store.saveGoal(a);
+        let round = 0;
+        const result = await runGoalTreeDynamic(
+            {
+                store,
+                allowedTools: ['fs.read'],
+                invoker: {
+                    invoke: async () => ({ ok: true, content: `CONTENT-${round}` }),
+                },
+                requestRound: async () => {
+                    round += 1;
+                    return {
+                        text: '',
+                        reasoning: `第 ${round} 轮继续`,
+                        toolCalls: [
+                            {
+                                callId: `c${round}`,
+                                toolName: 'fs.read',
+                                arguments: { path: `a-${round}` },
+                            },
+                        ],
+                        finishReason: 'tool_calls',
+                        ttftMs: 0,
+                        totalMs: 1,
+                    };
+                },
+            },
+            [a],
+        );
+        expect(result.ok).toBe(false);
+        expect(result.tasks).toHaveLength(1);
+        const outcome = result.tasks[0]!;
+        expect(outcome.ok).toBe(false);
+        expect(outcome.reason).toBe('max-steps');
+        expect(outcome.task.status).toBe('failed');
+        const saved = await store.loadTask(outcome.task.taskId);
+        expect(saved?.status).toBe('failed');
+        expect(saved?.endedAt).toBeTypeOf('number');
+    });
     it('resume 明确拒绝（v1 不支持）', async () => {
         const store = new MemoryGoalStore();
         const a = goal(ulid());

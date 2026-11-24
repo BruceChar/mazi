@@ -1036,4 +1036,15 @@ export class TaskExecutionContext {
         this.task.status = status;
         await this.saveTask();
     }
+
+    /**
+     * 非 verify 路径的终态收尾：runner 因节点上限/驱动异常提前退出时，
+     * 当前 Task 不能停留在 active。
+     */
+    async finalizeFailure(reason: TaskStopReason, errorMessage: string): Promise<void> {
+        if (this.terminalState !== undefined) return;
+        this.terminalState = { ok: false, reason, errorMessage };
+        this.task.status = reason === 'aborted' ? 'aborted' : 'failed';
+        await this.saveTask();
+    }
 }
