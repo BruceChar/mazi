@@ -293,7 +293,7 @@ retracted_reason = "The message surface no longer duplicates contract, route, ac
 text = "ExecStream renders bare-code answers as one code block; zero-execution direct answers are ordinary assistant Markdown without direct/route/contract chrome; the conversation renders Task-to-Step execution in plan order while contract, acceptance and plan metadata stay in the right Trace panel. TaskBoard shows only the highest planVersion, but the settled Goal tree retains superseded Tasks that started, contain Steps or reached failed/aborted/timeout and shows their recorded Step sequence before the current plan, with plan-version and terminal-status badges. Completed settled steps remain expanded while live rows are expandable/collapsible, and approval/authorization behavior rows stay inline with the gated tool Step."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/ExecStream.vue", oid = "f203bfbb152523a32f275ace904b7b7c65d4a876" },
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "0e09b0cf85cbfc23023f0f6d56a7439cb165b54d" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "ee582d7e51c31153c6569256e8b329bcdb6817c7" },
   { file = "apps/webui/src/scripts/plan-view.ts", oid = "fcf5cf5792032035708a33722360b3e10e94c6c1" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
@@ -303,7 +303,7 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-24
-claim_oid = "588af99e4d180cd5"
+claim_oid = "4a9df9341d727332"
 
 [claims.runtime-goal-plan-execution-serial-v2]
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
@@ -326,7 +326,7 @@ evidence = [
   { file = "apps/webui/src/scripts/audit.ts", oid = "0fdada53ecaed13e5f8c809d259d0f7698bf446b" },
   { file = "apps/webui/src/components/RightPanel.vue", oid = "3bb60efe9ebf2782bc3f6bdf00e12b233cf7bb3d" },
   { file = "apps/webui/test/audit.test.ts", oid = "f6e7e0603f404a84a48c598715e592f50cf8b5d1" },
-  { file = "docs/webui.md", oid = "7059d2441cfef1fab2bba865e7662f890597428e" },
+  { file = "docs/webui.md", oid = "f1f0aae97be8f65049f10f9e316c87454e2f19b2" },
   { file = "docs/web/观测看板设计.md", oid = "41a3b944b04a1e0bec5d07470edb0211b0d32496" },
 ]
 established = 2026-11-09
