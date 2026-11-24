@@ -97,7 +97,7 @@ describe('plan-view 状态与路线文案', () => {
     it('Task 状态映射为中文徽标', () => {
         expect(planTaskStatusLabel('pending')).toBe('待执行');
         expect(planTaskStatusLabel('active')).toBe('执行中');
-        expect(planTaskStatusLabel('succeeded')).toBe('成功');
+        expect(planTaskStatusLabel('succeeded')).toBe('');
         expect(planTaskStatusLabel('failed')).toBe('失败');
         expect(planTaskStatusLabel('aborted')).toBe('已中止');
         expect(planTaskStatusLabel('skipped')).toBe('跳过');

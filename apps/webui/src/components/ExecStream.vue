@@ -711,7 +711,11 @@ watch(
                         <span class="exec-task-tag">T#{{ tIdx + 1 }}</span>
                         <span class="exec-task-title">{{ task.title }}</span>
                         <span v-if="task.planVersion" class="exec-task-plan">v{{ task.planVersion }}</span>
-                        <span class="exec-task-status" :class="task.statusTone">
+                        <span
+                            v-if="task.statusLabel"
+                            class="exec-task-status"
+                            :class="task.statusTone"
+                        >
                             {{ task.statusLabel }}
                         </span>
                         <span v-if="task.steps.length > 0" class="exec-task-count">

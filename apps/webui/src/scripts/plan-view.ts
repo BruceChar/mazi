@@ -108,13 +108,14 @@ export interface LiveStepGroups<T extends LiveStepEntryLike> {
     unassigned: T[];
 }
 
-/** 状态文案（Task 行徽标）：待执行 / 执行中 / 成功 / 失败 / 已中止 / 跳过。 */
+/** 状态文案（Task 行徽标）：待执行 / 执行中 / 失败 / 已中止 / 跳过；成功不占徽标。 */
 export const PLAN_TASK_STATUS_LABEL: Record<string, string> = {
     pending: '待执行',
     active: '执行中',
     running: '执行中',
-    succeeded: '成功',
-    completed: '成功',
+    // 成功是默认期望，不占任务栏徽标；失败/中止/等待才需要显式提醒。
+    succeeded: '',
+    completed: '',
     failed: '失败',
     error: '失败',
     blocked: '失败',

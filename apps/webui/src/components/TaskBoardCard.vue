@@ -59,7 +59,9 @@ function toggle() {
             <span v-if="!expanded && currentTask" class="task-board-current" :title="currentTask.title">
                 <span class="task-loc">T#{{ tasks.indexOf(currentTask) + 1 }}</span>
                 <span class="task-name">{{ currentTask.title }}</span>
-                <span class="task-state" :class="currentTask.tone">{{ currentTask.statusLabel }}</span>
+                <span v-if="currentTask.statusLabel" class="task-state" :class="currentTask.tone">
+                    {{ currentTask.statusLabel }}
+                </span>
             </span>
         </header>
         <div v-if="expanded" class="task-board-items">
@@ -74,7 +76,9 @@ function toggle() {
             >
                 <span class="task-loc">T#{{ index + 1 }}</span>
                 <span class="task-name">{{ task.title }}</span>
-                <span class="task-state" :class="task.tone">{{ task.statusLabel }}</span>
+                <span v-if="task.statusLabel" class="task-state" :class="task.tone">
+                    {{ task.statusLabel }}
+                </span>
             </button>
         </div>
     </aside>
@@ -110,7 +114,9 @@ function toggle() {
             >
                 <span class="task-loc">T#{{ index + 1 }}</span>
                 <span class="task-name">{{ task.title }}</span>
-                <span class="task-state" :class="task.tone">{{ task.statusLabel }}</span>
+                <span v-if="task.statusLabel" class="task-state" :class="task.tone">
+                    {{ task.statusLabel }}
+                </span>
             </button>
         </div>
     </section>
