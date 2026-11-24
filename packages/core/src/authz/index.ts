@@ -33,3 +33,4 @@ export * from './v5/runbook.js';
 export * from './v5/enforce-level.js';
 export * from './v5/routine-model.js';
 export * from './v5/audit.js';
+export * from './v5/audit-history.js';
