@@ -52,8 +52,8 @@ retracted_reason = "direct route must not hide harness execution facts; pure dir
 text = "The Trace panel shows contracts for the current run only when narrow (all runs when maximized) with contract entries collapsed by default, and renders paired approval/authorization details for a clicked behavior row."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "04f3d8bf7c725130c7b388aef28c38211037f5fc" },
-  { file = "apps/webui/src/scripts/audit.ts", oid = "d68d34931801a0693577bb38f2dc0d7d519b424c" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "635072e7620aa58a74837f0486ffbf1ab3ef64eb" },
+  { file = "apps/webui/src/scripts/audit.ts", oid = "0fdada53ecaed13e5f8c809d259d0f7698bf446b" },
   { file = "apps/webui/src/scripts/contract-view.ts", oid = "104e88ff234be9e5c0137c2cc6e4f20ae34ae40d" },
 ]
 established = 2026-11-07
@@ -114,9 +114,9 @@ retracted_reason = "Goal and Task planning are serial phases; executing must not
 text = "Goal contracts support deterministic checks final-answer/no-failed-steps/file-exists/file-contains/git-has-commit/command-output-contains; triage can emit structured checks and the verifier evaluates them through an injected ConditionEnvironment."
 status = "active"
 evidence = [
-  { file = "packages/core/src/gts.ts", oid = "b4304019f242bd9e9e10bfc5d173e0ed6cd6cbac" },
+  { file = "packages/core/src/gts.ts", oid = "e0ef6df4ad0398b88e73e1863fa761ca2675f004" },
   { file = "packages/runtime/src/gts/acceptance.ts", oid = "4385a64a9fcc40164c39a1e5773c5efe08b406e3" },
-  { file = "packages/runtime/src/templates/prompts/goal-parser.prompt.ts", oid = "b72a1b406f0f2738726ab4acda0e039df5ee5a4e" },
+  { file = "packages/runtime/src/templates/prompts/goal-parser.prompt.ts", oid = "a5bc6353e8c789107bfd6c38b80b66989b15abda" },
   { file = "docs/core/AHF_CORE_GTS.md", oid = "9362ee66231705962598495a1191644924c525d6" },
 ]
 established = 2026-11-07
@@ -198,7 +198,7 @@ text = "Each project SessionEnd enqueues a per-workspace runtime sync without bl
 status = "active"
 evidence = [
   { file = "apps/api/src/wiki/maintenance.service.ts", oid = "57b8f6f0853a15777f3d8ef23fafc51382d12ada" },
-  { file = "apps/api/src/sessions/sessions.service.ts", oid = "41bcb30545923744a9c34a5f271fe4e1354cffd2" },
+  { file = "apps/api/src/sessions/sessions.service.ts", oid = "ede4f3ced9f43f083ffbf8a06b360e2e49ed6d1e" },
   { file = "packages/runtime/src/wiki/project-wiki.ts", oid = "09e73f2c42844a9afde4d5d9393580b2b25ade99" },
 ]
 established = 2026-11-08
@@ -291,7 +291,7 @@ retracted_reason = "The message surface no longer duplicates contract, route, ac
 text = "ExecStream renders bare-code answers as one code block; zero-execution direct answers are ordinary assistant Markdown without direct/route/contract chrome; the conversation renders Task-to-Step execution in plan order while contract, acceptance and plan metadata stay in the right Trace panel. TaskBoard shows only the highest planVersion, but the settled Goal tree retains superseded Tasks that started, contain Steps or reached failed/aborted/timeout and shows their recorded Step sequence before the current plan, with plan-version and terminal-status badges. Completed settled steps remain expanded while live rows are expandable/collapsible, and approval/authorization behavior rows stay inline with the gated tool Step."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/ExecStream.vue", oid = "e4d9a4819be0abdcc4bb30c14e34c28515e121fa" },
+  { file = "apps/webui/src/components/ExecStream.vue", oid = "f203bfbb152523a32f275ace904b7b7c65d4a876" },
   { file = "apps/webui/src/scripts/exec-tree.ts", oid = "ee582d7e51c31153c6569256e8b329bcdb6817c7" },
   { file = "apps/webui/src/scripts/plan-view.ts", oid = "fcf5cf5792032035708a33722360b3e10e94c6c1" },
   { file = "apps/webui/src/scripts/markdown.ts", oid = "5f221c7139891d3d33b35e345d570c540985c0b4" },
@@ -301,28 +301,28 @@ evidence = [
 ]
 established = 2026-11-09
 verified = 2026-11-24
-claim_oid = "711be50c37b622ad"
+claim_oid = "588af99e4d180cd5"
 
 [claims.runtime-goal-plan-execution-serial-v2]
 text = "HarnessRuntime treats Goal triage, Task planning, plan.created and Task execution as one synchronous serial state machine: the create request returns early only so the user input is visible, executeGoalTree awaits triage, the planner receives conversation history and strict-split retry guidance, every validated Task in the current plan is persisted to GoalStore before plan.created, and the executing phase is emitted only after the full plan is recorded and before the first Step starts. Replan prompts receive the current available tool catalogue so requiredTools can be mechanically validated without inventing unavailable tools."
 status = "active"
 evidence = [
-  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "1b79feecaaae6da628a2feb4ac1c000401e861b0" },
+  { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "113f78d9352a63d88f63e1c192518ddd5d188e0f" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "27fb08d01c50948bbd65c046a35e504329e89d43" },
   { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
-  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "5910f9e5ea28ef6f21c2aeaa96e461458de24939" },
+  { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "43096c20232bcb39017aef96d9427cf3cf82a46d" },
 ]
 established = 2026-11-09
 verified = 2026-11-24
-claim_oid = "06df5f63fce910c1"
+claim_oid = "be0131b2cb74ea2a"
 
 [claims.webui-trace-audit-anchor]
 text = "The right-side Trace panel preserves an explicit audit anchor for the selected scope: Step anchors include R/T/S coordinates plus rootGoalId, goalId, taskId, stepId, timestamps and step/task status; Task and run scopes retain their corresponding IDs and timing. Contract, acceptance, context, token, cost and tool facts therefore remain attributable to the exact audited Step even though the conversation surface omits that audit metadata."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/scripts/audit.ts", oid = "d68d34931801a0693577bb38f2dc0d7d519b424c" },
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "04f3d8bf7c725130c7b388aef28c38211037f5fc" },
+  { file = "apps/webui/src/scripts/audit.ts", oid = "0fdada53ecaed13e5f8c809d259d0f7698bf446b" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "635072e7620aa58a74837f0486ffbf1ab3ef64eb" },
   { file = "apps/webui/test/audit.test.ts", oid = "f6e7e0603f404a84a48c598715e592f50cf8b5d1" },
   { file = "docs/webui.md", oid = "ac2fe644a9147a4ef83c0ad8a3f184bc34d8e014" },
   { file = "docs/web/观测看板设计.md", oid = "41a3b944b04a1e0bec5d07470edb0211b0d32496" },
@@ -378,12 +378,12 @@ status = "active"
 evidence = [
   { file = "docs/web/观测看板设计.md", oid = "41a3b944b04a1e0bec5d07470edb0211b0d32496" },
   { file = "apps/webui/src/scripts/run-failure.ts", oid = "52df1e943e3f6cbb486d76f13d5db8b044c82a5f" },
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "04f3d8bf7c725130c7b388aef28c38211037f5fc" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "635072e7620aa58a74837f0486ffbf1ab3ef64eb" },
   { file = "apps/webui/test/run-failure.test.ts", oid = "48900d42f5b468699ff31ab1d21e126bdb4f8974" },
 ]
 established = 2026-11-10
 verified = 2026-11-24
-claim_oid = "2bedd53d7c0c3cbd"
+claim_oid = "68a73fb3aa8a5a0f"
 
 [claims.monorepo-workspace-dependency-graph]
 text = "Workspace dependency graph is visible in the package manifests and matches the layered rule: @mazi/core and @mazi/libs declare no workspace dependencies, @mazi/provider depends only on core (plus pi-ai), @mazi/runtime on core+libs+provider, @mazi/api on core+libs+runtime, and @mazi/webui on @mazi/libs only — the UI never imports core or runtime, so「界面只消费 API 与共享类型」is enforced by the manifests rather than convention. @mazi/runtime also ships bin mazi-project-wiki plus builtin-skills/ and tasks/ in its published files, so Project Wiki assets travel with the runtime package."
