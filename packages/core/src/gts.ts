@@ -169,6 +169,19 @@ export interface GoalNegotiation {
     at: number;
 }
 
+/** SuperAgent Router 的运行级决策快照；用于 Trace 审计，不参与 workflow 节点统计。 */
+export interface GoalRouting {
+    taskKind: string;
+    riskLevel: string;
+    promptPackIds: string[];
+    plannerId: string;
+    verifierId: string;
+    loopMode: 'default' | 'dynamic';
+    routedBy: 'super-agent';
+    reason: string[];
+    at: number;
+}
+
 export interface Goal {
     goalId: ULID;
     /** 接收侧来源标记：user intent 直接产 Goal（本坐标系无树结构，Goal 相互独立） */
@@ -185,6 +198,8 @@ export interface Goal {
     endedAt?: number;
     /** 契约协商轨迹（triage 结果 + 用户答复）；旧数据缺省 = 未经协商直接冻结 */
     negotiation?: GoalNegotiation;
+    /** Router 决策快照；旧数据缺省。 */
+    routing?: GoalRouting;
 }
 
 /** 任务验收锚定 Goal 契约的条款（复用旧 AcceptanceSpec 同构形状，独立于旧模块） */
@@ -254,6 +269,16 @@ export type StepKind =
 /** Step 所属 workflow 节点角色；缺省表示未运行在节点驱动的 loop 中。 */
 export type StepRole = 'think' | 'plan' | 'act' | 'observe' | 'verify' | 'reflect';
 
+/** 实际承担该 Step 的执行角色；deterministic 表示没有模型参与。 */
+export type StepAgentRole =
+    | 'planner'
+    | 'router'
+    | 'executor'
+    | 'observer'
+    | 'verifier'
+    | 'reflector'
+    | 'deterministic';
+
 /** 模型一次输出的决策事实：推理、回答、提议的工具调用（三者可并存） */
 export interface DeliberationPayload {
     thinking?: string;
@@ -295,6 +320,11 @@ interface StepBase {
     goalId: ULID;
     /** 节点语义（dynamic loop 写入）；kind 仍是持久化判别式，role 只影响展示/归因。 */
     role?: StepRole;
+    /** 实际 workflow 节点执行 span；旧数据缺省。 */
+    nodeRunId?: string;
+    nodeId?: string;
+    nodeRole?: StepRole;
+    agentRole?: StepAgentRole;
     model?: { providerId: string; modelId: string };
     usage?: unknown;
     status: StepStatus;

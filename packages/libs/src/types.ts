@@ -324,6 +324,13 @@ export interface StepView {
     goalId: string;
     taskId: string;
     kind: SnapshotStepKind;
+    /** 语义角色（Thinking / Acting / Observing…）；旧数据缺省。 */
+    role?: string;
+    /** 实际 workflow 节点执行 span；旧数据缺省。 */
+    nodeRunId?: string;
+    nodeId?: string;
+    nodeRole?: string;
+    agentRole?: string;
     status: string;
     startedAt: number;
     endedAt?: number;
@@ -479,6 +486,18 @@ export interface NegotiationView {
 /** A goal node in the goal-tree snapshot. */
 export interface GoalNodeView {
     goalId: string;
+    /** SuperAgent Router 决策；旧数据缺省。 */
+    routing?: {
+        taskKind: string;
+        riskLevel: string;
+        promptPackIds: string[];
+        plannerId: string;
+        verifierId: string;
+        loopMode: string;
+        routedBy: string;
+        reason: string[];
+        at: number;
+    };
     status: string;
     statement: string;
     /** 冻结契约（GoalContract 投影）；执行前承诺的可视化载体。 */

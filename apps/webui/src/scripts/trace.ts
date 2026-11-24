@@ -5,7 +5,7 @@
  */
 
 import type { AuditDiffPart, AuditStepRow, AuditTaskRow } from './audit.ts';
-import { kindLabel } from './audit.ts';
+import { kindLabel, roleLabel } from './audit.ts';
 
 /** span 在两种视图中的最小可见条宽（%）：极短 span 也要能点到。 */
 export const TRACE_MIN_BAR_PERCENT = 2;
@@ -46,6 +46,10 @@ export interface TraceSpan {
     kind: string;
     /** 语义类型标签（model / tool / 原样） */
     kindLabel: string;
+    /** 节点语义（Thinking / Acting / Observing） */
+    roleLabel: string;
+    nodeId?: string;
+    agentRole?: string;
     /** 展示名：工具名优先，否则 kind */
     name: string;
     status: string;
@@ -318,6 +322,9 @@ function toSpan(row: AuditStepRow, geometry: SpanGeometry): TraceSpan {
         loc: `R#${row.runIndex}·T#${row.taskIndex}·S#${row.index}`,
         kind: row.kind,
         kindLabel: kindLabel(row.kind),
+        roleLabel: roleLabel(row.role, row.kind),
+        ...(row.nodeId !== undefined ? { nodeId: row.nodeId } : {}),
+        ...(row.agentRole !== undefined ? { agentRole: row.agentRole } : {}),
         name: row.toolName || row.kind,
         status: row.status,
         isTool,

@@ -117,6 +117,17 @@ describe('contract-view（契约与验收的展示投影）', () => {
                     terminationPolicy: { maxSteps: 8 },
                     deterministicRatio: 0.5,
                 }),
+                routing: {
+                    taskKind: 'coding',
+                    riskLevel: 'write',
+                    promptPackIds: ['coding'],
+                    plannerId: 'default',
+                    verifierId: 'default',
+                    loopMode: 'dynamic',
+                    routedBy: 'super-agent',
+                    reason: ['涉及代码修改'],
+                    at: 3,
+                },
                 negotiation: {
                     route: 'negotiate',
                     classifiedBy: 'parser',
@@ -148,6 +159,8 @@ describe('contract-view（契约与验收的展示投影）', () => {
                 ],
             },
         ]);
+        expect(entry?.routing?.loopMode).toBe('dynamic');
+        expect(entry?.routing?.promptPackIds).toEqual(['coding']);
         expect(entry?.negotiation?.revision).toBe(1);
         expect(entry?.conditions.map((row) => row.status)).toEqual(['passed', 'unchecked']);
         expect(entry?.failureConditions).toEqual(['覆盖了非目标文件']);

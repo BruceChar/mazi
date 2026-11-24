@@ -144,6 +144,10 @@ function stepToRow(step, idx) {
         time: fmtTime(step.startedAt),
         kind: step.kind,
         role: step.role || '',
+        nodeRunId: step.nodeRunId || '',
+        nodeId: step.nodeId || '',
+        nodeRole: step.nodeRole || '',
+        agentRole: step.agentRole || '',
         kindLabel: kindLabel(step.kind, step.role),
         status: step.status,
         statusLabel: statusLabel(step.status),
@@ -592,6 +596,10 @@ watch(
                                 v-if="entry.bodies.output"
                                 class="exec-step-role-extra"
                             > · Observing</span>
+                            <span
+                                v-if="entry.step.nodeId || entry.step.agentRole"
+                                class="exec-step-node"
+                            >node={{ entry.step.nodeId || '?' }} · agent={{ entry.step.agentRole || 'unknown' }}</span>
                         </span>
                         <span class="exec-step-summary">{{
                             entry.step.title ||
@@ -749,6 +757,10 @@ watch(
                                         v-if="row.outputText"
                                         class="exec-step-role-extra"
                                     > · Observing</span>
+                                    <span
+                                        v-if="row.nodeId || row.agentRole"
+                                        class="exec-step-node"
+                                    >node={{ row.nodeId || '?' }} · agent={{ row.agentRole || 'unknown' }}</span>
                                 </span>
                                 <span
                                     class="exec-step-summary"
@@ -1151,6 +1163,12 @@ watch(
     white-space: nowrap;
 }
 .exec-step-role-extra {
+    font-weight: 400;
+    color: var(--fg-tertiary);
+}
+.exec-step-node {
+    margin-left: 6px;
+    font-size: 10px;
     font-weight: 400;
     color: var(--fg-tertiary);
 }

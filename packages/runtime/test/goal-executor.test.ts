@@ -82,6 +82,12 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
                 allowedTools: ['fs.read'],
                 invoker: { invoke: async () => ({ ok: true, content: 'A' }) },
                 roleForStep: (kind) => (kind === 'deliberation' ? 'think' : 'act'),
+                provenanceForStep: () => ({
+                    nodeRunId: 'act:test',
+                    nodeId: 'act',
+                    nodeRole: 'act',
+                    agentRole: 'executor',
+                }),
                 requestRound: async () => {
                     roundIndex += 1;
                     if (roundIndex === 1) {
@@ -106,6 +112,12 @@ describe('goal-executor（C3c：Task 单轮执行）', () => {
         const steps = await store.listSteps(outcome.task.taskId);
         expect(steps.find((step) => step.kind === 'deliberation')?.role).toBe('think');
         expect(steps.find((step) => step.kind === 'invocation')?.role).toBe('act');
+        for (const step of steps) {
+            expect(step.nodeRunId).toBe('act:test');
+            expect(step.nodeId).toBe('act');
+            expect(step.nodeRole).toBe('act');
+            expect(step.agentRole).toBe('executor');
+        }
     });
 
     it('模型步真实起止窗口 = now − totalMs；task 起止落库；context bytes 入库', async () => {

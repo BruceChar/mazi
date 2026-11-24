@@ -65,6 +65,11 @@ export interface AuditLiveStep {
     stepId: string;
     taskId: string;
     kind: string;
+    role?: string;
+    nodeRunId?: string;
+    nodeId?: string;
+    nodeRole?: string;
+    agentRole?: string;
     toolName: string;
     content: string;
     /** invocation：工具输出（step-events payload.output）。 */
@@ -181,6 +186,11 @@ export interface AuditStepRow {
     /** task 内步骤序号（1-based） */
     index: number;
     kind: string;
+    /** 语义角色与真实执行归属；旧数据缺省。 */
+    role?: string;
+    nodeId?: string;
+    nodeRunId?: string;
+    agentRole?: string;
     /** 归属：供 TOC 冻结与独立分析定位（同一 Task 的行 taskId/goalId/rootGoalId 相同）。 */
     taskId: string;
     goalId: string;
@@ -403,6 +413,10 @@ interface ResolvedStep {
     taskTitle: string;
     index: number;
     kind: string;
+    role?: string;
+    nodeId?: string;
+    nodeRunId?: string;
+    agentRole?: string;
     toolName: string;
     status: string;
     /** 所属 Task 当前状态（snapshot 落库；live-only 任务视为 active）。 */
@@ -949,6 +963,10 @@ function collectSnapshotSteps(
                     taskTitle: task.title,
                     index: i + 1,
                     kind: step.kind,
+                    ...(step.role !== undefined ? { role: step.role } : {}),
+                    ...(step.nodeId !== undefined ? { nodeId: step.nodeId } : {}),
+                    ...(step.nodeRunId !== undefined ? { nodeRunId: step.nodeRunId } : {}),
+                    ...(step.agentRole !== undefined ? { agentRole: step.agentRole } : {}),
                     toolName: step.toolName ?? '',
                     toolArguments: step.toolArguments ?? null,
                     toolCwd: step.toolCwd ?? null,
@@ -1028,6 +1046,10 @@ function collectRows(input: AuditInput): ResolvedStep[] {
             taskStatus: meta?.status ?? 'active',
             index: next,
             kind: step.kind,
+            ...(step.role !== undefined ? { role: step.role } : {}),
+            ...(step.nodeId !== undefined ? { nodeId: step.nodeId } : {}),
+            ...(step.nodeRunId !== undefined ? { nodeRunId: step.nodeRunId } : {}),
+            ...(step.agentRole !== undefined ? { agentRole: step.agentRole } : {}),
             toolName: step.toolName,
             toolArguments: null,
             toolCwd: null,
@@ -1735,6 +1757,19 @@ export function emptyAuditView(): AuditView {
 // ============================================================
 // Formatting
 // ============================================================
+
+export function roleLabel(role: string | undefined, kind: string): string {
+    const labels: Record<string, string> = {
+        think: 'Thinking',
+        plan: 'Planning',
+        act: 'Acting',
+        observe: 'Observing',
+        verify: 'Verifying',
+        reflect: 'Reflecting',
+    };
+    if (role && labels[role]) return labels[role];
+    return kind === 'deliberation' ? 'Thinking' : kind === 'invocation' ? 'Acting' : kind || '-';
+}
 
 export function kindLabel(kind: string): string {
     if (kind === 'invocation') return 'tool';

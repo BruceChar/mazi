@@ -66,6 +66,10 @@ describe('dynamic loop（节点驱动）', () => {
         const steps = await store.listSteps(result.tasks[0]!.task.taskId);
         expect(steps.length).toBeGreaterThan(0);
         expect(steps.every((step) => step.role === 'think')).toBe(true);
+        expect(steps.every((step) => step.nodeId === 'act')).toBe(true);
+        expect(steps.every((step) => step.nodeRole === 'act')).toBe(true);
+        expect(steps.every((step) => step.agentRole === 'executor')).toBe(true);
+        expect(steps.every((step) => step.nodeRunId?.startsWith('act:'))).toBe(true);
     });
 
     it('计划被存储，且 onPlan 只触发一次', async () => {

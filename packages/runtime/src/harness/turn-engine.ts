@@ -1,4 +1,4 @@
-import { type Goal, type Step, ulid } from '@mazi/core';
+import { type Goal, ulid } from '@mazi/core';
 import type { SkillProvider } from '../capabilities/runtime.js';
 import { emitFlagEvent, emitGoalPhase, emitSkillEvent } from '../events/emitters.js';
 import { newHarnessEvent } from '../events/index.js';
@@ -204,9 +204,29 @@ export class TurnEngine {
                     verifierId: decision.verifierId,
                     memoryPlan: decision.memoryPlan,
                     reason: decision.reason,
+                    loopMode,
                 },
             }),
         );
+        const routing = {
+            taskKind: decision.taskKind,
+            riskLevel: decision.riskLevel,
+            promptPackIds: decision.promptPackIds,
+            plannerId: decision.plannerId,
+            verifierId: decision.verifierId,
+            loopMode,
+            routedBy: 'super-agent' as const,
+            reason: decision.reason,
+            at: Date.now(),
+        };
+        if (rootGoal !== undefined) {
+            const latest =
+                (await this.h.ctx.memory.goalStore.loadGoal(rootGoal.goalId)) ?? rootGoal;
+            latest.routing = routing;
+            await this.h.ctx.memory.goalStore.saveGoal(latest);
+            rootGoal.routing = routing;
+        }
+
         this.h.ctx.observability.bus.emit(
             newHarnessEvent({
                 type: 'prompt.pack.selected',

@@ -161,6 +161,8 @@ export interface ContractTraceView {
     goalStatus: string;
     /** 协商轨迹；未经协商的旧数据为 null。 */
     negotiation: NegotiationView | null;
+    /** SuperAgent Router 决策；旧数据为 null。 */
+    routing: GoalNodeView['routing'] | null;
     summary: ContractSummary;
     conditions: ContractClauseRow[];
     /** 失败条款（当前无可判结果，只列声明）。 */
@@ -223,6 +225,7 @@ export function contractTraceOf(
             statement: goal.statement,
             goalStatus: goal.status,
             negotiation: goal.negotiation ?? null,
+            routing: goal.routing ?? null,
             summary,
             conditions: summary.conditions.map((condition) => {
                 const detail = detailById.get(condition.id);

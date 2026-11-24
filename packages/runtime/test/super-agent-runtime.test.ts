@@ -68,6 +68,11 @@ describe('SuperAgent runtime integration', () => {
                 events.filter((event) => event.type === 'prompt.pack.selected'),
             ).toHaveLength(1);
             expect(runtime.eventBus.replay(general.rootGoalId).some((event) => event.type === 'prompt.pack.selected')).toBe(true);
+            const codingGoal = await runtime.goalStore.loadGoal(coding.rootGoalId);
+            expect(codingGoal?.routing?.taskKind).toBe('coding');
+            expect(codingGoal?.routing?.loopMode).toBe('default');
+            const decision = events.find((event) => event.type === 'superagent.decision');
+            expect(decision?.payload?.loopMode).toBe('default');
         } finally {
             await runtime.close();
         }

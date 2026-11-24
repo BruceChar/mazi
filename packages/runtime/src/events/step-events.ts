@@ -37,6 +37,10 @@ export class StepEventEmitter {
         const payload: Record<string, unknown> = {
             kind: step.kind,
             ...(step.role !== undefined ? { role: step.role } : {}),
+            ...(step.nodeRunId !== undefined ? { nodeRunId: step.nodeRunId } : {}),
+            ...(step.nodeId !== undefined ? { nodeId: step.nodeId } : {}),
+            ...(step.nodeRole !== undefined ? { nodeRole: step.nodeRole } : {}),
+            ...(step.agentRole !== undefined ? { agentRole: step.agentRole } : {}),
             status: step.status,
             goalId: step.goalId,
             taskId: step.taskId,

@@ -180,6 +180,10 @@ export function snapshotGoalTree(
                         taskId: step.taskId,
                         kind: step.kind,
                         ...(step.role !== undefined ? { role: step.role } : {}),
+                        ...(step.nodeRunId !== undefined ? { nodeRunId: step.nodeRunId } : {}),
+                        ...(step.nodeId !== undefined ? { nodeId: step.nodeId } : {}),
+                        ...(step.nodeRole !== undefined ? { nodeRole: step.nodeRole } : {}),
+                        ...(step.agentRole !== undefined ? { agentRole: step.agentRole } : {}),
                         status: step.status,
                         startedAt: step.startedAt,
                         ...(step.endedAt ? { endedAt: step.endedAt } : {}),
@@ -220,6 +224,7 @@ export function snapshotGoalTree(
             statement: goal.statement,
             contract: contractViewOf(goal),
             ...(negotiation !== undefined ? { negotiation } : {}),
+            ...(goal.routing !== undefined ? { routing: goal.routing } : {}),
             contractStatus,
             tasks: taskViews,
         };

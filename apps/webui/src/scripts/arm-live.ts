@@ -21,6 +21,10 @@ export interface LiveStep {
     kind: string;
     /** workflow 节点角色（dynamic loop）；缺省时按 kind 推导展示名。 */
     role?: string;
+    nodeRunId?: string;
+    nodeId?: string;
+    nodeRole?: string;
+    agentRole?: string;
     toolName: string;
     /** invocation：工具参数。 */
     toolArguments?: Record<string, unknown>;
@@ -107,6 +111,10 @@ export function liveStepOf(event: EventItem, fallbackStatus: string): LiveStep {
         taskId: String(event.taskId ?? ''),
         kind: String(payload.kind ?? 'step'),
         ...(typeof payload.role === 'string' ? { role: payload.role } : {}),
+        ...(typeof payload.nodeRunId === 'string' ? { nodeRunId: payload.nodeRunId } : {}),
+        ...(typeof payload.nodeId === 'string' ? { nodeId: payload.nodeId } : {}),
+        ...(typeof payload.nodeRole === 'string' ? { nodeRole: payload.nodeRole } : {}),
+        ...(typeof payload.agentRole === 'string' ? { agentRole: payload.agentRole } : {}),
         toolName,
         ...(toolArguments ? { toolArguments } : {}),
         thinking: typeof payload.thinking === 'string' ? payload.thinking : undefined,
@@ -211,6 +219,10 @@ export function applyStepEnded(list: readonly LiveStep[], event: EventItem): Liv
                   content: updated.content,
                   title: updated.title,
                   ...(updated.role ? { role: updated.role } : {}),
+                  ...(updated.nodeRunId ? { nodeRunId: updated.nodeRunId } : {}),
+                  ...(updated.nodeId ? { nodeId: updated.nodeId } : {}),
+                  ...(updated.nodeRole ? { nodeRole: updated.nodeRole } : {}),
+                  ...(updated.agentRole ? { agentRole: updated.agentRole } : {}),
                   ...(updated.toolName ? { toolName: updated.toolName } : {}),
                   ...(updated.thinking ? { thinking: updated.thinking } : {}),
                   ...(updated.answer ? { answer: updated.answer } : {}),

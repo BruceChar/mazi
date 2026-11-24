@@ -746,6 +746,14 @@ watch(
                             >{{ contractStateLabel(entry.contractStatus) }}</span>
                         </div>
                         <template v-if="expandedContracts.has(entry.goalId)">
+                            <div v-if="entry.routing" class="contract-negotiation" title="Router 决策（SuperAgent）">
+                                <span class="contract-chip route">Router · {{ entry.routing.loopMode }}</span>
+                                <span class="contract-chip">task:{{ entry.routing.taskKind }}</span>
+                                <span class="contract-chip">risk:{{ entry.routing.riskLevel }}</span>
+                                <span v-for="pack in entry.routing.promptPackIds" :key="pack" class="contract-chip">pack:{{ pack }}</span>
+                                <span class="contract-chip">planner:{{ entry.routing.plannerId }}</span>
+                                <span class="contract-chip">verifier:{{ entry.routing.verifierId }}</span>
+                            </div>
                             <div v-if="entry.negotiation" class="contract-negotiation">
                                 <span class="contract-chip route">{{ ROUTE_LABEL[entry.negotiation.route] || entry.negotiation.route }}</span>
                                 <span v-if="entry.negotiation.revision > 0" class="contract-chip">已修订 v{{ entry.negotiation.revision }}</span>
@@ -950,7 +958,11 @@ watch(
                                         @click.stop="toggleSpan(item.span.stepId)"
                                     >{{ openSpans.has(item.span.stepId) ? '−' : '+' }}</span>
                                     <span class="trace-loc">{{ item.span.loc }}</span>
-                                    <span class="trace-kind" :class="{ tool: item.span.isTool }">{{ item.span.kindLabel }}</span>
+                                    <span class="trace-kind" :class="{ tool: item.span.isTool }">{{ item.span.roleLabel || item.span.kindLabel }}</span>
+                                    <span
+                                        v-if="item.span.nodeId || item.span.agentRole"
+                                        class="trace-node"
+                                    >node={{ item.span.nodeId || '?' }} · {{ item.span.agentRole || 'unknown' }}</span>
                                     <span class="trace-bar">
                                         <template v-if="traceMode === 'timeline'">
                                             <span
@@ -974,6 +986,10 @@ watch(
                                     <span class="trace-delta" :class="diffClass(item.span.contextDelta)">{{ formatSigned(item.span.contextDelta) }}</span>
                                 </div>
                                 <div v-if="openSpans.has(item.span.stepId)" class="ctx-diff" @click.stop @dblclick.stop>
+                                    <div v-if="item.span.nodeRunId || item.span.nodeId || item.span.agentRole" class="ctx-diff-label">
+                                      执行归属：node={{ item.span.nodeId || '?' }} · agent={{ item.span.agentRole || 'unknown' }}
+                                      <span v-if="item.span.nodeRunId"> · span={{ item.span.nodeRunId }}</span>
+                                    </div>
                                     <template v-if="item.span.isTool">
                                         <div class="ctx-diff-label">命令 / 参数</div>
                                         <pre class="seg-content">{{ item.span.toolLine || '(无)' }}</pre>
@@ -1285,7 +1301,7 @@ watch(
                                     @dblclick="emit('locate-step', { stepId: row.stepId, taskId: row.taskId })"
                                 >
                                     <span class="audit-step-loc">S#{{ row.index }}</span>
-                                    <span class="audit-task-step-kind">{{ row.toolName || row.kind }}</span>
+                                    <span class="audit-task-step-kind">{{ row.role || row.kind }}<span v-if="row.agentRole" class="trace-node">{{ row.agentRole }}</span></span>
                                     <span class="audit-status" :class="statusClass(row.status)">{{ row.status }}</span>
                                     <span class="audit-task-step-duration">{{ formatDuration(row.durationMs) || '—' }}</span>
                                 </button>
@@ -2187,6 +2203,12 @@ watch(
 }
 .trace-loc {
     font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+    white-space: nowrap;
+}
+.trace-node {
+    margin-left: 5px;
     font-size: 10px;
     color: var(--fg-tertiary);
     white-space: nowrap;

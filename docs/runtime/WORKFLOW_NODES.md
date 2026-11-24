@@ -136,6 +136,34 @@ const { state, outcome, events } = await runner.run(initialState);
 
 初始化顺序：构造节点 → 校验每个节点 `role` 合法 → 校验 `next` 合法（运行期再校验一次）→ runner 持节点表与限额。不经过 kernel/ports：节点是**编译期成员**，可运行期替换的只有 `host` 里的执行器（对应 ports 的能力注入）。
 
+## 八点五、Step 归属与 Router 审计
+
+Step 除 `kind`（deliberation / invocation）和 `role`（语义阶段）外，还记录真实执行归属：
+
+```ts
+Step.nodeRunId?: string;   // 实际节点执行 span，例如 act:<taskId>
+Step.nodeId?: string;      // 例如 act
+Step.nodeRole?: Phase;     // 实际节点角色
+Step.agentRole?: 'planner' | 'router' | 'executor' | 'observer' | 'verifier' | 'reflector' | 'deterministic';
+```
+
+- `kind` 仍是 payload 与重放的判别式；
+- `role` 只影响展示（Thinking / Acting / Observing）；
+- `nodeRunId / nodeId / agentRole` 回答“这一步实际是谁执行的”；
+- 旧 Step 缺省这些字段，消费方按 kind 优雅降级。
+
+SuperAgent 的路由决策不进入 workflow 节点统计，但会落到 `Goal.routing` 与 `superagent.decision` 事件：
+
+```ts
+Goal.routing?: {
+  taskKind; riskLevel; promptPackIds; plannerId; verifierId;
+  loopMode: 'default' | 'dynamic'; routedBy: 'super-agent';
+  reason: string[]; at: number;
+}
+```
+
+Trace 面板在契约区展示 Router 的 loopMode、taskKind、risk、prompt pack、planner 与 verifier；它没有 NodeRun，也不参与节点步数。
+
 ## 九、验收口径
 
 1. 任意两步转移都合法（属性测试）；

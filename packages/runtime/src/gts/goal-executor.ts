@@ -4,7 +4,7 @@
  * 无 toolCalls → 最终回答。Step 归因 taskId/goalId，全部经 GoalStore 持久化。
  */
 
-import type { Goal, Step, StepKind, StepRole, Task, ToolSchema } from '@mazi/core';
+import type { Goal, Step, StepAgentRole, StepKind, StepRole, Task, ToolSchema } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import {
     type ContextContribution,
@@ -56,6 +56,13 @@ export interface GoalExecutorDeps {
     onStep?: (step: Step) => void;
     /** 按 StepKind 标注 workflow 节点角色；缺省不写 role（default loop / 轻量调用）。 */
     roleForStep?: (kind: StepKind) => StepRole | undefined;
+    /** 写入实际 nodeRun / node / agent 归属；缺省不写（旧 loop 或轻量调用）。 */
+    provenanceForStep?: (kind: StepKind) => {
+        nodeRunId?: string;
+        nodeId?: string;
+        nodeRole?: StepRole;
+        agentRole?: StepAgentRole;
+    };
     /** 敏感内容进入 context 的断流端口（V3 机制二）；缺省时 secret 观察值 fail-closed */
     redactor?: SecretRedactor;
     /** 协作式停止信号：每个轮次开始前检查；模型调用透传到 provider 层。 */
@@ -72,9 +79,19 @@ export interface GoalExecutorDeps {
     }[];
 }
 
-function stepRoleOf(deps: GoalExecutorDeps, kind: StepKind): Partial<Pick<Step, 'role'>> {
+function stepRoleOf(
+    deps: GoalExecutorDeps,
+    kind: StepKind,
+): Partial<Pick<Step, 'role' | 'nodeRunId' | 'nodeId' | 'nodeRole' | 'agentRole'>> {
     const role = deps.roleForStep?.(kind);
-    return role !== undefined ? { role } : {};
+    const provenance = deps.provenanceForStep?.(kind);
+    return {
+        ...(role !== undefined ? { role } : {}),
+        ...(provenance?.nodeRunId !== undefined ? { nodeRunId: provenance.nodeRunId } : {}),
+        ...(provenance?.nodeId !== undefined ? { nodeId: provenance.nodeId } : {}),
+        ...(provenance?.nodeRole !== undefined ? { nodeRole: provenance.nodeRole } : {}),
+        ...(provenance?.agentRole !== undefined ? { agentRole: provenance.agentRole } : {}),
+    };
 }
 
 export type TaskStopReason =

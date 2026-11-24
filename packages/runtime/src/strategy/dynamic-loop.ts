@@ -78,6 +78,7 @@ function taskDeps(
     goal: Goal,
     outcomes: readonly TaskOutcome[],
     contributions: readonly ContextContribution[],
+    nodeRunId: string,
 ): Parameters<typeof executeTask>[0] {
     return {
         store: deps.store,
@@ -91,6 +92,12 @@ function taskDeps(
         ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
         ...(deps.onStep !== undefined ? { onStep: deps.onStep } : {}),
         roleForStep: (kind) => (kind === 'deliberation' ? 'think' : 'act'),
+        provenanceForStep: () => ({
+            nodeRunId,
+            nodeId: 'act',
+            nodeRole: 'act',
+            agentRole: 'executor',
+        }),
         ...limitsOf(deps, task, goal),
         contributions,
         ...(task.dependsOn !== undefined && task.dependsOn.length > 0
@@ -234,7 +241,7 @@ export async function runGoalTreeDynamic(
         if (goal === undefined) throw new Error(`Task ${task.taskId} 的 Goal 不在可执行集合`);
         const contribution: ContextContribution = { id: 'none' };
         const outcome = await executeTask(
-            taskDeps(deps, task, goal, outcomes, [contribution]),
+            taskDeps(deps, task, goal, outcomes, [contribution], `act:${task.taskId}`),
             task,
             goal,
         );

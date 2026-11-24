@@ -105,6 +105,10 @@ describe('arm-live（单臂实时投影）', () => {
                 {
                     kind: 'invocation',
                     role: 'act',
+                    nodeRunId: 'act:t1',
+                    nodeId: 'act',
+                    nodeRole: 'act',
+                    agentRole: 'executor',
                     toolName: 'project_wiki',
                     content: 'project_wiki {"mode":"script","args":["update","--plan"]}',
                     status: 'active',
@@ -118,6 +122,8 @@ describe('arm-live（单臂实时投影）', () => {
             args: ['update', '--plan'],
         });
         expect(invocation.role).toBe('act');
+        expect(invocation.nodeId).toBe('act');
+        expect(invocation.agentRole).toBe('executor');
         expect(invocation.title).toBe(
             'project_wiki {"mode":"script","args":["update","--plan"]}',
         );
