@@ -18,7 +18,11 @@ import PromptDialog from './components/PromptDialog.vue';
 import { defaultConversations, projectConversations } from './scripts/conversation.ts';
 import { goalFromRunSettings, runSettings, saveRunSettings } from './scripts/run-settings.ts';
 import { SETTINGS_TABS } from './scripts/settings-tabs.ts';
-import { DEFAULT_USER_CENTER_TAB, userCenterTabOf } from './scripts/user-center.ts';
+import {
+    DEFAULT_USER_CENTER_TAB,
+    USER_CENTER_TABS,
+    userCenterTabOf,
+} from './scripts/user-center.ts';
 import { wikiWorkspaceFor } from './scripts/wiki.ts';
 import { readViewState, saveViewState, workspaceTabsVisible } from './scripts/view-state.ts';
 import { buildAuditView } from './scripts/audit.ts';
@@ -984,7 +988,7 @@ onBeforeUnmount(() => {
 <template>
     <TopBar
         :sidebar-open="ui.sidebar"
-        :hide-actions="ui.view === 'lab'"
+        :hide-actions="ui.view === 'lab' || ui.view === 'user-center'"
         :right-open="ui.rightOpen"
         :conversation-title="headerTitle"
         :workspace="headerWorkspace"
@@ -1016,6 +1020,15 @@ onBeforeUnmount(() => {
                 <LabSidebar
                     :active-tab="labTab"
                     @update:active-tab="labTab = $event"
+                    @back="backToChat"
+                />
+            </template>
+            <!-- User center: 画像 / 记忆 / 问题 / 行为链 / 账本 / 用户设置 全部列在左栏 -->
+            <template v-else-if="ui.view === 'user-center'">
+                <SettingsSidebar
+                    :tabs="USER_CENTER_TABS"
+                    :active-tab="userCenterTab"
+                    @update:active-tab="userCenterTab = $event"
                     @back="backToChat"
                 />
             </template>
@@ -1157,8 +1170,6 @@ onBeforeUnmount(() => {
                 v-else-if="ui.view === 'user-center'"
                 :tab="userCenterTab"
                 :project-id="activeConversation?.projectId || ''"
-                @update:tab="userCenterTab = $event"
-                @close="backToChat"
             />
         </main>
 

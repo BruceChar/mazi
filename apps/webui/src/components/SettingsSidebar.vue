@@ -1,4 +1,8 @@
 <script setup>
+/**
+ * 整页工作区的左侧分类导航（设置页 / 用户中心共用）：
+ * 传入分类清单 + 选中项，底部固定「Back to app」返回入口。
+ */
 import LineIcon from '../assets/LineIcon.vue';
 
 defineProps({
