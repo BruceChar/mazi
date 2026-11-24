@@ -191,6 +191,8 @@ watch(() => props.rootGoalId, reload, { immediate: true });
                         <span v-if="record.effectClass">类别 {{ record.effectClass }}</span>
                         <span v-if="record.goalId">goal {{ record.goalId }}</span>
                         <span v-if="record.stepId">step {{ record.stepId }}</span>
+                        <span v-if="record.projectId">项目 {{ record.projectId }}</span>
+                        <span v-if="record.conversationId">会话 {{ record.conversationId }}</span>
                     </div>
                 </li>
             </ul>

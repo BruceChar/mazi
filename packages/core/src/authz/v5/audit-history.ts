@@ -26,6 +26,8 @@ export interface PermissionAuditRecord {
     kind: string;
     actor: PermissionActor;
     result: PermissionResult;
+    /** 所属根目标（子集过滤锚点）。 */
+    rootGoalId: string;
     tool?: string;
     effectClass?: string;
     stage?: string;
@@ -34,6 +36,10 @@ export interface PermissionAuditRecord {
     scope?: string;
     goalId?: string;
     stepId?: string;
+    /** 所属会话（由 api 层经会话映射补齐）。 */
+    conversationId?: string;
+    /** 所属项目（由 api 层经会话映射补齐）。 */
+    projectId?: string;
 }
 
 export interface PermissionFilter {
@@ -111,6 +117,7 @@ export function extractPermissionEvents(events: HarnessEvent[]): PermissionAudit
             kind: event.type,
             actor: actorOf(event),
             result: resultOf(event.type),
+            rootGoalId: event.rootGoalId,
             ...(typeof payload.tool === 'string' ? { tool: payload.tool } : {}),
             ...(effectClass !== undefined ? { effectClass } : {}),
             ...(typeof event.attributes['harness.gateway_stage'] === 'string'

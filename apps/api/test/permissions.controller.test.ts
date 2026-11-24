@@ -20,14 +20,24 @@ function makeEvent(overrides: Partial<HarnessEvent>): HarnessEvent {
     } as HarnessEvent;
 }
 
-function controller(events: HarnessEvent[]) {
+function controller(
+    events: HarnessEvent[],
+    conversations: { runContext: (rootGoalId: string) => unknown } = {
+        runContext: () => undefined,
+    },
+) {
     const replay = vi.fn(() => events);
     const replaySession = vi.fn(() => events);
     const replayAll = vi.fn(() => events);
     const service = {
         harness: () => ({ eventBus: { replay, replaySession, replayAll } }),
     } as unknown as ApiRuntimeService;
-    return { controller: new PermissionsController(service), replay, replaySession, replayAll };
+    return {
+        controller: new PermissionsController(service, conversations as never),
+        replay,
+        replaySession,
+        replayAll,
+    };
 }
 
 describe('PermissionsController.audit', () => {
@@ -35,6 +45,7 @@ describe('PermissionsController.audit', () => {
         eventId: 'e1',
         type: 'approval.granted',
         actor: 'human',
+        rootGoalId: 'rootA',
         timestamp: 1000,
         payload: { tool: 'bash', code: 'user-approved' },
     });
@@ -42,6 +53,7 @@ describe('PermissionsController.audit', () => {
         eventId: 'e2',
         type: 'policy.denied',
         actor: 'harness',
+        rootGoalId: 'rootB',
         payload: { tool: 'rm', detail: 'dangerous write' },
         attributes: { 'harness.gateway_stage': 'enforce' },
     });
@@ -49,61 +61,79 @@ describe('PermissionsController.audit', () => {
         eventId: 'e3',
         type: 'policy.check',
         actor: 'model',
+        rootGoalId: 'rootA',
         timestamp: 5000,
         payload: { tool: 'read' },
     });
 
-    it('replays by rootGoalId and extracts audit records', () => {
-        const { controller: c, replay, replaySession } = controller([granted, denied, auto]);
-        const out = c.audit(undefined, undefined, undefined, undefined, undefined, 'root-1');
-        expect(replay).toHaveBeenCalledWith('root-1');
-        expect(replaySession).not.toHaveBeenCalled();
+    const contexts = {
+        rootA: { conversationId: 'C1', projectId: 'P1' },
+        rootB: { conversationId: 'C2', projectId: 'P2' },
+    };
+    function withContext(events: HarnessEvent[]) {
+        return controller(events, {
+            runContext: (rootGoalId: string) => contexts[rootGoalId as keyof typeof contexts],
+        });
+    }
+
+    it('extracts records and attaches conversationId/projectId via runContext', () => {
+        const { controller: c, replayAll } = withContext([granted, denied, auto]);
+        const out = c.audit();
+        expect(replayAll).toHaveBeenCalled();
         expect(out.records).toHaveLength(3);
-        expect(out.records[0]).toMatchObject({ actor: 'user', result: 'approved', tool: 'bash' });
-        expect(out.records[1]).toMatchObject({ actor: 'agent', result: 'denied', tool: 'rm' });
-        expect(out.records[2]).toMatchObject({ actor: 'agent', result: 'auto', tool: 'read' });
+        const byId = Object.fromEntries(out.records.map((r) => [r.id, r]));
+        expect(byId.e1).toMatchObject({
+            actor: 'user',
+            result: 'approved',
+            tool: 'bash',
+            conversationId: 'C1',
+            projectId: 'P1',
+        });
+        expect(byId.e2).toMatchObject({
+            actor: 'agent',
+            result: 'denied',
+            tool: 'rm',
+            conversationId: 'C2',
+            projectId: 'P2',
+        });
+        expect(byId.e3).toMatchObject({ actor: 'agent', result: 'auto', tool: 'read', projectId: 'P1' });
     });
 
-    it('replays by sessionId when no rootGoalId is given', () => {
-        const { controller: c, replay, replaySession } = controller([granted]);
-        c.audit('sess-9', undefined, undefined, undefined, undefined, undefined);
-        expect(replaySession).toHaveBeenCalledWith('sess-9');
-        expect(replay).not.toHaveBeenCalled();
+    it('filters by rootGoalId (right-panel subset of the same source)', () => {
+        const { controller: c } = withContext([granted, denied, auto]);
+        expect(c.audit(undefined, undefined, undefined, undefined, undefined, 'rootB').records).toEqual([
+            expect.objectContaining({ id: 'e2' }),
+        ]);
+    });
+
+    it('filters by projectId and conversationId', () => {
+        const { controller: c } = withContext([granted, denied, auto]);
+        expect(c.audit(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'P1').records.map((r) => r.id)).toEqual(['e1', 'e3']);
+        expect(c.audit(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'C2').records.map((r) => r.id)).toEqual(['e2']);
     });
 
     it('filters by actor, result, tool and keyword', () => {
-        const { controller: c } = controller([granted, denied, auto]);
-        expect(c.audit(undefined, 'agent', undefined, undefined, undefined, 'root-1').records).toHaveLength(
-            2,
-        );
-        expect(c.audit(undefined, undefined, 'denied', undefined, undefined, 'root-1').records).toEqual([
+        const { controller: c } = withContext([granted, denied, auto]);
+        expect(c.audit(undefined, 'agent').records).toHaveLength(2);
+        expect(c.audit(undefined, undefined, 'denied').records).toEqual([
             expect.objectContaining({ result: 'denied' }),
         ]);
-        expect(c.audit(undefined, undefined, undefined, 'bash', undefined, 'root-1').records).toEqual([
+        expect(c.audit(undefined, undefined, undefined, 'bash').records).toEqual([
             expect.objectContaining({ tool: 'bash' }),
         ]);
-        expect(
-            c.audit(undefined, undefined, undefined, undefined, 'dangerous', 'root-1').records,
-        ).toEqual([expect.objectContaining({ result: 'denied' })]);
+        expect(c.audit(undefined, undefined, undefined, undefined, 'dangerous').records).toEqual([
+            expect.objectContaining({ result: 'denied' }),
+        ]);
     });
 
     it('filters by inclusive time range from/to', () => {
-        const { controller: c } = controller([granted, auto]);
+        const { controller: c } = withContext([granted, auto]);
+        expect(c.audit(undefined, undefined, undefined, undefined, undefined, undefined, 2000).records).toEqual([
+            expect.objectContaining({ tool: 'read' }),
+        ]);
         expect(
-            c.audit(undefined, undefined, undefined, undefined, undefined, 'root-1', 2000).records,
-        ).toEqual([expect.objectContaining({ tool: 'read' })]);
-        expect(
-            c.audit(undefined, undefined, undefined, undefined, undefined, 'root-1', undefined, 4000)
+            c.audit(undefined, undefined, undefined, undefined, undefined, undefined, undefined, 4000)
                 .records,
         ).toEqual([expect.objectContaining({ tool: 'bash' })]);
-    });
-
-    it('replays the global event stream when no scope is provided', () => {
-        const { controller: c, replay, replaySession, replayAll } = controller([granted, auto]);
-        const out = c.audit();
-        expect(replayAll).toHaveBeenCalled();
-        expect(replay).not.toHaveBeenCalled();
-        expect(replaySession).not.toHaveBeenCalled();
-        expect(out.records).toHaveLength(2);
     });
 });

@@ -4,24 +4,27 @@ import { DefaultEventBus } from '@mazi/runtime';
 import { Controller, Get, Query } from '@nestjs/common';
 
 import { ApiRuntimeService } from '../common/runtime.service.js';
+import { ConversationsService } from '../conversations/conversations.service.js';
 
 /**
  * 权限审计端点（R3）：
- * GET /api/permissions/audit?sessionId=&rootGoalId=&actor=&result=&tool=&keyword=
+ * GET /api/permissions/audit?rootGoalId=&projectId=&conversationId=&actor=&result=&tool=&keyword=&from=&to=
  *
- * 抽取权限事件（用户批准/拒绝/取消、agent 自动放行、策略拒绝、记忆命中、
- * 撤销），保留角色、结果、工具、决策依据、作用域，按条件筛选。
- * rootGoalId 优先（按根目标流回放）；否则按 sessionId 回放会话锚点流；
- * 都缺省时全量回放（跨全部历史 run，供用户中心全局审计）。
+ * 同源口径：始终以 replayAll() 全集为底抽取，再按 rootGoalId / projectId /
+ * conversationId 圈定子集。右侧当前 run 面板是全集的 rootGoalId 子集；
+ * 用户中心审计视图即全集。记录经会话映射补齐 conversationId/projectId。
  * 所有事件只追加，不做变更。
  */
 @Controller('permissions')
 export class PermissionsController {
-    constructor(private readonly runtime: ApiRuntimeService) {}
+    constructor(
+        private readonly runtime: ApiRuntimeService,
+        private readonly conversations: ConversationsService,
+    ) {}
 
     @Get('audit')
     audit(
-        @Query('sessionId') sessionId?: string,
+        @Query('sessionId') _sessionId?: string,
         @Query('actor') actor?: string,
         @Query('result') result?: string,
         @Query('tool') tool?: string,
@@ -29,15 +32,40 @@ export class PermissionsController {
         @Query('rootGoalId') rootGoalId?: string,
         @Query('from') from?: string,
         @Query('to') to?: string,
+        @Query('projectId') projectId?: string,
+        @Query('conversationId') conversationId?: string,
     ) {
         const bus = this.runtime.harness().eventBus as DefaultEventBus;
-        const events: HarnessEvent[] = rootGoalId
-            ? bus.replay(rootGoalId)
-            : sessionId
-              ? bus.replaySession(sessionId)
-              : bus.replayAll();
-        const records = authz.extractPermissionEvents(events);
-        const filtered = authz.filterPermissionEvents(records, {
+        const records = authz.extractPermissionEvents(bus.replayAll());
+
+        const contextCache = new Map<string, { conversationId?: string; projectId?: string }>();
+        const resolve = (rootGoalId: string) => {
+            let ctx = contextCache.get(rootGoalId);
+            if (ctx === undefined) {
+                ctx = this.conversations.runContext(rootGoalId) ?? undefined;
+                contextCache.set(rootGoalId, ctx);
+            }
+            return ctx;
+        };
+
+        const resolved = records.map((record) => {
+            const ctx = resolve(record.rootGoalId);
+            return {
+                ...record,
+                ...(ctx?.conversationId ? { conversationId: ctx.conversationId } : {}),
+                ...(ctx?.projectId ? { projectId: ctx.projectId } : {}),
+            };
+        });
+
+        const scoped = resolved.filter((record) => {
+            if (rootGoalId !== undefined && record.rootGoalId !== rootGoalId) return false;
+            if (projectId !== undefined && record.projectId !== projectId) return false;
+            if (conversationId !== undefined && record.conversationId !== conversationId)
+                return false;
+            return true;
+        });
+
+        const filtered = authz.filterPermissionEvents(scoped, {
             ...(actor ? { actor: actor as authz.PermissionActor } : {}),
             ...(result ? { result: result as authz.PermissionResult } : {}),
             ...(tool ? { tool } : {}),
