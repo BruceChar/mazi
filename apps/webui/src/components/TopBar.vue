@@ -4,8 +4,8 @@
  *
  * Owns only presentation and the two shell toggles; conversation/workspace
  * state stays in App.vue and is passed down as props. Full-screen workspaces
- * (Lab) hide the right-side shell entries: they are not part of the
- * conversation shell, so Trace and the user center would only be noise there.
+ * (Lab / user center) are not part of the conversation shell: they hide both
+ * the right-side entries (Trace + account) and the conversation title/workspace.
  */
 import LineIcon from '../assets/LineIcon.vue';
 
@@ -22,6 +22,8 @@ defineProps({
     userCenterOpen: { type: Boolean, default: false },
     /** 隐藏右侧外壳入口（Trace 面板 + 用户中心），用于 Lab 这类整页工作区。 */
     hideActions: { type: Boolean, default: false },
+    /** 隐藏会话名称 + 工作区：整页工作区（Lab / 用户中心）不属于会话，顶栏不挂会话信息。 */
+    hideConversation: { type: Boolean, default: false },
 });
 const emit = defineEmits(['toggle-sidebar', 'toggle-right', 'open-user-center']);
 </script>
@@ -57,7 +59,7 @@ const emit = defineEmits(['toggle-sidebar', 'toggle-right', 'open-user-center'])
             </button>
         </div>
         <!-- 会话名称 + 工作区：从侧栏宽度处开始、贴着 topbar 下边框 -->
-        <div v-if="conversationTitle" class="topbar-conv-wrap">
+        <div v-if="!hideConversation && conversationTitle" class="topbar-conv-wrap">
             <span class="topbar-conv" :title="conversationTitle">{{ conversationTitle }}</span>
             <span v-if="workspace" class="topbar-ws" :title="workspace">{{ workspace }}</span>
         </div>

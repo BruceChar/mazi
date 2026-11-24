@@ -251,6 +251,9 @@ const activeConversation = computed(() =>
     conversations.value.find((c) => c.conversationId === currentConversation.value),
 );
 
+/** 是否处于整页工作区（Lab / 用户中心）：顶栏不挂会话名称、工作区与外壳入口。 */
+const isFullPageWorkspace = computed(() => ui.view === 'lab' || ui.view === 'user-center');
+
 /** 顶部栏会话名称：最多 12 个字符，超出以省略号截断。 */
 const headerTitle = computed(() => {
     if (ui.view === 'lab') return 'Lab';
@@ -988,7 +991,8 @@ onBeforeUnmount(() => {
 <template>
     <TopBar
         :sidebar-open="ui.sidebar"
-        :hide-actions="ui.view === 'lab' || ui.view === 'user-center'"
+        :hide-actions="isFullPageWorkspace"
+        :hide-conversation="isFullPageWorkspace"
         :right-open="ui.rightOpen"
         :conversation-title="headerTitle"
         :workspace="headerWorkspace"
