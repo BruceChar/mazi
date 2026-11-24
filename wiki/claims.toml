@@ -312,12 +312,12 @@ evidence = [
   { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "113f78d9352a63d88f63e1c192518ddd5d188e0f" },
   { file = "packages/runtime/src/gts/task-planner.ts", oid = "86a7a688aa1aff3b3e1628bff76866afc5d2c98b" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "27fb08d01c50948bbd65c046a35e504329e89d43" },
-  { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "1fb9fb0e47f89e7b6ad85153fcc9494727622734" },
+  { file = "packages/runtime/test/goal-phase-events.test.ts", oid = "92aa438857ac2ea0ca8ae052e66f3a79636ce575" },
   { file = "docs/runtime/AHF_RUNTIME_TASK_PLANNING.md", oid = "43096c20232bcb39017aef96d9427cf3cf82a46d" },
 ]
 established = 2026-11-09
-verified = 2026-11-24
-claim_oid = "be0131b2cb74ea2a"
+verified = 2026-11-25
+claim_oid = "407cea2a73a11940"
 
 [claims.webui-trace-audit-anchor]
 text = "The right-side Trace panel preserves an explicit audit anchor for the selected scope: Step anchors include R/T/S coordinates plus rootGoalId, goalId, taskId, stepId, timestamps and step/task status; Task and run scopes retain their corresponding IDs and timing. Contract, acceptance, context, token, cost and tool facts therefore remain attributable to the exact audited Step even though the conversation surface omits that audit metadata."
@@ -435,7 +435,7 @@ status = "active"
 evidence = [
   { file = "docs/runtime/UNIFIED_WORKFLOW.md", oid = "36e939fd0ba786f32d07f911611a96403da661a7" },
   { file = "packages/runtime/src/strategy/dynamic-loop.ts", oid = "602699f965df40e5ce21a1cae0279a125860b199" },
-  { file = "packages/runtime/test/unified-workflow.test.ts", oid = "973204264842f0a6ea3990ba5685e93ed702406d" },
+  { file = "packages/runtime/test/unified-workflow.test.ts", oid = "d4f5b3d923027cba3f7a5d96a43554f4a0dc86cc" },
 ]
 established = 2026-11-24
-verified = 2026-11-24
+verified = 2026-11-25
