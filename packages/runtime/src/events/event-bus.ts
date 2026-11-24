@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
     EventBus,
@@ -9,7 +8,10 @@ import type {
     HarnessEventType,
     Unsubscribe,
 } from '@mazi/core';
-import { authz, SESSION_STREAM_PREFIX, sessionStreamId, ulid } from '@mazi/core';
+import { authz, ulid } from '@mazi/core';
+import { defaultEventDbPath } from '../paths.js';
+import { shouldPersist, slimForStore } from './persist-policy.js';
+import { SqliteEventStore } from './sqlite-event-store.js';
 
 /**
  * Task 级事件：必须携带 taskId。
@@ -151,10 +153,14 @@ export interface ChainVerification {
 }
 
 export interface EventBusOptions {
-    /** JSONL 落盘目录；默认取 EVENT_LOG_DIR 环境变量，否则 ./events */
+    /** 旧 JSONL 只读目录（历史兼容，R5d 合并用）；新事件写入 SQLite 权威库 */
     eventDir?: string;
-    /** 只读附加目录（如历史/实验事件），replayAll 一并收录，不参与写入 */
+    /** 只读附加目录（如历史/实验事件），R5d 一并收录，不参与写入 */
     extraDirs?: string[];
+    /** 事件权威库路径；缺省取 eventDir 旁的 events.db，再缺省 $MAZI_HOME/events.db */
+    dbPath?: string;
+    /** 可注入已构造的事件库（测试/宿主用）；提供后忽略 dbPath */
+    store?: SqliteEventStore;
     /** 事件写入失败时的错误回调（默认写 stderr） */
     onWriteError?: (error: unknown, event: HarnessEvent) => void;
     /**
@@ -173,6 +179,7 @@ export interface EventBusOptions {
 export class DefaultEventBus implements EventBus {
     private readonly dir: string;
     private readonly extraDirs: string[];
+    private readonly store: SqliteEventStore;
     private readonly subscribers = new Set<{ filter: EventFilter; sink: EventSink }>();
     private writeChain: Promise<void> = Promise.resolve();
     private readonly onWriteError: (error: unknown, event: HarnessEvent) => void;
@@ -182,6 +189,11 @@ export class DefaultEventBus implements EventBus {
     constructor(opts: EventBusOptions = {}) {
         this.dir = opts.eventDir ?? defaultEventDir();
         this.extraDirs = opts.extraDirs ?? [];
+        // 显式 store/dbPath 优先；给了 eventDir（测试/兼容）时库落在该目录旁，否则用 home/events.db。
+        const dbPath =
+            opts.dbPath ??
+            (opts.eventDir !== undefined ? join(this.dir, 'events.db') : defaultEventDbPath());
+        this.store = opts.store ?? new SqliteEventStore(dbPath);
         this.sessionOf = opts.sessionOf;
         this.onWriteError =
             opts.onWriteError ??
@@ -230,62 +242,15 @@ export class DefaultEventBus implements EventBus {
     }
 
     replay(rootGoalId: string): HarnessEvent[] {
-        let raw: string;
-        try {
-            raw = readFileSync(this.filePath(rootGoalId), 'utf8');
-        } catch {
-            return [];
-        }
-        const events: HarnessEvent[] = [];
-        for (const line of raw.split('\n')) {
-            if (line.trim().length === 0) {
-                continue;
-            }
-            try {
-                const parsed = JSON.parse(line) as HarnessEvent;
-                if (parsed.rootGoalId === rootGoalId) {
-                    events.push(parsed);
-                }
-            } catch {
-                // 跳过损坏行（审计完整性由持久化保证，重放尽力而为）
-            }
-        }
-        return events;
+        return this.store.replay(rootGoalId);
     }
 
     /**
-     * 会话回放：会话锚点流（session-<id>.jsonl）+ 其余文件中带该 sessionId 的事件。
-     * 复杂度 O(事件文件数)；会话删除后审计仍需可查，故不做索引缓存。
+     * 会话回放：从事件库按 sessionId 取全部事件。
+     * 同一毫秒内排序确定：会话边界事件恒在最外（started 最前、ended 最后），再按 seq 兜底。
      */
     replaySession(sessionId: string): HarnessEvent[] {
-        const anchor = sessionStreamId(sessionId);
-        const events: HarnessEvent[] = this.replay(anchor);
-        let files: string[];
-        try {
-            files = readdirSync(this.dir);
-        } catch {
-            files = [];
-        }
-        for (const file of files) {
-            if (!file.endsWith('.jsonl') || file === `${anchor}.jsonl`) continue;
-            let raw: string;
-            try {
-                raw = readFileSync(join(this.dir, file), 'utf8');
-            } catch {
-                continue;
-            }
-            for (const line of raw.split('\n')) {
-                if (line.trim().length === 0) continue;
-                try {
-                    const parsed = JSON.parse(line) as HarnessEvent;
-                    if (parsed.sessionId === sessionId) events.push(parsed);
-                } catch {
-                    // 损坏行跳过（与 replay 的尽力而为一致）。
-                }
-            }
-        }
-        // 同一毫秒内的排序必须确定：会话边界事件恒在最外（started 最前、ended 最后），
-        // 再按各自 root 的 seq 兜底。否则 turn.ended 与 session.ended 会同毫秒竞争。
+        const events = this.store.query({ sessionId });
         const boundaryRank = (type: string): number => {
             if (type === 'session.started') return -1;
             if (type === 'session.ended') return 1;
@@ -300,42 +265,11 @@ export class DefaultEventBus implements EventBus {
     }
 
     /**
-     * 全量回放：扫描全部根流（排除 `session-` 锚点文件），收集所有事件并按时间升序。
-     * 用于跨全部 run 的全局审计；会话锚点只在 replaySession 内参与归因。
+     * 全量回放：从事件库按时间升序取全部新事件。
+     * 用于跨全部 run 的全局审计；旧 JSONL 历史由 R5d 兼容层按需合并。
      */
     replayAll(): HarnessEvent[] {
-        const events: HarnessEvent[] = [];
-        for (const directory of [this.dir, ...this.extraDirs]) {
-            this.collectFrom(directory, events);
-        }
-        return events.sort((a, b) => a.timestamp - b.timestamp);
-    }
-
-    /** 把单个目录下的根流事件收集进 events（跳过会话锚点与损坏行）。 */
-    private collectFrom(directory: string, events: HarnessEvent[]): void {
-        let files: string[];
-        try {
-            files = readdirSync(directory);
-        } catch {
-            return;
-        }
-        for (const file of files) {
-            if (!file.endsWith('.jsonl') || file.startsWith(SESSION_STREAM_PREFIX)) continue;
-            let raw: string;
-            try {
-                raw = readFileSync(join(directory, file), 'utf8');
-            } catch {
-                continue;
-            }
-            for (const line of raw.split('\n')) {
-                if (line.trim().length === 0) continue;
-                try {
-                    events.push(JSON.parse(line) as HarnessEvent);
-                } catch {
-                    // 损坏行跳过（与 replay 的尽力而为一致）。
-                }
-            }
-        }
+        return this.store.query({});
     }
 
     /** Verify the per-root hash chain without trusting the writer. */
@@ -399,37 +333,11 @@ export class DefaultEventBus implements EventBus {
         return this.writeChain;
     }
 
-    private filePath(rootGoalId: string): string {
-        return join(this.dir, `${rootGoalId}.jsonl`);
-    }
-
     private chainHead(rootGoalId: string): { seq: number; hash: string } {
         const cached = this.chainHeads.get(rootGoalId);
         if (cached !== undefined) return cached;
-        let seq = 0;
-        let hash = authz.AUDIT_GENESIS;
-        try {
-            const raw = readFileSync(this.filePath(rootGoalId), 'utf8');
-            for (const line of raw.split('\n')) {
-                if (line.trim().length === 0) continue;
-                try {
-                    const parsed = JSON.parse(line) as HarnessEvent;
-                    if (
-                        parsed.rootGoalId === rootGoalId &&
-                        typeof parsed.seq === 'number' &&
-                        typeof parsed.hash === 'string'
-                    ) {
-                        seq = parsed.seq;
-                        hash = parsed.hash;
-                    }
-                } catch {
-                    // Corrupt legacy lines remain visible through verifyChain.
-                }
-            }
-        } catch {
-            // First event for this root.
-        }
-        const state = { seq, hash };
+        const head = this.store.chainHead(rootGoalId);
+        const state = { seq: head.seq, hash: head.hash ?? authz.AUDIT_GENESIS };
         this.chainHeads.set(rootGoalId, state);
         return state;
     }
@@ -437,12 +345,8 @@ export class DefaultEventBus implements EventBus {
     private enqueuePersist(event: HarnessEvent): void {
         this.writeChain = this.writeChain.then(() => {
             try {
-                mkdirSync(this.dir, { recursive: true });
-                appendFileSync(
-                    this.filePath(event.rootGoalId),
-                    `${JSON.stringify(event)}\n`,
-                    'utf8',
-                );
+                if (!shouldPersist(event)) return;
+                this.store.append(slimForStore(event));
             } catch (error) {
                 this.onWriteError(error, event);
             }

@@ -23,6 +23,8 @@ export const HOME_FILE_SETTINGS = 'settings.json';
 export const HOME_FILE_SECRETS = 'secrets.json';
 export const HOME_DB_FILE = 'mazi.db';
 export const HOME_EVENTS_DIR = 'events';
+/** 事件权威库文件名（$MAZI_HOME/events.db，独立于 mazi.db，避免写锁竞争）。 */
+export const HOME_EVENTS_DB_FILE = 'events.db';
 export const HOME_BEHAVIOR_DIR = 'behavior';
 /** Auth 治理配置目录（命令分类规则等）；可用 MAZI_AUTH_CONFIG_DIR 覆盖。 */
 export const HOME_AUTH_DIR = 'config/auth';
@@ -52,6 +54,8 @@ export interface MaziPaths {
     settingsFile: string;
     secretsFile: string;
     dbPath: string;
+    /** 事件权威库（$MAZI_HOME/events.db）：新事件落盘，独立于 mazi.db。 */
+    eventsDbPath: string;
     eventDir: string;
     /** 用户行为流导出/迁移目录（权威库在 SQLite；见 docs/用户问题标签与分类设计.md §4）。 */
     behaviorDir: string;
@@ -91,6 +95,7 @@ export function maziPaths(home = maziHome()): MaziPaths {
         settingsFile: join(home, HOME_FILE_SETTINGS),
         secretsFile: join(home, HOME_FILE_SECRETS),
         dbPath: join(home, HOME_DB_FILE),
+        eventsDbPath: join(home, HOME_EVENTS_DB_FILE),
         eventDir: join(home, HOME_EVENTS_DIR),
         behaviorDir: join(home, HOME_BEHAVIOR_DIR),
         questionTaxonomyFile: join(home, HOME_QUESTION_TAXONOMY_FILE),
@@ -137,4 +142,9 @@ export function defaultBehaviorDir(): string {
 /** 默认 SQLite 路径：MAZI_HOME/mazi.db */
 export function defaultDbPath(): string {
     return maziPaths().dbPath;
+}
+
+/** 默认事件权威库路径：MAZI_HOME/events.db */
+export function defaultEventDbPath(): string {
+    return maziPaths().eventsDbPath;
 }

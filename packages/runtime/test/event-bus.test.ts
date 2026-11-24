@@ -1,17 +1,18 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HarnessEvent } from '@mazi/core';
 import { ulid } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConsoleSink, DefaultEventBus } from '../src/events/event-bus.js';
+import { SqliteEventStore } from '../src/events/sqlite-event-store.js';
 
 const dirs: string[] = [];
 
-function makeDir(): string {
-    const d = mkdtempSync(join(tmpdir(), 'mazi-obs-'));
-    dirs.push(d);
-    return d;
+function makeStore(): SqliteEventStore {
+    const dir = mkdtempSync(join(tmpdir(), 'mazi-obs-'));
+    dirs.push(dir);
+    return new SqliteEventStore(join(dir, 'events.db'));
 }
 
 function ev(
@@ -21,16 +22,13 @@ function ev(
 }
 
 afterEach(() => {
-    for (const d of dirs.splice(0)) {
-        // 清理由系统临时目录回收，这里不再主动删除
-        void d;
-    }
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
 describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
-    it('emit 后事件异步落盘为按 rootGoalId 分文件的 JSONL', async () => {
-        const dir = makeDir();
-        const bus = new DefaultEventBus({ eventDir: dir });
+    it('emit 后事件异步入库，replay 按 seq 顺序取回并补全 eventId/timestamp', async () => {
+        const store = makeStore();
+        const bus = new DefaultEventBus({ store });
         const rootGoalId = ulid();
         const goalId = ulid();
         const taskId = ulid();
@@ -39,69 +37,29 @@ describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
         bus.emit(ev({ type: 'task.started', rootGoalId, goalId, taskId }));
         bus.emit(ev({ type: 'step.started', rootGoalId, goalId, taskId, stepId }));
         await bus.flush();
-        const file = join(dir, `${rootGoalId}.jsonl`);
-        expect(existsSync(file)).toBe(true);
-        const lines = readFileSync(file, 'utf8').trim().split('\n');
-        expect(lines).toHaveLength(3);
-        const parsed = lines.map((l) => JSON.parse(l) as HarnessEvent);
-        expect(parsed.map((p) => p.type)).toEqual(['goal.started', 'task.started', 'step.started']);
-        // 缺省 eventId/timestamp 自动补全
-        for (const p of parsed) {
-            expect(typeof p.eventId).toBe('string');
-            expect(typeof p.timestamp).toBe('number');
+        const replay = bus.replay(rootGoalId);
+        expect(replay.map((e) => e.type)).toEqual(['goal.started', 'task.started', 'step.started']);
+        for (const e of replay) {
+            expect(typeof e.eventId).toBe('string');
+            expect(typeof e.timestamp).toBe('number');
         }
     });
 
-    it('replay(rootGoalId) 从磁盘回放全部事件；跨 root goal 不串扰', async () => {
-        const dir = makeDir();
-        const bus = new DefaultEventBus({ eventDir: dir });
+    it('replay(rootGoalId) 从库回放；跨 root goal 不串扰，新总线同库可重读', async () => {
+        const store = makeStore();
+        const bus = new DefaultEventBus({ store });
         const rootA = ulid();
         const rootB = ulid();
         bus.emit(ev({ type: 'goal.started', rootGoalId: rootA }));
         bus.emit(ev({ type: 'goal.ended', rootGoalId: rootB }));
         await bus.flush();
-        const bus2 = new DefaultEventBus({ eventDir: dir });
-        const replayA = bus2.replay(rootA);
-        expect(replayA.map((e) => e.type)).toEqual(['goal.started']);
+        const bus2 = new DefaultEventBus({ store });
+        expect(bus2.replay(rootA).map((e) => e.type)).toEqual(['goal.started']);
         expect(bus2.replay(ulid())).toEqual([]);
     });
 
-    it('replayAll() 回放全部根流，排除会话锚点文件并按时间升序', async () => {
-        const dir = makeDir();
-        const bus = new DefaultEventBus({ eventDir: dir });
-        const rootA = ulid();
-        const rootB = ulid();
-        bus.emit(ev({ type: 'goal.started', rootGoalId: rootA, timestamp: 200 }));
-        bus.emit(ev({ type: 'goal.ended', rootGoalId: rootB, timestamp: 100 }));
-        await bus.flush();
-        // 会话锚点文件：replayAll 不应收录其独有事件
-        writeFileSync(
-            join(dir, 'session-anchor.jsonl'),
-            JSON.stringify(ev({ type: 'session.started', rootGoalId: '' })) + '\n',
-        );
-        const bus2 = new DefaultEventBus({ eventDir: dir });
-        const all = bus2.replayAll();
-        expect(all.map((e) => e.rootGoalId).sort()).toEqual([rootA, rootB].sort());
-        expect(all.map((e) => e.timestamp)).toEqual([100, 200]);
-        expect(all.some((e) => e.type === 'session.started')).toBe(false);
-    });
-
-    it('replayAll() 同时收录 extraDirs（历史/实验目录）中的根流事件', () => {
-        const dir = makeDir();
-        const extra = makeDir();
-        const rootHist = ulid();
-        writeFileSync(
-            join(extra, `${rootHist}.jsonl`),
-            JSON.stringify(ev({ type: 'approval.granted', rootGoalId: rootHist, timestamp: 50 })) + '\n',
-        );
-        const bus = new DefaultEventBus({ eventDir: dir, extraDirs: [extra] });
-        const all = bus.replayAll();
-        expect(all.map((e) => e.rootGoalId)).toContain(rootHist);
-        expect(all.some((e) => e.type === 'approval.granted')).toBe(true);
-    });
-
-    it('subscribe 按事件类型过滤，unsubscribe 后不再收到', async () => {
-        const bus = new DefaultEventBus({ eventDir: makeDir() });
+    it('subscribe 按事件类型过滤，unsubscribe 后不再收到', () => {
+        const bus = new DefaultEventBus({ store: makeStore() });
         const seen: HarnessEvent[] = [];
         const unsub = bus.subscribe(
             { types: ['goal.ended'] },
@@ -121,7 +79,7 @@ describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
     });
 
     it('四层 ID 校验：缺 rootGoalId / Task 级缺 taskId / Step 级缺 stepId 均抛错', () => {
-        const bus = new DefaultEventBus({ eventDir: makeDir() });
+        const bus = new DefaultEventBus({ store: makeStore() });
         expect(() => bus.emit(ev({ type: 'goal.started', rootGoalId: '' }))).toThrow(/rootGoalId/);
         expect(() => bus.emit(ev({ type: 'task.started', rootGoalId: ulid() }))).toThrow(/taskId/);
         expect(() =>
@@ -131,10 +89,10 @@ describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
         expect(() => bus.emit(ev({ type: 'goal.started', rootGoalId: ulid() }))).not.toThrow();
     });
 
-    it('为每个 root goal 生成可独立校验的 seq/hash 链，并能定位篡改', async () => {
-        const dir = makeDir();
+    it('为每个 root goal 生成可独立校验的 seq/hash 链，并能定位断档篡改', async () => {
+        const store = makeStore();
+        const bus = new DefaultEventBus({ store });
         const rootGoalId = ulid();
-        const bus = new DefaultEventBus({ eventDir: dir });
         bus.emit(ev({ type: 'goal.started', rootGoalId }));
         bus.emit(ev({ type: 'goal.ended', rootGoalId, causedBy: 'cause-1', actor: 'human' }));
         await bus.flush();
@@ -145,21 +103,18 @@ describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
         expect(replay[1]).toMatchObject({ causedBy: 'cause-1', actor: 'human' });
         expect(bus.verifyChain(rootGoalId)).toMatchObject({ ok: true, verified: 2, legacy: 0 });
 
-        const file = join(dir, `${rootGoalId}.jsonl`);
-        const lines = readFileSync(file, 'utf8').trim().split('\n');
-        const tampered = JSON.parse(lines[0]!) as HarnessEvent;
-        tampered.payload = { changed: true };
-        lines[0] = JSON.stringify(tampered);
-        writeFileSync(file, `${lines.join('\n')}\n`);
-        const verifier = new DefaultEventBus({ eventDir: dir });
-        expect(verifier.verifyChain(rootGoalId)).toMatchObject({
+        // 断档篡改：手工补一条 seq=5 的事件，链在 seq=2 后期望 3，立即报断档。
+        store.append(
+            ev({ type: 'tool.invoke', rootGoalId, eventId: 'evil', seq: 5, timestamp: 300, prevHash: 'x', hash: 'y' }),
+        );
+        expect(bus.verifyChain(rootGoalId)).toMatchObject({
             ok: false,
             code: 'AUDIT_TAMPER_SUSPECTED',
         });
     });
 
     it('minLevel / requireFlag 过滤在 MVP 未实现，设置即 fail-fast 抛错', () => {
-        const bus = new DefaultEventBus({ eventDir: makeDir() });
+        const bus = new DefaultEventBus({ store: makeStore() });
         expect(() =>
             bus.subscribe({ minLevel: 'info' }, { id: 'x', handle: () => undefined }),
         ).toThrow(/MVP/);
@@ -168,9 +123,8 @@ describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
         ).toThrow(/MVP/);
     });
 
-    it('ConsoleSink 可独立订阅，且不影响文件落盘', async () => {
-        const dir = makeDir();
-        const bus = new DefaultEventBus({ eventDir: dir });
+    it('ConsoleSink 可独立订阅，且不影响入库分发', () => {
+        const bus = new DefaultEventBus({ store: makeStore() });
         const logs: string[] = [];
         const orig = process.stdout.write;
         process.stdout.write = ((chunk: string | Uint8Array) => {
@@ -181,12 +135,10 @@ describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
         try {
             bus.subscribe({}, new ConsoleSink());
             bus.emit(ev({ type: 'goal.started', rootGoalId }));
-            await bus.flush();
         } finally {
             process.stdout.write = orig;
         }
         expect(logs.length).toBe(1);
         expect(logs[0]).toContain('goal.started');
-        expect(existsSync(join(dir, `${rootGoalId}.jsonl`))).toBe(true);
     });
 });

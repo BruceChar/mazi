@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
@@ -55,14 +56,24 @@ function triageProvider(plan: unknown): LLMProvider {
     };
 }
 
+function readAll(dir: string, rootGoalId: string): Array<{ type: string; payload?: unknown }> {
+    const db = new DatabaseSync(join(dir, 'events.db'), { readOnly: true });
+    try {
+        const rows = db
+            .prepare(
+                `SELECT event_json FROM events WHERE root_goal_id = ? ORDER BY seq ASC, timestamp ASC`,
+            )
+            .all(rootGoalId) as Array<{ event_json: string }>;
+        return rows.map((row) => JSON.parse(row.event_json) as { type: string; payload?: unknown });
+    } finally {
+        db.close();
+    }
+}
+
 function workflowRoles(rootGoalId: string, dir: string): string[] {
-    const raw = readFileSync(join(dir, `${rootGoalId}.jsonl`), 'utf8');
-    return raw
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as { type: string; payload?: { role?: string } })
-        .filter((event) => event.type === 'workflow.node' && event.payload?.role !== undefined)
-        .map((event) => event.payload?.role ?? '');
+    return readAll(dir, rootGoalId)
+        .filter((event) => event.type === 'workflow.node' && (event.payload as { role?: string })?.role !== undefined)
+        .map((event) => (event.payload as { role?: string })?.role ?? '');
 }
 
 describe('统一编排：Router → Plan 是 workflow 节点', () => {
@@ -97,12 +108,7 @@ describe('统一编排：Router → Plan 是 workflow 节点', () => {
             expect(result.ok).toBe(true);
             expect(result.tasks).toHaveLength(1);
 
-            await new Promise((resolve) => setTimeout(resolve, 50));
-            const raw = readFileSync(join(dir, `${created.rootGoalId}.jsonl`), 'utf8');
-            const events = raw
-                .trim()
-                .split('\n')
-                .map((line) => JSON.parse(line) as { type: string; payload?: unknown });
+            const events = readAll(dir, created.rootGoalId);
             const decision = events.find((event) => event.type === 'superagent.decision');
             expect(decision?.payload).toMatchObject({
                 route: 'workflow',

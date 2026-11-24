@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HarnessEvent, LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
@@ -90,10 +91,17 @@ const SINGLE_TASK = [
 ];
 
 function readEvents(dir: string, rootGoalId: string): HarnessEvent[] {
-    return readFileSync(join(dir, `${rootGoalId}.jsonl`), 'utf8')
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as HarnessEvent);
+    const db = new DatabaseSync(join(dir, 'events.db'), { readOnly: true });
+    try {
+        const rows = db
+            .prepare(
+                `SELECT event_json FROM events WHERE root_goal_id = ? ORDER BY seq ASC, timestamp ASC`,
+            )
+            .all(rootGoalId) as Array<{ event_json: string }>;
+        return rows.map((row) => JSON.parse(row.event_json) as HarnessEvent);
+    } finally {
+        db.close();
+    }
 }
 
 interface PhasePayload {

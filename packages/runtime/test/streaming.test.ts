@@ -63,11 +63,12 @@ describe('HarnessRuntime 流式事件（llm.stream_event）', () => {
         try {
             const created = await runtime.createGoalSession('打个招呼');
             await runtime.executeGoalTree(created.rootGoalId);
+            // llm.stream_event 是实时碎片，不落盘：从实时订阅 live 收集，不从回放取。
             const events = (runtime.eventBus as DefaultEventBus).replay(created.rootGoalId);
             expect(live).toHaveLength(5);
             expect(live.every((event) => event.type === 'llm.stream_event')).toBe(true);
 
-            const streamEvents = events.filter((event) => event.type === 'llm.stream_event');
+            const streamEvents = live;
             expect(streamEvents).toHaveLength(5);
             expect(streamEvents.every((event) => typeof event.taskId === 'string')).toBe(true);
             expect(streamEvents.every((event) => typeof event.goalId === 'string')).toBe(true);

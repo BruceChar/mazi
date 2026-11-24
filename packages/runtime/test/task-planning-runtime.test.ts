@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LLMProvider, LLMRequest, StreamCompletionEvent } from '@mazi/core';
@@ -180,13 +181,7 @@ describe('HarnessRuntime × Task Planner 上下文与 triage 顺序', () => {
         try {
             const created = await runtime.createGoalSession('做两步', { taskPlanning: true });
             await runtime.executeGoalTree(created.rootGoalId);
-            // 事件写入是异步链；等一拍再读 JSONL。
-            await new Promise((resolve) => setTimeout(resolve, 50));
-            const raw = readFileSync(join(dir, `${created.rootGoalId}.jsonl`), 'utf8');
-            const events = raw
-                .trim()
-                .split('\n')
-                .map((line) => JSON.parse(line) as { type: string; payload?: unknown });
+            const events = readEvents(dir, created.rootGoalId);
             const plan = events.find((event) => event.type === 'plan.created');
             const payload = plan?.payload as
                 | {
@@ -264,10 +259,17 @@ const MULTI_ARTIFACT_TRIAGE = {
 };
 
 function readEvents(dir: string, rootGoalId: string): Array<{ type: string; payload?: unknown }> {
-    return readFileSync(join(dir, `${rootGoalId}.jsonl`), 'utf8')
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as { type: string; payload?: unknown });
+    const db = new DatabaseSync(join(dir, 'events.db'), { readOnly: true });
+    try {
+        const rows = db
+            .prepare(
+                `SELECT event_json FROM events WHERE root_goal_id = ? ORDER BY seq ASC, timestamp ASC`,
+            )
+            .all(rootGoalId) as Array<{ event_json: string }>;
+        return rows.map((row) => JSON.parse(row.event_json) as { type: string; payload?: unknown });
+    } finally {
+        db.close();
+    }
 }
 
 describe('HarnessRuntime × 验收失败与显式 Replan', () => {

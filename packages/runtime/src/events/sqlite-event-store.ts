@@ -13,6 +13,7 @@ export interface EventQuery {
     from?: number;
     to?: number;
     rootGoalId?: string;
+    sessionId?: string;
 }
 
 export interface ChainHead {
@@ -83,6 +84,10 @@ export class SqliteEventStore {
         if (filter.rootGoalId !== undefined) {
             where.push('root_goal_id = ?');
             params.push(filter.rootGoalId);
+        }
+        if (filter.sessionId !== undefined) {
+            where.push('session_id = ?');
+            params.push(filter.sessionId);
         }
         if (filter.types !== undefined && filter.types.length > 0) {
             where.push(`type IN (${filter.types.map(() => '?').join(', ')})`);

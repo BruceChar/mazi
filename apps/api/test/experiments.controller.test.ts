@@ -162,9 +162,9 @@ describe('对照实验接口', () => {
         const experimentId = list.json().experiments[0].experimentId;
         const rootGoalId = list.json().experiments[0].arms[0].rootGoalId;
 
-        // 实验独立存储：Goal 库与事件目录都在 $MAZI_HOME/experiments 下。
+        // 实验独立存储：Goal 库与事件权威库都在 $MAZI_HOME/experiments 下。
         expect(existsSync(join(h.home, 'experiments', 'mazi.db'))).toBe(true);
-        expect(existsSync(join(h.home, 'experiments', 'events', rootGoalId + '.jsonl'))).toBe(true);
+        expect(existsSync(join(h.home, 'experiments', 'events', 'events.db'))).toBe(true);
 
         // 主会话端点按 rootGoalId 查不到实验 run（Goal 树确实分开了）。
         const viaMainSession = await h.fastify.inject({

@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -7,7 +8,6 @@ import type {
     LLMRequest,
     StreamCompletionEvent,
 } from '@mazi/core';
-import { sessionStreamId } from '@mazi/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RuntimeConfig } from '../src/config.js';
 import { HarnessRuntime } from '../src/harness/index.js';
@@ -35,10 +35,29 @@ const SINGLE_TASK = [
 ];
 
 function readEvents(dir: string, rootGoalId: string): HarnessEvent[] {
-    return readFileSync(join(dir, `${rootGoalId}.jsonl`), 'utf8')
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as HarnessEvent);
+    const db = new DatabaseSync(join(dir, 'events.db'), { readOnly: true });
+    try {
+        const rows = db
+            .prepare(
+                `SELECT event_json FROM events WHERE root_goal_id = ? ORDER BY seq ASC, timestamp ASC`,
+            )
+            .all(rootGoalId) as Array<{ event_json: string }>;
+        return rows.map((row) => JSON.parse(row.event_json) as HarnessEvent);
+    } finally {
+        db.close();
+    }
+}
+
+function readSessionEvents(dir: string, sessionId: string): HarnessEvent[] {
+    const db = new DatabaseSync(join(dir, 'events.db'), { readOnly: true });
+    try {
+        const rows = db
+            .prepare(`SELECT event_json FROM events WHERE session_id = ? ORDER BY timestamp ASC, seq ASC`)
+            .all(sessionId) as Array<{ event_json: string }>;
+        return rows.map((row) => JSON.parse(row.event_json) as HarnessEvent);
+    } finally {
+        db.close();
+    }
 }
 
 function capturingProvider(systems: string[]): LLMProvider {
@@ -95,12 +114,9 @@ describe('HarnessRuntime × 会话/轮次生命周期（§3.3）', () => {
             // turn.start 的 patch 进入后续模型上下文（钩子能真正影响执行）。
             expect(systems.some((system) => system.includes('MEMORY_MARKER'))).toBe(true);
 
-            const sessionFile = join(dir, `${sessionStreamId('conv-life-1')}.jsonl`);
-            expect(existsSync(sessionFile)).toBe(true);
-            const sessionEvents = readFileSync(sessionFile, 'utf8')
-                .trim()
-                .split('\n')
-                .map((line) => JSON.parse(line) as HarnessEvent);
+            const sessionEvents = readSessionEvents(dir, 'conv-life-1').filter(
+                (event) => event.type === 'session.started',
+            );
             expect(sessionEvents.map((event) => event.type)).toEqual(['session.started']);
             expect(sessionEvents[0]?.sessionId).toBe('conv-life-1');
             off();
