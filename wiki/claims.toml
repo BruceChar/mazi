@@ -52,7 +52,7 @@ retracted_reason = "direct route must not hide harness execution facts; pure dir
 text = "The Trace panel shows contracts for the current run only when narrow (all runs when maximized) with contract entries collapsed by default, and renders paired approval/authorization details for a clicked behavior row."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "635072e7620aa58a74837f0486ffbf1ab3ef64eb" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "3bb60efe9ebf2782bc3f6bdf00e12b233cf7bb3d" },
   { file = "apps/webui/src/scripts/audit.ts", oid = "0fdada53ecaed13e5f8c809d259d0f7698bf446b" },
   { file = "apps/webui/src/scripts/contract-view.ts", oid = "104e88ff234be9e5c0137c2cc6e4f20ae34ae40d" },
 ]
@@ -380,12 +380,12 @@ status = "active"
 evidence = [
   { file = "docs/web/观测看板设计.md", oid = "41a3b944b04a1e0bec5d07470edb0211b0d32496" },
   { file = "apps/webui/src/scripts/run-failure.ts", oid = "52df1e943e3f6cbb486d76f13d5db8b044c82a5f" },
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "635072e7620aa58a74837f0486ffbf1ab3ef64eb" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "3bb60efe9ebf2782bc3f6bdf00e12b233cf7bb3d" },
   { file = "apps/webui/test/run-failure.test.ts", oid = "48900d42f5b468699ff31ab1d21e126bdb4f8974" },
 ]
 established = 2026-11-10
 verified = 2026-11-24
-claim_oid = "68a73fb3aa8a5a0f"
+claim_oid = "c92313190b7fc851"
 
 [claims.monorepo-workspace-dependency-graph]
 text = "Workspace dependency graph is visible in the package manifests and matches the layered rule: @mazi/core and @mazi/libs declare no workspace dependencies, @mazi/provider depends only on core (plus pi-ai), @mazi/runtime on core+libs+provider, @mazi/api on core+libs+runtime, and @mazi/webui on @mazi/libs only — the UI never imports core or runtime, so「界面只消费 API 与共享类型」is enforced by the manifests rather than convention. @mazi/runtime also ships bin mazi-project-wiki plus builtin-skills/ and tasks/ in its published files, so Project Wiki assets travel with the runtime package."
