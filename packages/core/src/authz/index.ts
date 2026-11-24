@@ -22,3 +22,5 @@ export * from './types.js';
 export * from './v5/decision.js';
 export * from './v5/classify.js';
 export * from './v5/parser.js';
+export * from './v5/fingerprint.js';
+export * from './v5/memory-store.js';
