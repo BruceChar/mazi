@@ -326,7 +326,7 @@ evidence = [
   { file = "apps/webui/src/scripts/audit.ts", oid = "0fdada53ecaed13e5f8c809d259d0f7698bf446b" },
   { file = "apps/webui/src/components/RightPanel.vue", oid = "635072e7620aa58a74837f0486ffbf1ab3ef64eb" },
   { file = "apps/webui/test/audit.test.ts", oid = "f6e7e0603f404a84a48c598715e592f50cf8b5d1" },
-  { file = "docs/webui.md", oid = "f5ec94bcc2aed3af14ec57d8c156a363aedf0acf" },
+  { file = "docs/webui.md", oid = "40d355ecd55b23487a19047c638732e094d0ef60" },
   { file = "docs/web/观测看板设计.md", oid = "41a3b944b04a1e0bec5d07470edb0211b0d32496" },
 ]
 established = 2026-11-09
