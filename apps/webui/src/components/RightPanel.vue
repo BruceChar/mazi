@@ -329,8 +329,12 @@ const traceContractRootGoalId = computed(() => {
 const visibleContracts = computed(() =>
     contractsForRun(traceContracts.value, traceContractRootGoalId.value, props.maximized),
 );
-/** Router 决策独立成区，不依赖契约展开，保证完成后第一眼能看到路由依据。 */
-const routerEntries = computed(() => visibleContracts.value.filter((entry) => entry.routing));
+/** Router 决策独立成区，不依赖契约展开；旧直答记录没有 routing，用 triage 事实降级解释。 */
+const routerEntries = computed(() =>
+    visibleContracts.value.filter(
+        (entry) => entry.routing !== null || entry.negotiation?.route === 'direct',
+    ),
+);
 /** 契约默认折叠：只展开用户点开的 Goal。 */
 const expandedContracts = ref(new Set());
 function toggleContract(goalId) {
@@ -738,16 +742,24 @@ watch(
                             <span class="contract-goal-status">{{ entry.goalStatus }}</span>
                         </div>
                         <div class="contract-negotiation">
-                            <span class="contract-chip route">Router · {{ routerModeLabel(entry.routing) }}</span>
-                            <span class="contract-chip">by:{{ entry.routing.routedBy }}</span>
-                            <span class="contract-chip">task:{{ entry.routing.taskKind }}</span>
-                            <span class="contract-chip">risk:{{ entry.routing.riskLevel }}</span>
-                            <span v-for="pack in entry.routing.promptPackIds" :key="pack" class="contract-chip">pack:{{ pack }}</span>
-                            <span class="contract-chip">planner:{{ entry.routing.plannerId }}</span>
-                            <span class="contract-chip">verifier:{{ entry.routing.verifierId }}</span>
+                            <span class="contract-chip route">
+                                {{ entry.routing ? 'Router' : 'Triage' }} ·
+                                {{ entry.routing ? routerModeLabel(entry.routing) : 'direct' }}
+                            </span>
+                            <template v-if="entry.routing">
+                                <span class="contract-chip">by:{{ entry.routing.routedBy }}</span>
+                                <span class="contract-chip">task:{{ entry.routing.taskKind }}</span>
+                                <span class="contract-chip">risk:{{ entry.routing.riskLevel }}</span>
+                                <span v-for="pack in entry.routing.promptPackIds" :key="pack" class="contract-chip">pack:{{ pack }}</span>
+                                <span class="contract-chip">planner:{{ entry.routing.plannerId }}</span>
+                                <span class="contract-chip">verifier:{{ entry.routing.verifierId }}</span>
+                            </template>
                         </div>
-                        <div v-if="entry.routing.reason.length > 0" class="contract-note router-reason">
+                        <div v-if="entry.routing && entry.routing.reason.length > 0" class="contract-note router-reason">
                             决策依据：{{ entry.routing.reason.join(' · ') }}
+                        </div>
+                        <div v-if="!entry.routing" class="contract-note router-reason">
+                            直答路径：由 triage 直接回答，未进入 Router / Think-Act。
                         </div>
                     </div>
                 </section>
