@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { computeMenuPlacement, MENU_FLIP_SPACE_PX, MENU_GAP_PX } from '../src/scripts/menu.ts';
 
 describe('computeMenuPlacement', () => {
+    it('keeps the menu flush so the pointer never crosses a dead gap', () => {
+        expect(MENU_GAP_PX).toBe(0);
+    });
+
     it('opens below the trigger when there is room', () => {
         const rect = { top: 100, bottom: 124, right: 200 };
         expect(computeMenuPlacement(rect, 800)).toEqual({

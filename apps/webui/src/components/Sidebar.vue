@@ -81,7 +81,10 @@ const menuEl = ref(null);
 function onDocumentPointerDown(event) {
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (menuEl.value?.contains(target)) return; // press inside the menu
+    // Teleported menus are outside the component DOM subtree; check both the
+    // template ref and the class so pointerdown on a menu item can never be
+    // mistaken for an outside press while `menuEl` is still settling.
+    if (menuEl.value?.contains(target) || target.closest('.floating-menu')) return;
     if (target.closest('[data-menu-trigger]')) return; // a trigger toggles on click
     closeMenu();
 }
@@ -284,6 +287,8 @@ function latencyText() {
             class="floating-menu"
             :class="{ 'floating-menu-up': menuPos.up }"
             :style="{ top: menuPos.top + 'px', left: menuPos.left + 'px' }"
+            @pointerdown.stop
+            @click.stop
         >
             <template v-if="menuTarget.kind === 'project'">
                 <button @click="emit('rename-project', menuTarget.item); closeMenu()">

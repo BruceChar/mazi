@@ -17,8 +17,12 @@ export interface MenuPlacement {
 
 /** Space kept below the trigger before the menu flips above it. */
 export const MENU_FLIP_SPACE_PX = 140;
-/** Gap between the trigger and the menu. */
-export const MENU_GAP_PX = 6;
+/**
+ * Keep the menu flush against its trigger. A visible gap becomes a dead strip:
+ * the pointer leaves the row/trigger before entering the popup, which makes
+ * the menu feel like it closes or jumps while the user moves toward it.
+ */
+export const MENU_GAP_PX = 0;
 
 /**
  * Compute the position for the floating menu.
