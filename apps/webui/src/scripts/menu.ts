@@ -42,3 +42,22 @@ export function computeMenuPlacement(rect: MenuTriggerRect, viewportHeight: numb
         up,
     };
 }
+
+/** Vertical band of a scrolling list, in viewport pixels. */
+export interface VerticalBand {
+    top: number;
+    bottom: number;
+}
+
+/**
+ * Whether the menu's trigger scrolled out of its list viewport.
+ *
+ * The menu is viewport-fixed, so a list scroll must re-anchor it rather than
+ * dismiss it: closing on every scroll event makes the menu vanish while the
+ * pointer is still travelling toward an item (a trackpad's momentum scroll
+ * keeps emitting events after the user's click). Only a trigger that no longer
+ * overlaps the list has nothing left to point at.
+ */
+export function isAnchorOutOfView(anchor: VerticalBand, container: VerticalBand): boolean {
+    return anchor.bottom <= container.top || anchor.top >= container.bottom;
+}

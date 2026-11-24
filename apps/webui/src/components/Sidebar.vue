@@ -13,7 +13,7 @@
  */
 import { onBeforeUnmount, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
-import { computeMenuPlacement } from '../scripts/menu.ts';
+import { computeMenuPlacement, isAnchorOutOfView } from '../scripts/menu.ts';
 
 const props = defineProps({
     projects: { type: Array, default: () => [] },
@@ -42,10 +42,14 @@ const emit = defineEmits([
 /* Internal UI state */
 const searchOpen = ref(false);
 const q = ref('');
-/** Open "..." menu: { kind: 'project' | 'conversation', item } or null. */
+/** Open "..." menu: { kind, key, item } or null. */
 const menuTarget = ref(null);
 /** Fixed position of the floating menu (left = trigger right edge). */
 const menuPos = ref({ top: 0, left: 0, up: false });
+/** Element the menu hangs off, so it can be re-anchored instead of dismissed. */
+const menuAnchor = ref(null);
+/** Visible band of the conversation list; a scrolled-away trigger ends the menu. */
+const listEl = ref(null);
 /** Whether the default "随心聊" group is expanded. */
 const freeChatOpen = ref(true);
 
@@ -56,16 +60,48 @@ function openMenu(event, kind, item) {
         closeMenu();
         return;
     }
-    const rect = event.currentTarget.getBoundingClientRect();
-    // The menu is teleported to <body>, so this is a viewport coordinate.
-    menuPos.value = computeMenuPlacement(rect, window.innerHeight);
-    menuTarget.value = { kind, item };
+    menuAnchor.value = event.currentTarget;
+    menuTarget.value = { kind, key: menuKey(kind, item), item };
+    placeMenu();
 }
 function closeMenu() {
     menuTarget.value = null;
+    menuAnchor.value = null;
+}
+/**
+ * Stable identity of a menu target. The store rebuilds project and
+ * conversation objects on every reload, so object identity would drop the
+ * row's `menu-open` highlight while the menu is still open.
+ */
+function menuKey(kind, item) {
+    return kind === 'project' ? 'project:' + item.path : 'conversation:' + item.conversationId;
 }
 function isMenuOpen(kind, item) {
-    return menuTarget.value !== null && menuTarget.value.kind === kind && menuTarget.value.item === item;
+    return menuTarget.value?.key === menuKey(kind, item);
+}
+/**
+ * Re-anchor the floating menu against its trigger. The menu is teleported to
+ * <body>, so the result is applied directly as viewport-fixed coordinates.
+ */
+function placeMenu() {
+    const anchor = menuAnchor.value;
+    if (!anchor) return;
+    menuPos.value = computeMenuPlacement(anchor.getBoundingClientRect(), window.innerHeight);
+}
+/**
+ * List scroll follows the trigger instead of dismissing the menu. Closing here
+ * would make the popup disappear while the pointer is still moving toward an
+ * item, because momentum scrolling keeps firing after the opening click.
+ */
+function onListScroll() {
+    const anchor = menuAnchor.value;
+    const container = listEl.value;
+    if (!anchor || !container) return;
+    if (isAnchorOutOfView(anchor.getBoundingClientRect(), container.getBoundingClientRect())) {
+        closeMenu();
+        return;
+    }
+    placeMenu();
 }
 
 /**
@@ -89,10 +125,18 @@ function onDocumentPointerDown(event) {
 }
 
 watch(menuTarget, (target) => {
-    if (target) document.addEventListener('pointerdown', onDocumentPointerDown, true);
-    else document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+    if (target) {
+        document.addEventListener('pointerdown', onDocumentPointerDown, true);
+        window.addEventListener('resize', placeMenu);
+    } else {
+        document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+        window.removeEventListener('resize', placeMenu);
+    }
 });
-onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPointerDown, true));
+onBeforeUnmount(() => {
+    document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+    window.removeEventListener('resize', placeMenu);
+});
 
 function toggleProject(path) {
     emit('toggle-project', path);
@@ -167,7 +211,7 @@ function latencyText() {
             </span>
         </template>
     </div>
-    <div class="sidebar-scroll" @scroll.passive="closeMenu">
+    <div ref="listEl" class="sidebar-scroll" @scroll.passive="onListScroll">
         <!-- Project groups -->
         <div v-for="project in projects" :key="project.path" class="group">
             <div class="group-head" :class="{ 'menu-open': isMenuOpen('project', project) }">

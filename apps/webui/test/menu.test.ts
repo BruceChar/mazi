@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { computeMenuPlacement, MENU_FLIP_SPACE_PX, MENU_GAP_PX } from '../src/scripts/menu.ts';
+import {
+    computeMenuPlacement,
+    isAnchorOutOfView,
+    MENU_FLIP_SPACE_PX,
+    MENU_GAP_PX,
+} from '../src/scripts/menu.ts';
 
 describe('computeMenuPlacement', () => {
     it('keeps the menu flush so the pointer never crosses a dead gap', () => {
@@ -37,5 +42,24 @@ describe('computeMenuPlacement', () => {
             computeMenuPlacement({ top: bottom - 23, bottom: bottom + 1, right: 10 }, viewportHeight)
                 .up,
         ).toBe(true);
+    });
+});
+
+describe('isAnchorOutOfView', () => {
+    const container = { top: 200, bottom: 700 };
+
+    it('keeps the menu while the trigger is still inside the list viewport', () => {
+        expect(isAnchorOutOfView({ top: 640, bottom: 664 }, container)).toBe(false);
+        expect(isAnchorOutOfView({ top: 200, bottom: 224 }, container)).toBe(false);
+    });
+
+    it('closes once the trigger scrolls fully above or below the list viewport', () => {
+        expect(isAnchorOutOfView({ top: 152, bottom: 176 }, container)).toBe(true);
+        expect(isAnchorOutOfView({ top: 700, bottom: 724 }, container)).toBe(true);
+    });
+
+    it('closes a trigger that only touches the edge, but keeps one that is still half inside', () => {
+        expect(isAnchorOutOfView({ top: 176, bottom: 200 }, container)).toBe(true);
+        expect(isAnchorOutOfView({ top: 640, bottom: 700 }, container)).toBe(false);
     });
 });
