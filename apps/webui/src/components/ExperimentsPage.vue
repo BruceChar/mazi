@@ -195,11 +195,6 @@ const workspaceOptions = computed(() => {
     return options;
 });
 
-/** 本次实验实际使用的工作区路径。 */
-const resolvedWorkspace = computed(
-    () => form.workspace || currentWorkspacePath.value || '（未指定，跟随后端当前工作区）',
-);
-
 const diffSummary = computed(() => {
     const comparison = selected.value?.comparison;
     if (!comparison) return null;
@@ -290,9 +285,6 @@ function select(experimentId) {
 /** 右下角「新建 AB 实验」：展开新建表单，详情暂时收起。 */
 function startCreate() {
     pageMode.value = 'create';
-}
-function cancelCreate() {
-    pageMode.value = 'detail';
 }
 
 watch(selectedId, (experimentId) => {
@@ -500,10 +492,7 @@ function isLive(label) {
         <section class="main">
                 <!-- 新建：仅在 create 模式展开，平时收成右下角按钮 -->
                 <div v-if="pageMode === 'create'" class="card create">
-                    <div class="card-head">
-                        新建对照实验
-                        <button v-if="selected" class="link-btn" @click="cancelCreate">返回详情</button>
-                    </div>
+                    <div class="card-head">新建对照实验</div>
                     <div class="grid two">
                         <label>标题<input v-model="form.title" placeholder="Feature 增益：简洁作答" /></label>
                         <label>工作区
@@ -514,7 +503,6 @@ function isLive(label) {
                             </select>
                         </label>
                     </div>
-                    <div class="hint workspace-hint">本次实验工作区：{{ resolvedWorkspace }}</div>
                     <label class="full">两臂共用的输入
                         <textarea v-model="form.input" rows="3" placeholder="同一个任务描述，两臂收到完全相同的输入" />
                     </label>
@@ -524,9 +512,6 @@ function isLive(label) {
                                 <option v-for="[kind, label] in kindOptions" :key="kind" :value="kind">{{ label }}</option>
                             </select>
                         </label>
-                        <div class="variable-hint">
-                            <span class="hint">同一输入下只改这一个变量，A/B 两臂其余配置保持一致。</span>
-                        </div>
                     </div>
 
                     <!-- Skill 自变量：从已发现列表多选（两臂独立，不用手输） -->
@@ -552,11 +537,7 @@ function isLive(label) {
                             <div v-if="!skillOptions.length" class="muted">—</div>
                         </div>
                     </div>
-                    <div v-if="form.kind === 'skill'" class="hint">
-                        两臂技能集合互相独立，并覆盖该臂的全局挂载；两臂都空选 = 都不带技能。
-                    </div>
-
-                    <div v-else-if="form.kind === 'feature'" class="grid two">
+                    <div v-if="form.kind === 'feature'" class="grid two">
                         <label>对照 Feature
                             <select v-model="form.featureId">
                                 <option value="">（选择特性）</option>
@@ -624,39 +605,41 @@ function isLive(label) {
                         </label>
                     </div>
                     <div class="create-actions">
-                        <span class="hint">点运行后左右两窗同时前台执行；审批会实时弹出，不会卡在后台。</span>
-                        <div class="create-run">
-                            <label
-                                class="context-line"
-                                title="关联历史实验：把它的输入与该臂最终答案作为两臂共用的历史上下文；不关联 = 干净实验"
+                        <label
+                            class="context-line"
+                            title="从历史实验继续：把该实验该臂的输入与最终答案作为两臂共用的历史上下文"
+                        >
+                            <select
+                                v-model="form.contextExperimentId"
+                                aria-label="从历史实验继续"
                             >
-                                从关联实验继续
-                                <select v-model="form.contextExperimentId">
-                                    <option value="">不关联（干净上下文）</option>
-                                    <option
-                                        v-for="item in contextOptions"
-                                        :key="item.id"
-                                        :value="item.id"
-                                    >{{ item.label }}</option>
-                                    <option v-if="contextOptions.length === 0" value="" disabled>
-                                        暂无可用历史实验
-                                    </option>
-                                </select>
-                            </label>
-                            <label v-if="form.contextExperimentId" class="context-line">
-                                关联臂
-                                <select v-model="form.contextArmLabel">
-                                    <option
-                                        v-for="arm in contextArmOptions"
-                                        :key="arm.label"
-                                        :value="arm.label"
-                                    >{{ arm.label }} · {{ arm.hint }}</option>
-                                </select>
-                            </label>
-                            <button class="btn primary" :disabled="experimentRunning" @click="submit">
-                                <LineIcon name="play" size="13" />{{ experimentRunning ? '运行中…' : '运行对照实验' }}
-                            </button>
-                        </div>
+                                <option value="">None（干净上下文）</option>
+                                <option
+                                    v-for="item in contextOptions"
+                                    :key="item.id"
+                                    :value="item.id"
+                                >{{ item.label }}</option>
+                                <option v-if="contextOptions.length === 0" value="" disabled>
+                                    暂无可用历史实验
+                                </option>
+                            </select>
+                        </label>
+                        <label
+                            v-if="form.contextExperimentId"
+                            class="context-line"
+                            title="选择用哪一臂的最终答案作为历史"
+                        >
+                            <select v-model="form.contextArmLabel" aria-label="关联臂">
+                                <option
+                                    v-for="arm in contextArmOptions"
+                                    :key="arm.label"
+                                    :value="arm.label"
+                                >{{ arm.label }} · {{ arm.hint }}</option>
+                            </select>
+                        </label>
+                        <button class="btn primary" :disabled="experimentRunning" @click="submit">
+                            <LineIcon name="play" size="13" />{{ experimentRunning ? '运行中…' : '运行对照实验' }}
+                        </button>
                     </div>
                 </div>
 
@@ -1044,27 +1027,19 @@ input:disabled {
 .create-actions {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    justify-content: flex-end;
+    gap: 8px;
     flex-wrap: wrap;
     margin-top: 10px;
 }
-.create-run {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex: 0 0 auto;
+/* 上下文选择与运行按钮同一行、同一高度（不换行时不跳动）。 */
+.create-actions .context-line select,
+.create-actions .btn {
+    height: 28px;
+    box-sizing: border-box;
 }
-.create-run .context-line {
-    max-width: 300px;
-}
-.variable-hint {
-    display: flex;
-    align-items: center;
-}
-.hint {
-    font-size: 11px;
-    color: var(--fg-tertiary);
+.create-actions .context-line select {
+    max-width: 220px;
 }
 .btn {
     display: inline-flex;
@@ -1497,9 +1472,6 @@ input:disabled {
 }
 .review-note {
     color: var(--fg);
-}
-.workspace-hint {
-    margin-top: -2px;
 }
 /* Skill 自变量：双栏多选（从已发现列表选择，不用手输） */
 .skill-picker {
