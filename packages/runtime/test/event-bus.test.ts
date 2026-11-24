@@ -86,6 +86,20 @@ describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
         expect(all.some((e) => e.type === 'session.started')).toBe(false);
     });
 
+    it('replayAll() 同时收录 extraDirs（历史/实验目录）中的根流事件', () => {
+        const dir = makeDir();
+        const extra = makeDir();
+        const rootHist = ulid();
+        writeFileSync(
+            join(extra, `${rootHist}.jsonl`),
+            JSON.stringify(ev({ type: 'approval.granted', rootGoalId: rootHist, timestamp: 50 })) + '\n',
+        );
+        const bus = new DefaultEventBus({ eventDir: dir, extraDirs: [extra] });
+        const all = bus.replayAll();
+        expect(all.map((e) => e.rootGoalId)).toContain(rootHist);
+        expect(all.some((e) => e.type === 'approval.granted')).toBe(true);
+    });
+
     it('subscribe 按事件类型过滤，unsubscribe 后不再收到', async () => {
         const bus = new DefaultEventBus({ eventDir: makeDir() });
         const seen: HarnessEvent[] = [];

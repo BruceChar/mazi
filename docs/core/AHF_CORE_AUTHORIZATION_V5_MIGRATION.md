@@ -36,7 +36,7 @@
 | 模块 | 文件 | 说明 |
 | --- | --- | --- |
 | 审计端点（同源） | `apps/api/src/permissions/permissions.controller.ts` | `GET /api/permissions/audit`：始终以 `replayAll()` 全集为底抽取，经 `ConversationsService.runContext` 补 conversationId/projectId，再按 rootGoalId / projectId / conversationId 圈子集；右侧当前 run 即全集的 rootGoalId 子集，行为审计视图即全集；actor/result/tool/keyword/from/to 筛选 |
-| 全量回放 | `runtime/src/events/event-bus.ts` `replayAll()` | 扫全部根流（排除 `session-` 锚点），按时间升序，供跨 run 全局审计 |
+| 全量回放 | `runtime/src/events/event-bus.ts` `replayAll()` | 扫全部根流（排除 `session-` 锚点），按时间升序；`extraDirs` 只读并入历史/实验目录 `$MAZI_HOME/experiments/events`，供跨 run 全局审计 |
 | 前端筛选/汇总纯逻辑 | `apps/webui/src/scripts/permission-audit.ts` | 角色/结果/工具/关键词/时间范围过滤 + 计数，带 vitest |
 | 审计面板（当前 run） | `apps/webui/src/components/PermissionAuditPanel.vue` | 右侧栏「权限」页签：角色（用户/Agent/系统）、结果（批准/拒绝/自动放行/待审批/取消/撤销/命中）、决策依据、作用域、goal/step 锚点，可筛选；无 rootGoalId 时走全量 |
 | 用户中心行为链（双视图） | `apps/webui/src/components/BehaviorPage.vue`、`BehaviorAnalysis.vue` | 页内子 tab：「行为分析」恢复 user_behaviors 履历；「权限审计」挂同一面板（无参 = 全量回放），跨全部历史 run |

@@ -163,6 +163,8 @@ export const ASSEMBLY_MODULES: readonly AssemblyModule[] = [
                 deps.options.taskPlanning === true || deps.options.taskPlanner !== undefined;
             ctx.observability.bus = new DefaultEventBus({
                 eventDir: deps.config.eventDir,
+                // 历史/实验事件目录只读并入全局回放，供权限审计全集追溯。
+                extraDirs: [maziPaths().experimentsEventDir],
                 sessionOf: (rootGoalId) => ctx.session.sessionIds.get(rootGoalId),
             });
             ctx.observability.hookRunner = new HookRunner({

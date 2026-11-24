@@ -153,6 +153,8 @@ export interface ChainVerification {
 export interface EventBusOptions {
     /** JSONL 落盘目录；默认取 EVENT_LOG_DIR 环境变量，否则 ./events */
     eventDir?: string;
+    /** 只读附加目录（如历史/实验事件），replayAll 一并收录，不参与写入 */
+    extraDirs?: string[];
     /** 事件写入失败时的错误回调（默认写 stderr） */
     onWriteError?: (error: unknown, event: HarnessEvent) => void;
     /**
@@ -170,6 +172,7 @@ export interface EventBusOptions {
  */
 export class DefaultEventBus implements EventBus {
     private readonly dir: string;
+    private readonly extraDirs: string[];
     private readonly subscribers = new Set<{ filter: EventFilter; sink: EventSink }>();
     private writeChain: Promise<void> = Promise.resolve();
     private readonly onWriteError: (error: unknown, event: HarnessEvent) => void;
@@ -178,6 +181,7 @@ export class DefaultEventBus implements EventBus {
 
     constructor(opts: EventBusOptions = {}) {
         this.dir = opts.eventDir ?? defaultEventDir();
+        this.extraDirs = opts.extraDirs ?? [];
         this.sessionOf = opts.sessionOf;
         this.onWriteError =
             opts.onWriteError ??
@@ -300,18 +304,26 @@ export class DefaultEventBus implements EventBus {
      * 用于跨全部 run 的全局审计；会话锚点只在 replaySession 内参与归因。
      */
     replayAll(): HarnessEvent[] {
+        const events: HarnessEvent[] = [];
+        for (const directory of [this.dir, ...this.extraDirs]) {
+            this.collectFrom(directory, events);
+        }
+        return events.sort((a, b) => a.timestamp - b.timestamp);
+    }
+
+    /** 把单个目录下的根流事件收集进 events（跳过会话锚点与损坏行）。 */
+    private collectFrom(directory: string, events: HarnessEvent[]): void {
         let files: string[];
         try {
-            files = readdirSync(this.dir);
+            files = readdirSync(directory);
         } catch {
-            files = [];
+            return;
         }
-        const events: HarnessEvent[] = [];
         for (const file of files) {
             if (!file.endsWith('.jsonl') || file.startsWith(SESSION_STREAM_PREFIX)) continue;
             let raw: string;
             try {
-                raw = readFileSync(join(this.dir, file), 'utf8');
+                raw = readFileSync(join(directory, file), 'utf8');
             } catch {
                 continue;
             }
@@ -324,7 +336,6 @@ export class DefaultEventBus implements EventBus {
                 }
             }
         }
-        return events.sort((a, b) => a.timestamp - b.timestamp);
     }
 
     /** Verify the per-root hash chain without trusting the writer. */
