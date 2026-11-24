@@ -19,3 +19,4 @@ export * from './secret.js';
 export * from './telemetry.js';
 export * from './trust.js';
 export * from './types.js';
+export * from './v5/decision.js';
