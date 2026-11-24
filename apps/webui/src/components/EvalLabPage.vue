@@ -414,6 +414,10 @@ function time(value) {
     return value ? new Date(value).toLocaleString() : '-';
 }
 
+function eventTotal(counts) {
+    return Object.values(counts ?? {}).reduce((sum, count) => sum + Number(count || 0), 0);
+}
+
 function statusTone(result) {
     return result.success ? 'ok' : 'bad';
 }
@@ -714,13 +718,39 @@ function statusTone(result) {
                             <tbody>
                                 <tr v-for="result in report.results" :key="result.task.id">
                                     <td>
-                                        <span class="eval-status" :class="statusTone(result)">
-                                            {{ result.success ? 'PASS' : 'FAIL' }}
+                                        <span
+                                            class="eval-status"
+                                            :class="
+                                                result.observation.aborted
+                                                    ? 'warn'
+                                                    : statusTone(result)
+                                            "
+                                        >
+                                            {{
+                                                result.observation.aborted
+                                                    ? 'ABORT'
+                                                    : result.success
+                                                      ? 'PASS'
+                                                      : 'FAIL'
+                                            }}
                                         </span>
                                     </td>
                                     <td>
                                         <strong>{{ result.task.title }}</strong>
                                         <span>{{ result.task.id }}</span>
+                                        <span
+                                            v-if="result.observation.runtime"
+                                            class="eval-runtime-evidence"
+                                        >
+                                            {{ result.observation.runtime.turns }} turn ·
+                                            {{
+                                                eventTotal(result.observation.runtime.eventCounts)
+                                            }}
+                                            事件
+                                            <template v-if="result.observation.runtime.resumed">
+                                                · 已恢复
+                                            </template>
+                                        </span>
                                     </td>
                                     <td>{{ percent(result.toolCallAccuracy) }}</td>
                                     <td>{{ result.observation.steps }}</td>

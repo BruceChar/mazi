@@ -348,6 +348,9 @@ Lab 是整页全屏工作区 `ui.view = 'lab'`（侧边栏只保留「Lab」一�
 
 Benchmark 是 30 个 P0 基线任务的离线回归，执行模型与 AB 单臂一致：**可观察、可中止、可从断点继续**，不再是点运行后等最终报告的黑盒。
 
+- **必须是真实 Runtime**：任务通过 `HarnessRuntime.createGoalSession → executeGoalTree` 执行，完整经过 TurnEngine（`turn.start`/`turn.end` 生命周期钩子）→ goal-strategy → `executeTask` → `WorkflowRunner`（think/act/observe 节点）；停止走运行中的 `AbortController`，恢复走 `resumeGoalTree` 重放已落库 Step。Benchmark 不为评测另造轻量执行器，也不 mock WorkflowRunner。
+- **运行证据随报告返回**：每个 Task 的 observation 带 `runtime`（`rootGoalId`、turn 数、是否 resumed、事件类型计数），报告据此可判断失败发生在模型轮、工具/审批、WorkflowRunner 终止还是生命周期收尾，而不是只看一个 PASS/FAIL。
+
 - **后台运行 + 逐任务进度**：`POST /api/eval/runs` 立即返回 `running` 与 `progress[]`（每任务 `pending/running/stopping/stopped/completed/failed`、`rootGoalId`、起止时间、错误）；状态与步骤持续落 SQLite，刷新页面可接管仍在跑的运行。
 - **实时过程**：前端轮询运行详情（约 0.9s）+ 对每个已建会话的任务订阅 `GET /api/events/:rootGoalId?follow=1`，复用 AB 单臂的事件归约展示最近步骤、流式正文与行内审批（允许一次 / 本会话 / 拒绝）。
 - **停止**：`POST /api/eval/runs/:id/stop` 全部或 `{taskId}` 单任务；正在执行的 Goal 在 Step 边界中止，已产生步骤保留。

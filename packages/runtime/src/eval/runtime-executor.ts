@@ -157,8 +157,12 @@ export function observationOf(
         costUsd += step.usage.cost?.totalCostUsd ?? 0;
     }
     const events = runtime.eventBus.replay(run.rootGoalId);
-    const interventions = events.filter((event) => event.type === 'approval.requested').length;
-    const planCount = events.filter((event) => event.type === 'plan.created').length;
+    const eventCounts: Record<string, number> = {};
+    for (const event of events) {
+        eventCounts[event.type] = (eventCounts[event.type] ?? 0) + 1;
+    }
+    const interventions = eventCounts['approval.requested'] ?? 0;
+    const planCount = eventCounts['plan.created'] ?? 0;
     const last = run.result.tasks.at(-1);
     return {
         ok: !aborted && run.result.ok,
@@ -185,6 +189,12 @@ export function observationOf(
         outputTokens,
         ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
         costUsd,
+        runtime: {
+            rootGoalId: run.rootGoalId,
+            turns: eventCounts['turn.started'] ?? 0,
+            resumed: (eventCounts['run.resumed'] ?? 0) > 0,
+            eventCounts,
+        },
         ...(last?.finalMessage !== undefined ? { finalAnswer: last.finalMessage } : {}),
         ...(last?.reason !== undefined ? { failureEvidence: [`executor:${last.reason}`] } : {}),
         ...(aborted ? { aborted: true } : {}),

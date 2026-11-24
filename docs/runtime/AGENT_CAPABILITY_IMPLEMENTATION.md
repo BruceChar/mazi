@@ -111,6 +111,7 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 - `POST /api/eval/runs/:id/stop`：协作式停止（body `taskId` 缺省 = 全部）；执行中的任务在 Step 边界中止并保留断点。
 - `POST /api/eval/runs/:id/resume`：从已落库 Step 继续被停止的任务（body `taskIds` 缺省 = 所有 stopped/pending）。
 - 逐任务实时过程复用 `GET /api/events/:rootGoalId?follow=1` SSE；审批沿用 `POST /api/approvals/:invocationId`。
+- Benchmark 任务经真实 `HarnessRuntime` 执行（TurnEngine 生命周期钩子 → goal-strategy `executeTask` → `WorkflowRunner`），停止/恢复分别走 `stopGoalTree`（AbortController）与 `resumeGoalTree`（Step 重放）；报告 observation 带 `runtime` 证据（turn 数、resumed、事件计数）。
 - `GET /api/wiki`：项目 Wiki 复合视图（v2 repository 文档与 claims，兼容旧快照、变更日志和项目黑板）。
 - `POST /api/wiki/reconcile`：从项目 Wiki 入口执行项目知识源漂移检查。
 - `POST /api/wiki/init`：启动隐藏 Agent 读取项目并完成首次 Wiki 填库。

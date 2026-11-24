@@ -62,6 +62,17 @@ export interface EvalMemoryMetrics {
     crossProjectLeaks?: number;
 }
 
+/** 一次评测任务在真实 Runtime 里留下的证据（用于确认确实走了 WorkflowRunner/生命周期）。 */
+export interface EvalRuntimeEvidence {
+    rootGoalId: string;
+    /** turn.started 次数：证明经 TurnEngine 且生命周期边界已进入。 */
+    turns: number;
+    /** 本次是否来自 resumeGoalTree（断点续跑）。 */
+    resumed: boolean;
+    /** 事件类型计数（step.started、tool.*、approval.*、goal.ended…）。 */
+    eventCounts: Record<string, number>;
+}
+
 export interface EvalObservation {
     ok: boolean;
     acceptance: EvalAcceptanceResult;
@@ -77,6 +88,7 @@ export interface EvalObservation {
     promptTokens?: number;
     finalAnswer?: string;
     memory?: EvalMemoryMetrics;
+    runtime?: EvalRuntimeEvidence;
     failureCategory?: FailureCategory;
     failureEvidence?: string[];
     error?: string;
