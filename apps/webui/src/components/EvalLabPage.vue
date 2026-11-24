@@ -1,7 +1,14 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
-import { api } from '../api.js';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { api, API_BASE } from '../api.js';
 import LineIcon from '../assets/LineIcon.vue';
+import {
+    ARM_EVENT_TYPES,
+    applyArmEvent,
+    armStreamText,
+    initialArmLive,
+} from '../scripts/arm-live.js';
+import { respondApproval } from '../scripts/store.js';
 
 const props = defineProps({
     models: { type: Array, default: () => [] },
@@ -20,7 +27,17 @@ const difficulty = ref('all');
 const modelId = ref('');
 const promptPackId = ref('');
 const loading = ref(false);
+const starting = ref(false);
+const stopBusy = ref(false);
+const resumeBusy = ref(false);
 const error = ref('');
+
+/** taskId → ArmLive：每个评测任务的实时投影（复用 AB 单臂的事件归约）。 */
+const taskLive = reactive({});
+const sources = new Map();
+let pollTimer = null;
+let clockTimer = null;
+const nowTick = ref(Date.now());
 
 const filteredTasks = computed(() => {
     const needle = query.value.trim().toLowerCase();
@@ -33,7 +50,6 @@ const filteredTasks = computed(() => {
             .includes(needle);
     });
 });
-
 const selectedSet = computed(() => new Set(selectedIds.value));
 const report = computed(() => activeRun.value?.report ?? null);
 const failures = computed(
@@ -46,6 +62,29 @@ const difficultyRows = computed(() =>
     })),
 );
 
+const running = computed(() => activeRun.value?.status === 'running');
+const activeProgress = computed(() => activeRun.value?.progress ?? []);
+const doneCount = computed(
+    () => activeProgress.value.filter((item) => item.status === 'completed').length,
+);
+const liveCount = computed(
+    () =>
+        activeProgress.value.filter(
+            (item) => item.status === 'running' || item.status === 'stopping',
+        ).length,
+);
+const stoppedCount = computed(
+    () => activeProgress.value.filter((item) => item.status === 'stopped').length,
+);
+const resumable = computed(() =>
+    activeProgress.value.filter(
+        (item) => item.status === 'stopped' || item.status === 'pending',
+    ),
+);
+const canResume = computed(
+    () => activeRun.value?.status === 'aborted' && resumable.value.length > 0,
+);
+
 watch(
     () => props.models,
     (models) => {
@@ -56,7 +95,19 @@ watch(
     { immediate: true },
 );
 
-onMounted(load);
+onMounted(() => {
+    clockTimer = setInterval(() => {
+        nowTick.value = Date.now();
+    }, 1000);
+    void load();
+});
+
+onBeforeUnmount(() => {
+    stopPolling();
+    closeStreams();
+    if (clockTimer !== null) clearInterval(clockTimer);
+    clockTimer = null;
+});
 
 async function load() {
     loading.value = true;
@@ -72,6 +123,11 @@ async function load() {
         promptPacks.value = packData.packs ?? [];
         if (selectedIds.value.length === 0 && tasks.value[0]) {
             selectedIds.value = [tasks.value[0].id];
+        }
+        // 刷新回到页面时接管仍在后台执行的运行，继续显示进度与事件流。
+        const latest = runs.value[0];
+        if (latest && latest.status === 'running') {
+            await openRun(latest.runId);
         }
     } catch (err) {
         error.value = String(err);
@@ -95,9 +151,10 @@ function toggleVisible() {
 }
 
 async function runSelected() {
-    if (selectedIds.value.length === 0 || loading.value) return;
-    loading.value = true;
+    if (selectedIds.value.length === 0 || starting.value || running.value) return;
+    starting.value = true;
     error.value = '';
+    resetLive();
     try {
         activeRun.value = await api('/api/eval/runs', {
             method: 'POST',
@@ -109,18 +166,98 @@ async function runSelected() {
                 ...(props.workspace ? { workspace: props.workspace } : {}),
             }),
         });
-        runs.value = (await api('/api/eval/runs')).runs ?? [];
+        ensureStreams();
+        startPolling(activeRun.value.runId);
+        void loadRuns();
     } catch (err) {
         error.value = String(err);
         await loadRuns();
     } finally {
-        loading.value = false;
+        starting.value = false;
     }
 }
 
 async function openRun(runId) {
+    stopPolling();
+    resetLive();
     try {
-        activeRun.value = await api(`/api/eval/runs/${encodeURIComponent(runId)}`);
+        const detail = await api(`/api/eval/runs/${encodeURIComponent(runId)}`);
+        activeRun.value = detail;
+        if (detail.status === 'running') {
+            ensureStreams();
+            startPolling(detail.runId);
+        }
+    } catch (err) {
+        error.value = String(err);
+    }
+}
+
+async function stopActive() {
+    const run = activeRun.value;
+    if (!run || run.status !== 'running' || stopBusy.value) return;
+    stopBusy.value = true;
+    error.value = '';
+    try {
+        const response = await api(`/api/eval/runs/${encodeURIComponent(run.runId)}/stop`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+        });
+        if (response.run) activeRun.value = response.run;
+        ensureStreams();
+    } catch (err) {
+        error.value = String(err);
+    } finally {
+        stopBusy.value = false;
+    }
+}
+
+async function stopTask(taskId) {
+    const run = activeRun.value;
+    if (!run || run.status !== 'running') return;
+    error.value = '';
+    try {
+        const response = await api(`/api/eval/runs/${encodeURIComponent(run.runId)}/stop`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ taskId }),
+        });
+        if (response.run) activeRun.value = response.run;
+    } catch (err) {
+        error.value = String(err);
+    }
+}
+
+async function resumeActive() {
+    const run = activeRun.value;
+    if (!run || resumeBusy.value) return;
+    resumeBusy.value = true;
+    error.value = '';
+    resetLive();
+    try {
+        activeRun.value = await api(`/api/eval/runs/${encodeURIComponent(run.runId)}/resume`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+        });
+        ensureStreams();
+        startPolling(activeRun.value.runId);
+    } catch (err) {
+        error.value = String(err);
+    } finally {
+        resumeBusy.value = false;
+    }
+}
+
+async function decide(taskId, approval, decision, scope) {
+    try {
+        await respondApproval(approval.invocationId, decision, scope);
+        const live = taskLive[taskId];
+        if (live) {
+            live.approvals = live.approvals.filter(
+                (item) => item.invocationId !== approval.invocationId,
+            );
+        }
     } catch (err) {
         error.value = String(err);
     }
@@ -134,13 +271,139 @@ async function loadRuns() {
     }
 }
 
+function startPolling(runId) {
+    stopPolling();
+    pollTimer = setInterval(() => {
+        void refreshActive(runId);
+    }, 900);
+}
+
+function stopPolling() {
+    if (pollTimer !== null) clearInterval(pollTimer);
+    pollTimer = null;
+}
+
+async function refreshActive(runId) {
+    if (!activeRun.value || activeRun.value.runId !== runId) return;
+    try {
+        const detail = await api(`/api/eval/runs/${encodeURIComponent(runId)}`);
+        if (!activeRun.value || activeRun.value.runId !== runId) return;
+        activeRun.value = detail;
+        ensureStreams();
+        if (detail.status !== 'running') {
+            stopPolling();
+            closeStreams();
+            void loadRuns();
+        }
+    } catch (err) {
+        error.value = String(err);
+    }
+}
+
+function ensureStreams() {
+    const progress = activeProgress.value;
+    const live = new Map(
+        progress
+            .filter((item) => item.rootGoalId && (item.status === 'running' || item.status === 'stopping'))
+            .map((item) => [item.taskId, item.rootGoalId]),
+    );
+    for (const [taskId, source] of sources) {
+        if (!live.has(taskId)) {
+            source.close();
+            sources.delete(taskId);
+        }
+    }
+    for (const [taskId, rootGoalId] of live) {
+        if (sources.has(taskId)) continue;
+        if (taskLive[taskId] === undefined) taskLive[taskId] = initialArmLive('running');
+        const source = new EventSource(
+            `${API_BASE}/api/events/${encodeURIComponent(rootGoalId)}?follow=1`,
+        );
+        const consume = (event) => {
+            let parsed;
+            try {
+                parsed = JSON.parse(event.data);
+            } catch {
+                return;
+            }
+            const current = taskLive[taskId] ?? initialArmLive('running');
+            taskLive[taskId] = applyArmEvent(current, parsed);
+        };
+        for (const type of ARM_EVENT_TYPES) source.addEventListener(type, consume);
+        source.onerror = () => {
+            // EventSource 自带重连；后端收尾时连接关闭即可。
+        };
+        sources.set(taskId, source);
+    }
+}
+
+function closeStreams() {
+    for (const source of sources.values()) source.close();
+    sources.clear();
+}
+
+function resetLive() {
+    stopPolling();
+    closeStreams();
+    for (const key of Object.keys(taskLive)) delete taskLive[key];
+}
+
+function recentSteps(taskId) {
+    const live = taskLive[taskId];
+    return live ? live.steps.slice(-4) : [];
+}
+
+function streamTextOf(taskId) {
+    const live = taskLive[taskId];
+    return live ? armStreamText(live).slice(-600) : '';
+}
+
+function approvalsOf(taskId) {
+    return taskLive[taskId]?.approvals ?? [];
+}
+
+function taskStatusLabel(status) {
+    return (
+        {
+            pending: '等待',
+            running: '执行中',
+            stopping: '停止中',
+            stopped: '已停止',
+            completed: '完成',
+            failed: '失败',
+        }[status] ?? status
+    );
+}
+
+function taskStatusTone(status) {
+    if (status === 'completed') return 'ok';
+    if (status === 'failed') return 'bad';
+    if (status === 'stopped' || status === 'stopping') return 'warn';
+    if (status === 'running') return 'live';
+    return '';
+}
+
+function runTone(status) {
+    if (status === 'completed') return 'ok';
+    if (status === 'running') return 'live';
+    if (status === 'aborted') return 'warn';
+    return 'bad';
+}
+
+function elapsedOf(item) {
+    if (!item.startedAt) return '-';
+    return duration((item.endedAt ?? nowTick.value) - item.startedAt);
+}
+
 function percent(value) {
     return `${(Number(value || 0) * 100).toFixed(1)}%`;
 }
 
 function duration(ms) {
     const value = Number(ms || 0);
-    return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`;
+    if (value < 1000) return `${Math.round(value)}ms`;
+    if (value < 60000) return `${(value / 1000).toFixed(1)}s`;
+    return `${Math.floor(value / 60000)}m${Math.round((value % 60000) / 1000)}s`;
 }
 
 function money(value) {
@@ -237,15 +500,132 @@ function statusTone(result) {
                             <strong :title="workspace">{{ workspace || '服务端当前工作区' }}</strong>
                         </div>
                     </div>
-                    <button
-                        class="eval-run"
-                        type="button"
-                        :disabled="loading || selectedIds.length === 0"
-                        @click="runSelected"
-                    >
-                        <LineIcon name="play" :size="15" />
-                        {{ loading ? '评测中…' : `运行已选 ${selectedIds.length} 项` }}
-                    </button>
+                    <div class="eval-run-actions">
+                        <button
+                            class="eval-run"
+                            type="button"
+                            :disabled="starting || running || selectedIds.length === 0"
+                            @click="runSelected"
+                        >
+                            <LineIcon name="play" :size="15" />
+                            {{
+                                running
+                                    ? '运行中…'
+                                    : starting
+                                      ? '启动中…'
+                                      : `运行已选 ${selectedIds.length} 项`
+                            }}
+                        </button>
+                    </div>
+                </section>
+
+                <section v-if="activeRun" class="eval-progress">
+                    <div class="eval-progress-head">
+                        <span class="eval-status" :class="runTone(activeRun.status)">
+                            {{ activeRun.status }}
+                        </span>
+                        <strong>运行进度</strong>
+                        <span class="eval-progress-summary">
+                            {{ doneCount }}/{{ activeProgress.length }} 完成 ·
+                            {{ liveCount }} 执行中 · {{ stoppedCount }} 已停止
+                        </span>
+                        <code class="eval-run-id">{{ activeRun.runId.slice(0, 8) }}</code>
+                        <button
+                            v-if="running"
+                            type="button"
+                            class="eval-stop"
+                            :disabled="stopBusy"
+                            @click="stopActive"
+                        >
+                            {{ stopBusy ? '停止中…' : '全部停止' }}
+                        </button>
+                        <button
+                            v-if="canResume"
+                            type="button"
+                            class="eval-resume"
+                            :disabled="resumeBusy"
+                            @click="resumeActive"
+                        >
+                            {{ resumeBusy ? '恢复中…' : `从断点继续 ${resumable.length} 项` }}
+                        </button>
+                    </div>
+
+                    <div class="eval-progress-list">
+                        <article
+                            v-for="item in activeProgress"
+                            :key="item.taskId"
+                            class="eval-progress-task"
+                        >
+                            <header>
+                                <span class="eval-status" :class="taskStatusTone(item.status)">
+                                    {{ taskStatusLabel(item.status) }}
+                                </span>
+                                <strong>{{ item.title }}</strong>
+                                <span class="eval-elapsed">{{ elapsedOf(item) }}</span>
+                                <button
+                                    v-if="item.status === 'running' && running"
+                                    type="button"
+                                    class="eval-task-stop"
+                                    @click="stopTask(item.taskId)"
+                                >
+                                    停止此任务
+                                </button>
+                            </header>
+                            <div class="eval-progress-meta">
+                                <code v-if="item.rootGoalId">{{ item.rootGoalId.slice(0, 8) }}</code>
+                                <span v-if="item.error" class="eval-task-error">{{ item.error }}</span>
+                                <span v-if="item.status === 'stopped'" class="eval-task-hint">
+                                    已停止，可从断点继续（保留已完成步骤）
+                                </span>
+                            </div>
+
+                            <ol v-if="recentSteps(item.taskId).length" class="eval-live-steps">
+                                <li
+                                    v-for="step in recentSteps(item.taskId)"
+                                    :key="step.stepId"
+                                    :class="{ active: step.status === 'active' }"
+                                >
+                                    <span class="eval-step-kind">{{ step.kind }}</span>
+                                    <span class="eval-step-title">{{ step.title }}</span>
+                                </li>
+                            </ol>
+                            <pre v-if="streamTextOf(item.taskId)" class="eval-stream">{{
+                                streamTextOf(item.taskId)
+                            }}</pre>
+
+                            <div
+                                v-for="approval in approvalsOf(item.taskId)"
+                                :key="approval.invocationId"
+                                class="eval-approval"
+                            >
+                                <div>
+                                    <strong>等待审批 · {{ approval.toolName || '工具' }}</strong>
+                                    <p>{{ approval.summary || '该步骤需要人工确认后才会继续。' }}</p>
+                                </div>
+                                <div class="eval-approval-actions">
+                                    <button
+                                        type="button"
+                                        @click="decide(item.taskId, approval, 'granted', 'once')"
+                                    >
+                                        允许一次
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="decide(item.taskId, approval, 'granted', 'session')"
+                                    >
+                                        本会话
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="danger"
+                                        @click="decide(item.taskId, approval, 'rejected')"
+                                    >
+                                        拒绝
+                                    </button>
+                                </div>
+                            </div>
+                        </article>
+                    </div>
                 </section>
 
                 <section v-if="report" class="eval-report">
@@ -352,10 +732,10 @@ function statusTone(result) {
                     </article>
                 </section>
 
-                <section v-else class="eval-empty">
+                <section v-else-if="!activeRun" class="eval-empty">
                     <LineIcon name="observation" :size="30" />
                     <strong>选择一个或多个任务后运行</strong>
-                    <p>报告会展示成功率、工具准确率、接管率、P50/P95、Token、成本和失败归因。</p>
+                    <p>运行中会逐任务展示步骤、流式输出与审批，可随时停止并从断点继续。</p>
                 </section>
 
                 <section class="eval-history">
@@ -371,7 +751,7 @@ function statusTone(result) {
                         :class="{ active: run.runId === activeRun?.runId }"
                         @click="openRun(run.runId)"
                     >
-                        <span class="eval-status" :class="run.status === 'completed' ? 'ok' : 'bad'">
+                        <span class="eval-status" :class="runTone(run.status)">
                             {{ run.status }}
                         </span>
                         <span>{{ time(run.startedAt) }}</span>
@@ -406,7 +786,9 @@ function statusTone(result) {
 .eval-title,
 .eval-list-head,
 .eval-runner,
-.eval-run-row {
+.eval-run-row,
+.eval-progress-head,
+.eval-progress-task header {
     display: flex;
     align-items: center;
 }
@@ -431,7 +813,11 @@ function statusTone(result) {
 }
 .eval-actions button,
 .eval-list-head button,
-.eval-run {
+.eval-run,
+.eval-stop,
+.eval-resume,
+.eval-task-stop,
+.eval-approval-actions button {
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-panel);
@@ -582,20 +968,176 @@ function statusTone(result) {
     white-space: nowrap;
     font-size: 11px;
 }
+.eval-run-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
 .eval-run {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    flex-shrink: 0;
     background: var(--accent);
     color: #fff;
     border-color: transparent;
     padding: 7px 12px;
 }
 .eval-run:disabled,
-.eval-actions button:disabled {
+.eval-actions button:disabled,
+.eval-stop:disabled,
+.eval-resume:disabled {
     opacity: 0.55;
     cursor: default;
+}
+.eval-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+}
+.eval-progress-head {
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.eval-progress-head strong {
+    font-size: 12px;
+}
+.eval-progress-summary,
+.eval-run-id,
+.eval-elapsed {
+    color: var(--fg-tertiary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+.eval-run-id {
+    margin-left: auto;
+}
+.eval-stop {
+    border-color: color-mix(in srgb, var(--error) 40%, var(--border));
+    color: var(--error);
+}
+.eval-resume {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    color: var(--accent);
+}
+.eval-progress-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 360px;
+    overflow-y: auto;
+}
+.eval-progress-task {
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.eval-progress-task header {
+    gap: 8px;
+}
+.eval-progress-task header strong {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+}
+.eval-task-stop {
+    padding: 2px 7px;
+    font-size: 10px;
+    color: var(--warn);
+}
+.eval-progress-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: var(--fg-tertiary);
+}
+.eval-task-error {
+    color: var(--error);
+}
+.eval-task-hint {
+    color: var(--warn);
+}
+.eval-live-steps {
+    margin: 0;
+    padding-left: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.eval-live-steps li.active .eval-step-title {
+    color: var(--fg);
+}
+.eval-step-kind {
+    display: inline-block;
+    min-width: 74px;
+    color: var(--fg-tertiary);
+    font-size: 10px;
+}
+.eval-step-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.eval-live-steps li {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    list-style: none;
+}
+.eval-stream {
+    margin: 0;
+    max-height: 110px;
+    overflow-y: auto;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--fg-secondary);
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.eval-approval {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--border));
+    background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+.eval-approval strong {
+    font-size: 11px;
+}
+.eval-approval p {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: var(--fg-secondary);
+}
+.eval-approval-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.eval-approval-actions button {
+    padding: 2px 6px;
+    font-size: 10px;
+}
+.eval-approval-actions button.danger {
+    color: var(--error);
 }
 .eval-report {
     display: flex;
@@ -675,6 +1217,14 @@ function statusTone(result) {
 .eval-status.bad {
     background: color-mix(in srgb, var(--error) 14%, transparent);
     color: var(--error);
+}
+.eval-status.warn {
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    color: var(--warn);
+}
+.eval-status.live {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
 }
 .eval-failures {
     display: flex;

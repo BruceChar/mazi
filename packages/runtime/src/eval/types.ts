@@ -80,6 +80,8 @@ export interface EvalObservation {
     failureCategory?: FailureCategory;
     failureEvidence?: string[];
     error?: string;
+    /** 运行被协作式停止（可 resume）；区别于失败。 */
+    aborted?: boolean;
 }
 
 export interface EvalExecutionContext {
@@ -87,6 +89,8 @@ export interface EvalExecutionContext {
     modelId?: string;
     promptPackId?: string;
     permissionCeiling?: PermissionLevel;
+    /** 已停止任务的 rootGoalId：传了就 resume，不再新建会话。 */
+    resumeGoalId?: string;
 }
 
 export type EvalTaskExecutor = (context: EvalExecutionContext) => Promise<EvalObservation>;

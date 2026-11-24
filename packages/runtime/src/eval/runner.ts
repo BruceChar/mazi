@@ -83,6 +83,9 @@ export async function runEvalTask(
                 ...(options.permissionCeiling !== undefined
                     ? { permissionCeiling: options.permissionCeiling }
                     : {}),
+                ...(options.resumeGoalId !== undefined
+                    ? { resumeGoalId: options.resumeGoalId }
+                    : {}),
             }),
             options.timeoutMs ?? 0,
             task.id,

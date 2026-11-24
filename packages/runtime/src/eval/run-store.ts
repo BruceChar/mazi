@@ -1,7 +1,27 @@
 import { DatabaseSync } from 'node:sqlite';
+import type { PermissionLevel } from '@mazi/core';
 import type { EvalReport } from './types.js';
 
-export type EvalRunStatus = 'running' | 'completed' | 'failed';
+export type EvalRunStatus = 'running' | 'completed' | 'failed' | 'aborted';
+
+/** 单任务在 Benchmark 运行中的状态；`stopped` 保留 rootGoalId，可从断点恢复。 */
+export type EvalRunTaskStatus =
+    | 'pending'
+    | 'running'
+    | 'stopping'
+    | 'stopped'
+    | 'completed'
+    | 'failed';
+
+export interface EvalRunTaskProgress {
+    taskId: string;
+    title: string;
+    status: EvalRunTaskStatus;
+    rootGoalId?: string;
+    startedAt?: number;
+    endedAt?: number;
+    error?: string;
+}
 
 export interface EvalRunRecord {
     runId: string;
@@ -12,6 +32,13 @@ export interface EvalRunRecord {
     modelId?: string;
     promptPackId?: string;
     workspace?: string;
+    /** 运行级权限上限；恢复运行时沿用，保证中断前后条件一致。 */
+    permissionCeiling?: PermissionLevel;
+    /**
+     * 逐任务进度：控制台据此展示“正在跑哪个任务、停在哪、从哪继续”。
+     * 历史运行没有该字段时按 taskIds + report 回退投影。
+     */
+    progress?: EvalRunTaskProgress[];
     report?: EvalReport;
     error?: string;
 }

@@ -188,8 +188,23 @@ describe('P0 eval harness', () => {
                     },
                 };
             },
+            async createGoalSession() {
+                return { rootGoalId: 'r1', goalId: 'g1' };
+            },
+            async executeGoalTree() {
+                return (await this.runGoalSession()).result;
+            },
+            async resumeGoalTree() {
+                return (await this.runGoalSession()).result;
+            },
+            stopGoalTree() {
+                return false;
+            },
+            isGoalRunning() {
+                return false;
+            },
             async goalSnapshot() {
-                throw new Error('unused');
+                return (await this.runGoalSession()).snapshot;
             },
             eventBus: {
                 replay: () => [

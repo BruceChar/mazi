@@ -22,7 +22,19 @@ export class EvalController {
 
     @Post('runs')
     run(@Body() body: Record<string, unknown>) {
-        return this.evaluations.run(body);
+        return this.evaluations.start(body);
+    }
+
+    /** 协作式停止：body.taskId 缺省 = 全部任务；返回当前进度。 */
+    @Post('runs/:id/stop')
+    stop(@Param('id') runId: string, @Body() body: Record<string, unknown>) {
+        return this.evaluations.stop(runId, body);
+    }
+
+    /** 从断点继续被停止的任务：body.taskIds 缺省 = 所有 stopped/pending。 */
+    @Post('runs/:id/resume')
+    resume(@Param('id') runId: string, @Body() body: Record<string, unknown>) {
+        return this.evaluations.resume(runId, body);
     }
 
     @Get('runs')

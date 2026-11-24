@@ -106,8 +106,11 @@ P2 当前边界：ReplanPlanner 需要宿主/模型侧注入，尚无默认 LLM 
 - `GET /api/eval/sessions/:id`：查询单次 root goal 的派生评测。
 - `POST /api/eval/sessions/reconcile`：从已有 conversation → root goal → Trace 回填评测。
 - `GET /api/eval/tasks`：读取 30 个 P0 Benchmark 基线任务。
-- `POST /api/eval/runs`：运行指定 Eval Task 并返回报告；运行中、完成和失败状态均落 SQLite。
-- `GET /api/eval/runs` / `GET /api/eval/runs/:id/report`：查询运行和完整报告。
+- `POST /api/eval/runs`：创建后台运行并立刻返回逐任务进度（running + `progress[]`），状态与步骤落 SQLite。
+- `GET /api/eval/runs` / `GET /api/eval/runs/:id`：查询运行列表与详情（含 `progress[]`、`rootGoalId`）；`GET /api/eval/runs/:id/report` 返回完整报告。
+- `POST /api/eval/runs/:id/stop`：协作式停止（body `taskId` 缺省 = 全部）；执行中的任务在 Step 边界中止并保留断点。
+- `POST /api/eval/runs/:id/resume`：从已落库 Step 继续被停止的任务（body `taskIds` 缺省 = 所有 stopped/pending）。
+- 逐任务实时过程复用 `GET /api/events/:rootGoalId?follow=1` SSE；审批沿用 `POST /api/approvals/:invocationId`。
 - `GET /api/wiki`：项目 Wiki 复合视图（v2 repository 文档与 claims，兼容旧快照、变更日志和项目黑板）。
 - `POST /api/wiki/reconcile`：从项目 Wiki 入口执行项目知识源漂移检查。
 - `POST /api/wiki/init`：启动隐藏 Agent 读取项目并完成首次 Wiki 填库。
