@@ -24,10 +24,17 @@
 | 目标轴 routine 模型 | `v5/routine-model.ts` | M9 |
 | 决策审计记录 / 红队 17 项 | `v5/audit.ts`、`test/authz-v5-redteam.test.ts` | M10 |
 
+**runtime 已落地（适配层，旧 v3 装配未动）**：
+
+| 模块 | 文件 | 说明 |
+| --- | --- | --- |
+| 工具调用 → v5 Op 映射 + `v5Decide` | `runtime/src/tool-gateway/v5-adapter.ts` | R1，保守映射，object 缺省 unknown |
+| 决策上下文组装（memory/blocked/routine/correction/trace → `DecisionContext`） | `runtime/src/tool-gateway/v5-context.ts` | R2，v5 网关切换装配入口 |
+
 **待接线（下一阶段，需先写集成测试再改装配）**：
 
-1. runtime：用 `decide()` 替换 `gateway.ts` 九阶段 gated 判定；`grantForPermissionLevel` 六档与 `derive` 档位 meet 删除；`permission-gateway.test.ts` 同步重写。
-2. API：`approvals.controller.ts` 结算字段扩展（拒绝进红线 / typedConfirm / correction）。
+1. runtime 网关切换：`RuntimeToolGateway` 改用 `v5Decide` + `V5RuntimeContext`；物理删除 `grantForPermissionLevel` 六档与 `derive` 档位 meet；`permission-gateway.test.ts` 同步重写（产品可见变更，需先确认档位 UI 去留）。
+2. API：`approvals.controller.ts` 结算字段扩展（拒绝进红线 / typedConfirm / correction），经 `settleApproval` 落 memory/blocked。
 3. WebUI：移除档位选择器；`ApprovalPrompt.vue` 改响应集合；新增"最近自动执行"留痕面板。
 4. 解析器接入真实 git 事实（tracked / dirty / gitignore）与 shell 完整语法。
 
