@@ -166,7 +166,7 @@ Goal.routing?: {
 }
 ```
 
-Trace 面板有独立的「Router 决策」区，展示 route / loopMode、taskKind、risk、prompt pack、planner、verifier 与 `reason`，不依赖契约展开。直答路径也必须写入 `route:'direct'` 的 Router 审计；它没有 NodeRun，也不参与节点步数。
+Trace 面板有独立的「Router 决策」区，展示 route / loopMode、taskKind、risk、prompt pack、planner、verifier 与 `reason`，不依赖契约展开。直答路径也必须写入 `route:'direct'` 的 Router 审计；它没有 NodeRun，也不参与节点步数。`taskKind` 只由用户请求语义分类；`shell.run/sd/git/xh` 等工具可用性不代表任务类型，不能据此把所有请求判成 coding 或 research。
 
 ## 九、验收口径
 

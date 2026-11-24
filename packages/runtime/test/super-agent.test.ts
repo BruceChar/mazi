@@ -13,6 +13,13 @@ describe('SuperAgent', () => {
         expect(classifyTaskKind('你好')).toBe('general');
     });
 
+    it('工具可用性不改变任务分类', () => {
+        const universalTools = ['shell.run', 'sd', 'git', 'xh'];
+        expect(classifyTaskKind('你好', universalTools)).toBe('general');
+        expect(classifyTaskKind('帮我写一份周报', universalTools)).toBe('general');
+        expect(classifyTaskKind('调研 benchmark 来源', universalTools)).toBe('research');
+    });
+
     it('selects a project prompt and records planner, verifier and memory plans', () => {
         const registry = new PromptPackRegistry([
             ...DEFAULT_PROMPT_PACKS,

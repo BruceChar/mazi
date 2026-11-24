@@ -20,15 +20,34 @@ const MEMORY_WORDS = ['上次', '以前', '之前', '继续', '那个项目', '�
 const DATA_WORDS = ['sql', '数据库', 'schema', '统计', '分析数据', 'dataset', 'analytics'];
 const RESEARCH_WORDS = ['调研', '研究', '搜索', '资料', '来源', 'benchmark', 'research'];
 const DEBUG_WORDS = ['bug', '失败', '报错', '修复', '测试失败', 'debug', 'fix'];
-const CODING_WORDS = ['代码', '实现', '重构', '测试', '接口', '组件', 'code', 'compile', 'build'];
+const CODING_WORDS = [
+    '代码',
+    '实现',
+    '重构',
+    '测试',
+    '接口',
+    '组件',
+    '脚本',
+    '函数',
+    '编程',
+    'code',
+    'compile',
+    'build',
+    'script',
+    'programming',
+];
 
 function containsAny(text: string, words: readonly string[]): boolean {
     return words.some((word) => text.includes(word));
 }
 
+/**
+ * 任务分类只看用户请求的语义。工具可用性不是任务类型：`shell.run` / `sd` / `git` / `xh`
+ * 是通用执行面，任何会话都可能具备，不能据此把所有请求都判成 coding 或 research。
+ */
 export function classifyTaskKind(
     input: string,
-    tools: readonly string[] = [],
+    _tools: readonly string[] = [],
     riskLevel: PromptRiskLevel = 'read-only',
 ): PromptTaskKind {
     const text = input.toLowerCase();
@@ -42,13 +61,8 @@ export function classifyTaskKind(
     if (containsAny(text, MEMORY_WORDS)) return 'memory';
     if (containsAny(text, DATA_WORDS)) return 'data';
     if (containsAny(text, DEBUG_WORDS)) return 'debug';
-    if (
-        containsAny(text, CODING_WORDS) ||
-        tools.some((tool) => tool === 'sd' || tool === 'shell.run' || tool === 'git')
-    ) {
-        return 'coding';
-    }
-    if (containsAny(text, RESEARCH_WORDS) || tools.includes('xh')) return 'research';
+    if (containsAny(text, CODING_WORDS)) return 'coding';
+    if (containsAny(text, RESEARCH_WORDS)) return 'research';
     return 'general';
 }
 
