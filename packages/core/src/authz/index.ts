@@ -24,3 +24,5 @@ export * from './v5/classify.js';
 export * from './v5/parser.js';
 export * from './v5/fingerprint.js';
 export * from './v5/memory-store.js';
+export * from './v5/attest.js';
+export * from './v5/blocked-store.js';
