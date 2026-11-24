@@ -63,7 +63,7 @@ verified = 2026-11-24
 text = "Opening a project wiki from the project menu switches the global workspace so the top bar shows that wiki project's path."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/App.vue", oid = "44388c45238dc3a03038cc6e01fd5e085d5798e1" },
+  { file = "apps/webui/src/App.vue", oid = "8667d23ec00d36a584fe668cd0628be609d43710" },
 ]
 established = 2026-11-07
 verified = 2026-11-24
@@ -324,9 +324,9 @@ text = "The right-side Trace panel preserves an explicit audit anchor for the se
 status = "active"
 evidence = [
   { file = "apps/webui/src/scripts/audit.ts", oid = "0fdada53ecaed13e5f8c809d259d0f7698bf446b" },
-  { file = "apps/webui/src/components/RightPanel.vue", oid = "635072e7620aa58a74837f0486ffbf1ab3ef64eb" },
+  { file = "apps/webui/src/components/RightPanel.vue", oid = "3bb60efe9ebf2782bc3f6bdf00e12b233cf7bb3d" },
   { file = "apps/webui/test/audit.test.ts", oid = "f6e7e0603f404a84a48c598715e592f50cf8b5d1" },
-  { file = "docs/webui.md", oid = "62dfb01e99905d8405b71c6c509d6fb06f84317c" },
+  { file = "docs/webui.md", oid = "7059d2441cfef1fab2bba865e7662f890597428e" },
   { file = "docs/web/观测看板设计.md", oid = "41a3b944b04a1e0bec5d07470edb0211b0d32496" },
 ]
 established = 2026-11-09
