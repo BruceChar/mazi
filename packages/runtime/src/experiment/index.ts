@@ -1,3 +1,4 @@
+export * from './context.js';
 export * from './fold.js';
 export * from './metrics.js';
 export * from './runner.js';

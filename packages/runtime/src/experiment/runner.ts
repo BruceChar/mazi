@@ -18,8 +18,9 @@ import type {
     ExperimentView,
 } from '@mazi/core';
 import { compareArms, ulid } from '@mazi/core';
-import type { RunOptions } from '../harness/conversation.js';
+import type { ConversationTurn, RunOptions } from '../harness/conversation.js';
 import type { HarnessRuntime } from '../harness/index.js';
+import { contextHistoryOf } from './context.js';
 import { listExperiments, loadExperiment } from './fold.js';
 import { classifyArmResult, collectMetrics, failedMetrics } from './metrics.js';
 import type { ExperimentEventType, ExperimentStore } from './store.js';
@@ -66,10 +67,14 @@ export class ExperimentRunner {
      */
     async create(spec: ExperimentSpec): Promise<ExperimentView> {
         const experimentId = ulid();
+        // 关联实验的上下文只在建会话时注入一次：两臂拿到同一份历史。
+        const history = await this.linkedHistory(spec);
         await this.append(experimentId, 'experiment.created', { spec });
         for (const arm of spec.arms) {
             const resolved = this.resolveArm(spec, arm);
-            const created = await this.harness.createGoalSession(spec.input, resolved.options);
+            const options =
+                history === undefined ? resolved.options : { ...resolved.options, history };
+            const created = await this.harness.createGoalSession(spec.input, options);
             await this.append(experimentId, 'arm.planned', {
                 label: arm.label,
                 rootGoalId: created.rootGoalId,
@@ -281,6 +286,19 @@ export class ExperimentRunner {
     }
 
     /**
+     * 关联实验 → 两臂共用的历史轮次。
+     * 只在 create 期解析：会话建好以后 execute 不再重建上下文。关联实验已删除或该臂
+     * 没有最终答案时返回 undefined（干净上下文），不拿空答案冒充历史。
+     */
+    private async linkedHistory(spec: ExperimentSpec): Promise<ConversationTurn[] | undefined> {
+        const experimentId = spec.contextExperimentId;
+        if (experimentId === undefined) return undefined;
+        const linked = await loadExperiment(this.store, experimentId);
+        if (linked === undefined) return undefined;
+        return contextHistoryOf(linked, spec.contextArmLabel);
+    }
+
+    /**
      * 控制变量 + 该臂 delta → RunOptions。
      * 技能集合：显式臂技能 > baseline 快照；Feature 的 add 叠加、only 独占。
      * 工具白名单只来自 Feature 收窄（运行期再与配置白名单取交集）。
@@ -363,6 +381,10 @@ export function specOfExperiment(view: ExperimentView): ExperimentSpec {
         arms: view.arms.map((arm) => arm.spec),
         ...(view.hypothesis !== undefined ? { hypothesis: view.hypothesis } : {}),
         ...(view.workspace !== undefined ? { workspace: view.workspace } : {}),
+        ...(view.contextExperimentId !== undefined
+            ? { contextExperimentId: view.contextExperimentId }
+            : {}),
+        ...(view.contextArmLabel !== undefined ? { contextArmLabel: view.contextArmLabel } : {}),
         ...(view.carryContext !== undefined ? { carryContext: view.carryContext } : {}),
     };
 }

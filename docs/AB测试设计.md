@@ -196,6 +196,8 @@ export interface ExperimentMetrics {
 export interface ExperimentView {
     experimentId: string; title: string; hypothesis?: string;
     input: string; workspace?: string;
+    contextExperimentId?: string;         // 关联的历史实验（作为两臂共用上下文）
+    contextArmLabel?: string;             // 关联臂（缺省取第一个有答案的臂）
     baseline: BaselineOptions;            // 控制变量
     variables: ExperimentVariable[];
     arms: ExperimentArmState[];           // 两臂（含 rootGoalId / metrics / status）
@@ -205,6 +207,8 @@ export interface ExperimentView {
     reviews: ExperimentReview[];          // 复盘备注（append-only）
 }
 ```
+
+`ExperimentSpec` 与视图共有的上下文策略字段：`contextExperimentId?`（关联实验 id）与 `contextArmLabel?`（关联臂）；两者缺省即干净上下文。旧字段 `carryContext?` 仅为兼容历史实验保留（rerun 时沿用），新实验不再提交。
 
 对比结果由纯函数 `compareArms(a: ExperimentMetrics, b: ExperimentMetrics)` 产出，**只做确定性比较**：
 
@@ -269,6 +273,7 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 - **前台执行，不是后台任务**：UI 先建会话（拿到 Trace 指针）再发起执行请求，两个窗口同时订阅事件流；执行请求本身就是「前台」的那次请求（与主对话 `POST /api/sessions/:id/run` 同形），因此**审批可以现场应答**——不会出现「跑在后台、审批无人应答而卡死」。
 - **并行执行**：两臂在同一个 `runExclusive` 持有期内 `Promise.all` 并发（同一运行时实例）。并发安全依赖既有事实：Goal 运行登记、待执行覆盖、上下文与记忆都按 `rootGoalId` 隔离；估算缓存命中率按 `conversationId ?? rootGoalId` 分键；Goal/Step 落库为同一 SQLite 连接（JS 单线程天然串行）。代价：两臂共用同一 Provider 配额，耗时/限流会互相影响——对比结果的 `execution` 字段保留并在 UI 标注。
 - **工作区冻结**：实验**不切换**主会话的当前工作区；创建时把生效工作区（表单选择，缺省取当前选择）冻结进 `spec.workspace`——既可复现，也让建会话 / 执行 / SSE 订阅解析到同一个实验运行时实例（按工作区缓存）。
+- **上下文继承只来自关联实验**：`contextExperimentId` 指向的历史实验在 `create` 时把它的「输入 + 指定臂最终答案」折叠成 `RunOptions.history`，**两臂注入完全相同的历史轮次**（答案截断上限 4000 字符），因此 A/B 的控制变量不被上下文破坏；不关联则两臂从干净上下文开始（`freshContext=true`，不注入项目黑板/历史摘要）。旧实验的 `carryContext=true` 仍按「非 fresh」执行，只用于历史重跑。
 - **基线快照**：`baseline` 在实验定义时冻结（permissionCeiling / reasoningLevel / 挂载技能快照 `skillIds`），运行时不再重读全局——保证可复现。
 - **执行状态与验收分开**：dynamic loop 以 `done-unverified` 或 `aborted-no-candidates` 收尾但已产出最终答案时，臂状态记 `succeeded`（执行完成了），验收另记 `verification`：没有验收结论 → `unverified`，验收明确未通过 → `failed`。只有无答案的真实异常才记 `failed`。比较时把「产出」「验收」分开看，避免有产出的臂被状态直接判负，也避免把验收失败伪装成未验证。
 - **失败语义**：单臂失败不阻断另一臂（对照实验要拿到两边的数据）；两臂都失败 → `experiment.completed` 仍写入（comparison 标注失败），整体流程只在「日志写入失败 / 执行期异常」时落 `experiment.failed`。
@@ -294,7 +299,7 @@ compareArms → experiment.completed（幂等：已完成的臂不重跑）
 | 端点 | 方法 | 说明 |
 | --- | --- | --- |
 | `/api/experiments` | GET | 列表（按 createdAt 倒序，轻量投影：status / title / variables / 两臂指标摘要） |
-| `/api/experiments` | POST | **创建（不执行）**：`{ title, input, workspace?, variables, arms, baseline?, carryContext? }` → `status=created` + 两臂 `rootGoalId`（前端据此立刻开窗订阅事件流）。`hypothesis?` 仅保留兼容历史记录，UI 不再提交 |
+| `/api/experiments` | POST | **创建（不执行）**：`{ title, input, workspace?, variables, arms, baseline?, contextExperimentId?, contextArmLabel? }` → `status=created` + 两臂 `rootGoalId`（前端据此立刻开窗订阅事件流）。`hypothesis?` 仅保留兼容历史记录，UI 不再提交 |
 | `/api/experiments/:id/run` | POST | **前台执行**尚未完成的臂（并行，请求保持到两臂结束）→ 完成后的实验视图；已有会话在跑 → 409；两臂都完成 → 幂等返回 |
 | `/api/experiments/:id` | GET | 详情：折叠后的实验视图 + 两臂 metrics + comparison + reviews |
 | `/api/experiments/:id/rerun` | POST | 复制为新的**待执行**实验（新 `experimentId`，不覆盖原记录）→ 用于方差观察 |
@@ -327,13 +332,15 @@ Lab 是整页全屏工作区 `ui.view = 'lab'`（侧边栏只保留「Lab」一�
 │ Benchmark      │ 输入 [同一个任务描述，两臂相同]      │ · exp-2 运行中       │
 │                │ 自变量 [Feature 开关 ▾] 只改一个变量 │ · exp-3 中止         │
 │                │ 基线 A [……]     处理 B [……]         │ …（自身可滚动）      │
-│                │ [☐ 带上上次上下文] [运行对照实验]    │                      │
+│                │ [从关联实验继续 ▾][关联臂 ▾][运行]   │                      │
 │ ← Back to app   │ …（两臂实时执行 / 指标对比 / 复盘）  │                      │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **历史实验独立成右侧栏、可收起**：不再挂在左栏「AB 实验」下面直接展开（实验一多就把左侧导航挤满）；右侧栏自带滚动（标题 / 状态徽标 / 时间 / 两臂状态 / 复盘数），点选即载入主区详情；收起后只留一条窄条（图标 + 条数），随时再展开。
-- **新建表单重排**：标题 + 工作区同一行，两臂共用输入独占一行，自变量与说明一行；「带上上次上下文」开关紧挨「运行对照实验」按钮。
+- **新建是独立入口，不占详情页**：点历史条目进入详情时不再展示新建卡片，右下角常驻一枚「新建 AB 实验」按钮；点它才展开新建表单（可取消回到详情），表单提交并运行后回到新实验详情。
+- **新建表单重排**：标题 + 工作区同一行，两臂共用输入独占一行，自变量与说明一行；「从关联实验继续」（关联实验 + 关联臂）两个选择紧挨「运行对照实验」按钮——选定后把该实验该臂的「输入 + 最终答案」作为两臂共用的历史上下文，不选则是干净实验。
+- **联动取值**：关联实验下拉只列「至少一臂已完成」的历史实验（没跑完的没有答案可继承）；选定后第二格列出该实验有最终答案的臂，缺省落到第一个；切实验时臂自动回落，避免留下一个不存在的臂。
 - **「假设」字段移除**：它只是实验记录的元数据，不参与两臂执行；UI 不再采集，接口保留可选 `hypothesis` 以兼容历史实验。
 - **配置项一律选择、不手输**：自变量取值从既有资产里选（Feature 列表 / 已发现 Skill 多选（左右各一栏，两臂独立）/ 模型目录 / 权限档位 / 推理档）；工作区从「跟随当前工作区 / 已有项目工作区 / 随心聊默认」里选，并显示本次实际使用的路径名称。
 - **左右两窗同时前台执行**：点「运行对照实验」→ 先建两臂会话 → 立即为两窗各开一条 `EventSource`（`/api/experiments/:id/arms/:label/events?follow=1`）→ 再发前台执行请求。每窗实时显示：流式正文（reasoning + text）、步骤列表（思考 / 工具 / 观察与状态）、错误；结束后自动刷新为终态视图（指标 / Trace / diff / 对比）。

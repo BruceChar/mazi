@@ -26,6 +26,23 @@ describe('validateExperimentSpec', () => {
         ).toThrow(/carryContext/);
     });
 
+    it('关联实验上下文：id 可选，臂必须在两臂 label 内且不能单独给出', () => {
+        const linked = validateExperimentSpec({
+            ...base(),
+            contextExperimentId: ' exp-1 ',
+            contextArmLabel: 'B',
+        });
+        expect(linked.contextExperimentId).toBe('exp-1');
+        expect(linked.contextArmLabel).toBe('B');
+        expect(validateExperimentSpec(base()).contextExperimentId).toBeUndefined();
+        expect(() =>
+            validateExperimentSpec({ ...base(), contextExperimentId: 'exp-1', contextArmLabel: 'C' }),
+        ).toThrow(/contextArmLabel/);
+        expect(() => validateExperimentSpec({ ...base(), contextArmLabel: 'A' })).toThrow(
+            /contextExperimentId/,
+        );
+    });
+
     it('title/input 必填', () => {
         expect(() => validateExperimentSpec({ ...base(), title: '  ' })).toThrow(ExperimentSpecError);
         expect(() => validateExperimentSpec({ ...base(), input: '' })).toThrow(ExperimentSpecError);

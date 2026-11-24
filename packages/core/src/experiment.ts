@@ -98,7 +98,14 @@ export interface ExperimentSpec {
     input: string;
     /** 同一工作区（可选；缺省用宿主当前工作区）。 */
     workspace?: string;
-    /** 是否把上一次运行的上下文（黑板/历史）带入两臂；缺省 false = 每臂干净上下文。 */
+    /**
+     * 关联实验：把该实验指定臂的「输入 + 最终答案」作为**两臂共用**的历史上下文。
+     * 缺省（不给 id）= 干净上下文；两臂拿到同一份历史，控制变量不被上下文破坏。
+     */
+    contextExperimentId?: string;
+    /** 关联臂（'A'/'B'）；缺省取该实验第一个有最终答案的臂。 */
+    contextArmLabel?: string;
+    /** 旧字段：仅兼容历史实验（rerun 沿用）；新实验改用 contextExperimentId。 */
     carryContext?: boolean;
     /** 控制变量：两臂共用。 */
     baseline: ExperimentBaseline;
@@ -172,7 +179,11 @@ export interface ExperimentView {
     hypothesis?: string;
     input: string;
     workspace?: string;
-    /** 实验级上下文策略：true = 两臂都继承上一轮上下文。 */
+    /** 关联实验（作为两臂共用历史上下文）；缺省 = 干净上下文。 */
+    contextExperimentId?: string;
+    /** 关联臂（缺省取该实验第一个有最终答案的臂）。 */
+    contextArmLabel?: string;
+    /** 旧字段：仅兼容历史实验。 */
     carryContext?: boolean;
     baseline: ExperimentBaseline;
     variables: ExperimentVariable[];

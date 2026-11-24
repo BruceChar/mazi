@@ -161,5 +161,18 @@ export function validateExperimentSpec(input: unknown): ExperimentSpec {
         }
         spec.carryContext = record.carryContext;
     }
+    const contextExperimentId = optionalText(record.contextExperimentId);
+    const contextArmLabel = optionalText(record.contextArmLabel);
+    if (contextArmLabel !== undefined && contextExperimentId === undefined) {
+        throw new ExperimentSpecError('contextArmLabel 需要同时给出 contextExperimentId');
+    }
+    if (contextExperimentId !== undefined) spec.contextExperimentId = contextExperimentId;
+    if (contextArmLabel !== undefined) {
+        // 关联臂必须是本次实验真实存在的臂，否则上下文无从解析。
+        if (!arms.some((arm) => arm.label === contextArmLabel)) {
+            throw new ExperimentSpecError('contextArmLabel 不在两臂 label 内');
+        }
+        spec.contextArmLabel = contextArmLabel;
+    }
     return spec;
 }

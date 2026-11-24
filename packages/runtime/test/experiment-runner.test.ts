@@ -104,6 +104,15 @@ function specOf(): ExperimentSpec {
     };
 }
 
+/** 请求里的文本消息（历史轮次会作为前置 user/assistant 消息出现）。 */
+function messageTexts(request: LLMRequest): string[] {
+    return request.messages.map((message) =>
+        message.role === 'user' || message.role === 'assistant'
+            ? message.content.map((block) => (block.type === 'text' ? block.text : '')).join('')
+            : '',
+    );
+}
+
 const dirs: string[] = [];
 afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -177,6 +186,41 @@ describe('ExperimentRunner（前台执行：plan → execute，两臂并行）',
             'arm.ended',
             'experiment.completed',
         ]);
+    });
+
+it('关联实验：两臂都注入同一个历史实验的「输入 + 指定臂答案」', async () => {
+        const { runner, requests } = setup();
+        const first = await runner.create(specOf());
+        await runner.execute(first.experimentId);
+
+        const second = await runner.create({
+            ...specOf(),
+            title: '从上一轮继续',
+            input: '继续：把方案一展开',
+            contextExperimentId: first.experimentId,
+            contextArmLabel: 'B',
+        });
+        await runner.execute(second.experimentId);
+
+        // 前两次请求属于第一次实验；第二次实验的两臂请求应带上同一份历史。
+        const secondRun = requests.slice(2).map(messageTexts);
+        expect(secondRun).toHaveLength(2);
+        for (const messages of secondRun) {
+            expect(messages.some((text) => text.includes('介绍一下 mazi'))).toBe(true);
+            expect(messages.some((text) => text.includes('B 答案'))).toBe(true);
+        }
+    });
+
+    it('不关联实验 = 干净上下文：请求里没有上一次实验的内容', async () => {
+        const { runner, requests } = setup();
+        const first = await runner.create(specOf());
+        await runner.execute(first.experimentId);
+        const clean = await runner.create({ ...specOf(), title: '干净实验', input: '另一个任务' });
+        await runner.execute(clean.experimentId);
+        const secondRun = requests.slice(2).map(messageTexts);
+        for (const messages of secondRun) {
+            expect(messages.some((text) => text.includes('介绍一下 mazi'))).toBe(false);
+        }
     });
 
     it('execute 幂等：已完成的臂不重跑', async () => {

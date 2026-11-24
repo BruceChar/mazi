@@ -44,6 +44,13 @@ function asSpec(value: unknown): ExperimentSpec | undefined {
         arms,
         ...(typeof record.hypothesis === 'string' ? { hypothesis: record.hypothesis } : {}),
         ...(typeof record.workspace === 'string' ? { workspace: record.workspace } : {}),
+        ...(typeof record.carryContext === 'boolean' ? { carryContext: record.carryContext } : {}),
+        ...(typeof record.contextExperimentId === 'string'
+            ? { contextExperimentId: record.contextExperimentId }
+            : {}),
+        ...(typeof record.contextArmLabel === 'string'
+            ? { contextArmLabel: record.contextArmLabel }
+            : {}),
     };
 }
 
@@ -155,6 +162,10 @@ export function foldExperiment(events: readonly ExperimentEvent[]): ExperimentVi
         ...(spec.hypothesis !== undefined ? { hypothesis: spec.hypothesis } : {}),
         input: spec.input,
         ...(spec.workspace !== undefined ? { workspace: spec.workspace } : {}),
+        ...(spec.contextExperimentId !== undefined
+            ? { contextExperimentId: spec.contextExperimentId }
+            : {}),
+        ...(spec.contextArmLabel !== undefined ? { contextArmLabel: spec.contextArmLabel } : {}),
         ...(spec.carryContext !== undefined ? { carryContext: spec.carryContext } : {}),
         baseline: spec.baseline,
         variables: spec.variables,
