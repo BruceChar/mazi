@@ -31,11 +31,20 @@
 | 工具调用 → v5 Op 映射 + `v5Decide` | `runtime/src/tool-gateway/v5-adapter.ts` | R1，保守映射，object 缺省 unknown |
 | 决策上下文组装（memory/blocked/routine/correction/trace → `DecisionContext`） | `runtime/src/tool-gateway/v5-context.ts` | R2，v5 网关切换装配入口 |
 
+**R3 已落地（API 审计端点 + WebUI 面板，旧档位选择器已移除）**：
+
+| 模块 | 文件 | 说明 |
+| --- | --- | --- |
+| 审计端点 | `apps/api/src/permissions/permissions.controller.ts` | `GET /api/permissions/audit`，rootGoalId 优先（replay 根流），否则 sessionId（回放锚点流）；actor/result/tool/keyword 筛选 |
+| 前端筛选/汇总纯逻辑 | `apps/webui/src/scripts/permission-audit.ts` | 角色/结果/工具/关键词/时间范围过滤 + 计数，带 vitest |
+| 审计面板 | `apps/webui/src/components/PermissionAuditPanel.vue` | 右侧栏「权限」页签：角色（用户/Agent/系统）、结果（批准/拒绝/自动放行/待审批/取消/撤销/命中）、决策依据、作用域、goal/step 锚点，可筛选 |
+| 档位选择器下线 | `Composer.vue`、`SettingsPage.vue`、`ChatMain.vue`、`App.vue` | 六档菜单、默认授予 select 及透传 props/emit 全部删除 |
+
 **待接线（下一阶段，需先写集成测试再改装配）**：
 
 1. runtime 网关切换：`RuntimeToolGateway` 改用 `v5Decide` + `V5RuntimeContext`；物理删除 `grantForPermissionLevel` 六档与 `derive` 档位 meet；`permission-gateway.test.ts` 同步重写（产品可见变更，需先确认档位 UI 去留）。
 2. API：`approvals.controller.ts` 结算字段扩展（拒绝进红线 / typedConfirm / correction），经 `settleApproval` 落 memory/blocked。
-3. WebUI：移除档位选择器；`ApprovalPrompt.vue` 改响应集合；新增"最近自动执行"留痕面板。
+3. WebUI（档位选择器已移除、审计面板已上线）：`ApprovalPrompt.vue` 改响应集合；新增"最近自动执行"留痕面板。
 4. 解析器接入真实 git 事实（tracked / dirty / gitignore）与 shell 完整语法。
 
 ---

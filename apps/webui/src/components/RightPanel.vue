@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import LineIcon from '../assets/LineIcon.vue';
 import AuditDisclosure from './AuditDisclosure.vue';
+import PermissionAuditPanel from './PermissionAuditPanel.vue';
 import StoragePanel from './StoragePanel.vue';
 import {
     behaviorDecisionLabel,
@@ -675,6 +676,7 @@ watch(
                     <button :class="{ on: activeTab === 'iterations' }" @click="emit('update:activeTab', 'iterations')">Iterations</button>
                     <button :class="{ on: activeTab === 'log' }" @click="emit('update:activeTab', 'log')">日志</button>
                     <button :class="{ on: activeTab === 'storage' }" @click="emit('update:activeTab', 'storage')">存储</button>
+                    <button :class="{ on: activeTab === 'perms' }" @click="emit('update:activeTab', 'perms')">权限</button>
                 </div>
                 <div class="drawer-head-actions">
                     <button class="icon-btn" :title="maximized ? '还原' : '最大化'" @click="emit('toggleMaximize')">
@@ -1605,6 +1607,7 @@ watch(
                 </section>
             </div>
             <StoragePanel v-else-if="activeTab === 'storage'" />
+            <PermissionAuditPanel v-else-if="activeTab === 'perms'" :root-goal-id="current || ''" />
             <div v-else class="drawer-body">
                 <div class="drawer-tabs sub">
                     <select v-model="failureKind" title="失败类别">
