@@ -9,6 +9,7 @@ import {
     contractTraceOf,
     contractsForRun,
     pendingNegotiationOf,
+    routerModeLabel,
 } from '../src/scripts/contract-view.ts';
 
 function contract(over: Partial<ContractView> = {}): ContractView {
@@ -124,6 +125,7 @@ describe('contract-view（契约与验收的展示投影）', () => {
                     plannerId: 'default',
                     verifierId: 'default',
                     loopMode: 'dynamic',
+                    route: 'workflow',
                     routedBy: 'super-agent',
                     reason: ['涉及代码修改'],
                     at: 3,
@@ -161,6 +163,8 @@ describe('contract-view（契约与验收的展示投影）', () => {
         ]);
         expect(entry?.routing?.loopMode).toBe('dynamic');
         expect(entry?.routing?.promptPackIds).toEqual(['coding']);
+        expect(routerModeLabel(entry?.routing)).toBe('dynamic');
+        expect(routerModeLabel({ route: 'direct', loopMode: 'direct' })).toBe('direct');
         expect(entry?.negotiation?.revision).toBe(1);
         expect(entry?.conditions.map((row) => row.status)).toEqual(['passed', 'unchecked']);
         expect(entry?.failureConditions).toEqual(['覆盖了非目标文件']);

@@ -159,12 +159,14 @@ SuperAgent 的路由决策不进入 workflow 节点统计，但会落到 `Goal.r
 ```ts
 Goal.routing?: {
   taskKind; riskLevel; promptPackIds; plannerId; verifierId;
-  loopMode: 'default' | 'dynamic'; routedBy: 'super-agent';
+  loopMode: 'default' | 'dynamic' | 'direct';
+  route?: 'direct' | 'workflow';
+  routedBy: 'super-agent' | 'triage';
   reason: string[]; at: number;
 }
 ```
 
-Trace 面板在契约区展示 Router 的 loopMode、taskKind、risk、prompt pack、planner 与 verifier；它没有 NodeRun，也不参与节点步数。
+Trace 面板有独立的「Router 决策」区，展示 route / loopMode、taskKind、risk、prompt pack、planner、verifier 与 `reason`，不依赖契约展开。直答路径也必须写入 `route:'direct'` 的 Router 审计；它没有 NodeRun，也不参与节点步数。
 
 ## 九、验收口径
 

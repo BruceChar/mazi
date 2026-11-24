@@ -72,8 +72,9 @@ Think（final / 失败）→ Verify（Task 终态）→ Think / done
   只负责 payload 与重放。
 - Step 归属：`kind` 是技术判别式，`role` 是语义阶段，`nodeRunId / nodeId / agentRole` 是实际 node/agent
   归属；旧数据缺省，展示层按 kind 回退。
-- Router 审计：SuperAgent 的 taskKind / risk / promptPack / planner / verifier / loopMode 落到
-  `Goal.routing` 与 `superagent.decision`，Trace 契约区可见，不计入 workflow node。
+- Router 审计：SuperAgent 的 route / taskKind / risk / promptPack / planner / verifier / loopMode
+  落到 `Goal.routing` 与 `superagent.decision`，Trace 独立「Router 决策」区可见，不计入 workflow node；
+  直答路径记 `route:'direct'`，避免“完成后没有路由依据”。
 - 收尾保护：真实工具动作失败后，如果模型只是重放此前已经成功的读取结果，不能把旧输出当作
   Task 最终答案；必须出现新的成功动作或模型给出最终回答。
 

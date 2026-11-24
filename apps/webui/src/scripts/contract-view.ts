@@ -180,6 +180,14 @@ export const CONTRACT_STATE_LABEL: Record<string, string> = {
     unchecked: '未判定',
 };
 
+/** Router 运行形态：直答没有 loop，显示 direct；其余显示 default/dynamic。 */
+export function routerModeLabel(
+    routing?: { route?: 'direct' | 'workflow'; loopMode: string } | null,
+): string {
+    if (routing === undefined || routing === null) return '';
+    return routing.route === 'direct' ? 'direct' : routing.loopMode;
+}
+
 /** 满足度色调（用于徽标着色）。 */
 export function contractStateTone(state?: string | null): 'ok' | 'fail' | 'muted' {
     if (state === 'satisfied') return 'ok';

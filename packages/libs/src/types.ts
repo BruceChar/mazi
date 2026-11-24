@@ -494,6 +494,8 @@ export interface GoalNodeView {
         plannerId: string;
         verifierId: string;
         loopMode: string;
+        /** 路由去向：direct = 直答，workflow = 进入执行循环；旧数据缺省。 */
+        route?: 'direct' | 'workflow';
         routedBy: string;
         reason: string[];
         at: number;

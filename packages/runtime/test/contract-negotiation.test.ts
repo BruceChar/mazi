@@ -316,6 +316,21 @@ describe('契约协商（triage → 冻结 → 答复修订 → 执行）', () =
             expect(settled.goals[0]?.status).toBe('succeeded');
             expect(settled.taskCount).toBe(0);
             expect(settled.stepCount).toBe(0);
+            // 直答不进入 Think/Act，但仍要有 Router 审计：route/loopMode/reason 可解释。
+            expect(settled.goals[0]?.routing).toMatchObject({
+                route: 'direct',
+                loopMode: 'direct',
+                routedBy: 'triage',
+            });
+            expect(settled.goals[0]?.routing?.reason).toContain('route:direct');
+            const decision = runtime.eventBus
+                .replay(created.rootGoalId)
+                .find((event) => event.type === 'superagent.decision');
+            expect(decision?.payload).toMatchObject({
+                route: 'direct',
+                loopMode: 'direct',
+                routedBy: 'triage',
+            });
             const ended = runtime.eventBus
                 .replay(created.rootGoalId)
                 .find((event) => event.type === 'goal.ended');

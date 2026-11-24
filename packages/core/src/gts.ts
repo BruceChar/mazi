@@ -176,8 +176,11 @@ export interface GoalRouting {
     promptPackIds: string[];
     plannerId: string;
     verifierId: string;
-    loopMode: 'default' | 'dynamic';
-    routedBy: 'super-agent';
+    /** 运行形态：直答不进入 Think/Act 循环，loopMode 记为 direct。 */
+    loopMode: 'default' | 'dynamic' | 'direct';
+    /** 路由去向；旧数据缺省时按 SuperAgent 决策处理。 */
+    route?: 'direct' | 'workflow';
+    routedBy: 'super-agent' | 'triage';
     reason: string[];
     at: number;
 }

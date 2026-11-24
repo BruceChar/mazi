@@ -31,6 +31,7 @@ import {
     contractStateLabel,
     contractStateTone,
     contractsForRun,
+    routerModeLabel,
 } from '../scripts/contract-view.ts';
 import { renderMarkdown } from '../scripts/markdown.ts';
 import { buildRunFailureView } from '../scripts/run-failure.ts';
@@ -328,6 +329,8 @@ const traceContractRootGoalId = computed(() => {
 const visibleContracts = computed(() =>
     contractsForRun(traceContracts.value, traceContractRootGoalId.value, props.maximized),
 );
+/** Router 决策独立成区，不依赖契约展开，保证完成后第一眼能看到路由依据。 */
+const routerEntries = computed(() => visibleContracts.value.filter((entry) => entry.routing));
 /** 契约默认折叠：只展开用户点开的 Goal。 */
 const expandedContracts = ref(new Set());
 function toggleContract(goalId) {
@@ -723,6 +726,32 @@ watch(
                     </ul>
                 </section>
 
+                <!-- Router 决策：run 级审计，不是 workflow 节点。独立成区避免被契约折叠藏住。 -->
+                <section v-if="routerEntries.length > 0" class="audit-section router-section">
+                    <div class="audit-section-title">
+                        <span>Router 决策</span>
+                        <span class="audit-pct">{{ routerEntries.length }} goal</span>
+                    </div>
+                    <div v-for="entry in routerEntries" :key="entry.goalId" class="router-goal">
+                        <div class="router-goal-head">
+                            <span class="router-goal-title">{{ entry.statement }}</span>
+                            <span class="contract-goal-status">{{ entry.goalStatus }}</span>
+                        </div>
+                        <div class="contract-negotiation">
+                            <span class="contract-chip route">Router · {{ routerModeLabel(entry.routing) }}</span>
+                            <span class="contract-chip">by:{{ entry.routing.routedBy }}</span>
+                            <span class="contract-chip">task:{{ entry.routing.taskKind }}</span>
+                            <span class="contract-chip">risk:{{ entry.routing.riskLevel }}</span>
+                            <span v-for="pack in entry.routing.promptPackIds" :key="pack" class="contract-chip">pack:{{ pack }}</span>
+                            <span class="contract-chip">planner:{{ entry.routing.plannerId }}</span>
+                            <span class="contract-chip">verifier:{{ entry.routing.verifierId }}</span>
+                        </div>
+                        <div v-if="entry.routing.reason.length > 0" class="contract-note router-reason">
+                            决策依据：{{ entry.routing.reason.join(' · ') }}
+                        </div>
+                    </div>
+                </section>
+
                 <!-- 契约区：执行前承诺（goal / 条款 / 上限 / 风险）+ 验收判定 + 协商轨迹 -->
                 <section v-if="visibleContracts.length > 0" class="audit-section contract-section">
                     <div class="audit-section-title">
@@ -746,14 +775,6 @@ watch(
                             >{{ contractStateLabel(entry.contractStatus) }}</span>
                         </div>
                         <template v-if="expandedContracts.has(entry.goalId)">
-                            <div v-if="entry.routing" class="contract-negotiation" title="Router 决策（SuperAgent）">
-                                <span class="contract-chip route">Router · {{ entry.routing.loopMode }}</span>
-                                <span class="contract-chip">task:{{ entry.routing.taskKind }}</span>
-                                <span class="contract-chip">risk:{{ entry.routing.riskLevel }}</span>
-                                <span v-for="pack in entry.routing.promptPackIds" :key="pack" class="contract-chip">pack:{{ pack }}</span>
-                                <span class="contract-chip">planner:{{ entry.routing.plannerId }}</span>
-                                <span class="contract-chip">verifier:{{ entry.routing.verifierId }}</span>
-                            </div>
                             <div v-if="entry.negotiation" class="contract-negotiation">
                                 <span class="contract-chip route">{{ ROUTE_LABEL[entry.negotiation.route] || entry.negotiation.route }}</span>
                                 <span v-if="entry.negotiation.revision > 0" class="contract-chip">已修订 v{{ entry.negotiation.revision }}</span>
@@ -3316,6 +3337,33 @@ watch(
     margin: 0.9em 0;
 }
 /* ---- 契约区（Trace 面板）：承诺 + 判定 + 协商 ---- */
+.router-section {
+    margin-top: 8px;
+}
+.router-goal {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    padding: 6px;
+}
+.router-goal-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--fg);
+}
+.router-goal-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.router-reason {
+    line-height: 1.45;
+    word-break: break-word;
+}
 .contract-section {
     margin-top: 8px;
 }

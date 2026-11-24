@@ -1,4 +1,5 @@
-import { type Goal, ulid } from '@mazi/core';
+import { type Goal, type GoalRouting, ulid } from '@mazi/core';
+import { classifyTaskKind } from '../agent/super-agent.js';
 import type { SkillProvider } from '../capabilities/runtime.js';
 import { emitFlagEvent, emitGoalPhase, emitSkillEvent } from '../events/emitters.js';
 import { newHarnessEvent } from '../events/index.js';
@@ -45,6 +46,49 @@ export interface TurnEngineHost {
 
 export class TurnEngine {
     constructor(private readonly h: TurnEngineHost) {}
+
+    /**
+     * Router 决策是 run 级审计事实，不是 workflow 节点：
+     * 先发事件供 live stream 消费，再写 Goal.routing 供重载后的 Trace 展示。
+     */
+    private async recordRouting(
+        rootGoalId: string,
+        goalId: string,
+        rootGoal: Goal | undefined,
+        routing: GoalRouting,
+        memoryPlan?: { readUser: boolean; readProject: boolean; writeEpisode: boolean },
+    ): Promise<void> {
+        this.h.ctx.observability.bus.emit(
+            newHarnessEvent({
+                type: 'superagent.decision',
+                rootGoalId,
+                goalId,
+                attributes: { 'harness.level': 'info' },
+                payload: {
+                    taskKind: routing.taskKind,
+                    riskLevel: routing.riskLevel,
+                    promptPackIds: routing.promptPackIds,
+                    plannerId: routing.plannerId,
+                    verifierId: routing.verifierId,
+                    memoryPlan: memoryPlan ?? {
+                        readUser: false,
+                        readProject: true,
+                        writeEpisode: true,
+                    },
+                    reason: routing.reason,
+                    loopMode: routing.loopMode,
+                    ...(routing.route !== undefined ? { route: routing.route } : {}),
+                    routedBy: routing.routedBy,
+                },
+            }),
+        );
+        if (rootGoal === undefined) return;
+        const latest = (await this.h.ctx.memory.goalStore.loadGoal(rootGoal.goalId)) ?? rootGoal;
+        latest.routing = routing;
+        await this.h.ctx.memory.goalStore.saveGoal(latest);
+        rootGoal.routing = routing;
+    }
+
     async run(rootGoalId: string, options: { resume?: boolean } = {}): Promise<GoalRunResult> {
         try {
             const result = await this.body(rootGoalId, options);
@@ -145,6 +189,13 @@ export class TurnEngine {
                 .join('\n\n');
         }
         if (rootGoal !== undefined && directAnswer) {
+            // 直答虽不进入 Think/Act，也必须留下“为什么直答”的 Router 审计，
+            // 否则完成后 Trace 只能看到一段答案，无法解释路由去向。
+            await this.recordRouting(rootGoalId, goalId, rootGoal, directRoutingOf(rootGoal), {
+                readUser: false,
+                readProject: true,
+                writeEpisode: true,
+            });
             await this.h.completeDirectGoal(rootGoal, directAnswer);
             return {
                 rootGoalId,
@@ -190,42 +241,19 @@ export class TurnEngine {
                 : {}),
         });
         const promptPackFragment = decision.promptMatch.prompt;
-        this.h.ctx.observability.bus.emit(
-            newHarnessEvent({
-                type: 'superagent.decision',
-                rootGoalId,
-                goalId,
-                attributes: { 'harness.level': 'info' },
-                payload: {
-                    taskKind: decision.taskKind,
-                    riskLevel: decision.riskLevel,
-                    promptPackIds: decision.promptPackIds,
-                    plannerId: decision.plannerId,
-                    verifierId: decision.verifierId,
-                    memoryPlan: decision.memoryPlan,
-                    reason: decision.reason,
-                    loopMode,
-                },
-            }),
-        );
-        const routing = {
+        const routing: GoalRouting = {
             taskKind: decision.taskKind,
             riskLevel: decision.riskLevel,
             promptPackIds: decision.promptPackIds,
             plannerId: decision.plannerId,
             verifierId: decision.verifierId,
             loopMode,
-            routedBy: 'super-agent' as const,
+            route: 'workflow',
+            routedBy: 'super-agent',
             reason: decision.reason,
             at: Date.now(),
         };
-        if (rootGoal !== undefined) {
-            const latest =
-                (await this.h.ctx.memory.goalStore.loadGoal(rootGoal.goalId)) ?? rootGoal;
-            latest.routing = routing;
-            await this.h.ctx.memory.goalStore.saveGoal(latest);
-            rootGoal.routing = routing;
-        }
+        await this.recordRouting(rootGoalId, goalId, rootGoal, routing, decision.memoryPlan);
 
         this.h.ctx.observability.bus.emit(
             newHarnessEvent({
@@ -657,4 +685,30 @@ function riskLevelOfGoal(goal: Goal | undefined): PromptRiskLevel {
         return 'workspace-write';
     }
     return 'read-only';
+}
+
+/**
+ * 直答路径的 Router 审计：没有工具/规划器，但“为什么直答”仍需可解释。
+ * 这不是 LLM 思维链，而是可复算的路由依据（route / triage / task / risk）。
+ */
+function directRoutingOf(goal: Goal): GoalRouting {
+    const riskLevel = riskLevelOfGoal(goal);
+    const taskKind = classifyTaskKind(goal.statement, [], riskLevel);
+    return {
+        taskKind,
+        riskLevel,
+        promptPackIds: [],
+        plannerId: 'none',
+        verifierId: 'none',
+        loopMode: 'direct',
+        route: 'direct',
+        routedBy: 'triage',
+        reason: [
+            'route:direct',
+            'triage:precomputed-answer',
+            `task:${taskKind}`,
+            `risk:${riskLevel}`,
+        ],
+        at: Date.now(),
+    };
 }
