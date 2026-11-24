@@ -4,6 +4,11 @@ import type {
     ToolCallResult,
     ToolConfig,
 } from '../config.js';
+import {
+    EXTERNAL_WEB_CONTENT_END,
+    EXTERNAL_WEB_CONTENT_NOTICE,
+    sanitizeWebOutcome,
+} from './web-search-sanitize.js';
 
 /** 单条检索结果（解析后的稳定形态，便于测试与后续引用）。 */
 export interface WebSearchResult {
@@ -635,24 +640,34 @@ export function resolveWebSearchProvider(
     throw new Error('no usable web search provider is configured');
 }
 
-function formatResults(query: string, outcome: WebSearchOutcome, providerId: string): string {
-    const lines: string[] = [];
-    if (outcome.answer !== undefined && outcome.answer.length > 0) {
-        lines.push(outcome.answer, '');
+function formatResults(
+    query: string,
+    outcome: WebSearchOutcome,
+    providerId: string,
+    limit: number,
+): string {
+    const clean = sanitizeWebOutcome(outcome, limit);
+    const lines: string[] = [EXTERNAL_WEB_CONTENT_NOTICE, ''];
+    if (clean.answer !== undefined && clean.answer.length > 0) {
+        lines.push(`检索摘要（${providerId}）：${clean.answer}`, '');
     }
-    if (outcome.sources.length === 0) {
+    if (clean.sources.length === 0) {
         lines.push(`检索「${query}」没有返回候选来源（${providerId}，不要编造结果）。`);
-        return lines.join('\n');
-    }
-    lines.push(`检索「${query}」的候选来源（${outcome.sources.length} 条，${providerId}）：`);
-    outcome.sources.forEach((result, index) => {
-        lines.push(`${index + 1}. ${result.title}`);
-        lines.push(`   ${result.url}`);
-        if (result.publishedAt !== undefined && result.publishedAt.length > 0) {
-            lines.push(`   发布：${result.publishedAt}`);
+    } else {
+        lines.push(`检索「${query}」的候选来源（${clean.sources.length} 条，${providerId}）：`);
+        clean.sources.forEach((result, index) => {
+            lines.push(`${index + 1}. ${result.title}`);
+            lines.push(`   ${result.url}`);
+            if (result.publishedAt !== undefined && result.publishedAt.length > 0) {
+                lines.push(`   发布：${result.publishedAt}`);
+            }
+            if (result.snippet.length > 0) lines.push(`   摘要：${result.snippet}`);
+        });
+        if (clean.truncated) {
+            lines.push('（部分结果因条数或长度预算已截断，请缩小 query 或打开来源核对全文）');
         }
-        if (result.snippet.length > 0) lines.push(`   ${result.snippet}`);
-    });
+    }
+    lines.push('', EXTERNAL_WEB_CONTENT_END);
     return lines.join('\n');
 }
 
@@ -686,7 +701,12 @@ export function webSearchToolConfig(options: WebSearchToolOptions = {}): ToolCon
                 const provider = resolveWebSearchProvider(providers, options.config?.provider);
                 return {
                     ok: true,
-                    content: formatResults(query, await provider.search(query, limit), provider.id),
+                    content: formatResults(
+                        query,
+                        await provider.search(query, limit),
+                        provider.id,
+                        limit,
+                    ),
                 };
             } catch (error) {
                 return { ok: false, error: `search failed: ${String(error)}` };
