@@ -158,7 +158,7 @@ retracted_reason = "Incremental Project Wiki behavior is now implemented in runt
 
 [claims.runtime-acceptance-failure-replan]
 text = "A goal is only marked succeeded when task execution and mechanical acceptance both pass. Default product sessions keep the initial Task plan stable and do not automatically Replan after Task or verifier failure; aborted, budget-exceeded, max-steps and timeout never trigger Replan. Dynamic Replan exists only when a host explicitly injects a ReplanPlanner: it must preserve the frozen GoalContract, preserve remaining Tasks, and may remove unregistered requiredTools with auditable warnings while permission, budget, dependency and contract violations remain fail-closed."
-status = "active"
+status = "retracted"
 evidence = [
   { file = "packages/runtime/src/strategy/goal-strategy.ts", oid = "1b79feecaaae6da628a2feb4ac1c000401e861b0" },
   { file = "packages/runtime/src/harness/runtime.ts", oid = "27fb08d01c50948bbd65c046a35e504329e89d43" },
@@ -169,6 +169,8 @@ evidence = [
 ]
 established = 2026-11-07
 verified = 2026-11-24
+retracted_at = 2026-11-24
+retracted_reason = "Product sessions now run the unified workflow where Task/verifier failure can request Replan; the old statement that default product sessions never automatically replan is no longer true."
 claim_oid = "91e63761b4bb0f2a"
 
 [claims.project-context-lifecycle-runtime]
