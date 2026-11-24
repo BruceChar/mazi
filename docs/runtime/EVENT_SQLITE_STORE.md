@@ -74,13 +74,24 @@ interface EventStore {
 }
 ```
 
-## 5. 回放合并策略（新库 + 旧文件只读）
+## 5. 历史策略：白名单迁移入库后清理（R5f）
 
-- `replay(rootGoalId)`：先读 SQLite，再追加该根的旧 JSONL 文件中未入库事件（按 ts 去重，
-  以 event_id 为准）；单根场景旧文件读取量小，可接受。
-- `replayAll()`：默认只查 SQLite（新事件快）；旧 JSONL 仅在显式要求历史时由兼容层读取，
-  避免再次全量扫 454MB。
-- 权限审计端点：优先 `query({types, from, to})` 走索引；旧数据缺口在文档中标注。
+原"旧 JSONL 只读合并"方案废弃，改为：只把审计需要的历史事件迁入权威库，迁移校验一致后
+删除旧文件，不再保留 454MB 平文件。
+
+- **迁移白名单**（仅审计本体 + 定位上下文骨架，约 2867 行 / 3MB）：
+  - 权限类：`policy.check` / `policy.denied` / `approval.granted` / `approval.requested` /
+    `approval.cancelled`
+  - 骨架：`goal.started` / `goal.ended` / `turn.started` / `turn.ended` / `goal.phase` /
+    `plan.created`
+- **不迁移**：`llm.stream_event`（逐 token 碎片，362MB）、`step.started/ended`（重复全文，84MB）
+  及其余过程事件；这些对权限审计无价值。
+- **字段映射**：旧记录顶层 `eventId/rootGoalId/goalId/taskId/stepId/sessionId/attributes/payload`
+  原样保留；历史无 `seq/prevHash/hash`，入库后由 `verifyChain` 计入 `legacy` 跳过校验，
+  不参与链式重算。
+- **幂等**：以 `event_id` 为主键 `INSERT OR REPLACE`，重复迁移不产生两行。
+- **校验**：迁移后库内白名单条数与旧 JSONL 白名单条数一致、权限记录逐条可查，方可删除旧文件。
+- `replayAll()` / 审计端点：只查 SQLite；迁移完成后旧文件不再被读取。
 
 ## 6. 链式校验
 
@@ -92,9 +103,9 @@ SQLite 结果集（已按 root_goal_id, seq 排序）。
 1. ✅ `SqliteEventStore` 存储类：建表 / append / query / replay / chainHead，纯函数与落盘测试先行。
 2. ✅ DefaultEventBus 注入存储：emit 写库替换 appendFileSync；chainHead 从库读；replay /
    replaySession / replayAll 走库；subscribe/内存分发不变；持久化经 shouldPersist + slimForStore。
-3. ⬜ 旧 JSONL 只读兼容层（replay 单根合并历史，不迁移）。
-4. ⬜ 审计端点改走 `query` 索引；基准测试固化旧全量耗时与新查询耗时。
-5. ⬜ 文档与 README 更新；旧文件保留只读、不删除。
+3. ⬜ R5f 白名单历史迁移入库（权限+骨架），条数校验一致后删除旧 JSONL。
+4. ⬜ R5c 审计端点改走 `query` 索引；基准测试固化旧全量耗时与新查询耗时。
+5. ⬜ 文档与 README 更新。
 
 ## 8. 验收测试要点
 
