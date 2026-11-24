@@ -27,3 +27,5 @@ export * from './v5/memory-store.js';
 export * from './v5/attest.js';
 export * from './v5/blocked-store.js';
 export * from './v5/approval.js';
+export * from './v5/trace-store.js';
+export * from './v5/correction.js';
