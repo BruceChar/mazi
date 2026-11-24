@@ -38,11 +38,12 @@ export class PermissionsController {
         const bus = this.runtime.harness().eventBus as DefaultEventBus;
         const records = authz.extractPermissionEvents(bus.replayAll());
 
-        const contextCache = new Map<string, { conversationId?: string; projectId?: string }>();
-        const resolve = (rootGoalId: string) => {
+        type RunContext = ReturnType<ConversationsService['runContext']>;
+        const contextCache = new Map<string, RunContext>();
+        const resolve = (rootGoalId: string): RunContext | undefined => {
             let ctx = contextCache.get(rootGoalId);
             if (ctx === undefined) {
-                ctx = this.conversations.runContext(rootGoalId) ?? undefined;
+                ctx = this.conversations.runContext(rootGoalId);
                 contextCache.set(rootGoalId, ctx);
             }
             return ctx;
