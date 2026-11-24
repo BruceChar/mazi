@@ -606,16 +606,7 @@ watch(
                         <span v-else-if="entry.step.status === 'active'" class="exec-spinner"></span>
                         <LineIcon v-else :name="stepIcon(entry.step.kind)" size="16" />
                         <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
-                        <span class="exec-step-name">
-                            {{ stepRoleLabel(entry.step) }}<span
-                                v-if="entry.bodies.output"
-                                class="exec-step-role-extra"
-                            > · Observing</span>
-                            <span
-                                v-if="entry.step.nodeId || entry.step.agentRole"
-                                class="exec-step-node"
-                            >node={{ entry.step.nodeId || '?' }} · agent={{ entry.step.agentRole || 'unknown' }}</span>
-                        </span>
+                        <span class="exec-step-name">{{ stepRoleLabel(entry.step) }}</span>
                         <span class="exec-step-summary">{{
                             entry.step.title ||
                             (entry.step.kind === 'deliberation' ? '思考中…' : '调用中…')
@@ -649,7 +640,7 @@ watch(
                             v-html="renderMarkdown(entry.bodies.answer)"
                         ></div>
                         <div v-if="entry.bodies.output" class="exec-step-code">
-                            <div class="exec-role-caption">Observing</div>
+                            <div class="exec-role-caption">输出 · 工具结果</div>
                             <pre class="exec-step-code-inner">{{ entry.bodies.output }}</pre>
                         </div>
                     </template>
@@ -767,16 +758,7 @@ watch(
                                     size="16"
                                 />
                                 <span class="exec-step-tag">S#{{ sIdx + 1 }}</span>
-                                <span class="exec-step-name">
-                                    {{ row.kindLabel }}<span
-                                        v-if="row.outputText"
-                                        class="exec-step-role-extra"
-                                    > · Observing</span>
-                                    <span
-                                        v-if="row.nodeId || row.agentRole"
-                                        class="exec-step-node"
-                                    >node={{ row.nodeId || '?' }} · agent={{ row.agentRole || 'unknown' }}</span>
-                                </span>
+                                <span class="exec-step-name">{{ row.kindLabel }}</span>
                                 <span
                                     class="exec-step-summary"
                                     :title="row.toolArgs ? JSON.stringify(row.toolArgs) : undefined"
@@ -799,7 +781,7 @@ watch(
                                 </div>
                             </div>
                             <div v-if="isStepExpanded(row) && row.text" class="exec-step-code">
-                                <div v-if="row.kind === 'invocation'" class="exec-role-caption">Observing</div>
+                                <div v-if="row.kind === 'invocation'" class="exec-role-caption">输出 · 工具结果</div>
                                 <div v-if="row.kind === 'observation'" class="exec-observation-input">
                                     <div class="exec-observation-input-title">Observe 输入</div>
                                     <div
@@ -1190,16 +1172,6 @@ watch(
     font-size: 11px;
     color: var(--fg-tertiary);
     white-space: nowrap;
-}
-.exec-step-role-extra {
-    font-weight: 400;
-    color: var(--fg-tertiary);
-}
-.exec-step-node {
-    margin-left: 6px;
-    font-size: 10px;
-    font-weight: 400;
-    color: var(--fg-tertiary);
 }
 .exec-step-name {
     font-weight: 600;
