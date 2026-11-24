@@ -903,7 +903,13 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         writeFileSync(this.workspacesFile, JSON.stringify(this.workspacesState, null, 2));
     }
 
-    setWorkspaceRoot(root?: string): void {
+    /**
+     * 切换当前工作区。
+     *
+     * `register = false` 用于内部专用目录（如 Test Suites 的默认工作区）：只切换执行根，
+     * 不把它写进用户的项目列表，避免侧栏多出一个用户没建过的项目。
+     */
+    setWorkspaceRoot(root?: string, options: { register?: boolean } = {}): void {
         if (!root?.trim()) {
             this.workspaceRoot = undefined;
             this.logger.log('setWorkspaceRoot → (none)');
@@ -915,6 +921,7 @@ export class ApiRuntimeService implements OnApplicationShutdown {
         }
         this.workspaceRoot = resolved;
         this.logger.log(`setWorkspaceRoot → ${resolved}`);
+        if (options.register === false) return;
         // readWorkspacesState 已归一化+去重（并把 legacy 数据回写），此处按归一化路径判重。
         const projects = this.readWorkspacesState();
         if (!projects.some((project) => normalizeWorkspacePath(project.path) === resolved)) {

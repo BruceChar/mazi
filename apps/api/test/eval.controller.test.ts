@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EvalService } from '../src/eval/eval.service.js';
@@ -151,6 +151,27 @@ async function waitForStatus(
 }
 
 describe('eval controller', () => {
+    it('未指定工作区时默认落到 $MAZI_HOME/testsuites，且不注册为用户项目', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'mazi-eval-home-'));
+        const calls: Array<{ root?: string; options?: { register?: boolean } }> = [];
+        const runtime = {
+            harness: () => createHarness().harness,
+            setWorkspaceRoot: (root?: string, options?: { register?: boolean }) => {
+                calls.push({ root, options });
+            },
+            homePaths: { dbPath: ':memory:', home },
+        } as unknown as ApiRuntimeService;
+        const service = new EvalService(runtime);
+        const controller = new EvalController(service, { allRuns: () => [] } as never);
+
+        const started = await controller.run({ taskIds: ['read-report'] });
+        expect(started.workspace).toBe(join(home, 'testsuites'));
+        expect(existsSync(join(home, 'testsuites'))).toBe(true);
+        expect(calls[0]?.options).toEqual({ register: false });
+        await waitForStatus(controller, started.runId, 'completed');
+        service.onApplicationShutdown();
+    });
+
     it('lists the 30-task baseline dataset', () => {
         const { controller, service } = setup();
         const result = controller.tasks();

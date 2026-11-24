@@ -185,7 +185,7 @@ function latencyText() {
         </button>
     </div>
     <div class="sidebar-lab">
-        <button class="lab-btn" title="线上评测、AB 对照与固定 Benchmark 回归" @click="emit('open-lab')">
+        <button class="lab-btn" title="AB 实验、Collections 与 Test Suites 回归" @click="emit('open-lab')">
             <LineIcon name="hammer" size="15" />
             Lab
         </button>

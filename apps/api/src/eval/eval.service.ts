@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { PermissionLevel } from '@mazi/core';
 import type { GoalRunResult, HarnessRuntime } from '@mazi/runtime';
 import {
@@ -180,6 +182,19 @@ export class EvalService implements OnApplicationShutdown, OnModuleInit {
     }
 
     /**
+     * 未指定工作区时的默认回归目录：`$MAZI_HOME/testsuites`（按需创建）。
+     *
+     * Test Suites 是固定的离线任务集，跑在专属目录里，避免把回归产物混进用户项目工作区。
+     */
+    private defaultSuiteWorkspace(): string | undefined {
+        const home = this.apiRuntime.homePaths?.home;
+        if (!home) return undefined;
+        const dir = join(home, 'testsuites');
+        mkdirSync(dir, { recursive: true });
+        return dir;
+    }
+
+    /**
      * POST /api/eval/runs：创建运行并立刻返回逐任务进度。
      * 执行转后台；前端轮询 run 详情，并按每任务 rootGoalId 订阅 SSE 看实时过程。
      */
@@ -188,7 +203,8 @@ export class EvalService implements OnApplicationShutdown, OnModuleInit {
         const selected = this.selectTasks(taskIds);
         const modelId = typeof body.modelId === 'string' ? body.modelId.trim() : '';
         const promptPackId = typeof body.promptPackId === 'string' ? body.promptPackId.trim() : '';
-        const workspace = typeof body.workspace === 'string' ? body.workspace.trim() : '';
+        const requestedWorkspace = typeof body.workspace === 'string' ? body.workspace.trim() : '';
+        const workspace = requestedWorkspace || this.defaultSuiteWorkspace() || '';
         const rawCeiling = typeof body.permissionCeiling === 'string' ? body.permissionCeiling : '';
         if (rawCeiling && !PERMISSION_CEILINGS.has(rawCeiling as PermissionLevel)) {
             throw new ApiError(400, 'permissionCeiling 非法');
@@ -196,7 +212,12 @@ export class EvalService implements OnApplicationShutdown, OnModuleInit {
         if (this.active.size > 0) {
             throw new ApiError(409, '已有评测在运行，请先停止或等待完成');
         }
-        if (workspace) this.apiRuntime.setWorkspaceRoot(workspace);
+        // 默认的 Test Suites 目录只切执行根，不写进用户项目列表（register=false）。
+        if (workspace) {
+            this.apiRuntime.setWorkspaceRoot(workspace, {
+                register: Boolean(requestedWorkspace),
+            });
+        }
 
         const run: EvalRunRecord = {
             runId: randomUUID(),

@@ -8,7 +8,7 @@ import {
     armStreamText,
     initialArmLive,
 } from '../scripts/arm-live.js';
-import { respondApproval } from '../scripts/store.js';
+import { freeChatWorkspace, projects, respondApproval } from '../scripts/store.js';
 
 const props = defineProps({
     models: { type: Array, default: () => [] },
@@ -26,6 +26,8 @@ const query = ref('');
 const difficulty = ref('all');
 const modelId = ref('');
 const promptPackId = ref('');
+/** '' = 默认回归目录（$MAZI_HOME/testsuites，由后端创建）；其余为用户选的工作区路径。 */
+const suiteWorkspace = ref('');
 const loading = ref(false);
 const starting = ref(false);
 const stopBusy = ref(false);
@@ -38,6 +40,21 @@ const sources = new Map();
 let pollTimer = null;
 let clockTimer = null;
 const nowTick = ref(Date.now());
+
+/** 工作区选择：默认回归目录 + 已有项目 + 随心聊默认（Test Suites 跑在独立目录，不混进项目产物）。 */
+const workspaceOptions = computed(() => {
+    const options = [{ value: '', label: '默认（~/.mazi/testsuites）' }];
+    const seen = new Set(['']);
+    for (const project of projects.value) {
+        if (!project?.path || seen.has(project.path)) continue;
+        seen.add(project.path);
+        options.push({ value: project.path, label: project.title + '（' + project.path + '）' });
+    }
+    if (freeChatWorkspace.value && !seen.has(freeChatWorkspace.value)) {
+        options.push({ value: freeChatWorkspace.value, label: '随心聊默认（' + freeChatWorkspace.value + '）' });
+    }
+    return options;
+});
 
 const filteredTasks = computed(() => {
     const needle = query.value.trim().toLowerCase();
@@ -163,7 +180,7 @@ async function runSelected() {
                 taskIds: selectedIds.value,
                 ...(modelId.value ? { modelId: modelId.value } : {}),
                 ...(promptPackId.value ? { promptPackId: promptPackId.value } : {}),
-                ...(props.workspace ? { workspace: props.workspace } : {}),
+                ...(suiteWorkspace.value ? { workspace: suiteWorkspace.value } : {}),
             }),
         });
         ensureStreams();
@@ -428,7 +445,7 @@ function statusTone(result) {
         <header v-if="!embedded" class="eval-head">
             <div class="eval-title">
                 <LineIcon name="observation" :size="17" />
-                <strong>Benchmark</strong>
+                <strong>Test Suites</strong>
                 <span>P0 基线 · {{ tasks.length }} 个任务</span>
             </div>
             <div class="eval-actions">
@@ -499,10 +516,16 @@ function statusTone(result) {
                                 </option>
                             </select>
                         </label>
-                        <div class="eval-workspace">
-                            <span>工作区</span>
-                            <strong :title="workspace">{{ workspace || '服务端当前工作区' }}</strong>
-                        </div>
+                        <label title="Test Suites 跑在独立目录里；默认 $MAZI_HOME/testsuites，由后端按需创建">
+                            工作区
+                            <select v-model="suiteWorkspace">
+                                <option
+                                    v-for="option in workspaceOptions"
+                                    :key="option.value"
+                                    :value="option.value"
+                                >{{ option.label }}</option>
+                            </select>
+                        </label>
                     </div>
                     <div class="eval-run-actions">
                         <button
@@ -833,8 +856,7 @@ function statusTone(result) {
 .eval-list-head,
 .eval-muted,
 .eval-task-copy span,
-.eval-results td:nth-child(2) span,
-.eval-workspace span {
+.eval-results td:nth-child(2) span {
     color: var(--fg-tertiary);
     font-size: 11px;
 }
@@ -984,19 +1006,6 @@ function statusTone(result) {
     gap: 4px;
     font-size: 11px;
     color: var(--fg-secondary);
-}
-.eval-workspace {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 11px;
-}
-.eval-workspace strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 11px;
 }
 .eval-run-actions {
     display: flex;
