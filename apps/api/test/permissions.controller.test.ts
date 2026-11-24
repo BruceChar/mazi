@@ -23,10 +23,11 @@ function makeEvent(overrides: Partial<HarnessEvent>): HarnessEvent {
 function controller(events: HarnessEvent[]) {
     const replay = vi.fn(() => events);
     const replaySession = vi.fn(() => events);
+    const replayAll = vi.fn(() => events);
     const service = {
-        harness: () => ({ eventBus: { replay, replaySession } }),
+        harness: () => ({ eventBus: { replay, replaySession, replayAll } }),
     } as unknown as ApiRuntimeService;
-    return { controller: new PermissionsController(service), replay, replaySession };
+    return { controller: new PermissionsController(service), replay, replaySession, replayAll };
 }
 
 describe('PermissionsController.audit', () => {
@@ -34,6 +35,7 @@ describe('PermissionsController.audit', () => {
         eventId: 'e1',
         type: 'approval.granted',
         actor: 'human',
+        timestamp: 1000,
         payload: { tool: 'bash', code: 'user-approved' },
     });
     const denied = makeEvent({
@@ -47,6 +49,7 @@ describe('PermissionsController.audit', () => {
         eventId: 'e3',
         type: 'policy.check',
         actor: 'model',
+        timestamp: 5000,
         payload: { tool: 'read' },
     });
 
@@ -84,10 +87,23 @@ describe('PermissionsController.audit', () => {
         ).toEqual([expect.objectContaining({ result: 'denied' })]);
     });
 
-    it('returns empty records when neither sessionId nor rootGoalId is provided', () => {
-        const { controller: c, replay, replaySession } = controller([granted]);
-        expect(c.audit().records).toEqual([]);
+    it('filters by inclusive time range from/to', () => {
+        const { controller: c } = controller([granted, auto]);
+        expect(
+            c.audit(undefined, undefined, undefined, undefined, undefined, 'root-1', 2000).records,
+        ).toEqual([expect.objectContaining({ tool: 'read' })]);
+        expect(
+            c.audit(undefined, undefined, undefined, undefined, undefined, 'root-1', undefined, 4000)
+                .records,
+        ).toEqual([expect.objectContaining({ tool: 'bash' })]);
+    });
+
+    it('replays the global event stream when no scope is provided', () => {
+        const { controller: c, replay, replaySession, replayAll } = controller([granted, auto]);
+        const out = c.audit();
+        expect(replayAll).toHaveBeenCalled();
         expect(replay).not.toHaveBeenCalled();
         expect(replaySession).not.toHaveBeenCalled();
+        expect(out.records).toHaveLength(2);
     });
 });

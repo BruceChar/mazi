@@ -9,7 +9,7 @@ import type {
     HarnessEventType,
     Unsubscribe,
 } from '@mazi/core';
-import { authz, sessionStreamId, ulid } from '@mazi/core';
+import { authz, SESSION_STREAM_PREFIX, sessionStreamId, ulid } from '@mazi/core';
 
 /**
  * Task 级事件：必须携带 taskId。
@@ -293,6 +293,38 @@ export class DefaultEventBus implements EventBus {
                 boundaryRank(a.type) - boundaryRank(b.type) ||
                 (a.seq ?? 0) - (b.seq ?? 0),
         );
+    }
+
+    /**
+     * 全量回放：扫描全部根流（排除 `session-` 锚点文件），收集所有事件并按时间升序。
+     * 用于跨全部 run 的全局审计；会话锚点只在 replaySession 内参与归因。
+     */
+    replayAll(): HarnessEvent[] {
+        let files: string[];
+        try {
+            files = readdirSync(this.dir);
+        } catch {
+            files = [];
+        }
+        const events: HarnessEvent[] = [];
+        for (const file of files) {
+            if (!file.endsWith('.jsonl') || file.startsWith(SESSION_STREAM_PREFIX)) continue;
+            let raw: string;
+            try {
+                raw = readFileSync(join(this.dir, file), 'utf8');
+            } catch {
+                continue;
+            }
+            for (const line of raw.split('\n')) {
+                if (line.trim().length === 0) continue;
+                try {
+                    events.push(JSON.parse(line) as HarnessEvent);
+                } catch {
+                    // 损坏行跳过（与 replay 的尽力而为一致）。
+                }
+            }
+        }
+        return events.sort((a, b) => a.timestamp - b.timestamp);
     }
 
     /** Verify the per-root hash chain without trusting the writer. */

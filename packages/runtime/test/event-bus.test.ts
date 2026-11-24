@@ -66,6 +66,26 @@ describe('DefaultEventBus（MVP v1.0 §8 F3）', () => {
         expect(bus2.replay(ulid())).toEqual([]);
     });
 
+    it('replayAll() 回放全部根流，排除会话锚点文件并按时间升序', async () => {
+        const dir = makeDir();
+        const bus = new DefaultEventBus({ eventDir: dir });
+        const rootA = ulid();
+        const rootB = ulid();
+        bus.emit(ev({ type: 'goal.started', rootGoalId: rootA, timestamp: 200 }));
+        bus.emit(ev({ type: 'goal.ended', rootGoalId: rootB, timestamp: 100 }));
+        await bus.flush();
+        // 会话锚点文件：replayAll 不应收录其独有事件
+        writeFileSync(
+            join(dir, 'session-anchor.jsonl'),
+            JSON.stringify(ev({ type: 'session.started', rootGoalId: '' })) + '\n',
+        );
+        const bus2 = new DefaultEventBus({ eventDir: dir });
+        const all = bus2.replayAll();
+        expect(all.map((e) => e.rootGoalId).sort()).toEqual([rootA, rootB].sort());
+        expect(all.map((e) => e.timestamp)).toEqual([100, 200]);
+        expect(all.some((e) => e.type === 'session.started')).toBe(false);
+    });
+
     it('subscribe 按事件类型过滤，unsubscribe 后不再收到', async () => {
         const bus = new DefaultEventBus({ eventDir: makeDir() });
         const seen: HarnessEvent[] = [];
