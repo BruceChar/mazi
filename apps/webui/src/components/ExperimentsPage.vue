@@ -12,6 +12,7 @@ import { diffText } from '@mazi/libs';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { API_BASE } from '../api.js';
 import LineIcon from '../assets/LineIcon.vue';
+import ExperimentHistoryPanel from './ExperimentHistoryPanel.vue';
 import {
     applyArmEvent,
     ARM_EVENT_TYPES,
@@ -73,6 +74,8 @@ const sources = {};
 const error = ref('');
 const notice = ref('');
 const reviewNote = ref('');
+/** 右侧历史栏默认展开，可收起成窄条（实验多时不再挤占主区）。 */
+const historyCollapsed = ref(false);
 const reviewVerdict = ref('inconclusive');
 const openAnswers = reactive({});
 
@@ -575,7 +578,7 @@ function isLive(label) {
                 <div v-if="error" class="notice error">{{ error }}</div>
                 <div v-else-if="notice" class="notice ok">{{ notice }}</div>
 
-                <div v-if="!selected" class="card empty-card">从左侧历史列表选择一次实验，或在上方新建。</div>
+                <div v-if="!selected" class="card empty-card">从右侧历史列表选择一次实验，或在上方新建。</div>
 
                 <template v-else>
                     <div class="card">
@@ -839,22 +842,31 @@ function isLive(label) {
                         </ul>
                     </div>
                 </template>
-            </section>
+        </section>
+        <ExperimentHistoryPanel
+            :experiments="experiments"
+            :selected-id="selectedId"
+            :collapsed="historyCollapsed"
+            @select="select"
+            @toggle="historyCollapsed = !historyCollapsed"
+        />
     </div>
 </template>
 
 <style scoped>
+/* 主区 + 右侧历史栏：历史栏自带滚动、可收起，不与左栏导航抢空间。 */
 .experiments-page {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     height: 100%;
     min-height: 0;
-    padding: 12px 16px 16px;
+    padding: 12px 12px 16px 16px;
     gap: 10px;
     overflow: hidden;
 }
 .main {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
     min-height: 0;
     display: flex;

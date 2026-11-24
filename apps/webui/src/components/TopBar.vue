@@ -3,7 +3,9 @@
  * TopBar — application header.
  *
  * Owns only presentation and the two shell toggles; conversation/workspace
- * state stays in App.vue and is passed down as props.
+ * state stays in App.vue and is passed down as props. Full-screen workspaces
+ * (Lab) hide the right-side shell entries: they are not part of the
+ * conversation shell, so Trace and the user center would only be noise there.
  */
 import LineIcon from '../assets/LineIcon.vue';
 
@@ -18,6 +20,8 @@ defineProps({
     workspace: { type: String, default: '' },
     /** 当前是否在用户中心页（人形图标高亮）。 */
     userCenterOpen: { type: Boolean, default: false },
+    /** 隐藏右侧外壳入口（Trace 面板 + 用户中心），用于 Lab 这类整页工作区。 */
+    hideActions: { type: Boolean, default: false },
 });
 const emit = defineEmits(['toggle-sidebar', 'toggle-right', 'open-user-center']);
 </script>
@@ -35,7 +39,7 @@ const emit = defineEmits(['toggle-sidebar', 'toggle-right', 'open-user-center'])
             <span class="brand">mazi</span>
             <span class="slogan">Be water, my friend</span>
         </div>
-        <div class="topbar-right">
+        <div v-if="!hideActions" class="topbar-right">
             <button
                 class="ghost right-toggle"
                 :title="rightOpen ? '收起事件栏' : '展开事件栏'"

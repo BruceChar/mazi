@@ -44,9 +44,7 @@ import {
     loadRunDetail,
     events,
     liveSteps,
-    experiments,
     loadExperiments,
-    selectedExperimentId,
     loadConfig,
     loadConversations,
     authCommands,
@@ -875,6 +873,8 @@ function openSettings() {
 /** Lab 整页：首次进入拉一次历史实验列表，左栏与主区共享选中态。 */
 function openLab() {
     ui.view = 'lab';
+    // Lab 不挂在会话壳上：右上角入口隐藏，已展开的 Trace 面板也一并收掉。
+    ui.rightOpen = false;
     void loadExperiments();
 }
 
@@ -989,6 +989,7 @@ onBeforeUnmount(() => {
 <template>
     <TopBar
         :sidebar-open="ui.sidebar"
+        :hide-actions="ui.view === 'lab'"
         :right-open="ui.rightOpen"
         :conversation-title="headerTitle"
         :workspace="headerWorkspace"
@@ -1019,10 +1020,7 @@ onBeforeUnmount(() => {
             <template v-else-if="ui.view === 'lab'">
                 <LabSidebar
                     :active-tab="labTab"
-                    :experiments="experiments"
-                    :selected-id="selectedExperimentId"
                     @update:active-tab="labTab = $event"
-                    @select-experiment="selectedExperimentId = $event"
                     @back="backToChat"
                 />
             </template>
