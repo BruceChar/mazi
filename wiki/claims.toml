@@ -63,7 +63,7 @@ verified = 2026-11-24
 text = "Opening a project wiki from the project menu switches the global workspace so the top bar shows that wiki project's path."
 status = "active"
 evidence = [
-  { file = "apps/webui/src/App.vue", oid = "b9ffa0726e3c00b5ab1096562fe4158b0744cf64" },
+  { file = "apps/webui/src/App.vue", oid = "051093d0f8cb84eef74b6799cbb306f6d56696c4" },
 ]
 established = 2026-11-07
 verified = 2026-11-24
