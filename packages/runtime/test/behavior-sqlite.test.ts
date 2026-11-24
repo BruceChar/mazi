@@ -22,7 +22,9 @@ describe('SqliteBehaviorStore（行为流权威库）', () => {
     it('append/list：单调 ts、ref/data 往返、跨实例持久化', async () => {
         const dbPath = join(tmpDir(), 'mazi.db');
         const store = new SqliteBehaviorStore(dbPath, () => 1000);
-        await store.append('rg', [{ type: 'input', userId: 'me', data: { text: 'q' } }]);
+        await store.append('rg', [
+            { type: 'input', userId: 'me', conversationId: 'conv-1', data: { text: 'q' } },
+        ]);
         await store.append('rg', [
             {
                 type: 'authorization',
@@ -34,6 +36,10 @@ describe('SqliteBehaviorStore（行为流权威库）', () => {
         const list = await store.list('rg');
         expect(list.map((v) => v.ts)).toEqual([1000, 1001]);
         expect(list[1]?.ref).toEqual({ ts: 1000, anchor: { tokens: 3 } });
+        // 证据链锚点：rootGoalId 取自分区（session_id），conversationId 透传。
+        expect(list[0]?.rootGoalId).toBe('rg');
+        expect(list[0]?.conversationId).toBe('conv-1');
+        expect(list[1]?.rootGoalId).toBe('rg');
         store.close();
 
         const reopened = new SqliteBehaviorStore(dbPath);

@@ -277,17 +277,21 @@ export class SqliteBehaviorStore implements BehaviorStore {
     async list(rootGoalId: string): Promise<UserBehaviorView[]> {
         const rows = this.db
             .prepare(
-                'SELECT ts, type, ref_json, data FROM user_behaviors WHERE session_id = ? ORDER BY ts ASC',
+                'SELECT ts, type, session_id, conversation_id, ref_json, data FROM user_behaviors WHERE session_id = ? ORDER BY ts ASC',
             )
             .all(rootGoalId) as Array<{
             ts: number;
             type: string;
+            session_id: string;
+            conversation_id: string | null;
             ref_json: string | null;
             data: string;
         }>;
         return rows.map((row) => ({
             ts: row.ts,
             type: row.type as UserBehaviorView['type'],
+            rootGoalId: row.session_id,
+            ...(row.conversation_id !== null ? { conversationId: row.conversation_id } : {}),
             ...(row.ref_json !== null ? { ref: JSON.parse(row.ref_json) as UserBehaviorRef } : {}),
             data: JSON.parse(row.data) as Record<string, unknown>,
         }));

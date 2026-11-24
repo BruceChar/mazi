@@ -36,6 +36,10 @@ export interface UserBehaviorView {
     ts: number;
     type: UserBehaviorType;
     ref?: UserBehaviorRef;
+    /** 归属根目标（证据链锚点；存储层从 session_id 带出，内存实现可缺省）。 */
+    rootGoalId?: string;
+    /** 归属会话（存储层从 conversation_id 带出，可缺省）。 */
+    conversationId?: string;
     /** 按 type 收窄的载荷（见设计文档 §2.3）。 */
     data: Record<string, unknown>;
 }
