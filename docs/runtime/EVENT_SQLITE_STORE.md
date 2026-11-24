@@ -103,7 +103,7 @@ SQLite 结果集（已按 root_goal_id, seq 排序）。
 1. ✅ `SqliteEventStore` 存储类：建表 / append / query / replay / chainHead，纯函数与落盘测试先行。
 2. ✅ DefaultEventBus 注入存储：emit 写库替换 appendFileSync；chainHead 从库读；replay /
    replaySession / replayAll 走库；subscribe/内存分发不变；持久化经 shouldPersist + slimForStore。
-3. ⬜ R5f 白名单历史迁移入库（权限+骨架），条数校验一致后删除旧 JSONL。
+3. ✅ R5f 白名单历史迁移入库（权限+骨架 2867 条，eventId 集合校验一致），旧 196 个 JSONL 已删除（457M→3.6M）。
 4. ⬜ R5c 审计端点改走 `query` 索引；基准测试固化旧全量耗时与新查询耗时。
 5. ⬜ 文档与 README 更新。
 
